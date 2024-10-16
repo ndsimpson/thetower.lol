@@ -170,7 +170,7 @@ async def handle_adding(client, limit, discord_ids=None, channel=None, debug_cha
             if len(contents):
                 league_data[league] += f"+{len(contents)}"
 
-        league_updates = ", ".join(f"{league}: {league_count}" for league, league_count in league_data.items())
+        league_updates = ", ".join(f"**{league}:** {league_count}" for league, league_count in league_data.items())
         await debug_channel.send(f"""Bot hourly update: total players: {total_players}, {league_updates}""")
 
     added_roles = [f"{name}: {league}" for league, contents in changed.items() for name, league in contents]
