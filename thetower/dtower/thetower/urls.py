@@ -1,6 +1,6 @@
 
 from django.contrib import admin
-from django.urls import path
+from django.urls import path, include
 from django.views.generic.base import RedirectView
 
 from dtower.tourney_results.views import results_per_tourney, results_per_user
@@ -8,8 +8,9 @@ from dtower.tourney_results.views import results_per_tourney, results_per_user
 admin.site.site_url = '/admin'
 
 base_patterns = [
+    path("status/", include("status.urls")),
     path("admin/", admin.site.urls),
-    path("", RedirectView.as_view(url='admin/', permanent=True))
+    path("", RedirectView.as_view(url='admin/', permanent=True)),
 ]
 
 
