@@ -79,6 +79,7 @@ INSTALLED_APPS = [
     "django_extensions",
     "dtower.sus",
     "dtower.tourney_results",
+    "dtower.status",
     "colorfield",
     "simple_history",
 ]
