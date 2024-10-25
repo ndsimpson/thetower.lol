@@ -30,6 +30,13 @@ lower_roles = {
 }
 
 
+async def send_logmessage(
+    channel: discord.TextChannel,
+    msg: str
+):
+    await channel.send(f"""DEBUG: {msg}""")
+
+
 async def handle_adding(
     client: discord.Client,
     limit: int | None,
@@ -144,7 +151,7 @@ async def handle_adding(
                         for other_role in other_roles:
                             if other_role in discord_player.roles:
                                 #await discord_player.remove_roles(other_role)
-                                logging.info(f"""Removing role: {other_role}""")
+                                await send_logmessage(debug_channel, f"""Removing role: {other_role}""")
 
                         break
                 else:
@@ -156,7 +163,7 @@ async def handle_adding(
             for role in wave_roles + list(position_roles.values()):
                 if role in discord_player.roles:
                     #await discord_player.remove_roles(role)
-                    logging.info(f"""Removing role: {role}""")
+                    await send_logmessage(debug_channel, f"""Removing role: {role}""")
             skipped += 1
 
         if discord_player is None:
@@ -197,7 +204,7 @@ async def handle_adding(
 
             if channel != debug_channel:
                 #await debug_channel.send(added_roles_message)
-                logging.info(added_roles_message)
+                await send_logmessage(debug_channel, added_roles_message)
 
             await asyncio.sleep(1)
     except Exception:
@@ -217,7 +224,7 @@ async def handle_position_league(
     changed,
     unchanged,
 ) -> bool:
-    logging.info(f"{discord_player=} {df.position=}")
+    logging.debug(f"{discord_player=} {df.position=}")
 
     if df.sort_values("date", ascending=False).iloc[0].position == 1:  # special logic for the winner
         rightful_role = position_roles[1]
