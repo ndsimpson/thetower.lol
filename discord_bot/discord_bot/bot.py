@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import os
+import sys
 
 import discord
 import django
@@ -11,6 +12,7 @@ from discord_bot import const
 os.environ["DJANGO_ALLOW_ASYNC_UNSAFE"] = "true"
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "dtower.thetower.settings")
 django.setup()
+
 
 from discord_bot.add_roles import handle_adding
 from discord_bot.remove_nicknames import remove_nicknames
@@ -27,6 +29,11 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 client = discord.Client(intents=intents)
+
+
+if len(sys.argv) == 2 and sys.argv[1] == "DISCORD_DEBUG":
+    logger.info("Discord bot test mode activated.")
+    os.environ["DISCORD_DEBUG"] = "TRUE"
 
 
 @client.event
@@ -107,6 +114,24 @@ async def on_message(message: discord.Message) -> None:
         #     await purge_all_tourney_roles(client, message.channel, players)
         #     logging.info("Purged all tournaments roles")
 
+        elif is_testing_channel(message.channel) and message.content.startswith("!discord_debug"):
+            try:
+                command, argument = message.content.split()
+                logger.info(argument)
+                logger.info(len(argument))
+
+                match argument:
+                    case "on":
+                        discord_debug = True
+                    case "true":
+                        discord_debug = True
+                    case _:
+                        discord_debug = False
+            except ValueError:
+                discord_debug = False
+            except Exception as exc:
+                raise exc
+            await message.channel.send(f"""Discord debug: {discord_debug}""")
     except discord.DiscordException as exc:
         await message.channel.send(f"😱😱😱 Discord API error occurred: {exc}")
         raise exc
