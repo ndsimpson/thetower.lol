@@ -50,7 +50,8 @@ async def handle_adding(
     players = await sync_to_async(KnownPlayer.objects.filter, thread_sensitive=True)(approved=True, discord_id__isnull=False, **discord_id_kwargs)
 
     if verbose:
-        await channel.send(f"Starting the processing of {players.count() if not limit else limit} users... :rocket:")
+        #await channel.send(f"Starting the processing of {players.count() if not limit else limit} users... :rocket:")
+        logging.info(f"Starting the processing of {players.count() if not limit else limit} users... :rocket:")
 
     patch = sorted(await sync_to_async(Patch.objects.all, thread_sensitive=True)())[-1]
 
@@ -61,13 +62,15 @@ async def handle_adding(
     dfs[leagues[0]] = get_tourneys(get_results_for_patch(patch=patch, league=leagues[0]), limit=2000)  # legend goes up to 2k
 
     if verbose:
-        await debug_channel.send(f"Loaded legends tourney data of {len(dfs[leagues[0]])} rows")
+        #await debug_channel.send(f"Loaded legends tourney data of {len(dfs[leagues[0]])} rows")
+        logging.info(f"Loaded legends tourney data of {len(dfs[leagues[0]])} rows")
 
     for league in leagues[1:]:
         dfs[league] = get_tourneys(get_results_for_patch(patch=patch, league=league), limit=20000)
 
         if verbose:
-            await debug_channel.send(f"Loaded {league} tourney data of {len(dfs[league])} rows")
+            #await debug_channel.send(f"Loaded {league} tourney data of {len(dfs[league])} rows")
+            logging.info(f"Loaded {league} tourney data of {len(dfs[league])} rows")
 
         await asyncio.sleep(0)
 
@@ -89,7 +92,8 @@ async def handle_adding(
     logging.info("got all members")
 
     if verbose:
-        await debug_channel.send(f"Fetched all discord members {len(members)=}")
+        #await debug_channel.send(f"Fetched all discord members {len(members)=}")
+        logging.info(f"""Fetched all {len(members)} discord members""")
 
     member_lookup = {member.id: member for member in members}
 
@@ -119,7 +123,8 @@ async def handle_adding(
             await asyncio.sleep(0)
 
         if i % 1000 == 0 and verbose:
-            await debug_channel.send(f"Processed {i} out of {total} players")
+            #await debug_channel.send(f"Processed {i} out of {total} players")
+            logging.info(f"Processed {i} out of {total} players")
 
         ids = ids_by_player[player_id]
 
@@ -148,7 +153,8 @@ async def handle_adding(
                     if role_assigned:
                         for other_role in other_roles:
                             if other_role in discord_player.roles:
-                                await discord_player.remove_roles(other_role)
+                                #await discord_player.remove_roles(other_role)
+                                logging.info(f"""Removing role: {other_role}""")
 
                         break
                 else:
@@ -159,7 +165,8 @@ async def handle_adding(
         else:
             for role in wave_roles + list(position_roles.values()):
                 if role in discord_player.roles:
-                    await discord_player.remove_roles(role)
+                    #await discord_player.remove_roles(role)
+                    logging.info(f"""Removing role: {role}""")
             skipped += 1
 
         if discord_player is None:
@@ -171,12 +178,13 @@ async def handle_adding(
         elif discord_player == "unknown":
             break
 
-    logging.info(f"{skipped=}")
+    #logging.info(f"{skipped=}")
 
     unchanged_summary = {league: len(unchanged_data) for league, unchanged_data in unchanged.items()}
 
     if verbose:
-        await debug_channel.send(f"""Successfully reviewed all players :tada: \n\n{skipped=} (no role eligible), \n{unchanged_summary=}, \n{changed=}.""")
+        #await debug_channel.send(f"""Successfully reviewed all players :tada: \n\n{skipped=} (no role eligible), \n{unchanged_summary=}, \n{changed=}.""")
+        logging.info(f"""Successfully reviewed all players :tada: \n\n{skipped=} (no role eligible), \n{unchanged_summary=}, \n{changed=}.""")
     else:
         total_players = skipped + sum(unchanged_summary.values()) + sum(len(values) for values in changed.values())
 
@@ -186,8 +194,14 @@ async def handle_adding(
             if len(contents):
                 league_data[league] += f"+{len(contents)}"
 
+<<<<<<< Updated upstream
         league_updates = ", ".join(f"{league}: {league_count}" for league, league_count in league_data.items())
         await debug_channel.send(f"""Bot hourly update: total players: {total_players}, {league_updates}""")
+=======
+        league_updates = ", ".join(f"**{league}:** {league_count}" for league, league_count in league_data.items())
+        #await debug_channel.send(f"""Bot hourly update: Total verified players: {total_players}, {league_updates}""")
+        logging.info(f"""Bot hourly update: Total verified players: {total_players}, {league_updates}""")
+>>>>>>> Stashed changes
 
     added_roles = [f"{name}: {league}" for league, contents in changed.items() for name, league in contents]
 
@@ -196,10 +210,12 @@ async def handle_adding(
     try:
         for chunk in range(ceil(len(added_roles) / chunk_by)):
             added_roles_message = "\n".join(added_roles[chunk * chunk_by : (chunk + 1) * chunk_by])
-            await channel.send(added_roles_message)
+            #await channel.send(added_roles_message)
+            logging.info(added_roles_message)
 
             if channel != debug_channel:
-                await debug_channel.send(added_roles_message)
+                #await debug_channel.send(added_roles_message)
+                logging.info(added_roles_message)
 
             await asyncio.sleep(1)
     except Exception:
@@ -219,7 +235,7 @@ async def handle_position_league(
     changed,
     unchanged,
 ) -> bool:
-    logging.debug(f"{discord_player=} {df.position=}")
+    logging.info(f"{discord_player=} {df.position=}")
 
     if df.sort_values("date", ascending=False).iloc[0].position == 1:  # special logic for the winner
         rightful_role = position_roles[1]
@@ -229,9 +245,11 @@ async def handle_position_league(
             return True  # Don't actually do anything if the player already has the role
 
         for position_role in position_roles.values():
-            await discord_player.remove_roles(position_role)
+            #await discord_player.remove_roles(position_role)
+            logging.info(f"""Adding role: {position_role}""")
 
-        await discord_player.add_roles(rightful_role)
+        #await discord_player.add_roles(rightful_role)
+        logging.info(f"""Adding role: {rightful_role}""")
         logging.info(f"Added champ top1 role to {discord_player=}")
         changed[legend].append((discord_player.name, rightful_role.name))
         return True
@@ -249,15 +267,17 @@ async def handle_position_league(
                 return True  # Don't actually do anything if the player already has the role
 
             for role in [role for role in discord_player.roles if role.id in role_id_to_position]:
-                await discord_player.remove_roles(role)
+                #await discord_player.remove_roles(role)
+                logging.info(f"""Removing role: {role}""")
 
-            await discord_player.add_roles(rightful_role)
+            #await discord_player.add_roles(rightful_role)
             logging.info(f"Added {role=} to {discord_player=}")
             changed[legend].append((discord_player.name, rightful_role.name))
             return True
     else:
         for role in [role for role in discord_player.roles if role.id in role_id_to_position]:
-            await discord_player.remove_roles(role)
+            #await discord_player.remove_roles(role)
+            logging.info(f"""Removing role: {role}""")
 
     return False
 
@@ -277,7 +297,8 @@ async def handle_wave_league(df, wave_roles_by_league, position_roles, discord_p
 
         for other_role in other_roles + list(position_roles.values()):
             if other_role in discord_player.roles:
-                await discord_player.remove_roles(other_role)
+                #await discord_player.remove_roles(other_role)
+                logging.info(f"""Removing role: {other_role}""")
 
         if role in discord_player.roles:
             unchanged[league].append((discord_player, role))
@@ -290,6 +311,7 @@ async def handle_wave_league(df, wave_roles_by_league, position_roles, discord_p
 
 
 async def add_wave_roles(changed, discord_player, league, unchanged, wave_min, role, other_roles):
-    await discord_player.add_roles(role)
+    #await discord_player.add_roles(role)
+    logging.info(f"""Adding role: {role}""")
     changed[league].append((discord_player.name, f"{league}: {wave_min}"))
     logging.info(f"Added {league=}, {wave_min=} to {discord_player=}")
