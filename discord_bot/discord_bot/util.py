@@ -56,7 +56,7 @@ async def get_all_members(client):
 
     members = []
 
-    async for member in guild.fetch_members():
+    async for member in guild.fetch_members(limit=150):  # temporary
         members.append(member)
 
     return members
