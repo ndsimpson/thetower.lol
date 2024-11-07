@@ -11,7 +11,6 @@ django.setup()
 
 from asgiref.sync import sync_to_async
 
-from discord_bot.print_role_counts import print_roles
 from discord_bot.util import is_player_id_please_channel, is_role_count_channel, is_top1_channel, is_top50_channel, is_testing_channel
 from discord_bot.validate_id import validate_player_id
 from dtower.sus.models import KnownPlayer, PlayerId

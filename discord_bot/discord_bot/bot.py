@@ -13,8 +13,7 @@ os.environ.setdefault("DJANGO_SETTINGS_MODULE", "dtower.thetower.settings")
 django.setup()
 
 from discord_bot.add_roles import handle_adding
-from discord_bot.remove_nicknames import remove_nicknames
-from discord_bot.util import get_tower, handle_outside, is_testing_channel
+from discord_bot.util import get_tower, is_testing_channel
 
 semaphore = asyncio.Semaphore(1)
 
@@ -31,29 +30,8 @@ client = discord.Client(intents=intents)
 
 @client.event
 async def on_ready():
-    if handle_outside:
-        # for local testing, this channel is private discord so we don't pollute tower discord
-        # it doesn't guarantee that you won't create side-effects, so careful
-        channel = client.get_channel(const.testing_channel_id)
-        await handle_adding(
-            client,
-            limit=100,
-            discord_ids=None,
-            channel=channel,
-            verbose=False,
-        )
-
-        exit()
     logging.info(f"We have logged in as {client.user}")
 
-    # await handle_adding(
-    #     client,
-    #     limit=5,
-    #     discord_ids=[249001511957299200],
-    #     channel=None,
-    #     debug_channel=None,
-    #     verbose=False,
-    # )
     if not handle_roles_scheduled.is_running():
         handle_roles_scheduled.start()
 
@@ -61,24 +39,7 @@ async def on_ready():
 @client.event
 async def on_message(message: discord.Message) -> None:
     try:
-        if is_testing_channel(message.channel) and message.content.startswith("!remove_all_nicknames"):
-            await remove_nicknames(client, message.channel)
-
-        # elif is_meme_channel(message.channel) and message.content.startswith("!rename"):
-        #     if "Top 1" in {role.name for role in message.author.roles}:
-        #         new_name = message.content.split(" ", 1)[1]
-
-        #         channel = await client.fetch_channel(meme_channel_id)
-        #         await channel.edit(name=new_name)
-        #         await message.channel.send(f"🔥 Renamed channel to {new_name} 🔥")
-
-        # elif is_testing_channel(message.channel) and message.content.startswith("!check_id"):
-        #     try:
-        #         await check_id(client, message)
-        #     except Exception as exc:
-        #         logging.exception(exc)
-
-        elif is_testing_channel(message.channel) and message.content.startswith("!add_roles"):
+        if is_testing_channel(message.channel) and message.content.startswith("!add_roles"):
             try:
                 command, argument = message.content.split()
 
@@ -101,11 +62,6 @@ async def on_message(message: discord.Message) -> None:
                     debug_channel=message.channel,
                     verbose=True,
                 )
-
-        # elif is_testing_channel(message.channel) and message.content.startswith("!purge_all_tourney_roles"):
-        #     players = await sync_to_async(KnownPlayer.objects.filter, thread_sensitive=True)(approved=True, discord_id__isnull=False)
-        #     await purge_all_tourney_roles(client, message.channel, players)
-        #     logging.info("Purged all tournaments roles")
 
     except discord.DiscordException as exc:
         await message.channel.send(f"😱😱😱 Discord API error occurred: {exc}")
