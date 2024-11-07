@@ -1,5 +1,4 @@
 import asyncio
-import datetime
 import logging
 from collections import defaultdict
 from math import ceil
@@ -13,8 +12,6 @@ from dtower.sus.models import KnownPlayer, PlayerId, SusPerson
 from dtower.tourney_results.constants import champ, copper, gold, leagues, legend, plat, silver
 from dtower.tourney_results.data import get_results_for_patch, get_tourneys
 from dtower.tourney_results.models import PatchNew as Patch
-
-event_starts = datetime.date(2023, 11, 28)
 
 
 logging.basicConfig(level=logging.INFO)
