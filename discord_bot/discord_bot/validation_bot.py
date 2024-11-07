@@ -11,7 +11,7 @@ django.setup()
 
 from asgiref.sync import sync_to_async
 
-from discord_bot.util import is_player_id_please_channel, is_role_count_channel, is_top1_channel, is_top50_channel, is_testing_channel
+from discord_bot.util import is_player_id_please_channel, is_top1_channel, is_top50_channel, is_testing_channel
 from discord_bot.validate_id import validate_player_id
 from dtower.sus.models import KnownPlayer, PlayerId
 from dtower.tourney_results.models import Injection
@@ -63,8 +63,6 @@ async def on_message(message):
                 await check_id(client, message)
             except Exception as exc:
                 logging.exception(exc)
-        elif (is_testing_channel(message.channel) or is_role_count_channel(message.channel)) and message.content.startswith("!role_counts"):
-            await print_roles(client, message)
         elif is_top50_channel(message.channel) and message.content.startswith("!inject"):  # leaving this because Pog might kill top1 if it doesn't work out
             if const.top1_id in {role.id for role in message.author.roles}:
                 injection = message.content.split(" ", 1)[1]

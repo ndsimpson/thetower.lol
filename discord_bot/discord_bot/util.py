@@ -26,7 +26,6 @@ is_meme_channel = partial(is_channel, id_=const.meme_channel_id)
 is_testing_channel = partial(is_channel, id_=const.testing_channel_id)
 is_helpers_channel = partial(is_channel, id_=const.helpers_channel_id)
 is_player_id_please_channel = partial(is_channel, id_=const.verify_channel_id)
-is_role_count_channel = partial(is_channel, id_=const.role_count_channel_id)
 
 
 position_role_ids = {
