@@ -2,6 +2,8 @@ import os
 from discord_bot import const
 from functools import partial
 
+from discord.ext.commands import check, Context
+
 from asyncstdlib.functools import lru_cache
 
 handle_outside = bool(os.getenv("GO"))
@@ -29,27 +31,6 @@ is_meme_channel = partial(is_channel, id_=const.meme_channel_id)
 is_testing_channel = partial(is_channel, id_=const.testing_channel_id)
 is_helpers_channel = partial(is_channel, id_=const.helpers_channel_id)
 is_player_id_please_channel = partial(is_channel, id_=const.verify_channel_id)
-is_role_count_channel = partial(is_channel, id_=const.role_count_channel_id)
-
-
-def is_098799(author):
-    return author.id == const.id_098799
-
-
-def is_andreas(author):
-    return author.id == const.id_andreas
-
-
-def is_fishy(author):
-    return author.id == const.id_fishy  # super tiny author 😂
-
-
-def get_safe_league_prefix(league):
-    return league[:-1]
-
-
-async def role_prefix_and_only_tourney_roles_check(role, safe_league_prefix):
-    return role.name.strip().startswith(safe_league_prefix) and "500" in role.name.strip()
 
 
 position_role_ids = {
@@ -75,16 +56,17 @@ position_role_ids = {
 role_id_to_position = {value: key for key, value in position_role_ids.items()}
 
 
-async def role_only_champ_tourney_roles_check(role):
-    return role in position_role_ids.values()
-
-
 async def get_all_members(client):
     guild = await get_tower(client)
-
     members = []
 
     async for member in guild.fetch_members():
         members.append(member)
 
     return members
+
+
+def in_any_channel(*channels):
+    async def predicate(ctx: Context):
+        return ctx.channel.id in channels
+    return check(predicate)

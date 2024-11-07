@@ -12,7 +12,7 @@ async def remove_nicknames(client, channel=None):
 
     await channel.send("Starting to remove nicknames from people...")
 
-    # for member in [await tower.fetch_member(const.id_098799)]:  # uncomment me to test
+    # for member in [await tower.fetch_member(const.098799_id)]:  # uncomment me to test
     async for member in tower.fetch_members():
         try:
             await member.edit(nick=None)

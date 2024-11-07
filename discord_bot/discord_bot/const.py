@@ -23,6 +23,9 @@ verify_channel_id = 1117867265375879259
 
 # role ids
 verified_role_id = 1119950199209611274
+jrmods_role_id = 956470405386874900
+mods_role_id = 850137217905197060
+headmods_role_id = 1006842693382590524
 
 # #champ ids
 top1_id = 993947001232298126
