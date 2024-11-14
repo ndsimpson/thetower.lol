@@ -1,5 +1,5 @@
 # The Tower tourney results
-- python3.12
+- python3.13
 
 - make sure you're running the venv: `source /tourney/tourney_venv/bin/activate`
 
