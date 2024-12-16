@@ -27,12 +27,12 @@ from components.winners import compute_winners
 from dtower.tourney_results.constants import Graph, Options
 
 st.set_page_config(
-    page_title="The Tower top200 tourney results",
+    page_title="The Tower tourney results",
     layout="centered",
     # initial_sidebar_state="expanded",
     initial_sidebar_state="auto",
     menu_items={
-        "Get Help": "mailto:admin@thetower.lol",
+        "Get Help": "https://discord.com/channels/850137217828388904/1299774861908115559",
     },
 )
 
