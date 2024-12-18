@@ -59,6 +59,14 @@ async def on_message(message):
             logging.info(message.channel)
             print(message.channel)
             await validate_player_id(client, message)
+        elif message.author.id == const.id_fishy and message.content.startswith("!inject"):
+            print('fishy injection')
+            injection = message.content.split(" ", 1)[1]
+            author = message.author.name
+            channel = message.channel
+            Injection.objects.create(text=injection, user=message.author.id)
+            await channel.send(f"🔥 Stored the prompt injection for AI summary from {author}: {injection[:7]}... 🔥")
+            await message.delete()
         elif is_testing_channel(message.channel) and message.content.startswith("!check_id"):
             try:
                 await check_id(client, message)
@@ -67,7 +75,9 @@ async def on_message(message):
         elif (is_testing_channel(message.channel) or is_role_count_channel(message.channel)) and message.content.startswith("!role_counts"):
             await print_roles(client, message)
         elif is_top50_channel(message.channel) and message.content.startswith("!inject"):  # leaving this because Pog might kill top1 if it doesn't work out
+            print('top50 injection')
             if const.top1_id in {role.id for role in message.author.roles}:
+                print('injection from top1 role')
                 injection = message.content.split(" ", 1)[1]
                 author = message.author.name
                 channel = message.channel
@@ -75,7 +85,9 @@ async def on_message(message):
                 await channel.send(f"🔥 Stored the prompt injection for AI summary from {author}: {injection[:7]}... 🔥")
                 await message.delete()
         elif is_top1_channel(message.channel) and message.content.startswith("!inject"):
+            print('top1 injection')
             if const.top1_id in {role.id for role in message.author.roles}:
+                print('injection from top1 role')
                 injection = message.content.split(" ", 1)[1]
                 author = message.author.name
                 channel = message.channel
