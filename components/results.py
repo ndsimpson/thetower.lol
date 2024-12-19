@@ -167,10 +167,10 @@ class Results:
                 lambda row: [
                     None,
                     None,
-                    f"color: {self.df[self.df['position']==row['#']].name_role_color.iloc[0]}",
-                    f"color: {self.df[self.df['position']==row['#']].wave_role_color.iloc[0]}",
+                    f"color: {self.df[self.df['position'] == row['#']].name_role_color.iloc[0]}",
+                    f"color: {self.df[self.df['position'] == row['#']].wave_role_color.iloc[0]}",
                     *[
-                        f"color: {mini_df.wave_role_color.iloc[0] if not (mini_df := prev_df[prev_df.id==row.id]).empty else '#FFF'}"
+                        f"color: {mini_df.wave_role_color.iloc[0] if not (mini_df := prev_df[prev_df.id == row.id]).empty else '#FFF'}"
                         for prev_df in prev_dfs.values()
                     ],
                     None,
@@ -192,7 +192,7 @@ class Results:
             None,  # f"color: {filtered_df[filtered_df['position']==row['#']].name_role_color.iloc[0]}",
             None,
             None,
-            f"color: {self.df[self.df['position']==row['#']].wave_role_color.iloc[0]}",
+            f"color: {self.df[self.df['position'] == row['#']].wave_role_color.iloc[0]}",
             None,
         ]
 
@@ -204,7 +204,7 @@ class Results:
                 None,  # f"color: {filtered_df[filtered_df['position']==row['#']].name_role_color.iloc[0]}",
                 None,
                 None,
-                f"color: {self.df[self.df['position']==row['#']].wave_role_color.iloc[0]}",
+                f"color: {self.df[self.df['position'] == row['#']].wave_role_color.iloc[0]}",
                 None,
                 None,
                 None,

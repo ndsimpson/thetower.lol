@@ -61,8 +61,8 @@ def compute_fallen_defenders(df):
     styling = lambda row: [
         None,
         None,
-        f"color: {fallen_df[fallen_df['Player']==row['Player']].wave_color.iloc[0]}",
-        f"color: {fallen_df[fallen_df['Player']==row['Player']].position_color.iloc[0]}",
+        f"color: {fallen_df[fallen_df['Player'] == row['Player']].wave_color.iloc[0]}",
+        f"color: {fallen_df[fallen_df['Player'] == row['Player']].position_color.iloc[0]}",
     ]
 
     tbdf_champ = style_df(fallen_champ)

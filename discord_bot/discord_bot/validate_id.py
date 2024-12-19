@@ -3,7 +3,6 @@ import logging
 
 import discord
 from asgiref.sync import sync_to_async
-from discord.types.member import Member
 
 from discord_bot import const
 from discord_bot.util import get_tower, get_verified_role

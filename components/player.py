@@ -238,7 +238,7 @@ def compute_player_lookup():
             .style.apply(
                 lambda row: [
                     None,
-                    f"color: {player_df[player_df['date']==row.date].wave_role_color.iloc[0]}",
+                    f"color: {player_df[player_df['date'] == row.date].wave_role_color.iloc[0]}",
                     None,
                     None,
                     None,

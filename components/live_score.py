@@ -216,7 +216,6 @@ def live_score():
             height=300,
         )
 
-
         fig1.update_layout(
             margin=dict(l=20, r=20, t=40, b=20),
             legend=dict(yanchor="top", y=0.99, xanchor="right", x=0.99)
