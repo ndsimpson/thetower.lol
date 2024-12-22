@@ -50,40 +50,12 @@ def get_last_date():
     return f"{last_tourney_year}-{str(last_tourney_month).zfill(2)}-{str(last_tourney_day).zfill(2)}"
 
 
-def get_last_date__hourly_on_tourney_days():
-    """Deprecated since we try not to make too many requests. Don't use."""
-    utcnow = get_current_time__game_server()
-    offset = get_date_offset()
-
-    current_date = get_last_date()
-
-    if offset == 0:
-        current_date += f"T{str(utcnow.hour).zfill(2)}:{str(utcnow.minute).zfill(2)}:00"
-
-    return current_date
-
-
 def get_file_name():
     return f"{get_last_date()}.csv"
 
 
 def get_file_path(file_name, league):
     return f"{os.getenv('HOME')}/tourney/results_cache/{league}/{file_name}"
-
-
-# def make_request(league):
-#     """Make a GET request to access the sorted 2000 results from a given league. This is _slow_, takes a couple seconds!
-
-#     Note: this API from Fudds does _not_ have any sort of authentication (sic!). This means that this URL should be considered
-#     a secret, as the url itself is enough to access the tourney data, and more importantly to inflict costs for Fudds'
-#     firebase backend.
-#     """
-#     base_url = os.getenv("LEADERBOARD_URL")
-#     params = {"tier": league}
-
-#     csv_response = requests.get(base_url, params=params)
-#     csv_contents = csv_response.content.decode()
-#     return csv_contents
 
 
 def make_request(league):
@@ -99,13 +71,14 @@ def make_request(league):
 
     try:
         df = pd.read_csv(io.StringIO(csv_contents.strip()))
-    except Exception:
+    except Exception as e:
         path = f"/tmp/{league}__failed_result.csv"
 
         with open(path, "w") as outfile:
             outfile.write(csv_contents)
 
         logging.info(f"{league} csv failed processing. Check {path} for the faulty file and adjust.")
+        logging.info(e)
 
     df["wave"] = df["wave"].astype(int)
     df = df.sort_values("wave", ascending=False)
@@ -135,30 +108,6 @@ def execute(league):
 
     df.to_csv(file_path, index=False)
     logging.info(f"Successfully stored file {file_path}")
-
-    # csv_contents = make_request(league)
-
-    # if csv_contents.strip() == "upstream request timeout":
-    #     logging.error(f"upstream request timeout {league=}")
-    #     return False
-
-    # with open(file_path_raw, "w") as outfile:
-    #     outfile.write(csv_contents)
-
-    # csv_contents = csv_contents.replace(", ", "%%%%%")
-    # csv_contents = csv_contents.replace(",", "$$$$$")
-    # csv_contents = csv_contents.replace("%%%%%", ", ")
-
-    # df = pd.read_csv(io.StringIO(csv_contents.strip()))
-
-    # if df.empty:
-    #     logging.error(f"Empty csv file: {file_path_raw}, {league=}")
-    #     return False
-
-    # with open(file_path, "w") as outfile:
-    #     outfile.write(csv_contents)
-
-    # logging.info(f"Successfully stored file {file_path}")
 
     return True
 
