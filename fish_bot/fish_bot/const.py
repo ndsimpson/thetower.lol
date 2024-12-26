@@ -10,6 +10,7 @@ id_susjite = 778131594132062240
 
 # bot ids
 id_rolebot = 1117480944153145364
+id_towerbot = 1316458355203772427
 
 # channel ids
 helpers_channel_id = 1006900314588336139
@@ -19,6 +20,7 @@ role_log_channel_id = 1128308502130081842
 top1_channel_id = 1304114023830388888
 top50_channel_id = 903354378403065949
 testing_channel_id = 930105733998080062
+tourney_bot_channel_id = 1291839463600816179
 verify_channel_id = 1117867265375879259
 
 # role ids

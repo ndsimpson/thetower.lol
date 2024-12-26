@@ -4,11 +4,13 @@ import sys
 import json
 from collections import defaultdict
 
+from functools import partial
+
 import discord
 from discord.ext import commands
 from discord.ext.commands import check, Context
 
-from fish_bot import const
+from fish_bot import const, settings
 
 
 intents = discord.Intents.default()
@@ -27,13 +29,14 @@ class DiscordBot(commands.Bot):
 
     def __init__(self) -> None:
         super().__init__(
-            command_prefix='$$',
+            command_prefix=settings.prefix,
             intents=intents,
+            case_insensitive=True,
         )
         """
         This creates custom bot variables so that we can access these variables in cogs more easily.
 
-        For example, The config is available using the following code:
+        For example, the config is available using the following code:
         - self.config # In this class
         - bot.config # In this file
         - self.bot.config # In cogs
@@ -42,7 +45,7 @@ class DiscordBot(commands.Bot):
 
     async def load_cogs(self) -> None:
         """
-        The code in this function is executed whenever the bot will start.
+        The code in this function is executed whenever the bot starts.
         """
         for file in os.listdir(f"{os.path.realpath(os.path.dirname(__file__))}/cogs"):
             if file.endswith(".py"):
@@ -93,6 +96,12 @@ class DiscordBot(commands.Bot):
                 color=0xE02B2B,
             )
             await context.send(embed=embed)
+        elif isinstance(error, ChannelUnauthorized):
+            embed = discord.Embed(
+                description="This channel isn't allowed to run this command!",
+                color=0xE02B2B,
+            )
+            await context.send(embed=embed)
         elif isinstance(error, commands.BotMissingPermissions):
             embed = discord.Embed(
                 description="I am missing the permission(s) `"
@@ -112,8 +121,33 @@ class DiscordBot(commands.Bot):
         else:
             raise error
 
+    async def async_cleanup(self):
+        print("Cleaning up!")
+
+    async def close(self):
+        await self.async_cleanup()
+        await super().close()
+
+    async def on_ready(self):
+        print("on_ready")
+
+    async def on_connect(self):
+        print("on_connect")
+
+    async def on_resume(self):
+        print("on_resume")
+
+    async def on_disconnect(self):
+        print("on_disconnect")
+
 
 bot = DiscordBot()
+
+
+class ChannelUnauthorized(commands.CommandError):
+    def __init__(self, channel, *args, **kwargs):
+        self.channel = channel
+        super().__init__(*args, **kwargs)
 
 
 class UserUnauthorized(commands.CommandError):
@@ -127,13 +161,18 @@ class UserUnauthorized(commands.CommandError):
 
 def in_any_channel(*channels):
     async def predicate(ctx: Context):
-        return ctx.channel.id in channels
+        if ctx.channel.id not in channels:
+            print("Channel not in authorized list")
+            raise ChannelUnauthorized(ctx.channel.id)
+        else:
+            return True
     return check(predicate)
 
 
 def allowed_ids(*users):
     async def predicate(ctx: Context):
         if ctx.author.id not in users:
+            print("User not in authorized list")
             raise UserUnauthorized(ctx.message.author)
         else:
             return True
@@ -141,7 +180,7 @@ def allowed_ids(*users):
 
 
 def guild_owner_only():
-    async def predicate(ctx):
+    async def predicate(ctx: Context):
         return ctx.author == ctx.guild.owner  # checks if author is the owner
     return commands.check(predicate)
 
@@ -150,9 +189,9 @@ def guild_owner_only():
 
 
 @bot.command()
-@in_any_channel(const.helpers_channel_id, const.testing_channel_id)
+@in_any_channel(const.helpers_channel_id, const.testing_channel_id, const.tourney_bot_channel_id)
 @allowed_ids(const.id_pog)
-async def list_modules(ctx):
+async def list_modules(ctx: Context):
     '''Lists all cogs and their status of loading.'''
     cog_list = commands.Paginator(prefix='', suffix='')
     cog_list.add_line('**✅ Succesfully loaded:**')
@@ -166,9 +205,9 @@ async def list_modules(ctx):
 
 
 @bot.command()
-@in_any_channel(const.helpers_channel_id, const.testing_channel_id)
+@in_any_channel(const.helpers_channel_id, const.testing_channel_id, const.tourney_bot_channel_id)
 @allowed_ids(const.id_pog, const.id_fishy)
-async def load(ctx, cog):
+async def load(ctx: Context, cog):
     '''Try and load the selected cog.'''
     if cog not in bot.unloaded_cogs:
         await ctx.send('⚠ WARNING: Module appears not to be found in the available modules list. Will try loading anyway.')
@@ -181,14 +220,17 @@ async def load(ctx, cog):
         await ctx.send('```{}\n{}```'.format(type(e).__name__, e))
     else:
         bot.loaded_cogs.append(cog)
-        bot.unloaded_cogs.remove(cog)
+        try:
+            bot.unloaded_cogs.remove(cog)
+        except ValueError:
+            pass
         await ctx.send('✅ Module succesfully loaded.')
 
 
 @bot.command()
-@in_any_channel(const.helpers_channel_id, const.testing_channel_id)
+@in_any_channel(const.helpers_channel_id, const.testing_channel_id, const.tourney_bot_channel_id)
 @allowed_ids(const.id_pog, const.id_fishy)
-async def unload(ctx, cog):
+async def unload(ctx: Context, cog):
     if cog not in bot.loaded_cogs:
         return await ctx.send('💢 Module not loaded.')
     await bot.unload_extension('cogs.{}'.format((cog)))
@@ -198,33 +240,68 @@ async def unload(ctx, cog):
 
 
 @bot.command()
-@in_any_channel(const.helpers_channel_id, const.testing_channel_id)
+@in_any_channel(const.helpers_channel_id, const.testing_channel_id, const.tourney_bot_channel_id)
 @allowed_ids(const.id_pog, const.id_fishy)
-async def reload(ctx, cog):
+async def reload(ctx: Context, cog):
     await unload(ctx, cog)
     await load(ctx, cog)
+
+
+@bot.command()
+@commands.is_owner()
+async def say(ctx: Context, channelid: int, *, message: str):
+    channel = bot.get_channel(channelid)
+    await channel.send(message)
+
+
+def is_channel(channel, id_):
+    return channel.id == id_
+
+
+@bot.event
+async def on_message(message):
+    is_player_id_please_channel = partial(is_channel, id_=const.verify_channel_id)
+    try:
+        if is_player_id_please_channel(message.channel) and message.author.id != const.id_towerbot:
+
+            if len(message.content) > 13 and len(message.content) < 17 and message.attachments:
+
+                await message.add_reaction("👍🏼")
+            else:
+                await message.add_reaction("👎🏼")
+    except Exception as exc:
+        await message.channel.send(f"Something went terribly wrong, please debug me. \n\n {exc}")
+        raise exc
 
 
 """Settings functions"""
 
 
 @bot.command()
-async def load_settings(ctx):
+async def load_settings(ctx: Context = None):
     if not os.path.isfile(f"{os.path.realpath(os.path.dirname(__file__))}/config.json"):
         sys.exit("'config.json' not found! Please add it and try again.")
     else:
         with open(f"{os.path.realpath(os.path.dirname(__file__))}/config.json") as file:
+            if ctx:
+                await ctx.send("Reading settings.")
+            print("Reading settings.")
             bot.config = json.load(file)
 
 
 @bot.command()
-async def save_settings(ctx):
-    with open(f"{os.path.realpath(os.path.dirname(__file__))}/config.json") as file:
+async def save_settings(ctx: Context = None):
+    with open(f"{os.path.realpath(os.path.dirname(__file__))}/config.json", 'w+') as file:
+        if ctx:
+            await ctx.send("Saving settings.")
+        print("Saving settings.")
         json.dump(bot.config, file)
 
 
 @bot.command()
-async def print_settings(ctx):
+async def print_settings(ctx: Context = None):
+    if ctx:
+        await ctx.send(bot.config)
     print(bot.config)
 
 

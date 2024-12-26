@@ -1,5 +1,7 @@
 from fish_bot import const
 
+prefix = "$$"
+
 memberlimit = None
 
 monitored_roles = {

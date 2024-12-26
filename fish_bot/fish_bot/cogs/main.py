@@ -7,7 +7,7 @@ class Main(commands.Cog, name="Main"):
     def __init__(self, bot):
         self.bot = bot
         self.members = defaultdict(list)
-        bot.settings()
+        # bot.settings()
 
     @commands.Cog.listener()
     async def on_member_join(self, member):
