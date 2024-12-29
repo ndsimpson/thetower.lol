@@ -19,7 +19,6 @@ def compute_overview(options: Options):
     with open("funny.css", "r") as infile:
         st.write(f"<style>{infile.read()}</style>", unsafe_allow_html=True)
 
-    # st.markdown(get_summary())
     if overview := TourneyResult.objects.filter(league=legend, **public).latest("date").overview:
         st.markdown(overview, unsafe_allow_html=True)
 
