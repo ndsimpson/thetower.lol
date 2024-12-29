@@ -18,13 +18,10 @@ st.set_page_config(
     },
 )
 
-
 options = Options(links_toggle=True, default_graph=Graph.last_16.value, average_foreground=True)
-
 
 if st.session_state.get("options") is None:
     st.session_state.options = options
-
 
 overview_pages = [
     st.Page("overview.py", title="Overview", icon="🏠", url_path="overview"),
@@ -70,13 +67,6 @@ page_dict["Live Standings"] = live_pages
 page_dict["Individual Data"] = individual_pages
 page_dict["League Data"] = league_pages
 page_dict["Deprecated"] = deprecated_pages
-
-hidden_features = os.environ.get("HIDDEN_FEATURES")
-
-# if hidden_features:
-#     pages += [
-#         st.Page("sus_overview.py", title="SUS overview", icon="🔨", url_path="sus"),
-#     ]
 
 pg = st.navigation(page_dict)
 pg.run()
