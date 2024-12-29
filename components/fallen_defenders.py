@@ -86,3 +86,6 @@ def get_fallen_defenders():
     df = load_tourney_results(league_to_folder[champ])
     df = df[~df.id.isin(get_sus_ids())]
     compute_fallen_defenders(df)
+
+
+get_fallen_defenders()

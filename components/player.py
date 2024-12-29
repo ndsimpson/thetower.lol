@@ -564,9 +564,8 @@ def _find_user(df, all_real_names, all_tourney_names, all_user_ids, first_choice
     return player_df
 
 
-if __name__ == "__main__":
-    st.set_page_config(layout="centered")
-    compute_player_lookup()
+#  st.set_page_config(layout="centered")
+compute_player_lookup()
 
 
 # import cProfile

@@ -119,4 +119,4 @@ def compute_winners():
 #         compute_winners(df)
 
 
-# compute_winners()
+compute_winners()

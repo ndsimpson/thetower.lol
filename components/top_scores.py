@@ -70,3 +70,6 @@ def get_top_scores():
     df = load_tourney_results("data")
     options = Options(links_toggle=False, default_graph=Graph.last_16.value, average_foreground=True)
     compute_top(df, options)
+
+
+get_top_scores()

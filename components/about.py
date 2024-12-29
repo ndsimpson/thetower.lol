@@ -12,3 +12,6 @@ def compute_about(*args, **kwargs):
     st.markdown("Thanks to `Pog` and the discord mods for all the work on sus reports.")
 
     st.write("If you have any questions of concerns regarding privacy, including opt outs, please contact admin@thetower.lol.")
+
+
+compute_about()
