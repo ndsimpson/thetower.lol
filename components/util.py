@@ -4,7 +4,7 @@ import pandas as pd
 import plotly.express as px
 import streamlit as st
 
-from dtower.tourney_results.constants import Graph, Options
+from dtower.tourney_results.constants import Graph, Options, leagues
 
 
 def links_toggle():
@@ -29,13 +29,27 @@ def get_options(links=None):
     player = query.get("player")
     player_id = query.get("player_id")
     compare_players = query.get_all("compare")
-    print(f"{player=}, {compare_players=}")
+    league = query.get("league")
+    print(f"{player=}, {compare_players=}, {league=}")
 
     options.current_player = player
     options.current_player_id = player_id
     options.compare_players = compare_players
+    options.current_league = league
+
+    if options.current_league:
+        options.current_league = options.current_league.capitalize()
 
     return options
+
+
+def get_league_filter(league=None):
+    try:
+        index = leagues.index(league)
+    except ValueError:
+        index = 0
+
+    return index
 
 
 def gantt(df):
@@ -96,4 +110,4 @@ def add_to_comparison(player_id, nicknames):
 
 
 def deprecated():
-    st.info("This page is now deprecated and won't be updated past the end of Champ era. If you use or like this page, please let fishy or me know on discord.")
+    st.info("This page is now deprecated and won't be updated past the end of Champ era. If you use or like this page, please let the site admins know on discord.")

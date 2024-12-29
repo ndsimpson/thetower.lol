@@ -37,7 +37,7 @@ def compute_comparison(player_id=None, canvas=st):
 
     canvas.write(table_styling, unsafe_allow_html=True)
 
-    def diplay_comparison():
+    def display_comparison():
         st.session_state.display_comparison = True
         st.session_state.options.compare_players = st.session_state.get("comparison", [])
         st.session_state.counter = st.session_state.counter + 1 if st.session_state.get("counter") else 1
@@ -59,7 +59,7 @@ def compute_comparison(player_id=None, canvas=st):
             addee_col.write(f"{st.session_state.addee_map[player]} ({player})")
             pop_col.button("Remove", on_click=remove_from_comparison, args=(player,), key=f"{player}remove")
 
-        canvas.button("Show comparison", on_click=diplay_comparison, key="show_comparison_top")
+        canvas.button("Show comparison", on_click=display_comparison, key="show_comparison_top")
 
     if not st.session_state.options.compare_players:
         st.session_state.options.compare_players = st.query_params.get_all("compare")
@@ -307,5 +307,8 @@ def filter_lower_leagues(rows):
     return rows
 
 
-def get_comparison():
+def get_comparison():  # I think this isn't used anywhere
     compute_comparison()
+
+
+compute_comparison()

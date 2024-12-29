@@ -139,3 +139,6 @@ def get_sus_overview():
     df = pd.concat(dfs)
 
     compute_sus_overview(df)
+
+
+get_sus_overview()

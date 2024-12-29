@@ -5,6 +5,8 @@ import plotly.express as px
 import streamlit as st
 from cachetools.func import ttl_cache
 
+from components.util import get_league_filter, get_options
+
 from dtower.tourney_results.constants import champ, how_many_results_public_site, leagues
 from dtower.tourney_results.data import get_tourneys
 from dtower.tourney_results.models import TourneyResult
@@ -85,8 +87,10 @@ Your summary starts now."""
 
 
 def live_score():
+    options = get_options(links=False)
     with st.sidebar:
-        league = st.radio("League", leagues)
+        league_index = get_league_filter(options.current_league)
+        league = st.radio("League", leagues, league_index)
 
     with st.sidebar:
         # Check if mobile view
@@ -337,3 +341,6 @@ def live_score():
         fig.update_yaxes(autorange="reversed")
 
         st.plotly_chart(fig, use_container_width=True)
+
+
+live_score()

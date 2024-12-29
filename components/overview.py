@@ -41,8 +41,8 @@ def compute_overview(options: Options):
         )
 
 
-if __name__ == "__main__":
-    st.set_page_config(layout="centered")
+#  if __name__ == "__main__":
+#  st.set_page_config(layout="centered")
 
-    options = Options(links_toggle=False, default_graph=Graph.last_16.value, average_foreground=True)
-    compute_overview(options)
+options = Options(links_toggle=False, default_graph=Graph.last_16.value, average_foreground=True)
+compute_overview(options)

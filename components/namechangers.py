@@ -69,3 +69,6 @@ def get_namechangers():
     to_be_displayed = new_df.style.format(make_player_url, subset=["id"])
 
     st.write(to_be_displayed.to_html(escape=False, index=False), unsafe_allow_html=True)
+
+
+get_namechangers()

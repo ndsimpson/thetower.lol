@@ -6,12 +6,13 @@ from typing import Optional
 
 import streamlit as st
 
+from components.util import get_league_filter, get_options
+
 from dtower.sus.models import KnownPlayer
 from dtower.tourney_results.constants import (
     Graph,
     Options,
     all_relics,
-    champ,
     how_many_results_hidden_site,
     how_many_results_public_site,
     leagues,
@@ -243,13 +244,14 @@ class Results:
 
 
 def compute_results(options: Options):
+    options = get_options(links=False)
     with st.sidebar:
-        league = st.radio("League", leagues)
+        league_index = get_league_filter(options.current_league)
+        league = st.radio("League", leagues, league_index)
 
     Results(options, league=league).compute_results()
 
 
-if __name__ == "__main__":
-    st.set_page_config(layout="centered")
-    options = Options(links_toggle=True, default_graph=Graph.last_16.value, average_foreground=True)
-    compute_results(options, league=champ)
+#  st.set_page_config(layout="centered")
+options = Options(links_toggle=True, default_graph=Graph.last_16.value, average_foreground=True)
+compute_results(options)

@@ -1,13 +1,17 @@
 import pandas as pd
 import streamlit as st
 
+from components.util import get_league_filter, get_options
+
 from dtower.tourney_results.constants import leagues
 from dtower.tourney_results.models import TourneyResult, TourneyRow
 
 
 def compute_counts():
+    options = get_options(links=False)
     with st.sidebar:
-        league = st.radio("League", leagues)
+        league_index = get_league_filter(options.current_league)
+        league = st.radio("League", leagues, league_index)
 
     st.header(f"Wave cutoff required for top X in {league}")
     counts_for = [1, 10, 25, 50, 100, 200]
@@ -44,3 +48,6 @@ def compute_counts():
 
     to_be_displayed = pd.DataFrame(results).sort_values("date", ascending=False).reset_index(drop=True)
     st.dataframe(to_be_displayed, use_container_width=True, height=807, hide_index=True)
+
+
+compute_counts()

@@ -132,6 +132,7 @@ class Options(BaseModel):
     compare_players: Optional[list[str]] = None
     default_graph: Graph
     average_foreground: bool
+    current_league: Optional[str] = None
 
 
 medals = ["🥇", "🥈", "🥉"]
