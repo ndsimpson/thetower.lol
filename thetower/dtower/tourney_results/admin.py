@@ -48,17 +48,17 @@ def recalculate_results(modeladmin, request, queryset):
 
 @admin.action(description="Restart the public app")
 def restart_public_app(modeladmin, request, queryset):
-    subprocess.call("systemctl restart streamlit2", shell=True)
+    subprocess.call("systemctl restart tower-public_site", shell=True)
 
 
 @admin.action(description="Restart the hidden app instance (hidden.thetower.lol)")
 def restart_hidden_app(modeladmin, request, queryset):
-    subprocess.call("systemctl restart streamlit", shell=True)
+    subprocess.call("systemctl restart tower-hidden_site", shell=True)
 
 
 @admin.action(description="Restart django")
 def restart_django(modeladmin, request, queryset):
-    subprocess.call("systemctl restart django", shell=True)
+    subprocess.call("systemctl restart tower-admin_site", shell=True)
 
 
 @admin.action(description="Restart discord bot")
