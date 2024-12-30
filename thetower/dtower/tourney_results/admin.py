@@ -46,18 +46,18 @@ def recalculate_results(modeladmin, request, queryset):
         reposition(tourney)
 
 
-@admin.action(description="Restart the public app")
-def restart_public_app(modeladmin, request, queryset):
+@admin.action(description="Restart public site (thetower.lol)")
+def restart_public_site(modeladmin, request, queryset):
     subprocess.call("systemctl restart tower-public_site", shell=True)
 
 
-@admin.action(description="Restart the hidden app instance (hidden.thetower.lol)")
-def restart_hidden_app(modeladmin, request, queryset):
+@admin.action(description="Restart hidden site (hidden.thetower.lol)")
+def restart_hidden_site(modeladmin, request, queryset):
     subprocess.call("systemctl restart tower-hidden_site", shell=True)
 
 
-@admin.action(description="Restart django")
-def restart_django(modeladmin, request, queryset):
+@admin.action(description="Restart admin site (admin.thetower.lol)")
+def restart_admin_site(modeladmin, request, queryset):
     subprocess.call("systemctl restart tower-admin_site", shell=True)
 
 
@@ -164,9 +164,9 @@ class TourneyResultAdmin(SimpleHistoryAdmin):
     actions = [
         recalculate_results,
         publicize,
-        restart_public_app,
-        restart_hidden_app,
-        restart_django,
+        restart_public_site,
+        restart_hidden_site,
+        restart_admin_site,
         restart_discord_bot,
         restart_verify_bot,
         restart_import_results,

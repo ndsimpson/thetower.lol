@@ -10,7 +10,6 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/4.2/ref/settings/
 """
 
-import os
 from pathlib import Path
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -20,11 +19,8 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/4.2/howto/deployment/checklist/
 
-# SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True if os.getenv("DEBUG") == "true" else False
 
 # SECURITY WARNING: keep the secret key used in production secret!
-# if not DEBUG:
 with open("SECRET_KEY", "r") as infile:
     SECRET_KEY = infile.read()
 
@@ -41,9 +37,11 @@ ALLOWED_HOSTS = [
 ]
 
 CSRF_TRUSTED_ORIGINS = [
-    "https://admin.thetower.lol",
     "https://thetower.lol",
+    "https://admin.thetower.lol",
     "https://api.thetower.lol",
+    "https://hidden.thetower.lol",
+    "https://test.thetower.lol",
 ]
 
 
