@@ -24,7 +24,6 @@ from dtower.sus.models import PlayerId, SusPerson
 from dtower.tourney_results.constants import (
     champ,
     data_folder_name_mapping,
-    how_many_results_debug,
     how_many_results_hidden_site,
     how_many_results_public_site,
     how_many_results_public_site_other,
@@ -171,7 +170,6 @@ def _load_tourney_results(
     result_cutoff: Optional[int] = None,
 ) -> pd.DataFrame:
     hidden_features = os.environ.get("HIDDEN_FEATURES")
-    debug = os.environ.get("DEBUG")
 
     dfs = []
 
@@ -195,7 +193,7 @@ def _load_tourney_results(
 
         df = pd.read_csv(result_file, header=None)
 
-        cutoff = handle_result_cutoff(hidden_features, league, result_cutoff, debug)
+        cutoff = handle_result_cutoff(hidden_features, league, result_cutoff)
 
         df = df.iloc[:cutoff]
 
@@ -268,7 +266,7 @@ def _load_tourney_results(
     return df
 
 
-def handle_result_cutoff(hidden_features, league, result_cutoff, debug):
+def handle_result_cutoff(hidden_features, league, result_cutoff):
     if result_cutoff:
         cutoff = result_cutoff
     elif not hidden_features:
@@ -279,9 +277,6 @@ def handle_result_cutoff(hidden_features, league, result_cutoff, debug):
 
     else:
         cutoff = how_many_results_hidden_site
-
-    if debug:  # watch out, debug for quick iteration
-        cutoff = how_many_results_debug
 
     return cutoff
 
