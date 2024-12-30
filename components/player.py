@@ -263,8 +263,7 @@ def compute_player_lookup():
 
     player_id = player_df.iloc[0].id
 
-    if player_id != "9D24669E32746D27":  # please don't buy me stones
-        xsolla_things(player_id, hidden_features, info_tab)
+    xsolla_things(player_id, hidden_features, info_tab)
 
 
 def filter_lower_leagues(df):
