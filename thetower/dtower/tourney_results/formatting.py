@@ -82,7 +82,7 @@ BASE_URL = os.getenv("BASE_URL", "thetower.lol")
 
 
 def get_url(path, base_url=BASE_URL):
-    return f"http://{base_url}/{path}"
+    return f"https://{base_url}/{path}"
 
 
 def make_url(username, path, id=None, base_url=BASE_URL):

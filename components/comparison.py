@@ -76,7 +76,7 @@ def compute_comparison(player_id=None, canvas=st):
     if not player_id:
         search_for_new = canvas.button("Search for another player?", on_click=search_for_new)
 
-        canvas.code(f"http://{BASE_URL}/comparison?" + urlencode({"compare": users}, doseq=True))
+        canvas.code(f"https://{BASE_URL}/comparison?" + urlencode({"compare": users}, doseq=True))
 
     player_ids = PlayerId.objects.filter(id__in=users)
     known_players = KnownPlayer.objects.filter(ids__in=player_ids)
