@@ -68,6 +68,6 @@ while True:
 
         # This is how we invalidate the cache on the hidden version of the site
         # Crude, there should be a better way
-        subprocess.call("systemctl restart streamlit", shell=True)
+        subprocess.call("systemctl restart  tower-hidden_site", shell=True)
 
     time.sleep(3600)
