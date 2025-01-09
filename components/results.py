@@ -8,7 +8,6 @@ import streamlit as st
 
 from components.util import get_league_filter, get_options
 
-from dtower.sus.models import KnownPlayer
 from dtower.tourney_results.constants import (
     Graph,
     Options,
@@ -81,15 +80,6 @@ class Results:
 
         self.df = get_tourneys(qs, offset=begin, limit=step)
         self.df = self.df.reset_index(drop=True)
-
-        fnords = KnownPlayer.objects.filter(name="Fnord")
-
-        if len(fnords) == 1:
-            fnord = fnords.get()
-            fnord_ids = fnord.ids.all().values_list("id", flat=True)
-
-            if not self.df.loc[self.df.id.isin(fnord_ids)].empty:
-                self.df.loc[self.df.id.isin(fnord_ids)].position = 42
 
         if self.df.empty:
             return None
