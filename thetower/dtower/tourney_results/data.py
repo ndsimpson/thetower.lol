@@ -492,14 +492,3 @@ Here's the list of results:
         ddf = df[df.real_name == person]
         last = sorted(ddf.date.unique())[-1]
         lasts[person] = last
-
-
-# import cProfile
-# import pstats
-
-# pr = cProfile.Profile()
-# pr.run("load_tourney_results('data')")
-
-# stats = pstats.Stats(pr)
-# stats.sort_stats("cumtime")
-# stats.print_stats(50)

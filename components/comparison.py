@@ -307,8 +307,4 @@ def filter_lower_leagues(rows):
     return rows
 
 
-def get_comparison():  # I think this isn't used anywhere
-    compute_comparison()
-
-
 compute_comparison()

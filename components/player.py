@@ -410,7 +410,6 @@ def handle_start_date_loop(fig, graph_position_instead, tbdf):
 
 def handle_is_graph_position(average_foreground, fig, rolling_average, tbdf):
     foreground_kwargs = {}
-    # background_kwargs = dict(line_dash="dot", line_color="#888", opacity=0.6)
     background_kwargs = dict(line_dash="dot", line_color="#FF4B4B", opacity=0.6)
     fig.add_trace(
         go.Scatter(
@@ -434,43 +433,8 @@ def handle_is_graph_position(average_foreground, fig, rolling_average, tbdf):
 
 
 def handle_not_graph_position_instead(average_foreground, colors, fig, rolling_average, stratas, tbdf):
-    # tops = position_stratas[:-1][::-1]
-    # strata_to_color = dict(zip(tops, position_colors[2:][::-1] + ["#FFFFFF"]))
-
-    # best_position = tbdf.position.min()
-    # worst_position = tbdf.position.max()
-
-    # for strata in tops:
-    #     if strata <= best_position:
-    #         begin = strata
-    #         break
-    # else:
-    #     begin = tops[0]
-
-    # for strata in tops:
-    #     if strata >= worst_position:
-    #         end = strata
-    #         break
-    # else:
-    #     end = tops[-1]
-
-    # stratas_for_plot = [strata for strata in tops if strata >= begin and strata <= end]
-
-    # champ_df = df[df.league == champ]  # backgrounds on graphs won't make sense for other leagues anyway
-    # all_results = champ_df[champ_df.date.isin(tbdf.date.unique())]
-    # all_results = all_results[all_results.position != -1]
-
-    # min_by_strata = defaultdict(list)
-    # max_by_strata = defaultdict(list)
-
-    # for date, sdf in all_results.groupby("date"):
-    #     for strata in tops:
-    #         min_by_strata[strata].append(sdf[sdf.position <= strata].wave.min())
-    #         max_by_strata[strata].append(sdf[sdf.position <= strata].wave.max())
-
     foreground_kwargs = {}
     background_kwargs = dict(line_dash="dot", line_color="#888", opacity=0.6)
-    # background_kwargs = dict(line_dash="dot", line_color="#FF4B4B", opacity=0.6)
     fig.add_trace(
         go.Scatter(
             x=tbdf.date,
@@ -492,40 +456,7 @@ def handle_not_graph_position_instead(average_foreground, colors, fig, rolling_a
         )
     )
 
-    # fig.add_trace(
-    #     go.Scatter(
-    #         x=tbdf.date[::-1],
-    #         y=max_by_strata[stratas_for_plot[0]],
-    #         name=f"Max top {stratas_for_plot[0]}",
-    #         line_dash="dot",
-    #         marker=dict(size=0, opacity=0),
-    #         opacity=0.6,
-    #         line_color=html_to_rgb(strata_to_color[stratas_for_plot[0]], transparency=0.2),
-    #     )
-    # )
-
-    # for strata in stratas_for_plot[1:]:
-    #     fig.add_trace(
-    #         go.Scatter(
-    #             x=tbdf.date[::-1],
-    #             y=min_by_strata[strata],
-    #             name=f"Min top {strata}",
-    #             line_dash="dot",
-    #             marker=dict(size=0, opacity=0),
-    #             opacity=0.6,
-    #             fill="tonexty",
-    #             line_color=html_to_rgb(strata_to_color[strata], transparency=0.2),
-    #             fillcolor=html_to_rgb(strata_to_color[strata], transparency=0.1),
-    #         )
-    #     )
-
     fig.update_layout(legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
-
-    # min_ = min(tbdf.wave)
-    # max_ = max(tbdf.wave)
-    # for color_, strata in zip(colors, stratas):
-    #     if max_ > strata > min_:
-    #         fig.add_hline(y=strata, line_color=color_, line_dash="dash", opacity=0.4, line_width=3)
 
 
 def handle_colors_dependant_on_patch(patch, player_df):
@@ -552,29 +483,4 @@ def handle_sus_or_banned_ids(info_tab, id_, sus_ids):
         info_tab.error("This player is under review by the Support team.")
 
 
-def _find_user(df, all_real_names, all_tourney_names, all_user_ids, first_choices, user):
-    if user in (set(first_choices) | all_real_names | all_tourney_names):
-        player_df = df[(df.real_name == user) | (df.tourney_name == user)]
-    elif user in all_user_ids:
-        player_df = df[df.id == id_mapping.get(user, user)]
-    else:
-        player_df = None
-
-    return player_df
-
-
-#  st.set_page_config(layout="centered")
 compute_player_lookup()
-
-
-# import cProfile
-# import pstats
-
-# os.environ["HIDDEN_FEATURES"] = "false"
-
-# pr = cProfile.Profile()
-# pr.run("""compute_player_lookup(None, options=get_options(links=False), all_leagues=True)""")
-
-# stats = pstats.Stats(pr)
-# stats.sort_stats("cumtime")
-# stats.print_stats(50)

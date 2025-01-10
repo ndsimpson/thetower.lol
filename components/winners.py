@@ -84,39 +84,5 @@ def compute_winners():
     fig.update_traces(textinfo="value")
     st.plotly_chart(fig)
 
-    # winner_data = sorted(tuple(zip(graph_df["name"], graph_df["count"])), key=lambda x: x[1], reverse=True)
-    # winners = [winner for winner, _ in winner_data]
-
-
-#     id_name_map.values()
-#     df = get_tourneys(TourneyResult.objects.filter(league=champ, **public), ids=list(id_name_map.values()))
-
-#     # add_plat = st.checkbox("Add street cred to old guard?", value=False)
-
-#     # if add_plat:
-#     #     df = pd.concat([load_tourney_results("plat"), df])
-
-#     sdf = df[df.real_name.isin(winners)]
-
-#     winners_data = []
-
-#     for winner in winners:
-#         dates_attended = sdf[sdf.real_name == winner].date
-#         winners_data.append({"Player": winner, "tourneys_attended": sorted(dates_attended)})
-
-#     winners_df = pd.DataFrame(winners_data)
-
-#     st.plotly_chart(gantt(winners_df))
-
-
-# def get_winners():
-#     if winners_results := st.session_state.get("winners_results"):
-#         compute_winners(winners_results)
-#     else:
-#         print("starting to load")
-#         df = load_tourney_results("data")
-#         print("loaded")
-#         compute_winners(df)
-
 
 compute_winners()

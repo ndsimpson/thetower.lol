@@ -30,8 +30,6 @@ def compute_search(player=False, comparison=False):
     page = 20
 
     real_name_part = name_col.text_input("Enter part of the player name")
-    # id_col.checkbox("Search by player_id", key="search_by_id")
-    # st.image
 
     fragments = [part.strip() for part in real_name_part.strip().split()]
 

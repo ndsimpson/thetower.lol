@@ -51,7 +51,6 @@ def get_namechangers():
         real_name = data.real_name.iloc[0]
         how_many_rows = len(data)
         how_many_names = len(data.tourney_name.unique())
-        # last_performance = data[-5:].wave.mean()
 
         combined_data.append(
             {
@@ -59,7 +58,6 @@ def get_namechangers():
                 "id": id,
                 "namechanged_times": how_many_names,
                 "total": how_many_rows,
-                # "mean_last_5_tourneys": int(round(last_performance, 0)),
             }
         )
 

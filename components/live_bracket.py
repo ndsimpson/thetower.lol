@@ -130,9 +130,6 @@ def live_bracket():
         )
     tab.dataframe(ldf[["player_id", "name", "real_name", "wave", "datetime"]])
 
-    # st.session_state.display_comparison = True
-    # st.session_state.options.compare_players = player_ids
-    # compute_comparison(tdf[tdf.real_name == selected_real_name].player_id.iloc[0], canvas=tab)
     url = f"https://{BASE_URL}/comparison?" + urlencode({"compare": player_ids}, doseq=True)
 
     with open("style.css", "r") as infile:

@@ -242,6 +242,5 @@ def compute_results(options: Options):
     Results(options, league=league).compute_results()
 
 
-#  st.set_page_config(layout="centered")
 options = Options(links_toggle=True, default_graph=Graph.last_16.value, average_foreground=True)
 compute_results(options)

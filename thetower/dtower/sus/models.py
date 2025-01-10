@@ -16,11 +16,6 @@ class KnownPlayer(models.Model):
     history = HistoricalRecords()
 
 
-# class RoleAward(models.Model):
-#     player = models.ForeignKey(KnownPlayer, null=False, blank=False, related_name="ids", on_delete=models.CASCADE, help_text="Player")
-#     # role = models.ForeignKey(Role, null=False, blank=False, related_name="ids", on_delete=models.CASCADE, help_text="Player")
-
-
 class PlayerId(models.Model):
     id = models.CharField(max_length=32, primary_key=True, help_text="Player id from The Tower, pk")
     player = models.ForeignKey(KnownPlayer, null=False, blank=False, related_name="ids", on_delete=models.CASCADE, help_text="Player")

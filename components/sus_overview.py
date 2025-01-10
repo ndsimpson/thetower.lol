@@ -16,15 +16,6 @@ def compute_sus_overview(df, *args, **kwargs):
 
     st.write(table_styling, unsafe_allow_html=True)
 
-    # data = get_impossible_avatars(df)
-
-    # if not data.empty:
-    #     st.subheader("Impossible avatars not sused yet:")
-    #     st.write(data.to_html(escape=False), unsafe_allow_html=True)
-    #     st.write("")
-    # else:
-    #     st.subheader("No impossible avatars")
-
     data = get_copper_to_champ(df)
 
     if data:

@@ -72,10 +72,6 @@ def color(value):
 
 def strike(text):
     return "\u0336".join(text)
-    # result = ""
-    # for c in text:
-    #     result = result + c + "\u0336"
-    # return result
 
 
 BASE_URL = os.getenv("BASE_URL", "thetower.lol")

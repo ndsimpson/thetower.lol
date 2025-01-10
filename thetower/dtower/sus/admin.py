@@ -109,13 +109,6 @@ class KnownPlayerAdmin(SimpleHistoryAdmin):
     search_fields = ("name", "discord_id", "ids__id")
     inlines = (IdInline,)
 
-    # def save_model(self, request, obj, form, change):
-    #     if form.data.get("ids-0-primary") != "on":
-    #         messages.error(request, "The first ID should be primary!")
-    #         raise ValueError("The first ID should be primary!")
-
-    #     return super().save_model(request, obj, form, change)
-
 
 @admin.register(Reviewed)
 class ReviewedAdmin(SimpleHistoryAdmin):
