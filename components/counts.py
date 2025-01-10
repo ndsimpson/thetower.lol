@@ -29,11 +29,18 @@ def compute_counts():
 
     per_page = 22
     pages = len(champ_results) // per_page
+
+    if pages == 1:
+        per_page = 10
+        pages = 2
+
     which_page = slid_col.slider("Select page", 1, pages, 1)
 
     champ_results = champ_results[(which_page - 1) * per_page : which_page * per_page]
 
     rows = TourneyRow.objects.filter(result__in=champ_results, position__lt=limit, position__gt=0).order_by("-wave").values("result_id", "wave")
+
+    row_height = (per_page + 1) * 35 + 2
 
     results = []
 
@@ -47,7 +54,7 @@ def compute_counts():
         results.append(result)
 
     to_be_displayed = pd.DataFrame(results).sort_values("date", ascending=False).reset_index(drop=True)
-    st.dataframe(to_be_displayed, use_container_width=True, height=807, hide_index=True)
+    st.dataframe(to_be_displayed, use_container_width=True, height=row_height, hide_index=True)
 
 
 compute_counts()
