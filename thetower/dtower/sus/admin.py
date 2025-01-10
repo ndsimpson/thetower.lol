@@ -16,7 +16,7 @@ BASE_HIDDEN_URL = os.getenv("BASE_HIDDEN_URL")
 @admin.register(SusPerson)
 class SusPersonAdmin(SimpleHistoryAdmin):
     def _link(self, obj):
-        return format_html(f"<a href='{BASE_HIDDEN_URL}player?player={obj.player_id}'>{BASE_HIDDEN_URL}<br>Player<br>?player={obj.player_id}</a>")
+        return format_html(f"<a href='https://{BASE_HIDDEN_URL}/player?player={obj.player_id}' target='_new'>https://{BASE_HIDDEN_URL}/player?player={obj.player_id}</a>")
 
     _link.short_description = "link"
 
@@ -24,6 +24,7 @@ class SusPersonAdmin(SimpleHistoryAdmin):
         "_created",
         "notes",
         "player_id",
+        "shun",
         "sus",
         "soft_banned",
         "banned",
@@ -33,6 +34,7 @@ class SusPersonAdmin(SimpleHistoryAdmin):
 
     list_editable = (
         "notes",
+        "shun",
         "sus",
         "soft_banned",
         "banned",
@@ -45,6 +47,7 @@ class SusPersonAdmin(SimpleHistoryAdmin):
     )
 
     list_filter = (
+        "shun",
         "sus",
         "soft_banned",
         "banned",
