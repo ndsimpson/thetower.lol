@@ -4,7 +4,7 @@ import streamlit as st
 
 from components.results import Results
 from dtower.tourney_results.constants import Graph, Options, leagues, legend
-from dtower.tourney_results.formatting import get_url
+# from dtower.tourney_results.formatting import get_url
 from dtower.tourney_results.models import TourneyResult
 
 
