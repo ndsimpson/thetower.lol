@@ -42,8 +42,9 @@ class SusPerson(models.Model):
     player_id = models.CharField(max_length=32, primary_key=True, help_text="Player id from The Tower, pk")
     name = models.CharField(max_length=100, blank=True, null=True, help_text="Player's friendly name, e.g. common discord handle")
     notes = models.TextField(null=True, blank=True, max_length=1000, help_text="Additional comments")
+    shun = models.BooleanField(null=False, blank=False, default=False, help_text="Are they shunned from the Discord? If checked, user won't appear in leaderboards or earn tourney roles.")
     sus = models.BooleanField(
-        null=False, blank=False, default=True, help_text="Is the person sus? if checked, they will be removed from the results on the public website."
+        null=False, blank=False, default=True, help_text="Is the person sus? If checked, they will be removed from the results on the public website."
     )
     soft_banned = models.BooleanField(null=False, blank=False, default=False, help_text="Soft-banned by Pog. For internal use.")
     banned = models.BooleanField(null=False, blank=False, default=False, help_text="Banned by support. For internal use.")
