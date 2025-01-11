@@ -70,7 +70,7 @@ def make_request(league):
     csv_contents = header + csv_contents
 
     try:
-        df = pd.read_csv(io.StringIO(csv_contents.strip()))
+        df = pd.read_csv(io.StringIO(csv_contents.strip()), on_bad_lines='warn')
     except Exception as e:
         path = f"/tmp/{league}__failed_result.csv"
 

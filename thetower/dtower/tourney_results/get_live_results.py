@@ -64,7 +64,7 @@ def make_request(league):
     header = "player_id,name,avatar,relic,wave,bracket,tourney_number\n"
 
     csv_contents = header + csv_contents
-    df = pd.read_csv(io.StringIO(csv_contents.strip()))
+    df = pd.read_csv(io.StringIO(csv_contents.strip()), on_bad_lines='warn')
     df["wave"] = df["wave"].astype(int)
     df = df.sort_values("wave", ascending=False)
     return df
