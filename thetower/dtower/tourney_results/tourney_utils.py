@@ -110,9 +110,6 @@ def reposition(tourney_result: TourneyResult) -> None:
 
 
 def get_summary(last_date):
-    def format_previous_summary(summary, date):
-        return f"Summary from {date}:\n{summary}"
-
     from dtower.tourney_results.data import get_tourneys
 
     logging.info("Collecting ai summary data...")
