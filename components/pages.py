@@ -9,8 +9,15 @@ import streamlit as st
 
 from dtower.tourney_results.constants import Graph, Options
 
+hidden_features = os.environ.get("HIDDEN_FEATURES")
+
+if hidden_features:
+    page_title = "Admin: The Tower tourney results"
+else:
+    page_title = "The Tower tourney results"
+
 st.set_page_config(
-    page_title="The Tower tourney results",
+    page_title=page_title,
     layout="centered",
     initial_sidebar_state="auto",
     menu_items={
