@@ -500,10 +500,6 @@ def handle_sus_or_banned_ids(info_tab, player_id):
     else:
         if is_under_review(player_id):
             info_tab.warning("This player is under review by the Support team.")
-    # if id_ in get_banned_ids() or id_ in get_soft_banned_ids():
-    #     info_tab.warning("This player is under review by the Support team.")
-    # elif id_ in sus_ids:
-    #     info_tab.error("This player is under review by the Support team.")
 
 
 compute_player_lookup()
