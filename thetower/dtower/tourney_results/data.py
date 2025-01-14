@@ -345,6 +345,30 @@ def get_sus_data():
     return qs
 
 
+def is_under_review(player_id: str):
+    return SusPerson.objects.filter(player_id=player_id, shun=False, sus=False, soft_banned=False, banned=False)
+
+
+def is_support_flagged(player_id: str):
+    return SusPerson.objects.filter(player_id=player_id, sus=True).exists() | SusPerson.objects.filter(player_id=player_id, soft_banned=True).exists() | SusPerson.objects.filter(player_id=player_id, banned=True).exists()
+
+
+def is_shun(player_id: str):
+    return SusPerson.objects.filter(player_id=player_id, shun=True).exists()
+
+
+def is_sus(player_id: str):
+    return SusPerson.objects.filter(player_id=player_id, sus=True).exists()
+
+
+def is_soft_banned(player_id: str):
+    return SusPerson.objects.filter(player_id=player_id, soft_banned=True).exists()
+
+
+def is_banned(player_id: str):
+    return SusPerson.objects.filter(player_id=player_id, banned=True).exists()
+
+
 def get_shun_ids():
     return set(SusPerson.objects.filter(shun=True).values_list("player_id", flat=True))
 

@@ -13,7 +13,7 @@ from plotly.subplots import make_subplots
 
 from components.search import compute_search
 from components.util import get_options
-from dtower.sus.models import PlayerId, SusPerson
+from dtower.sus.models import PlayerId
 from dtower.tourney_results.constants import (
     Graph,
     all_relics,
@@ -24,13 +24,23 @@ from dtower.tourney_results.constants import (
     stratas_boundaries,
     stratas_boundaries_018,
 )
-from dtower.tourney_results.data import get_banned_ids, get_details, get_id_lookup, get_patches, get_soft_banned_ids
+from dtower.tourney_results.data import (
+    get_details,
+    get_id_lookup,
+    get_patches,
+    is_under_review,
+    is_shun,
+    is_sus,
+    is_soft_banned,
+    is_banned,
+    is_support_flagged,
+)
 from dtower.tourney_results.formatting import BASE_URL, color_position
 from dtower.tourney_results.models import PatchNew as Patch
 from dtower.tourney_results.models import TourneyRow
 
-sus_ids = set(SusPerson.objects.filter(sus=True).values_list("player_id", flat=True))
 id_mapping = get_id_lookup()
+hidden_features = os.environ.get("HIDDEN_FEATURES")
 
 
 @ttl_cache(maxsize=1000, ttl=6000)
@@ -154,7 +164,7 @@ def compute_player_lookup():
     player_ids = PlayerId.objects.filter(id=options.current_player)
     print(f"{player_ids=} {options.current_player=}")
 
-    hidden_query = {} if hidden_features else {"result__public": True, "position__lt": how_many_results_public_site, "position__gt": 0}
+    hidden_query = {} if hidden_features else {"result__public": True, "position__lt": how_many_results_public_site}
 
     if player_ids:
         player_id = player_ids[0]
@@ -170,6 +180,11 @@ def compute_player_lookup():
             player_id=player_id,
             **hidden_query,
         )
+
+    if is_support_flagged(player_id):
+        if not hidden_features:
+            st.error(f"No results found for the player {player_id}. Error: 102")
+            return
 
     if not rows:
         st.error(f"No results found for the player {player_id}.")
@@ -283,7 +298,7 @@ def draw_info_tab(info_tab, user, player_id, player_df, hidden_features):
     comp_tab.code(f"https://{BASE_URL}/bracket?" + urlencode({"player_id": player_id}, doseq=True))
     # url = f"https://{BASE_URL}/Player?" + urlencode({"compare": user}, doseq=True)
     # comp_tab.write(f"<a href='{url}'>🔗 Compare with...</a>", unsafe_allow_html=True)
-    handle_sus_or_banned_ids(info_tab, player_df.iloc[0].id, sus_ids)
+    handle_sus_or_banned_ids(info_tab, player_id)
 
     real_name = player_df.iloc[0].real_name
     # current_role_color = player_df.iloc[0].name_role.color
@@ -476,11 +491,19 @@ def handle_colors_dependant_on_patch(patch, player_df):
     return colors, patch_df, stratas
 
 
-def handle_sus_or_banned_ids(info_tab, id_, sus_ids):
-    if id_ in get_banned_ids() or id_ in get_soft_banned_ids():
-        info_tab.warning("This player is under review by the Support team.")
-    elif id_ in sus_ids:
-        info_tab.error("This player is under review by the Support team.")
+def handle_sus_or_banned_ids(info_tab, player_id):
+    if hidden_features:
+        if is_shun(player_id):
+            info_tab.warning("This player is currently shunned.")
+        elif is_sus(player_id):
+            info_tab.warning("This player is currently sussed.")
+    else:
+        if is_under_review(player_id):
+            info_tab.warning("This player is under review by the Support team.")
+    # if id_ in get_banned_ids() or id_ in get_soft_banned_ids():
+    #     info_tab.warning("This player is under review by the Support team.")
+    # elif id_ in sus_ids:
+    #     info_tab.error("This player is under review by the Support team.")
 
 
 compute_player_lookup()
