@@ -345,8 +345,12 @@ def get_sus_data():
     return qs
 
 
+def get_shun_ids():
+    return set(SusPerson.objects.filter(shun=True).values_list("player_id", flat=True))
+
+
 def get_sus_ids():
-    return set(SusPerson.objects.filter(sus=True).values_list("player_id", flat=True))
+    return set(SusPerson.objects.filter(sus=True).values_list("player_id", flat=True) | SusPerson.objects.filter(shun=True).values_list("player_id", flat=True))
 
 
 def get_banned_ids():

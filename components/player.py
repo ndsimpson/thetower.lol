@@ -154,7 +154,7 @@ def compute_player_lookup():
     player_ids = PlayerId.objects.filter(id=options.current_player)
     print(f"{player_ids=} {options.current_player=}")
 
-    hidden_query = {} if hidden_features else {"result__public": True, "position__lt": how_many_results_public_site, "position__gt": 0}
+    hidden_query = {} if hidden_features else {"result__public": True, "position__lt": how_many_results_public_site}
 
     if player_ids:
         player_id = player_ids[0]

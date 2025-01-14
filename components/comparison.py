@@ -82,7 +82,7 @@ def compute_comparison(player_id=None, canvas=st):
     known_players = KnownPlayer.objects.filter(ids__in=player_ids)
     all_player_ids = set(PlayerId.objects.filter(player__in=known_players).values_list("id", flat=True)) | set(users)
 
-    hidden_query = {} if hidden_features else {"result__public": True, "position__lt": how_many_results_public_site, "position__gt": 0}
+    hidden_query = {} if hidden_features else {"result__public": True, "position__lt": how_many_results_public_site}
     rows = TourneyRow.objects.filter(player_id__in=all_player_ids, **hidden_query)
 
     player_df = get_details(rows)
