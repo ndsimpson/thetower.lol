@@ -24,7 +24,7 @@ from dtower.tourney_results.formatting import BASE_URL, make_player_url
 from dtower.tourney_results.models import PatchNew as Patch
 from dtower.tourney_results.models import TourneyResult, TourneyRow
 
-sus_ids = set(SusPerson.objects.filter(sus=True).values_list("player_id", flat=True))
+sus_ids = set(SusPerson.objects.filter(sus=True).values_list("player_id", flat=True))  # Unused?
 hidden_features = os.environ.get("HIDDEN_FEATURES")
 
 
