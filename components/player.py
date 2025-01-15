@@ -38,6 +38,7 @@ from dtower.tourney_results.data import (
 from dtower.tourney_results.formatting import BASE_URL, color_position
 from dtower.tourney_results.models import PatchNew as Patch
 from dtower.tourney_results.models import TourneyRow
+from dtower.tourney_results.tourney_utils import check_all_live_entry
 
 id_mapping = get_id_lookup()
 hidden_features = os.environ.get("HIDDEN_FEATURES")
@@ -327,8 +328,10 @@ def draw_info_tab(info_tab, user, player_id, player_df, hidden_features):
 
     relic_string = f"<img src='./app/static/Tower_Relics/{relic}.{extension}' width=100, {title}>" if relic >= 0 else ""
 
+    tourney_join = "✅" if check_all_live_entry(player_df.iloc[0].id) else "⛔"
+
     info_tab.write(
-        f"<table class='top'><tr><td>{avatar_string}</td><td><div style='font-size: 30px'><span style='vertical-align: middle;'>{real_name}</span></div><div style='font-size: 15px'>ID: {player_df.iloc[0].id}</div></td><td>{relic_string}</td></tr></table>",
+        f"<table class='top'><tr><td>{avatar_string}</td><td><div style='font-size: 30px'><span style='vertical-align: middle;'>{real_name}</span></div><div style='font-size: 15px'>ID: {player_df.iloc[0].id}</div><div style='font-size: 15px'>Joined the recent tourney {tourney_join}</div></td><td>{relic_string}</td></tr></table>",
         unsafe_allow_html=True,
     )
 

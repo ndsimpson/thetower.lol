@@ -3,11 +3,12 @@ import logging
 import os
 import re
 from pathlib import Path
+from time import perf_counter
 
 import pandas as pd
 from django.db.models import Q
 
-from dtower.tourney_results.constants import champ, legend, us_to_jim
+from dtower.tourney_results.constants import champ, legend, us_to_jim, leagues
 from dtower.tourney_results.data import get_player_id_lookup, get_sus_ids
 from dtower.tourney_results.models import Injection, PromptTemplate, TourneyResult, TourneyRow
 
@@ -179,6 +180,7 @@ def get_time(file_path: Path) -> datetime.datetime:
 
 
 def get_live_df(league):
+    # t1_start = perf_counter()
     home = Path(os.getenv("HOME"))
     league_folder = us_to_jim[league]
     live_path = home / "tourney" / "results_cache" / f"{league_folder}_live"
@@ -209,5 +211,49 @@ def get_live_df(league):
 
     df = df[~df.player_id.isin(get_sus_ids())]
     df = df.reset_index(drop=True)
-
+    # t1_stop = perf_counter()
+    # print(f"get_live_df({league}) took {t1_stop - t1_start}")
     return df
+
+
+def check_live_entry(league: str, player_id: str):
+    # t1_start = perf_counter()
+    home = Path(os.getenv("HOME"))
+    league_folder = us_to_jim[league]
+    live_path = home / "tourney" / "results_cache" / f"{league_folder}_live"
+
+    last_file = sorted(live_path.glob("*.csv"))[-1]
+
+    if (datetime.datetime.now() - get_time(last_file)) > datetime.timedelta(hours=28):
+        return False
+
+    data = pd.read_csv(last_file, usecols=["player_id", "bracket"])
+
+    if data.empty:
+        return
+
+    bracket_counts = dict(data.groupby("bracket").player_id.unique().map(lambda player_ids: len(player_ids)))
+    fullish_brackets = [bracket for bracket, count in bracket_counts.items() if count >= 28]
+
+    df = data[data.bracket.isin(fullish_brackets)]  # no sniping
+
+    if player_id in df.values:
+        # t1_stop = perf_counter()
+        # print(f"check_live_entry({league}, {player_id}) took {t1_stop - t1_start}")
+        return True
+    else:
+        # t1_stop = perf_counter()
+        # print(f"check_live_entry({league}, {player_id}) took {t1_stop - t1_start}")
+        return False
+
+
+def check_all_live_entry(player_id: str):
+    # t1_start = perf_counter()
+    for league in leagues:
+        if check_live_entry(league, player_id):
+            # t1_stop = perf_counter()
+            # print(f"check_all_live_entry({player_id}) took {t1_stop - t1_start}")
+            return True
+    # t1_stop = perf_counter()
+    # print(f"check_all_live_entry({player_id}) took {t1_stop - t1_start}")
+    return False
