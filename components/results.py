@@ -38,11 +38,11 @@ class Results:
         with open("style.css", "r") as infile:
             table_styling = f"<style>{infile.read()}</style>"
 
-        with open("funny.css", "r") as infile:
-            funny_styling = f"<style>{infile.read()}</style>"
+        # with open("funny.css", "r") as infile:
+        #     funny_styling = f"<style>{infile.read()}</style>"
 
         st.write(table_styling, unsafe_allow_html=True)
-        st.write(funny_styling, unsafe_allow_html=True)
+        # st.write(funny_styling, unsafe_allow_html=True)
 
     def top_of_results(self) -> str:
         # patch_col, tourney_col, self.results_col, self.results_col_page, debug_col = st.columns([1.0, 2, 1, 1.2, 1])
