@@ -31,8 +31,6 @@ from dtower.tourney_results.data import (
     is_under_review,
     is_shun,
     is_sus,
-    is_soft_banned,
-    is_banned,
     is_support_flagged,
 )
 from dtower.tourney_results.formatting import BASE_URL, color_position
@@ -501,9 +499,6 @@ def handle_sus_or_banned_ids(info_tab, player_id):
         elif is_sus(player_id):
             info_tab.warning("This player is currently sussed.")
         elif is_under_review(player_id):
-            info_tab.warning("This player is under review by the Support team.")
-    else:
-        if is_under_review(player_id):
             info_tab.warning("This player is under review by the Support team.")
 
 
