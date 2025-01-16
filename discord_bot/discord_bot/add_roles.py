@@ -9,7 +9,7 @@ from asgiref.sync import sync_to_async
 from discord_bot import const
 from discord_bot.util import get_all_members, get_tower, role_id_to_position
 from dtower.sus.models import KnownPlayer, PlayerId, SusPerson
-from dtower.tourney_results.constants import leagues, legend, champ, plat, gold, silver, copper
+from dtower.tourney_results.constants import leagues, legend, champ, plat, gold, silver, copper, how_many_results_hidden_site
 from dtower.tourney_results.data import get_results_for_patch, get_tourneys
 from dtower.tourney_results.models import PatchNew as Patch
 
@@ -56,13 +56,14 @@ async def handle_adding(
     dfs = {}
 
     dfs[leagues[0]] = get_tourneys(
-        get_results_for_patch(patch=patch, league=leagues[0]))  # Need to know everyone in legends to fallback to champ 500 in case they don't qualify for
+        get_results_for_patch(patch=patch, league=leagues[0]), limit=how_many_results_hidden_site
+    )  # Need to know everyone in legends to fallback to champ 500 in case they don't qualify for
 
     if verbose:
         await debug_channel.send(f"Loaded legends tourney data of {len(dfs[leagues[0]])} rows")
 
     for league in leagues[1:]:
-        dfs[league] = get_tourneys(get_results_for_patch(patch=patch, league=league))
+        dfs[league] = get_tourneys(get_results_for_patch(patch=patch, league=league), limit=how_many_results_hidden_site)
 
         if verbose:
             await debug_channel.send(f"Loaded {league} tourney data of {len(dfs[league])} rows")
