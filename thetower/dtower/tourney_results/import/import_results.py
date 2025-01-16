@@ -8,7 +8,6 @@ django.setup()
 
 
 import logging
-import subprocess
 import time
 from glob import glob
 
@@ -65,9 +64,5 @@ while True:
         )
 
         create_tourney_rows(result)
-
-        # This is how we invalidate the cache on the hidden version of the site
-        # Crude, there should be a better way
-        subprocess.call("systemctl restart  tower-hidden_site", shell=True)
 
     time.sleep(3600)
