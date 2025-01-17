@@ -5,3 +5,7 @@ base = "dark"
 [server]
 enableStaticServing = true
 headless = true
+
+
+[browser]
+gatherUsageStats = false
