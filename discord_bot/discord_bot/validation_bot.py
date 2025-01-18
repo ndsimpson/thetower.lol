@@ -12,7 +12,7 @@ django.setup()
 from asgiref.sync import sync_to_async
 
 from discord_bot.print_role_counts import print_roles
-from discord_bot.util import is_player_id_please_channel, is_role_count_channel, is_top1_channel, is_top50_channel, is_testing_channel
+from discord_bot.util import is_player_id_please_channel, is_role_count_channel, is_top50_channel, is_testing_channel
 from discord_bot.validate_id import validate_player_id
 from dtower.sus.models import KnownPlayer, PlayerId
 from dtower.tourney_results.models import Injection
@@ -73,21 +73,12 @@ async def on_message(message):
             except Exception as exc:
                 logging.exception(exc)
         elif (is_testing_channel(message.channel) or is_role_count_channel(message.channel)) and message.content.startswith("!role_counts"):
+            print(f'role counts requested by {message.author.name}')
             await print_roles(client, message)
         elif is_top50_channel(message.channel) and message.content.startswith("!inject"):  # leaving this because Pog might kill top1 if it doesn't work out
-            print('top50 injection')
+            print(f'top50 injection attempt by {message.author.name}')
             if const.top1_id in {role.id for role in message.author.roles}:
-                print('injection from top1 role')
-                injection = message.content.split(" ", 1)[1]
-                author = message.author.name
-                channel = message.channel
-                Injection.objects.create(text=injection, user=message.author.id)
-                await channel.send(f"🔥 Stored the prompt injection for AI summary from {author}: {injection[:7]}... 🔥")
-                await message.delete()
-        elif is_top1_channel(message.channel) and message.content.startswith("!inject"):
-            print('top1 injection')
-            if const.top1_id in {role.id for role in message.author.roles}:
-                print('injection from top1 role')
+                print(f'injection from top1 role holder ({message.author.name})')
                 injection = message.content.split(" ", 1)[1]
                 author = message.author.name
                 channel = message.channel
