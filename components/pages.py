@@ -79,11 +79,14 @@ page_dict["Deprecated"] = deprecated_pages
 
 pg = st.navigation(page_dict)
 
-# st.logo("components/static/TT.png", icon_image="components/static/TTIcon.png")
-add_logo("components/static/TT.png")
+st.logo("components/static/TT.png", icon_image="components/static/TTIcon.png")
+# add_logo("components/static/TT.png")
 
 
 makeitrain("❄️", date(2025, 1, 1), date(2025, 2, 1))
 makeitrain("💘", date(2025, 2, 13), date(2025, 2, 15))
+makeitrain("🍀", date(2025, 3, 16), date(2025, 3, 18))
+makeitrain("💧", date(2025, 4, 3), date(2025, 4, 5))
+
 
 pg.run()
