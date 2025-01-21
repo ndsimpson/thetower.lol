@@ -3,6 +3,7 @@ import datetime
 import pandas as pd
 import plotly.express as px
 import streamlit as st
+from streamlit_extras.let_it_rain import rain
 
 from dtower.tourney_results.constants import Graph, Options, leagues
 
@@ -111,3 +112,14 @@ def add_to_comparison(player_id, nicknames):
 
 def deprecated():
     st.info("This page is now deprecated and won't be updated past the end of Champ era. If you use or like this page, please let the site admins know on discord.")
+
+
+def makeitrain(icon: str, after: datetime.date, before: datetime.date):
+    today = datetime.date.today()
+    if today >= after and today <= before:
+        rain(
+            emoji=icon,
+            font_size=27,
+            falling_speed=20,
+            animation_length="infinite",
+        )

@@ -1,5 +1,5 @@
 import os
-
+from datetime import date
 import django
 
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "dtower.thetower.settings")
@@ -9,6 +9,7 @@ import streamlit as st
 from streamlit_extras.app_logo import add_logo
 
 from dtower.tourney_results.constants import Graph, Options
+from components.util import makeitrain
 
 hidden_features = os.environ.get("HIDDEN_FEATURES")
 
@@ -80,5 +81,9 @@ pg = st.navigation(page_dict)
 
 # st.logo("components/static/TT.png", icon_image="components/static/TTIcon.png")
 add_logo("components/static/TT.png")
+
+
+makeitrain("❄️", date(2025, 1, 1), date(2025, 2, 1))
+makeitrain("💘", date(2025, 2, 13), date(2025, 2, 15))
 
 pg.run()
