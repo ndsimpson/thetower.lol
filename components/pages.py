@@ -79,7 +79,7 @@ page_dict["Deprecated"] = deprecated_pages
 
 pg = st.navigation(page_dict)
 
-st.logo("components/static/TT.png", icon_image="components/static/TTIcon.png")
+st.logo("components/static/TT.png", size="large", icon_image="components/static/TTIcon.png")
 # add_logo("components/static/TT.png")
 
 
