@@ -9,6 +9,7 @@ from dtower.tourney_results.tourney_utils import get_live_df
 
 
 def live_score():
+    print("liveplacementanalysis")
     options = get_options(links=False)
     with st.sidebar:
         league_index = get_league_filter(options.current_league)

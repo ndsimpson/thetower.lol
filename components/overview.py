@@ -9,6 +9,7 @@ from dtower.tourney_results.models import TourneyResult
 
 
 def compute_overview(options: Options):
+    print("overview")
     public = {"public": True} if not os.environ.get("HIDDEN_FEATURES") else {}
     last_tourney = TourneyResult.objects.filter(**public).latest("date")
     last_tourney_date = last_tourney.date

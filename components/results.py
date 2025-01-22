@@ -234,6 +234,7 @@ class Results:
 
 
 def compute_results(options: Options):
+    print("results")
     options = get_options(links=False)
     with st.sidebar:
         league_index = get_league_filter(options.current_league)

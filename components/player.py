@@ -136,6 +136,7 @@ def xsolla_things(player_id, hidden_features, info_tab):
 
 
 def compute_player_lookup():
+    print("player")
     options = get_options(links=False)
     hidden_features = os.environ.get("HIDDEN_FEATURES")
 
