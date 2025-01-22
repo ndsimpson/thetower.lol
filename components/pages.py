@@ -82,11 +82,14 @@ pg = st.navigation(page_dict)
 st.logo("components/static/TT.png", size="large", icon_image="components/static/TTIcon.png")
 # add_logo("components/static/TT.png")
 
+with st.sidebar:
+    rainenabled = st.toggle("Make it rain?", value=True)
 
-makeitrain("❄️", date(2025, 1, 1), date(2025, 2, 1))
-makeitrain("💘", date(2025, 2, 13), date(2025, 2, 15))
-makeitrain("🍀", date(2025, 3, 16), date(2025, 3, 18))
-makeitrain("💧", date(2025, 4, 3), date(2025, 4, 5))
+if rainenabled:
+    makeitrain("❄️", date(2025, 1, 1), date(2025, 2, 1))
+    makeitrain("💘", date(2025, 2, 13), date(2025, 2, 15))
+    makeitrain("🍀", date(2025, 3, 16), date(2025, 3, 18))
+    makeitrain("💧", date(2025, 4, 3), date(2025, 4, 5))
 
 
 pg.run()
