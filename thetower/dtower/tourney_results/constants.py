@@ -277,4 +277,8 @@ all_relics = {
     100: ("Abduction Room", "", ""),
     101: ("Crop Circle", "5%", "Crit"),
     102: ("Legend Badge", "10%", "Crit"),
+    103: ("Icicle", "", ""),
+    104: ("Sleigh Bell", "", ""),
+    105: ("Koy Fish", "", ""),
+    106: ("Bonsai Tree", "", ""),
 }
