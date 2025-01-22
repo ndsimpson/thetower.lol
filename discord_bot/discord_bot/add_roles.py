@@ -56,8 +56,9 @@ async def handle_adding(
     dfs = {}
 
     dfs[leagues[0]] = get_tourneys(
-        get_results_for_patch(patch=patch, league=leagues[0]), limit=how_many_results_hidden_site
-    )  # Need to know everyone in legends to fallback to champ 500 in case they don't qualify for
+        get_results_for_patch(patch=patch, league=leagues[0]),
+        limit=how_many_results_hidden_site
+    )  # Need to know everyone in legends to fallback to champ 500 in case they don't qualify for legends roles
 
     if verbose:
         await debug_channel.send(f"Loaded legends tourney data of {len(dfs[leagues[0]])} rows")

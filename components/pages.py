@@ -6,7 +6,6 @@ os.environ.setdefault("DJANGO_SETTINGS_MODULE", "dtower.thetower.settings")
 django.setup()
 
 import streamlit as st
-from streamlit_extras.app_logo import add_logo
 
 from dtower.tourney_results.constants import Graph, Options
 from components.util import makeitrain
@@ -80,7 +79,6 @@ page_dict["Deprecated"] = deprecated_pages
 pg = st.navigation(page_dict)
 
 st.logo("components/static/TT.png", size="large", icon_image="components/static/TTIcon.png")
-# add_logo("components/static/TT.png")
 
 with st.sidebar:
     rainenabled = st.toggle("Make it rain?", value=True)

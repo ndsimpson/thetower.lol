@@ -1,10 +1,7 @@
-import os
 from discord_bot import const
 from functools import partial
 
 from asyncstdlib.functools import lru_cache
-
-handle_outside = bool(os.getenv("GO"))
 
 
 @lru_cache
@@ -32,16 +29,8 @@ is_player_id_please_channel = partial(is_channel, id_=const.verify_channel_id)
 is_role_count_channel = partial(is_channel, id_=const.role_count_channel_id)
 
 
-def is_098799(author):
-    return author.id == const.id_098799
-
-
-def is_andreas(author):
-    return author.id == const.id_andreas
-
-
 def is_fishy(author):
-    return author.id == const.id_fishy  # super tiny author 😂
+    return author.id == const.id_fishy
 
 
 def get_safe_league_prefix(league):
