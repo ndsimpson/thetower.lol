@@ -71,7 +71,7 @@ async def on_message(message):
                 await check_id(client, message)
             except Exception as exc:
                 logging.exception(exc)
-        elif is_top50_channel(message.channel) and message.content.startswith("!inject"):  # leaving this because Pog might kill top1 if it doesn't work out
+        elif is_top50_channel(message.channel) and message.content.startswith("!inject"):
             print(f'top50 injection attempt by {message.author.name}')
             if const.top1_id in {role.id for role in message.author.roles}:
                 print(f'injection from top1 role holder ({message.author.name})')
