@@ -18,7 +18,7 @@ role_count_channel_id = 1164883276243140638
 role_log_channel_id = 1128308502130081842
 top1_channel_id = 1304114023830388888
 top50_channel_id = 903354378403065949
-testing_channel_id = 930105733998080062
+testing_channel_id = 930105733998080062  # testing-area-for-role-bot
 verify_channel_id = 1117867265375879259
 
 # role ids

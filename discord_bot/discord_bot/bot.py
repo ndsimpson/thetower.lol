@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import os
+from datetime import datetime
 
 import discord
 import django
@@ -32,8 +33,8 @@ client = discord.Client(intents=intents)
 async def on_ready():
     logging.info(f"We have logged in as {client.user}")
 
-    if not handle_roles_scheduled.is_running():
-        handle_roles_scheduled.start()
+    if not quarter_hour_tasks.is_running():
+        quarter_hour_tasks.start()
 
 
 @client.event
@@ -72,8 +73,38 @@ async def on_message(message: discord.Message) -> None:
         raise exc
 
 
-@tasks.loop(hours=1.0)
+@tasks.loop(minutes=1)
+async def quarter_hour_tasks():
+    logging.debug(datetime.now())
+    minute = datetime.now().minute
+    # seconds = datetime.now().second
+    # wait = 59 - seconds
+    wait = 0  # skip waiting for now
+
+    if minute == 15:
+        logging.info("running handle_roles_scheduled()")
+        await handle_roles_scheduled()
+
+    if wait > 0 & wait < 60:
+        logging.debug(f"waiting {wait} seconds")
+        await asyncio.sleep(wait)
+    else:
+        logging.debug("We're at 0 so no wait needed.")
+    logging.debug(f"Minute: {minute}")
+
+
+@quarter_hour_tasks.before_loop
+async def quarter_hour_tasks_scheduled():
+    now = datetime.now()
+    logging.info(f"Started role bot at {now}")
+    future = datetime(now.year, now.month, now.day, now.hour, now.minute + 1)
+    delta = (future - now).total_seconds()
+    logging.info(f"Syncing up the quarter hour tasks loop.  Sleeping {delta} seconds.")
+    await asyncio.sleep(delta)
+
+
 async def handle_roles_scheduled():
+    logging.info(f"Started role application at {datetime.now()}")
     async with semaphore:
         try:
             tower = await get_tower(client)
