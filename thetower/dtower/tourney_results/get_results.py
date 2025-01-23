@@ -90,6 +90,8 @@ def execute(league):
     current_time = get_current_time__game_server()
     current_hour = current_time.hour
 
+    logging.info(f"Working on {league}.")
+
     if date_offset == 0 or date_offset == 1 and current_hour < 4:
         logging.info("Skipping cause tourney day!!")
         return

@@ -48,6 +48,8 @@ def create_tourney_rows(tourney_result: TourneyResult) -> None:
     if "player_id" in df.columns:
         df = df.rename(columns={"player_id": "id", "name": "tourney_name", "wave": "wave"})
         df["tourney_name"] = df["tourney_name"].map(lambda x: x.strip())
+        print(f"There are {len(df.query('tourney_name.str.len() == 0'))} blank tourney names.")
+        df.loc[df['tourney_name'].str.len() == 0, 'tourney_name'] = df['id']
 
     positions = calculate_positions(df.id, df.index, df.wave, get_sus_ids())
 
