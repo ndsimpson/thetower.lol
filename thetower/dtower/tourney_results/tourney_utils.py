@@ -49,7 +49,7 @@ def create_tourney_rows(tourney_result: TourneyResult) -> None:
         df = df.rename(columns={"player_id": "id", "name": "tourney_name", "wave": "wave"})
         df["tourney_name"] = df["tourney_name"].astype("str")  # Make sure that users with all digit tourney_name's don't trick the column into being a float
         df["tourney_name"] = df["tourney_name"].map(lambda x: x.strip())
-        print(f"There are {len(df.query('tourney_name.str.len() == 0'))} blank tourney names.")
+        logging.info(f"There are {len(df.query('tourney_name.str.len() == 0'))} blank tourney names.")
         df.loc[df['tourney_name'].str.len() == 0, 'tourney_name'] = df['id']
 
     positions = calculate_positions(df.id, df.index, df.wave, get_sus_ids())
@@ -215,7 +215,7 @@ def get_live_df(league):
     df = df[~df.player_id.isin(get_sus_ids())]
     df = df.reset_index(drop=True)
     t1_stop = perf_counter()
-    print(f"get_live_df({league}) took {t1_stop - t1_start}")
+    logging.debug(f"get_live_df({league}) took {t1_stop - t1_start}")
     return df
 
 
@@ -242,11 +242,11 @@ def check_live_entry(league: str, player_id: str):
 
     if player_id in df.values:
         t1_stop = perf_counter()
-        print(f"check_live_entry({league}, {player_id}) took {t1_stop - t1_start}")
+        logging.debug(f"check_live_entry({league}, {player_id}) took {t1_stop - t1_start}")
         return True
     else:
         t1_stop = perf_counter()
-        print(f"check_live_entry({league}, {player_id}) took {t1_stop - t1_start}")
+        logging.debug(f"check_live_entry({league}, {player_id}) took {t1_stop - t1_start}")
         return False
 
 
@@ -255,8 +255,8 @@ def check_all_live_entry(player_id: str):
     for league in leagues:
         if check_live_entry(league, player_id):
             t1_stop = perf_counter()
-            print(f"check_all_live_entry({player_id}) took {t1_stop - t1_start}")
+            logging.debug(f"check_all_live_entry({player_id}) took {t1_stop - t1_start}")
             return True
     t1_stop = perf_counter()
-    print(f"check_all_live_entry({player_id}) took {t1_stop - t1_start}")
+    logging.debug(f"check_all_live_entry({player_id}) took {t1_stop - t1_start}")
     return False
