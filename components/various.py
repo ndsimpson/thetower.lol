@@ -78,9 +78,8 @@ def compute_various(df, options):
 
     for relic in sorted(seen_relics):
         if relic in all_relics:
-            name, bonus, what = all_relics[relic]
             st.write(
-                f"<img src='./app/static/Tower_Relics/{relic}.png' width='{legend_width}'> -- {name}, {bonus} {what}",
+                f"<img src='./app/static/Tower_Relics/{all_relics[relic][1]}' width='{legend_width}'> -- {all_relics[relic][0]}, {all_relics[relic][2]} {all_relics[relic][3]}",
                 unsafe_allow_html=True,
             )
 
