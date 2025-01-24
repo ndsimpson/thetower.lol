@@ -55,15 +55,15 @@ def compute_various(df, options):
         seen_relics |= set(podium)
 
         podium_titles = [all_relics[pod][0] if pod in all_relics else "" for pod in podium]
-        podium_relics_1 = [all_relics[pod][1] if pod in all_relics else "" for pod in podium]
-        podium_relics_2 = [all_relics[pod][2] if pod in all_relics else "" for pod in podium]
+        podium_relics_1 = [all_relics[pod][2] if pod in all_relics else "" for pod in podium]
+        podium_relics_2 = [all_relics[pod][3] if pod in all_relics else "" for pod in podium]
 
         pod = {"date": date}
 
         get_extension = lambda x: "webp" if x in [999] else "png"  # keep the function, but use an id that won't exist (for a while anyway)
 
         pod |= {
-            numeral: f"<img src='./app/static/Tower_Relics/{spot}.{get_extension(spot)}' width='{width}' title='{title}, {relic_1} {relic_2}'> -- {count}%"
+            numeral: f"<img src='./app/static/Tower_Relics/{all_relics[spot][1]}' width='{width}' title='{title}, {relic_1} {relic_2}'> -- {count}%"
             for spot, title, relic_1, relic_2, numeral, count in zip(podium, podium_titles, podium_relics_1, podium_relics_2, numerals, counts)
         }
         podiums.append(pod)
