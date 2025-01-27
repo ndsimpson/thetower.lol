@@ -17,6 +17,8 @@ import logging
 
 import pandas as pd
 
+from dtower.tourney_results.constants import leagues, us_to_jim
+
 logging.basicConfig(level=logging.INFO)
 
 
@@ -122,11 +124,29 @@ def check():
 
 
 if __name__ == "__main__":
+    now = datetime.datetime.now()
+    logging.info(f"Started get_live_results at {now}")
+    if now.minute / 30 < 1:
+        future = datetime.datetime(now.year, now.month, now.day, now.hour, 30)
+    else:
+        future = datetime.datetime(now.year, now.month, now.day, now.hour + 1, 0)
+    delta = (future - now).total_seconds()
+    logging.info(f"Syncing up the loop.  Sleeping {delta} seconds.")
+    time.sleep(delta)
+
     while True:
-        for league in ["Legend", "Champion", "Platinum", "Gold", "Silver", "Copper"]:
-            out = execute(league)
+        for league in leagues:
+            try:
+                out = execute(us_to_jim[league])
+            except Exception as e:
+                logging.exception(e)
+            time.sleep(2)
 
-            if out:
-                time.sleep(10)
-
-        time.sleep(1800)  # this can run in a loop cause we will request the tourney data only once per tourney and cache
+        now = datetime.datetime.now()
+        if now.minute / 30 < 1:
+            future = datetime.datetime(now.year, now.month, now.day, now.hour, 30)
+        else:
+            future = datetime.datetime(now.year, now.month, now.day, now.hour + 1, 0)
+        delta = (future - now).total_seconds()
+        logging.info(f"Sleeping {delta} seconds.")
+        time.sleep(delta)
