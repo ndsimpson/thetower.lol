@@ -41,14 +41,14 @@ def create_tourney_rows(tourney_result: TourneyResult) -> None:
 
     if 0 in df.columns:
         df = df.rename(columns={0: "id", 1: "tourney_name", 2: "wave"})
-        df["tourney_name"] = df["tourney_name"].map(lambda x: x.strip())
+        # df["tourney_name"] = df["tourney_name"].map(lambda x: x.strip())  # We're stripping white space on csv save so we shouldn't need this anymore.
         df["avatar"] = df.tourney_name.map(lambda name: int(avatar[0]) if (avatar := re.findall(r"\#avatar=([-\d]+)\${5}", name)) else -1)
         df["relic"] = df.tourney_name.map(lambda name: int(relic[0]) if (relic := re.findall(r"\#avatar=\d+\${5}relic=([-\d]+)", name)) else -1)
         df["tourney_name"] = df.tourney_name.map(lambda name: name.split("#")[0])
     if "player_id" in df.columns:
         df = df.rename(columns={"player_id": "id", "name": "tourney_name", "wave": "wave"})
         df["tourney_name"] = df["tourney_name"].astype("str")  # Make sure that users with all digit tourney_name's don't trick the column into being a float
-        df["tourney_name"] = df["tourney_name"].map(lambda x: x.strip())
+        # df["tourney_name"] = df["tourney_name"].map(lambda x: x.strip())  # We're stripping white space on csv save so we shouldn't need this anymore.
         logging.info(f"There are {len(df.query('tourney_name.str.len() == 0'))} blank tourney names.")
         df.loc[df['tourney_name'].str.len() == 0, 'tourney_name'] = df['id']
 
@@ -210,7 +210,7 @@ def get_live_df(league):
 
     df = df[df.bracket.isin(fullish_brackets)]  # no sniping
     lookup = get_player_id_lookup()
-    df["real_name"] = [lookup.get(id, name).strip() for id, name in zip(df.player_id, df.name.astype("str"))]
+    df["real_name"] = [lookup.get(id, name) for id, name in zip(df.player_id, df.name)]
 
     df = df[~df.player_id.isin(get_sus_ids())]
     df = df.reset_index(drop=True)
