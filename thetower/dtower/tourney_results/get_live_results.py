@@ -97,7 +97,10 @@ if __name__ == "__main__":
     if now.minute / 30 < 1:
         future = datetime.datetime(now.year, now.month, now.day, now.hour, 30)
     else:
-        future = datetime.datetime(now.year, now.month, now.day, now.hour + 1, 0)
+        if now.hour + 1 > 23:
+            future = datetime.datetime(now.year, now.month, now.day + 1, 0, 0)
+        else:
+            future = datetime.datetime(now.year, now.month, now.day, now.hour + 1, 0)
     delta = (future - now).total_seconds()
     logging.info(f"Syncing up the loop.  Sleeping {delta} seconds.")
     time.sleep(delta)
@@ -114,7 +117,10 @@ if __name__ == "__main__":
         if now.minute / 30 < 1:
             future = datetime.datetime(now.year, now.month, now.day, now.hour, 30)
         else:
-            future = datetime.datetime(now.year, now.month, now.day, now.hour + 1, 0)
+            if now.hour + 1 > 23:
+                future = datetime.datetime(now.year, now.month, now.day + 1, 0, 0)
+            else:
+                future = datetime.datetime(now.year, now.month, now.day, now.hour + 1, 0)
         delta = (future - now).total_seconds()
         logging.info(f"Sleeping {delta} seconds.")
         time.sleep(delta)
