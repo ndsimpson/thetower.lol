@@ -48,8 +48,8 @@ def get_last_date():
     return f"{utcnow.year}-{str(utcnow.month).zfill(2)}-{str(utcnow.day).zfill(2)}__{utcnow.hour}_{utcnow.minute}"
 
 
-def get_file_name():
-    return f"{get_last_date()}.csv"
+def get_file_name(extension: str = "csv"):
+    return f"{get_last_date()}.{extension}"
 
 
 def get_file_path(file_name, league):
@@ -84,10 +84,14 @@ def execute(league):
         logging.info("Skipping cause _not_ tourney day anymore!!")
         return
 
-    file_path = get_file_path(get_file_name(), league)
     df = make_request(league)
 
+    file_path = get_file_path(get_file_name(), league)
     df.to_csv(file_path, index=False)
+    logging.info(f"Successfully stored file {file_path}")
+
+    file_path = get_file_path(get_file_name("gz"), league)
+    df.to_csv(file_path, index=False, compression="gzip")
     logging.info(f"Successfully stored file {file_path}")
 
     return True
