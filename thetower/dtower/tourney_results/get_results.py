@@ -136,7 +136,7 @@ def check():
 
 if __name__ == "__main__":
     now = datetime.datetime.now()
-    logging.info(f"Started get_live_results at {now}.")
+    logging.info(f"Started get_results at {now}.")
 
     schedule.every().hour.at(":00").do(get_results)
     schedule.every().hour.at(":30").do(get_results)

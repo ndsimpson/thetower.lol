@@ -1,5 +1,8 @@
 #!/tourney/tourney_venv/bin/python
 import os
+import datetime
+
+import schedule
 
 import django
 
@@ -20,7 +23,8 @@ from dtower.tourney_results.tourney_utils import create_tourney_rows
 
 logging.basicConfig(level=logging.INFO)
 
-while True:
+
+def execute(league):
     for league in leagues:
         last_date = get_last_date()
 
@@ -65,4 +69,17 @@ while True:
 
         create_tourney_rows(result)
 
-    time.sleep(3600)
+
+if __name__ == "__main__":
+    now = datetime.datetime.now()
+    logging.info(f"Started import_results at {now}.")
+
+    schedule.every().hour.at(":05").do(execute)
+    logging.info(schedule.get_jobs())
+
+    while True:
+
+        n = schedule.idle_seconds()
+        logging.info(f"Sleeping {n} seconds.")
+        time.sleep(n)
+        schedule.run_pending()
