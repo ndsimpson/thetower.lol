@@ -143,7 +143,7 @@ def live_score():
 
     st.plotly_chart(fig, use_container_width=True)
     t2_stop = perf_counter()
-    logging.info(f"full live_placement_analysis took {t2_stop - t2_start}")
+    logging.info(f"full live_placement_analysis for {league} took {t2_stop - t2_start}")
 
 
 live_score()
