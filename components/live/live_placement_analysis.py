@@ -23,6 +23,7 @@ def live_score():
     tab = st
     try:
         df = get_live_df(league)
+        df["real_name"] = df["real_name"].astype("str")  # Make sure that users with all digit tourney_name's don't trick the column into being a float
     except (IndexError, ValueError):
         tab.info("No current data, wait until the tourney day")
         return
