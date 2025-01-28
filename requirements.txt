@@ -37,3 +37,4 @@ pytest-sugar==1.0.0
 # stuff
 tqdm==4.67.1
 natsort==8.4.0
+schedule==1.2.2

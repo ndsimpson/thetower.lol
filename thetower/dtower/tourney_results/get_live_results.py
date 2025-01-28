@@ -3,6 +3,8 @@ import datetime
 import os
 import time
 
+import schedule
+
 import requests
 
 weekdays_sat = [5, 6, 0, 1]
@@ -91,36 +93,25 @@ def execute(league):
     return True
 
 
+def get_results():
+    for league in leagues:
+        try:
+            execute(us_to_jim[league])
+        except Exception as e:
+            logging.exception(e)
+        time.sleep(2)
+
+
 if __name__ == "__main__":
     now = datetime.datetime.now()
-    logging.info(f"Started get_live_results at {now}")
-    if now.minute / 30 < 1:
-        future = datetime.datetime(now.year, now.month, now.day, now.hour, 30)
-    else:
-        if now.hour + 1 > 23:
-            future = datetime.datetime(now.year, now.month, now.day + 1, 0, 0)
-        else:
-            future = datetime.datetime(now.year, now.month, now.day, now.hour + 1, 0)
-    delta = (future - now).total_seconds()
-    logging.info(f"Syncing up the loop.  Sleeping {delta} seconds.")
-    time.sleep(delta)
+    logging.info(f"Started get_live_results at {now}.")
+
+    schedule.every().hour.at(":00").do(get_results)
+    schedule.every().hour.at(":30").do(get_results)
+    logging.info(schedule.get_jobs())
 
     while True:
-        for league in leagues:
-            try:
-                out = execute(us_to_jim[league])
-            except Exception as e:
-                logging.exception(e)
-            time.sleep(2)
-
-        now = datetime.datetime.now()
-        if now.minute / 30 < 1:
-            future = datetime.datetime(now.year, now.month, now.day, now.hour, 30)
-        else:
-            if now.hour + 1 > 23:
-                future = datetime.datetime(now.year, now.month, now.day + 1, 0, 0)
-            else:
-                future = datetime.datetime(now.year, now.month, now.day, now.hour + 1, 0)
-        delta = (future - now).total_seconds()
-        logging.info(f"Sleeping {delta} seconds.")
-        time.sleep(delta)
+        n = schedule.idle_seconds()
+        logging.info(f"Sleeping {n} seconds.")
+        time.sleep(n)
+        schedule.run_pending()
