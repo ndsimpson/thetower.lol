@@ -188,12 +188,12 @@ def get_live_df(league):
     league_folder = us_to_jim[league]
     live_path = home / "tourney" / "results_cache" / f"{league_folder}_live"
 
-    all_files = sorted(live_path.glob("*.gz"))
+    all_files = sorted(live_path.glob("*.csv"))
     last_file = all_files[-1]
 
     last_date = get_time(last_file)
 
-    data = {current_time: pd.read_csv(file, compression="gzip") for file in all_files if last_date - (current_time := get_time(file)) < datetime.timedelta(hours=44)}
+    data = {current_time: pd.read_csv(file) for file in all_files if last_date - (current_time := get_time(file)) < datetime.timedelta(hours=44)}
 
     for dt, df in data.items():
         df["datetime"] = dt
@@ -225,12 +225,12 @@ def check_live_entry(league: str, player_id: str):
     league_folder = us_to_jim[league]
     live_path = home / "tourney" / "results_cache" / f"{league_folder}_live"
 
-    last_file = sorted(live_path.glob("*.gz"))[-1]
+    last_file = sorted(live_path.glob("*.csv"))[-1]
 
     if (datetime.datetime.now() - get_time(last_file)) > datetime.timedelta(hours=28):
         return False
 
-    data = pd.read_csv(last_file, compression="gzip", usecols=["player_id", "bracket"])
+    data = pd.read_csv(last_file, usecols=["player_id", "bracket"])
 
     if data.empty:
         return

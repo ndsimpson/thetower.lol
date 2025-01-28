@@ -91,7 +91,7 @@ def wave_to_role(wave: int, patch: Optional[Patch], league: str) -> Optional[Rol
     return wave_to_role_in_patch(roles, roless_bot_top, wave)
 
 
-def load_data(folder):  # Potentially unused
+def load_data(folder):
     result_files = sorted(glob(f"{folder}/*"))
     total_results = {}
 
