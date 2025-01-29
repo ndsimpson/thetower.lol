@@ -87,6 +87,7 @@ def make_request(league):
     df["wave"] = df["wave"].astype(int)
     df = df.sort_values("wave", ascending=False)
     df["name"] = df["name"].map(lambda x: x.strip())
+    df["bracket"] = df["bracket"].map(lambda x: x.strip())
     logging.info(f"There are {len(df.query('name.str.len() == 0'))} blank tourney names.")
     df.loc[df['name'].str.len() == 0, 'name'] = df['player_id']
     return df
