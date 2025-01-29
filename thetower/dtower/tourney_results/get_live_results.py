@@ -82,7 +82,11 @@ def execute(league):
     current_hour = current_time.hour
 
     if date_offset > 1 or date_offset == 1 and current_hour > 5:
-        logging.info("Skipping cause _not_ tourney day anymore!!")
+        logging.info("Skipping because _not_ tourney day anymore!!")
+        return
+
+    if date_offset == 0 and current_hour == 0 and current_time.minute == 0:
+        logging.info("Skipping because tourney *just* started.")
         return
 
     file_path = get_file_path(get_file_name(), league)
