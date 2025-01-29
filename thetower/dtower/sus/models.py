@@ -13,6 +13,10 @@ class KnownPlayer(models.Model):
     def __str__(self):
         return f"{self.name} ({self.ids.filter(primary=True).first().id if self.ids.filter(primary=True).first() else ''})"
 
+    def save(self, *args, **kwargs):
+        self.nname = self.name.strip()
+        super().save(*args, **kwargs)
+
     history = HistoricalRecords()
 
 

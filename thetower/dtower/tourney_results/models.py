@@ -173,6 +173,10 @@ class TourneyRow(models.Model):
     def __str__(self):
         return f"{self.position} {self.player_id} {self.nickname} {self.wave}"
 
+    def save(self, *args, **kwargs):
+        self.nickname = self.nickname.strip()
+        super().save(*args, **kwargs)
+
     history = HistoricalRecords()
 
     class Meta:
