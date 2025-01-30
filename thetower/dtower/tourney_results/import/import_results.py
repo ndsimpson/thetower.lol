@@ -24,7 +24,7 @@ from dtower.tourney_results.tourney_utils import create_tourney_rows
 logging.basicConfig(level=logging.INFO)
 
 
-def execute(league):
+def execute():
     for league in leagues:
         last_date = get_last_date()
 
