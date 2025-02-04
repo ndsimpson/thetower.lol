@@ -37,11 +37,11 @@ overview_pages = [
 ]
 
 live_pages = [
-    # st.Page("live/live_score.py", title="Live Scores", icon="⏱️", url_path="live"),
-    st.Page("live/live_progress.py", title="Live Progress", icon="⏱️", url_path="liveprogress"),
-    st.Page("live/live_results.py", title="Live Results", icon="📋", url_path="liveresults"),
-    st.Page("live/live_bracket_analysis.py", title="Live Bracket Analysis", icon="📉", url_path="livebracketanalysis"),
-    st.Page("live/live_placement_analysis.py", title="Live Placement Analysis", icon="📈", url_path="liveplacement"),
+    st.Page("live/live_score.py", title="Live Scores", icon="⏱️", url_path="live"),
+    # st.Page("live/live_progress.py", title="Live Progress", icon="⏱️", url_path="liveprogress"),
+    # st.Page("live/live_results.py", title="Live Results", icon="📋", url_path="liveresults"),
+    # st.Page("live/live_bracket_analysis.py", title="Live Bracket Analysis", icon="📉", url_path="livebracketanalysis"),
+    # st.Page("live/live_placement_analysis.py", title="Live Placement Analysis", icon="📈", url_path="liveplacement"),
     st.Page("live/live_bracket.py", title="Bracket view", icon="🔠", url_path="livebracketview"),
 ]
 
@@ -69,10 +69,10 @@ deprecated_pages = [
     st.Page("fallen_defenders.py", title="Fallen defenders", icon="🪦", url_path="fallen"),
 ]
 
-if hidden_features:
-    test_pages = [
-        st.Page("live/live_score.py", title="Live Scores", icon="⏱️", url_path="live"),
-    ]
+# if hidden_features:
+#     test_pages = [
+#         st.Page("live/live_score.py", title="Live Scores", icon="⏱️", url_path="live"),
+#     ]
 
 page_dict = {}
 page_dict["Overview"] = overview_pages
@@ -80,8 +80,8 @@ page_dict["Live Standings"] = live_pages
 page_dict["Individual Data"] = individual_pages
 page_dict["League Data"] = league_pages
 page_dict["Deprecated"] = deprecated_pages
-if hidden_features:
-    page_dict["Test Pages"] = test_pages
+# if hidden_features:
+#     page_dict["Test Pages"] = test_pages
 
 pg = st.navigation(page_dict)
 
