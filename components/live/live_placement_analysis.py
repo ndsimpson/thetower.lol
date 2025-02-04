@@ -12,6 +12,11 @@ from dtower.tourney_results.tourney_utils import get_live_df
 logging.basicConfig(level=logging.INFO)
 
 
+@st.cache_data(ttl=300)
+def get_data(league):
+    return get_live_df(league)
+
+
 def live_score():
     t2_start = perf_counter()
     options = get_options(links=False)
@@ -26,7 +31,7 @@ def live_score():
 
     tab = st
     try:
-        df = get_live_df(league)
+        df = get_data(league)
         t1_start = perf_counter()
         df["real_name"] = df["real_name"].astype("str")  # Make sure that users with all digit tourney_name's don't trick the column into being a float
         t1_stop = perf_counter()

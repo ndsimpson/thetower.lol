@@ -11,6 +11,11 @@ from dtower.tourney_results.formatting import BASE_URL
 from dtower.tourney_results.tourney_utils import get_live_df
 
 
+@st.cache_data(ttl=300)
+def get_data(league):
+    return get_live_df(league)
+
+
 def live_bracket():
     print("livebracket")
     tab = st
@@ -21,7 +26,7 @@ def live_bracket():
         league = st.radio("League", leagues, league_index)
 
     try:
-        df = get_live_df(league)
+        df = get_data(league)
     except (IndexError, ValueError):
         tab.info("No current data, wait until the tourney day")
         return
