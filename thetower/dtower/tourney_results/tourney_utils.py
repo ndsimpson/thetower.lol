@@ -210,7 +210,8 @@ def get_live_df(league):
 
     df = df[df.bracket.isin(fullish_brackets)]  # no sniping
     lookup = get_player_id_lookup()
-    df["real_name"] = [lookup.get(id, name) for id, name in zip(df.player_id, df.name)].astype(str)
+    df["real_name"] = [lookup.get(id, name) for id, name in zip(df.player_id, df.name)]
+    df["real_name"] = df["real_name"].astype(str)
 
     df = df[~df.player_id.isin(get_sus_ids())]
     df = df.reset_index(drop=True)
