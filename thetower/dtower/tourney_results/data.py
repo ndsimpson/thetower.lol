@@ -61,19 +61,19 @@ def patch_to_roles(league):
     last_patch_with_roles = None
 
     for i, patch in enumerate(patches):
-        roles_qs = Role.objects.filter(patch=patch, league=league)
+        roles = tuple(Role.objects.filter(patch=patch, league=league))
 
-        if not roles_qs:
+        if not roles:
             if not last_patch_with_roles:
                 last_patch_with_roles = i - 1
                 # print(last_patch_with_roles)
 
-            roles_qs = patch_to_roles[patches[last_patch_with_roles]]
+            roles = patch_to_roles[patches[last_patch_with_roles]]
 
-        if not roles_qs:
+        if not roles:
             print("WARNING")
 
-        patch_to_roles[patch] = roles_qs
+        patch_to_roles[patch] = roles
 
     return patch_to_roles
 
@@ -87,7 +87,7 @@ def wave_to_role(wave: int, patch: Optional[Patch], league: str) -> Optional[Rol
     if not roles:
         return None
 
-    roless_bot_top = roles.values_list("wave_bottom", "wave_top")
+    roless_bot_top = tuple((role.wave_bottom, role.wave_top) for role in roles)
     return wave_to_role_in_patch(roles, roless_bot_top, wave)
 
 
