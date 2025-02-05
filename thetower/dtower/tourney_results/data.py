@@ -87,8 +87,8 @@ def wave_to_role(wave: int, patch: Optional[Patch], league: str) -> Optional[Rol
     if not roles:
         return None
 
-    roless_bot_top = tuple((role.wave_bottom, role.wave_top) for role in roles)
-    return wave_to_role_in_patch(roles, roless_bot_top, wave)
+    roles_bot_top = tuple((role.wave_bottom, role.wave_top) for role in roles)
+    return wave_to_role_in_patch(roles, roles_bot_top, wave)
 
 
 def load_data(folder):  # Potentially unused
