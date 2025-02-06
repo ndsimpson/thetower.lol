@@ -9,7 +9,7 @@ from dtower.tourney_results.models import TourneyResult, TourneyRow
 from dtower.tourney_results.tourney_utils import get_live_df
 
 
-def results_per_tourney(request, league, tourney_date):
+def results_per_tourney(request, league, tourney_date):  # Unused with api disabled
     qs = TourneyResult.objects.filter(league=league.capitalize(), date=tourney_date, public=True)
 
     if not qs.exists():
@@ -40,7 +40,7 @@ def results_per_tourney(request, league, tourney_date):
     return JsonResponse(response, status=200, safe=False)
 
 
-def results_per_user(request, player_id):
+def results_per_user(request, player_id):  # Unused with api disabled
     player_ids = PlayerId.objects.filter(id=player_id)
     how_many = int(request.GET.get("how_many", 1000))
 
@@ -92,7 +92,7 @@ def results_per_user(request, player_id):
     return JsonResponse(response, status=200, safe=False)
 
 
-def last_full_results(request, league):
+def last_full_results(request, league):  # Unused with api disabled
     position = int(request.GET.get("position", 0))
     df = get_live_df(league)
 
