@@ -55,7 +55,3 @@ class SusPerson(models.Model):
         ordering = ("-modified",)
 
     history = HistoricalRecords()
-
-
-class Reviewed(models.Model):
-    player_id = models.CharField(max_length=32, primary_key=True, help_text="Player id from The Tower, pk")

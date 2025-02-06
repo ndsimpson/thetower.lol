@@ -8,7 +8,7 @@ from django.utils.safestring import mark_safe
 from simple_history.admin import SimpleHistoryAdmin
 from tqdm import tqdm
 
-from dtower.sus.models import KnownPlayer, PlayerId, Reviewed, SusPerson
+from dtower.sus.models import KnownPlayer, PlayerId, SusPerson
 
 BASE_HIDDEN_URL = os.getenv("BASE_HIDDEN_URL")
 
@@ -108,9 +108,3 @@ class KnownPlayerAdmin(SimpleHistoryAdmin):
     list_editable = ("approved",)
     search_fields = ("name", "discord_id", "ids__id")
     inlines = (IdInline,)
-
-
-@admin.register(Reviewed)
-class ReviewedAdmin(SimpleHistoryAdmin):
-    list_display = ("player_id",)
-    search_display = ("player_id",)
