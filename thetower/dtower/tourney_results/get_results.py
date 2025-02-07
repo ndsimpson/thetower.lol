@@ -25,8 +25,8 @@ logging.basicConfig(level=logging.INFO)
 
 
 def get_current_time__game_server():
-    """Game server runs on utc time, but we don't want to try accessing results until 1 hour after the tourney is done."""
-    return datetime.datetime.now(datetime.UTC) - datetime.timedelta(hours=1)
+    """Game server runs on utc time"""
+    return datetime.datetime.now(datetime.UTC)
 
 
 def get_date_offset() -> int:
@@ -72,18 +72,7 @@ def make_request(league):
     header = "player_id,name,avatar,relic,wave,bracket,tourney_number\n"
 
     csv_contents = header + csv_contents
-
-    try:
-        df = pd.read_csv(io.StringIO(csv_contents.strip()), on_bad_lines='warn')
-    except Exception as e:
-        path = f"/tmp/{league}__failed_result.csv"
-
-        with open(path, "w") as outfile:
-            outfile.write(csv_contents)
-
-        logging.info(f"{league} csv failed processing. Check {path} for the faulty file and adjust.")
-        logging.info(e)
-
+    df = pd.read_csv(io.StringIO(csv_contents.strip()), on_bad_lines='warn')
     df["wave"] = df["wave"].astype(int)
     df = df.sort_values("wave", ascending=False)
     df["name"] = df["name"].map(lambda x: x.strip())
@@ -94,16 +83,7 @@ def make_request(league):
 
 
 def execute(league):
-    date_offset = get_date_offset()
-    current_time = get_current_time__game_server()
-    current_hour = current_time.hour
-
     logging.info(f"Working on {league}.")
-
-    if date_offset == 0 or date_offset == 1 and current_hour < 4:
-        logging.info("Skipping cause tourney day!!")
-        return
-
     file_path = get_file_path(get_file_name(), league)
 
     if os.path.isfile(file_path):
@@ -123,16 +103,20 @@ def execute(league):
 
 
 def get_results():
+    date_offset = get_date_offset()
+    current_time = get_current_time__game_server()
+    current_hour = current_time.hour
+
+    if date_offset == 0 or date_offset == 1 and current_hour < 5:
+        logging.info("Skipping cause tourney day!!")
+        return
+
     for league in leagues:
         try:
             execute(us_to_jim[league])
         except Exception as e:
             logging.exception(e)
         time.sleep(2)
-
-
-def check():
-    print(make_request("Champion")[:4000])
 
 
 if __name__ == "__main__":

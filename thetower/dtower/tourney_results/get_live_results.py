@@ -25,7 +25,7 @@ logging.basicConfig(level=logging.INFO)
 
 
 def get_current_time__game_server():
-    """Game server runs on utc time and we want live results right away, minus other built-in delays."""
+    """Game server runs on utc time."""
     return datetime.datetime.now(datetime.UTC)
 
 
@@ -77,6 +77,17 @@ def make_request(league):
 
 
 def execute(league):
+    logging.info(f"Working on {league}.")
+    file_path = get_file_path(get_file_name(), league)
+    df = make_request(league)
+
+    df.to_csv(file_path, index=False)
+    logging.info(f"Successfully stored file {file_path}")
+
+    return True
+
+
+def get_results():
     date_offset = get_date_offset()
     current_time = get_current_time__game_server()
     current_hour = current_time.hour
@@ -89,16 +100,6 @@ def execute(league):
         logging.info("Skipping because tourney *just* started.")
         return
 
-    file_path = get_file_path(get_file_name(), league)
-    df = make_request(league)
-
-    df.to_csv(file_path, index=False)
-    logging.info(f"Successfully stored file {file_path}")
-
-    return True
-
-
-def get_results():
     for league in leagues:
         try:
             execute(us_to_jim[league])
