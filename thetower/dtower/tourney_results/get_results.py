@@ -19,7 +19,7 @@ import logging
 
 import pandas as pd
 
-from dtower.tourney_results.constants import leagues, us_to_jim
+from dtower.tourney_results.constants import leagues
 
 logging.basicConfig(level=logging.INFO)
 
@@ -113,7 +113,7 @@ def get_results():
 
     for league in leagues:
         try:
-            execute(us_to_jim[league])
+            execute(league)
         except Exception as e:
             logging.exception(e)
         time.sleep(2)

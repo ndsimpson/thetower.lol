@@ -8,7 +8,7 @@ from time import perf_counter
 import pandas as pd
 from django.db.models import Q
 
-from dtower.tourney_results.constants import champ, legend, us_to_jim, leagues
+from dtower.tourney_results.constants import champ, legend, leagues
 from dtower.tourney_results.data import get_player_id_lookup, get_sus_ids
 from dtower.tourney_results.models import Injection, PromptTemplate, TourneyResult, TourneyRow
 
@@ -185,8 +185,7 @@ def get_time(file_path: Path) -> datetime.datetime:
 def get_live_df(league):
     t1_start = perf_counter()
     home = Path(os.getenv("HOME"))
-    league_folder = us_to_jim[league]
-    live_path = home / "tourney" / "results_cache" / f"{league_folder}_live"
+    live_path = home / "tourney" / "results_cache" / f"{league}_live"
 
     all_files = sorted(live_path.glob("*.csv"))
     last_file = all_files[-1]
@@ -223,8 +222,7 @@ def get_live_df(league):
 def check_live_entry(league: str, player_id: str):
     t1_start = perf_counter()
     home = Path(os.getenv("HOME"))
-    league_folder = us_to_jim[league]
-    live_path = home / "tourney" / "results_cache" / f"{league_folder}_live"
+    live_path = home / "tourney" / "results_cache" / f"{league}_live"
 
     last_file = sorted(live_path.glob("*.csv"))[-1]
 

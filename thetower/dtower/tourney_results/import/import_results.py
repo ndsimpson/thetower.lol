@@ -16,7 +16,7 @@ from glob import glob
 
 from django.core.files.uploadedfile import SimpleUploadedFile
 
-from dtower.tourney_results.constants import leagues, us_to_jim
+from dtower.tourney_results.constants import leagues
 from dtower.tourney_results.get_results import get_file_name, get_last_date
 from dtower.tourney_results.models import TourneyResult
 from dtower.tourney_results.tourney_utils import create_tourney_rows
@@ -37,7 +37,7 @@ def execute():
             continue
 
         logging.info("Something new")
-        last_files = sorted([file_name for file_name in glob(f"{os.getenv('HOME')}/tourney/results_cache/{us_to_jim[league]}/{last_date}*") if "csv_raw" not in file_name])
+        last_files = sorted([file_name for file_name in glob(f"{os.getenv('HOME')}/tourney/results_cache/{league}/{last_date}*") if "csv_raw" not in file_name])
 
         if not last_files:
             logging.info("Apparently we're checking the files before the download script could get them, try later.")
