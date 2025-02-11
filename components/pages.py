@@ -97,4 +97,13 @@ if rainenabled:
     makeitrain("💧", date(2025, 4, 3), date(2025, 4, 5))
 
 
+st.html("""
+<style>
+    .stMainBlockContainer {
+        max-width:60rem;
+    }
+</style>
+""")
+
+
 pg.run()
