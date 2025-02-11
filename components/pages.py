@@ -39,11 +39,11 @@ overview_pages = [
 live_pages = [
     # st.Page("live/live_score.py", title="Live Scores", icon="⏱️", url_path="live"),
     st.Page("live/bcs.py", title="Upcoming Battle Conditions", icon="🔮", url_path="bcs"),
-    st.Page("live/live_progress.py", title="Live Progress", icon="⏱️", url_path="liveprogress"),
-    st.Page("live/live_results.py", title="Live Results", icon="📋", url_path="liveresults"),
-    st.Page("live/live_bracket_analysis.py", title="Live Bracket Analysis", icon="📉", url_path="livebracketanalysis"),
-    st.Page("live/live_placement_analysis.py", title="Live Placement Analysis", icon="📈", url_path="liveplacement"),
-    st.Page("live/live_bracket.py", title="Bracket view", icon="🔠", url_path="livebracketview"),
+    # st.Page("live/live_progress.py", title="Live Progress", icon="⏱️", url_path="liveprogress"),
+    # st.Page("live/live_results.py", title="Live Results", icon="📋", url_path="liveresults"),
+    # st.Page("live/live_bracket_analysis.py", title="Live Bracket Analysis", icon="📉", url_path="livebracketanalysis"),
+    # st.Page("live/live_placement_analysis.py", title="Live Placement Analysis", icon="📈", url_path="liveplacement"),
+    # st.Page("live/live_bracket.py", title="Bracket view", icon="🔠", url_path="livebracketview"),
 ]
 
 individual_pages = [
