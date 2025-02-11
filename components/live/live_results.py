@@ -54,7 +54,7 @@ def live_results():
 
     with cols[0]:
         st.write("Current result (ordered)")
-        st.dataframe(ldf[["name", "real_name", "wave"]][:how_many_results_public_site], height=700)
+        st.dataframe(ldf[["name", "real_name", "wave"]][:how_many_results_public_site], height=700, width=400)
 
     canvas = cols[0] if is_mobile else cols[1]
 
@@ -69,7 +69,7 @@ def live_results():
 
     color = "green" if joined_sum / joined_tot >= 0.7 else "orange" if joined_sum / joined_tot >= 0.5 else "red"
     canvas.write(f"Has top {topx} joined already? <font color='{color}'>{joined_sum}</font>/{topx}", unsafe_allow_html=True)
-    canvas.dataframe(pdf[["real_name", "wave_last", "joined"]][:topx], height=600)
+    canvas.dataframe(pdf[["real_name", "wave_last", "joined"]][:topx], height=600, width=400)
 
 
 live_results()
