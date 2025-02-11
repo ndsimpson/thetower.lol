@@ -74,6 +74,8 @@ async def validate_player_id(client: discord.Client, message: discord.Message) -
             await asyncio.sleep(1)
             await message.add_reaction("✅")
         else:
+            if message.author == const.id_fishy:
+                return
             await message.add_reaction("⁉️")
     except Exception as exc:
         await message.channel.send(f"Something went terribly wrong, please debug me. \n\n {exc}")
