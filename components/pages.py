@@ -38,6 +38,7 @@ overview_pages = [
 
 live_pages = [
     # st.Page("live/live_score.py", title="Live Scores", icon="⏱️", url_path="live"),
+    st.Page("live/bcs.py", title="Upcoming Battle Conditions", icon="🔮", url_path="bcs"),
     st.Page("live/live_progress.py", title="Live Progress", icon="⏱️", url_path="liveprogress"),
     st.Page("live/live_results.py", title="Live Results", icon="📋", url_path="liveresults"),
     st.Page("live/live_bracket_analysis.py", title="Live Bracket Analysis", icon="📉", url_path="livebracketanalysis"),
