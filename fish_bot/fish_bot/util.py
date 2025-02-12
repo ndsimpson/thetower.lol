@@ -102,7 +102,8 @@ async def get_latest_patch():
 def in_any_channel(*channels):
     async def predicate(ctx: Context):
         if ctx.channel.id not in channels:
-            print("Channel not in authorized list")
+            print("Channel not in authorized list.")
+            # await ctx.send("Channel is unauthorized for this command.")
             raise ChannelUnauthorized(ctx.channel.id)
         else:
             return True
@@ -112,7 +113,8 @@ def in_any_channel(*channels):
 def allowed_ids(*users):
     async def predicate(ctx: Context):
         if ctx.author.id not in users:
-            print("User not in authorized list")
+            print("User not in authorized list.")
+            # await ctx.send("User is unauthorized for this command.")
             raise UserUnauthorized(ctx.message.author)
         else:
             return True
@@ -121,7 +123,12 @@ def allowed_ids(*users):
 
 def guild_owner_only():
     async def predicate(ctx: Context):
-        return ctx.author == ctx.guild.owner  # checks if author is the owner
+        if ctx.author == ctx.guild.owner:   # checks if author is the owner
+            print("User is not owner.")
+            # await ctx.send("User is unauthorized for this command.")
+            raise UserUnauthorized(ctx.message.author)
+        else:
+            return True
     return commands.check(predicate)
 
 
