@@ -73,13 +73,6 @@ position_colors = [
     "#CCCCCC",
 ][::-1]
 
-legend = "Legend"
-champ = "Champion"
-plat = "Platinum"
-gold = "Gold"
-silver = "Silver"
-copper = "Copper"
-
 sus_person = "sus!!!"
 
 stratas_boundaries = [0, 250, 500, 750, 1000, 1250, 1500, 1750, 2000, 2500, 3000, 100000]
@@ -136,6 +129,13 @@ class Options(BaseModel):
 
 medals = ["🥇", "🥈", "🥉"]
 
+
+legend = "Legend"
+champ = "Champion"
+plat = "Platinum"
+gold = "Gold"
+silver = "Silver"
+copper = "Copper"
 
 leagues = [legend, champ, plat, gold, silver, copper]
 
