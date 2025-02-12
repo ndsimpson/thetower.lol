@@ -17,7 +17,8 @@ def get_data(league):
 
 
 def live_bracket():
-    print("livebracket")
+    st.markdown("# Live Bracket View")
+    print("livebracketview")
     tab = st
     options = get_options(links=False)
 

@@ -18,6 +18,8 @@ def get_data(league):
 
 
 def live_score():
+    st.markdown("# Live Placement Analysis")
+    print("liveplacementanalysis")
     t2_start = perf_counter()
     options = get_options(links=False)
     with st.sidebar:

@@ -43,7 +43,7 @@ live_pages = [
     st.Page("live/live_results.py", title="Live Results", icon="📋", url_path="liveresults"),
     st.Page("live/live_bracket_analysis.py", title="Live Bracket Analysis", icon="📉", url_path="livebracketanalysis"),
     st.Page("live/live_placement_analysis.py", title="Live Placement Analysis", icon="📈", url_path="liveplacement"),
-    st.Page("live/live_bracket.py", title="Bracket view", icon="🔠", url_path="livebracketview"),
+    st.Page("live/live_bracket.py", title="Live Bracket view", icon="🔠", url_path="livebracketview"),
 ]
 
 individual_pages = [

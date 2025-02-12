@@ -16,6 +16,7 @@ def get_data(league):
 
 
 def live_score():
+    st.markdown("# Live Scoring")
     print("livescore")
     options = get_options(links=False)
     with st.sidebar:

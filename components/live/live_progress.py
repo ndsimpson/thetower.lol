@@ -16,6 +16,7 @@ def get_data(league):
 
 
 def live_progress():
+    st.markdown("# Live Progress")
     print("liveprogress")
     options = get_options(links=False)
     with st.sidebar:

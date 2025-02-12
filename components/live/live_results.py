@@ -15,6 +15,7 @@ def get_data(league):
 
 
 def live_results():
+    st.markdown("# Live Results")
     print("liveresults")
     options = get_options(links=False)
     with st.sidebar:

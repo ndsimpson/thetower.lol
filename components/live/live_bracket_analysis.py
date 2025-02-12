@@ -14,6 +14,7 @@ def get_data(league):
 
 
 def bracket_analysis():
+    st.markdown("# Live Bracket Analysis")
     print("livebracketanalysis")
     options = get_options(links=False)
     with st.sidebar:
