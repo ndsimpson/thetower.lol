@@ -49,9 +49,7 @@ def live_score():
     ldf = df[df.datetime == last_moment]
     ldf.index = ldf.index + 1
 
-    # Get all unique real names for the selector
-    all_players = sorted(df["real_name"].unique())
-    selected_player = st.selectbox("Select player", all_players)
+    selected_player = st.selectbox("Select player", [""] + sorted(df["real_name"].unique()))
 
     if not selected_player:
         return
