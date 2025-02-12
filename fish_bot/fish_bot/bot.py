@@ -4,8 +4,6 @@ import sys
 import json
 from collections import defaultdict
 
-from functools import partial
-
 import discord
 from discord.ext import commands
 from discord.ext.commands import check, Context
@@ -190,7 +188,7 @@ def guild_owner_only():
 
 @bot.command()
 @in_any_channel(const.helpers_channel_id, const.testing_channel_id, const.tourney_bot_channel_id)
-@allowed_ids(const.id_pog)
+@allowed_ids(const.id_pog, const.id_fishy)
 async def list_modules(ctx: Context):
     '''Lists all cogs and their status of loading.'''
     cog_list = commands.Paginator(prefix='', suffix='')
@@ -201,6 +199,7 @@ async def list_modules(ctx: Context):
     for cog in bot.unloaded_cogs:
         cog_list.add_line('- ' + cog)
     for page in cog_list.pages:
+        print(page)
         await ctx.send(page)
 
 
@@ -256,22 +255,6 @@ async def say(ctx: Context, channelid: int, *, message: str):
 
 def is_channel(channel, id_):
     return channel.id == id_
-
-
-@bot.event
-async def on_message(message):
-    is_player_id_please_channel = partial(is_channel, id_=const.verify_channel_id)
-    try:
-        if is_player_id_please_channel(message.channel) and message.author.id != const.id_towerbot:
-
-            if len(message.content) > 13 and len(message.content) < 17 and message.attachments:
-
-                await message.add_reaction("👍🏼")
-            else:
-                await message.add_reaction("👎🏼")
-    except Exception as exc:
-        await message.channel.send(f"Something went terribly wrong, please debug me. \n\n {exc}")
-        raise exc
 
 
 """Settings functions"""

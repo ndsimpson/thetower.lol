@@ -1,12 +1,18 @@
 import sys
 import math
+import os
 
 from functools import partial
 from asyncstdlib.functools import lru_cache
 from asgiref.sync import sync_to_async
 
 from discord.ext.commands import check, Context
+from discord.ext import commands
 # https://discordpy.readthedocs.io/en/stable/api.html
+
+import django
+os.environ.setdefault("DJANGO_SETTINGS_MODULE", "dtower.thetower.settings")
+django.setup()
 
 from dtower.sus.models import KnownPlayer, SusPerson
 from dtower.tourney_results.models import PatchNew as Patch
@@ -90,13 +96,33 @@ async def get_latest_patch():
     return patch
 
 
-## Bot command utilities
+"""Custom predicates"""
 
 
 def in_any_channel(*channels):
     async def predicate(ctx: Context):
-        return ctx.channel.id in channels
+        if ctx.channel.id not in channels:
+            print("Channel not in authorized list")
+            raise ChannelUnauthorized(ctx.channel.id)
+        else:
+            return True
     return check(predicate)
+
+
+def allowed_ids(*users):
+    async def predicate(ctx: Context):
+        if ctx.author.id not in users:
+            print("User not in authorized list")
+            raise UserUnauthorized(ctx.message.author)
+        else:
+            return True
+    return check(predicate)
+
+
+def guild_owner_only():
+    async def predicate(ctx: Context):
+        return ctx.author == ctx.guild.owner  # checks if author is the owner
+    return commands.check(predicate)
 
 
 ## Bot memory check utilities
@@ -130,3 +156,15 @@ def convert_size(size_bytes):
     p = math.pow(1024, i)
     s = round(size_bytes / p, 2)
     return "%s %s" % (s, size_name[i])
+
+
+class ChannelUnauthorized(commands.CommandError):
+    def __init__(self, channel, *args, **kwargs):
+        self.channel = channel
+        super().__init__(*args, **kwargs)
+
+
+class UserUnauthorized(commands.CommandError):
+    def __init__(self, user, *args, **kwargs):
+        self.user = user
+        super().__init__(*args, **kwargs)

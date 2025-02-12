@@ -23,6 +23,11 @@ testing_channel_id = 930105733998080062
 tourney_bot_channel_id = 1291839463600816179
 verify_channel_id = 1117867265375879259
 
+# thread ids
+legend_bc_thread_id = 1298434749072932864
+champ_bc_thread_id = 1298434674044960798
+plat_bc_thread_id = 1298434384445181992
+
 # role ids
 verified_role_id = 1119950199209611274
 jrmods_role_id = 956470405386874900
