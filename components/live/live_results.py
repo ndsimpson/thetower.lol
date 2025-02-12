@@ -52,9 +52,9 @@ def live_results():
 
     cols = st.columns([3, 2] if not is_mobile else [1])
 
-    with cols[0]:
-        st.write("Current result (ordered)")
-        st.dataframe(ldf[["name", "real_name", "wave"]][:how_many_results_public_site], height=700, width=400)
+    # with cols[0]:
+    #     st.write("Current result (ordered)")
+    #     st.dataframe(ldf[["name", "real_name", "wave"]][:how_many_results_public_site], height=700, width=400)
 
     canvas = cols[0] if is_mobile else cols[1]
 
