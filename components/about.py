@@ -4,6 +4,7 @@ import streamlit as st
 def compute_about(*args, **kwargs):
     st.title("About")
     st.markdown("Currenly ran by the discord team.  Primary contact: `thedisasterfish`")
+    st.markdown("Special thanks to `_xskye_` for working out the info for battle conditions.")
     st.markdown("Site orignally created by `098799` ('this guy' on discord) 2022-2024.")
     st.markdown("Thanks to `andreasjn` for the help with the discord bot.")
     st.markdown("Thanks to `Milamber33` for a lot of help with css and other things.")
