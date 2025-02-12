@@ -295,10 +295,10 @@ def filter_lower_leagues(df):
 def draw_info_tab(info_tab, user, player_id, player_df, hidden_features):
     url_tab, comp_tab = info_tab.columns([1, 1])
     player_url = f"https://{BASE_URL}/player?" + urlencode({"player": player_id}, doseq=True)
-    url_tab.markdown("[Player Profile](%s)" % player_url)
+    url_tab.markdown("[Player Profile 🔗](%s)" % player_url)
     url_tab.code(player_url)
     bracket_url = f"https://{BASE_URL}/livebracketview?" + urlencode({"player_id": player_id}, doseq=True)
-    comp_tab.markdown("[Player Bracket](%s)" % player_url)
+    comp_tab.markdown("[Player Bracket 🔗](%s)" % player_url)
     comp_tab.code(bracket_url)
     # url = f"https://{BASE_URL}/Player?" + urlencode({"compare": user}, doseq=True)
     # comp_tab.write(f"<a href='{url}'>🔗 Compare with...</a>", unsafe_allow_html=True)
