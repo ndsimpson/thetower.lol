@@ -223,8 +223,12 @@ async def restart(ctx: Context, method: str = None):
 @bot.command()
 @commands.is_owner()
 async def pull_git(ctx: Context, method: str = None):
-    ctx.send("Attempting pull...")
-    subprocess.check_output(["git", "pull", "thetower.lol", "main"], cwd="/tourney", )
+    await ctx.send("Attempting pull...")
+    if method == "rebase":
+        response = subprocess.check_output(["git", "pull", "thetower.lol", "rebase", "--force"], cwd="/tourney", )
+    else:
+        response = subprocess.check_output(["git", "pull", "thetower.lol", "main"], cwd="/tourney", )
+    await ctx.send(response.decode("utf-8"))
 
 
 @bot.command()
