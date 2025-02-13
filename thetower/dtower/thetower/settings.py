@@ -32,6 +32,9 @@ DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.sqlite3",
         "NAME": DATA_DIR / "tower.sqlite3",
+        'OPTIONS': {
+            'timeout': 60,  # Timeout in seconds
+        }
     }
 }
 
