@@ -221,6 +221,7 @@ def is_channel(channel, id_):
 
 
 @bot.command()
+@commands.is_owner()
 async def load_settings(ctx: Context = None):
     if not os.path.isfile(f"{os.path.realpath(os.path.dirname(__file__))}/config.json"):
         sys.exit("'config.json' not found! Please add it and try again.")
@@ -233,6 +234,7 @@ async def load_settings(ctx: Context = None):
 
 
 @bot.command()
+@commands.is_owner()
 async def save_settings(ctx: Context = None):
     with open(f"{os.path.realpath(os.path.dirname(__file__))}/config.json", 'w+') as file:
         if ctx:
@@ -242,6 +244,7 @@ async def save_settings(ctx: Context = None):
 
 
 @bot.command()
+@commands.is_owner()
 async def print_settings(ctx: Context = None):
     if ctx:
         await ctx.send(bot.config)
