@@ -210,8 +210,19 @@ async def reload(ctx: Context, cog):
 @bot.command()
 @is_allowed_user(const.id_pog, const.id_fishy)
 async def restart(ctx: Context, method: str = None):
+    """Restart the bot service."""
     await ctx.send("Restarting service...")
     subprocess.run(["systemctl", "restart", "fish_bot"])
+
+
+@bot.command()
+@is_allowed_channel(const.helpers_channel_id)
+async def stop(ctx: Context):
+    """Stop the bot service."""
+    await ctx.send(f"{ctx.author} requested a stop.  Stopping service...")
+    user = await bot.get_user_info(const.id_fishy)
+    await bot.send_message(user, f"Emergency stop command received by {ctx.author}.  Stopping service...")
+    subprocess.run(["systemctl", "stop", "fish_bot"])
 
 
 @bot.command()
@@ -230,10 +241,6 @@ async def pull_git(ctx: Context, method: str = None):
 async def say(ctx: Context, channelid: int, *, message: str):
     channel = bot.get_channel(channelid)
     await channel.send(message)
-
-
-def is_channel(channel, id_):
-    return channel.id == id_
 
 
 """Settings functions"""
