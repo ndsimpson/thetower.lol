@@ -216,7 +216,7 @@ async def restart(ctx: Context, method: str = None):
 
 
 @bot.command()
-@is_allowed_channel(const.helpers_channel_id)
+@is_allowed_channel(const.helpers_channel_id, const.testing_channel_id, const.tourney_bot_channel_id)
 async def stop(ctx: Context):
     """Stop the bot service."""
     await ctx.send(f"{ctx.author} requested a stop.  Stopping service...")
