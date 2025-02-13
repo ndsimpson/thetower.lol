@@ -10,6 +10,7 @@ id_susjite = 778131594132062240
 
 # bot ids
 id_rolebot = 1117480944153145364
+id_towerbot = 1316458355203772427
 
 # channel ids
 helpers_channel_id = 1006900314588336139

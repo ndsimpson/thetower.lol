@@ -48,7 +48,7 @@ async def check_image(content: str, image_bytes: bytes) -> bool:
 
 
 async def validate_player_id(client: discord.Client, message: discord.Message) -> None:
-    if message.author.id in [const.id_pog, const.id_susjite]:
+    if message.author.id in [const.id_pog, const.id_susjite, const.id_fishy, const.id_towerbot]:
         return
 
     try:
@@ -74,8 +74,6 @@ async def validate_player_id(client: discord.Client, message: discord.Message) -
             await asyncio.sleep(1)
             await message.add_reaction("✅")
         else:
-            if message.author.id == const.id_fishy:
-                return
             await message.add_reaction("⁉️")
     except Exception as exc:
         await message.channel.send(f"Something went terribly wrong, please debug me. \n\n {exc}")
