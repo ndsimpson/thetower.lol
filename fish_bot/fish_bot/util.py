@@ -32,18 +32,6 @@ async def get_verified_role(client):
     return (await get_tower(client)).get_role(const.verified_role_id)
 
 
-def is_channel(channel, id_):
-    return channel.id == id_
-
-
-is_top1_channel = partial(is_channel, id_=const.top1_channel_id)
-is_top50_channel = partial(is_channel, id_=const.top50_channel_id)
-is_meme_channel = partial(is_channel, id_=const.meme_channel_id)
-is_testing_channel = partial(is_channel, id_=const.testing_channel_id)
-is_helpers_channel = partial(is_channel, id_=const.helpers_channel_id)
-is_player_id_please_channel = partial(is_channel, id_=const.verify_channel_id)
-
-
 async def get_all_members(client, members):
     guild = await get_tower(client)
     print("Getting all members")
@@ -96,10 +84,11 @@ async def get_latest_patch():
     return patch
 
 
-"""Custom predicates"""
+"""Custom discord predicates"""
 
 
-def in_any_channel(*channels):
+def is_allowed_channel(*channels):
+    """Check if the channel id is in the list of allowed channels."""
     async def predicate(ctx: Context):
         if ctx.channel.id not in channels:
             print("Channel not in authorized list.")
@@ -110,7 +99,8 @@ def in_any_channel(*channels):
     return check(predicate)
 
 
-def allowed_ids(*users):
+def is_allowed_user(*users):
+    """Check if the user id is in the list of allowed users."""
     async def predicate(ctx: Context):
         if ctx.author.id not in users:
             print("User not in authorized list.")
@@ -121,15 +111,29 @@ def allowed_ids(*users):
     return check(predicate)
 
 
-def guild_owner_only():
+def is_guild_owner():
+    """Check if the user id is the guild owner."""
     async def predicate(ctx: Context):
         if ctx.author == ctx.guild.owner:   # checks if author is the owner
-            print("User is not owner.")
+            print("User is not the guild owner.")
             # await ctx.send("User is unauthorized for this command.")
             raise UserUnauthorized(ctx.message.author)
         else:
             return True
     return commands.check(predicate)
+
+
+def is_channel(channel, id_):
+    """Check if the channel id is the same as the given id."""
+    return channel.id == id_
+
+
+is_top1_channel = partial(is_channel, id_=const.top1_channel_id)
+is_top50_channel = partial(is_channel, id_=const.top50_channel_id)
+is_meme_channel = partial(is_channel, id_=const.meme_channel_id)
+is_testing_channel = partial(is_channel, id_=const.testing_channel_id)
+is_helpers_channel = partial(is_channel, id_=const.helpers_channel_id)
+is_player_id_please_channel = partial(is_channel, id_=const.verify_channel_id)
 
 
 ## Bot memory check utilities
@@ -166,12 +170,14 @@ def convert_size(size_bytes):
 
 
 class ChannelUnauthorized(commands.CommandError):
+    """Exception raised when a channel is not authorized to use a command."""
     def __init__(self, channel, *args, **kwargs):
         self.channel = channel
         super().__init__(*args, **kwargs)
 
 
 class UserUnauthorized(commands.CommandError):
+    """Exception raised when a user is not authorized to use a command."""
     def __init__(self, user, *args, **kwargs):
         self.user = user
         super().__init__(*args, **kwargs)

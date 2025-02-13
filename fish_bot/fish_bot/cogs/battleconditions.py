@@ -3,7 +3,7 @@ import datetime
 from discord.ext import commands, tasks
 
 from fish_bot import const
-from fish_bot.util import allowed_ids
+from fish_bot.util import is_allowed_user
 
 from dtower.tourney_results.bc import predict_future_tournament, get_next_tournament
 
@@ -36,7 +36,7 @@ class BattleConditions(commands.Cog, name="BattleConditions"):
             await ctx.send(f"The tournament is {result['days_until']} days away and will run on {result['next_date']}")
 
     @commands.command()
-    @allowed_ids(const.id_pog, const.id_fishy)
+    @is_allowed_user(const.id_pog, const.id_fishy)
     async def get_battleconditions(self, ctx, league: str = "Legend"):
         result = get_next_tournament()
         battleconditions = predict_future_tournament(result['next_id'], league)

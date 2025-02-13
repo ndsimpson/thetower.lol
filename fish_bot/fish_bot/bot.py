@@ -9,7 +9,7 @@ from discord.ext import commands
 from discord.ext.commands import Context
 
 from fish_bot import const, settings
-from fish_bot.util import in_any_channel, allowed_ids, UserUnauthorized, ChannelUnauthorized
+from fish_bot.util import is_allowed_channel, is_allowed_user, UserUnauthorized, ChannelUnauthorized
 
 
 intents = discord.Intents.default()
@@ -147,10 +147,10 @@ bot = DiscordBot()
 
 
 @bot.command()
-@in_any_channel(const.helpers_channel_id, const.testing_channel_id, const.tourney_bot_channel_id)
-@allowed_ids(const.id_pog, const.id_fishy)
+@is_allowed_channel(const.helpers_channel_id, const.testing_channel_id, const.tourney_bot_channel_id)
+@is_allowed_user(const.id_pog, const.id_fishy)
 async def list_modules(ctx: Context):
-    '''Lists all cogs and their status of loading.'''
+    """Lists all cogs and their status of loading."""
     cog_list = commands.Paginator(prefix='', suffix='')
     cog_list.add_line('**✅ Succesfully loaded:**')
     for cog in bot.loaded_cogs:
@@ -164,10 +164,10 @@ async def list_modules(ctx: Context):
 
 
 @bot.command()
-@in_any_channel(const.helpers_channel_id, const.testing_channel_id, const.tourney_bot_channel_id)
-@allowed_ids(const.id_pog, const.id_fishy)
+@is_allowed_channel(const.helpers_channel_id, const.testing_channel_id, const.tourney_bot_channel_id)
+@is_allowed_user(const.id_pog, const.id_fishy)
 async def load(ctx: Context, cog):
-    '''Try and load the selected cog.'''
+    """Try and load the selected cog."""
     if cog not in bot.unloaded_cogs:
         await ctx.send('⚠ WARNING: Module appears not to be found in the available modules list. Will try loading anyway.')
     if cog in bot.loaded_cogs:
@@ -187,8 +187,8 @@ async def load(ctx: Context, cog):
 
 
 @bot.command()
-@in_any_channel(const.helpers_channel_id, const.testing_channel_id, const.tourney_bot_channel_id)
-@allowed_ids(const.id_pog, const.id_fishy)
+@is_allowed_channel(const.helpers_channel_id, const.testing_channel_id, const.tourney_bot_channel_id)
+@is_allowed_user(const.id_pog, const.id_fishy)
 async def unload(ctx: Context, cog):
     if cog not in bot.loaded_cogs:
         return await ctx.send('💢 Module not loaded.')
@@ -199,8 +199,8 @@ async def unload(ctx: Context, cog):
 
 
 @bot.command()
-@in_any_channel(const.helpers_channel_id, const.testing_channel_id, const.tourney_bot_channel_id)
-@allowed_ids(const.id_pog, const.id_fishy)
+@is_allowed_channel(const.helpers_channel_id, const.testing_channel_id, const.tourney_bot_channel_id)
+@is_allowed_user(const.id_pog, const.id_fishy)
 async def reload(ctx: Context, cog):
     await unload(ctx, cog)
     await load(ctx, cog)
