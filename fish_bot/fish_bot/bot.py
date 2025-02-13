@@ -224,7 +224,7 @@ async def restart(ctx: Context, method: str = None):
 @commands.is_owner()
 async def pull_git(ctx: Context, method: str = None):
     ctx.send("Attempting pull...")
-    subprocess.check_output(["git", "pull", "thetower.lol", "master"], cwd="/tourney", )
+    subprocess.check_output(["git", "pull", "thetower.lol", "main"], cwd="/tourney", )
 
 
 @bot.command()
