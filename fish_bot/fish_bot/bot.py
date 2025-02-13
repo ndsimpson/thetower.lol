@@ -1,6 +1,7 @@
 import logging
 import os
 import sys
+import subprocess
 import json
 from collections import defaultdict
 
@@ -204,6 +205,19 @@ async def unload(ctx: Context, cog):
 async def reload(ctx: Context, cog):
     await unload(ctx, cog)
     await load(ctx, cog)
+
+
+@bot.command()
+@is_allowed_user(const.id_pog, const.id_fishy)
+async def restart(ctx: Context, method: str = None):
+    if method == "hard":
+        ctx.send('Restarting service...')
+        subprocess.run(["systemctl", "restart", "fish_bot"])
+    else:
+        await ctx.send('Restarting...')
+        await bot.close()
+        await bot.async_cleanup()
+        await bot.setup_hook()
 
 
 @bot.command()
