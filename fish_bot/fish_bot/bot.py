@@ -210,14 +210,8 @@ async def reload(ctx: Context, cog):
 @bot.command()
 @is_allowed_user(const.id_pog, const.id_fishy)
 async def restart(ctx: Context, method: str = None):
-    if method == "hard":
-        ctx.send("Restarting service...")
-        subprocess.run(["systemctl", "restart", "fish_bot"])
-    else:
-        await ctx.send("Restarting...")
-        await bot.close()
-        await bot.async_cleanup()
-        await bot.setup_hook()
+    await ctx.send("Restarting service...")
+    subprocess.run(["systemctl", "restart", "fish_bot"])
 
 
 @bot.command()
