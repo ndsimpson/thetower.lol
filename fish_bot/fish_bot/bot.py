@@ -209,22 +209,17 @@ async def reload(ctx: Context, cog):
 
 @bot.command()
 @is_allowed_user(const.id_pog, const.id_fishy)
-async def restart(ctx: Context, method: str = None):
-    if method == "hard":
-        ctx.send("Restarting service...")
-        subprocess.run(["systemctl", "restart", "fish_bot"])
-    else:
-        await ctx.send("Restarting...")
-        await bot.close()
-        await bot.async_cleanup()
-        await bot.setup_hook()
+async def restart(ctx: Context):
+    await ctx.send("Restarting service...")
+    subprocess.run(["systemctl", "restart", "fish_bot"])
 
 
 @bot.command()
 @commands.is_owner()
 async def pull_git(ctx: Context, method: str = None):
-    ctx.send("Attempting pull...")
-    subprocess.check_output(["git", "pull", "thetower.lol", "main"], cwd="/tourney", )
+    await ctx.send("Attempting pull...")
+    response = subprocess.check_output(["git", "pull", "thetower.lol", "main"], cwd="/tourney", )
+    await ctx.send(response.decode("utf-8"))
 
 
 @bot.command()
