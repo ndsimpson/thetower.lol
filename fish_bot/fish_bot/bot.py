@@ -220,7 +220,7 @@ async def restart(ctx: Context, method: str = None):
 async def stop(ctx: Context):
     """Stop the bot service."""
     await ctx.send(f"{ctx.author} requested a stop.  Stopping service...")
-    user = await bot.get_user(const.id_fishy)
+    user = bot.get_user(const.id_fishy)
     await bot.send_message(user, f"Emergency stop command received by {ctx.author}.  Stopping service...")
     subprocess.run(["systemctl", "stop", "fish_bot"])
 
