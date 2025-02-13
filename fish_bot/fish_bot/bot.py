@@ -6,9 +6,10 @@ from collections import defaultdict
 
 import discord
 from discord.ext import commands
-from discord.ext.commands import check, Context
+from discord.ext.commands import Context
 
 from fish_bot import const, settings
+from fish_bot.util import in_any_channel, allowed_ids, UserUnauthorized, ChannelUnauthorized
 
 
 intents = discord.Intents.default()
@@ -140,47 +141,6 @@ class DiscordBot(commands.Bot):
 
 
 bot = DiscordBot()
-
-
-class ChannelUnauthorized(commands.CommandError):
-    def __init__(self, channel, *args, **kwargs):
-        self.channel = channel
-        super().__init__(*args, **kwargs)
-
-
-class UserUnauthorized(commands.CommandError):
-    def __init__(self, user, *args, **kwargs):
-        self.user = user
-        super().__init__(*args, **kwargs)
-
-
-"""Custom predicates"""
-
-
-def in_any_channel(*channels):
-    async def predicate(ctx: Context):
-        if ctx.channel.id not in channels:
-            print("Channel not in authorized list")
-            raise ChannelUnauthorized(ctx.channel.id)
-        else:
-            return True
-    return check(predicate)
-
-
-def allowed_ids(*users):
-    async def predicate(ctx: Context):
-        if ctx.author.id not in users:
-            print("User not in authorized list")
-            raise UserUnauthorized(ctx.message.author)
-        else:
-            return True
-    return check(predicate)
-
-
-def guild_owner_only():
-    async def predicate(ctx: Context):
-        return ctx.author == ctx.guild.owner  # checks if author is the owner
-    return commands.check(predicate)
 
 
 """Module functions"""
