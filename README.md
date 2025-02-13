@@ -8,6 +8,7 @@
     - `pip install -e .` to install the app
     - `pip install -e thetower` to install the django stuff
     - `pip install -e discord_bot` to install the discord bot
+    - `pip install -e fish_bot` to install the new fish_bot discord bot
 
 - streamlit run with: `streamlit run components/pages.py`
 
