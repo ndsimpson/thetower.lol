@@ -10,7 +10,7 @@ from discord.ext import commands
 from discord.ext.commands import Context
 
 from fish_bot import const, settings
-from fish_bot.util import is_allowed_channel, is_allowed_user, UserUnauthorized, ChannelUnauthorized
+from fish_bot.util import is_allowed_channel, UserUnauthorized, ChannelUnauthorized
 
 
 intents = discord.Intents.default()
@@ -149,7 +149,6 @@ bot = DiscordBot()
 
 @bot.command()
 @is_allowed_channel(const.helpers_channel_id, const.testing_channel_id, const.tourney_bot_channel_id)
-@is_allowed_user(const.id_pog, const.id_fishy)
 async def list_modules(ctx: Context):
     """Lists all cogs and their status of loading."""
     cog_list = commands.Paginator(prefix='', suffix='')
@@ -166,7 +165,6 @@ async def list_modules(ctx: Context):
 
 @bot.command()
 @is_allowed_channel(const.helpers_channel_id, const.testing_channel_id, const.tourney_bot_channel_id)
-@is_allowed_user(const.id_pog, const.id_fishy)
 async def load(ctx: Context, cog):
     """Try and load the selected cog."""
     if cog not in bot.unloaded_cogs:
@@ -189,7 +187,6 @@ async def load(ctx: Context, cog):
 
 @bot.command()
 @is_allowed_channel(const.helpers_channel_id, const.testing_channel_id, const.tourney_bot_channel_id)
-@is_allowed_user(const.id_pog, const.id_fishy)
 async def unload(ctx: Context, cog):
     if cog not in bot.loaded_cogs:
         return await ctx.send('💢 Module not loaded.')
@@ -200,15 +197,15 @@ async def unload(ctx: Context, cog):
 
 
 @bot.command()
-@is_allowed_channel(const.helpers_channel_id, const.testing_channel_id, const.tourney_bot_channel_id)
-@is_allowed_user(const.id_pog, const.id_fishy)
+@is_allowed_channel(const.helpers_channel_id, const.testing_channel_id,
+                    default_users=[const.id_pog, const.id_fishy])
 async def reload(ctx: Context, cog):
     await unload(ctx, cog)
     await load(ctx, cog)
 
 
 @bot.command()
-@is_allowed_user(const.id_pog, const.id_fishy)
+@is_allowed_channel(const.helpers_channel_id, const.testing_channel_id, const.tourney_bot_channel_id)
 async def restart(ctx: Context, method: str = None):
     """Restart the bot service."""
     await ctx.send("Restarting service...")

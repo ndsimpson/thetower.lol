@@ -22,3 +22,30 @@ monitored_roles = {
     const.top1500_id,
     const.top2000_id,
 }
+
+restartable_services = {
+    "discord_bot",
+    "verification_bot",
+    "tower-admin_site",
+    "tower-hidden_site",
+    "tower-public_site",
+    "get_results",
+    "get_results_live",
+    "import_results"
+}
+
+COMMAND_CHANNEL_MAP = {
+    "reload": {
+        "channels": {
+            const.helpers_channel_id: [const.id_pog, const.id_fishy],  # These users can use reload in helpers channel
+            const.testing_channel_id: [const.id_pog],  # Only pog can use reload in testing channel
+        },
+        "default_users": [const.id_pog, const.id_fishy]  # These users can use reload in any allowed channel
+    },
+    "ServiceControl restart": {
+        "channels": {
+            const.helpers_channel_id: [const.id_pog, const.id_fishy],
+        },
+        "default_users": []
+    }
+}
