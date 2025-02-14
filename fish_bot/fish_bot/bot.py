@@ -204,22 +204,63 @@ async def reload(ctx: Context, cog):
     await load(ctx, cog)
 
 
+@bot.group(name="ServiceControl")
+@is_allowed_channel(const.helpers_channel_id, const.testing_channel_id, const.tourney_bot_channel_id)
+async def ServiceControl(ctx):
+    if ctx.invoked_subcommand is None:
+        await ctx.send("Invalid command passed...")
+
+
+@ServiceControl.command(name="restart")
+async def servicerestart(ctx, servicename):
+    if servicename in settings.restartable_services:
+        await ctx.send(f"Restarting {servicename}")
+        try:
+            result = subprocess.run(["systemctl", "restart", servicename],
+                                    capture_output=True,
+                                    text=True)
+            if result.returncode == 0:
+                await ctx.send(f"Successfully restarted {servicename}")
+            else:
+                await ctx.send(f"Error restarting {servicename}: {result.stderr}")
+        except Exception as e:
+            await ctx.send(f"Failed to restart service: {str(e)}")
+    else:
+        await ctx.send("Service not found.")
+
+
 @bot.command()
 @is_allowed_channel(const.helpers_channel_id, const.testing_channel_id, const.tourney_bot_channel_id)
 async def restart(ctx: Context, method: str = None):
     """Restart the bot service."""
     await ctx.send("Restarting service...")
-    subprocess.run(["systemctl", "restart", "fish_bot"])
+    try:
+        result = subprocess.run(["systemctl", "restart", "fish_bot"],
+                                capture_output=True,
+                                text=True)
+        if result.returncode == 0:
+            await ctx.send("Bot service restart initiated successfully")
+        else:
+            await ctx.send(f"Error restarting bot service: {result.stderr}")
+    except Exception as e:
+        await ctx.send(f"Failed to restart service: {str(e)}")
 
 
 @bot.command()
 @is_allowed_channel(const.helpers_channel_id, const.testing_channel_id, const.tourney_bot_channel_id)
 async def stop(ctx: Context):
     """Stop the bot service."""
-    await ctx.send(f"{ctx.author} requested a stop.  Stopping service...")
+    await ctx.send(f"{ctx.author} requested a stop. Stopping service...")
     user = bot.get_user(const.id_fishy)
-    await user.send(f"Emergency stop command received by {ctx.author}.  Stopping service...")
-    subprocess.run(["systemctl", "stop", "fish_bot"])
+    await user.send(f"Emergency stop command received by {ctx.author}. Stopping service...")
+    try:
+        result = subprocess.run(["systemctl", "stop", "fish_bot"],
+                                capture_output=True,
+                                text=True)
+        if result.returncode != 0:
+            await ctx.send(f"Error stopping service: {result.stderr}")
+    except Exception as e:
+        await ctx.send(f"Failed to stop service: {str(e)}")
 
 
 @bot.command()
