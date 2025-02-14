@@ -13,7 +13,8 @@ id_rolebot = 1117480944153145364
 id_towerbot = 1316458355203772427
 
 # channel ids
-helpers_channel_id = 1006900314588336139
+old_helpers_channel_id = 1006900314588336139
+helpers_channel_id = 1207993776681918494
 meme_channel_id = 1159121488931209328
 role_count_channel_id = 1164883276243140638
 role_log_channel_id = 1128308502130081842
