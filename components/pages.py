@@ -89,7 +89,9 @@ pg = st.navigation(page_dict)
 st.logo("components/static/TT.png", size="large", icon_image="components/static/TTIcon.png")
 
 with st.sidebar:
-    rainenabled = st.toggle("Make it rain?", value=True)
+    if "rain" not in st.session_state:
+        st.session_state.rain = True
+    rainenabled = st.toggle("Make it rain?", key="rain")
 
 if rainenabled:
     makeitrain("❄️", date(2025, 1, 1), date(2025, 1, 26))
