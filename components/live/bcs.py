@@ -9,7 +9,7 @@ tourney_id, tourney_date, days_until = get_tournament_info()
 
 if days_until > 1:
     st.markdown(f"# Next Tournament is on {tourney_date}")
-    st.markdown(f"Too soon to display upcoming battle conditions. Try back on {tourney_date - timedelta(days=1)}")
+    st.markdown(f"Too soon to display upcoming battle conditions. Try back on {tourney_date - timedelta(days=1)}.")
     st.stop()
 elif days_until == 1:
     st.markdown(f"# Next Tournament is on {tourney_date}")
