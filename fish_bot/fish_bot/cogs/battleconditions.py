@@ -18,15 +18,10 @@ class BattleConditions(commands.Cog, name="BattleConditions"):
     def __init__(self, bot):
         self.bot = bot
         self.scheduled_bc_messages.start()
-        print(f'Init next run {self.scheduled_bc_messages.next_iteration}')
         print("Init done.")
 
     def cog_unload(self):
         self.scheduled_bc_messages.cancel()
-
-    # @commands.Cog.listener()
-    # async def on_message(self, message):
-    #     print(f'{message.content}')
 
     @commands.command()
     async def get_tourneyday(self, ctx):
@@ -41,10 +36,7 @@ class BattleConditions(commands.Cog, name="BattleConditions"):
     async def get_battleconditions(self, ctx, league: str = "Legend"):
         tourney_id, tourney_date, days_until = get_tournament_info()
         battleconditions = predict_future_tournament(tourney_id, league)
-        if days_until == 0:
-            message = f"The BCs for today's {league} tourney are:\n"
-        else:
-            message = f"The BCs for the {league} tourney on {tourney_date} are:\n"
+        message = f"The BCs for the {league} tourney on {tourney_date} are:\n"
         for battlecondition in battleconditions:
             message += f"- {battlecondition}\n"
         await ctx.message.delete()
@@ -56,7 +48,7 @@ class BattleConditions(commands.Cog, name="BattleConditions"):
         if days_until == 1:
             for league in ["Legend", "Champion", "Platinum"]:
                 battleconditions = predict_future_tournament(tourney_id)
-                message = f"The BCs for tomorrow's {league} tournament ({tourney_date}) are:\n"
+                message = f"The BCs for the {league} tournament on {tourney_date} are:\n"
                 for battlecondition in battleconditions:
                     message += f"- {battlecondition}\n"
                 channel = self.bot.get_channel(league_threads[league])
