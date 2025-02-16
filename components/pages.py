@@ -88,16 +88,31 @@ pg = st.navigation(page_dict)
 
 st.logo("components/static/TT.png", size="large", icon_image="components/static/TTIcon.png")
 
-with st.sidebar:
-    if "rain" not in st.session_state:
-        st.session_state.rain = True
-    rainenabled = st.toggle("Make it rain?", key="rain")
+# Define the rain periods
+rain_periods = [
+    ("❄️", date(2025, 1, 1), date(2025, 1, 26)),
+    ("💘", date(2025, 2, 13), date(2025, 2, 15)),
+    ("🍀", date(2025, 3, 16), date(2025, 3, 18)),
+    ("💧", date(2025, 4, 3), date(2025, 4, 5))
+]
 
-if rainenabled:
-    makeitrain("❄️", date(2025, 1, 1), date(2025, 1, 26))
-    makeitrain("💘", date(2025, 2, 13), date(2025, 2, 15))
-    makeitrain("🍀", date(2025, 3, 16), date(2025, 3, 18))
-    makeitrain("💧", date(2025, 4, 3), date(2025, 4, 5))
+# Check if current date is within any rain period
+current_date = date.today()
+active_rain_period = None
+for emoji, start_date, end_date in rain_periods:
+    if start_date <= current_date <= end_date:
+        active_rain_period = (emoji, start_date, end_date)
+        break
+
+# Only show toggle and make it rain if we're in a rain period
+if active_rain_period:
+    with st.sidebar:
+        if "rain" not in st.session_state:
+            st.session_state.rain = True
+        rainenabled = st.toggle("Make it rain?", key="rain")
+
+    if rainenabled:
+        makeitrain(*active_rain_period)
 
 
 st.html("""
