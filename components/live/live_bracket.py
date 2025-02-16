@@ -7,7 +7,7 @@ import streamlit as st
 from components.util import get_league_filter, get_options
 
 from dtower.tourney_results.constants import leagues
-from dtower.tourney_results.formatting import BASE_URL
+from dtower.tourney_results.formatting import BASE_URL, make_player_url
 from dtower.tourney_results.tourney_utils import get_live_df
 
 
@@ -135,8 +135,9 @@ def live_bracket():
         ldf.loc[ldf["real_name"].isin(duplicate_names), "real_name"] = ldf[ldf["real_name"].isin(duplicate_names)].apply(
             lambda x: f"{x['real_name']} ({x['player_id']})", axis=1
         )
-    tab.dataframe(ldf[["player_id", "name", "real_name", "wave", "datetime"]])
-
+    tab.write(
+        ldf[["player_id", "name", "real_name", "wave", "datetime"]].style.format(make_player_url, subset=["player_id"]).to_html(escape=False), unsafe_allow_html=True
+    )
     url = f"https://{BASE_URL}/comparison?" + urlencode({"compare": player_ids}, doseq=True)
 
     with open("style.css", "r") as infile:
