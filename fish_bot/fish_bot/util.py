@@ -416,6 +416,9 @@ def is_allowed_channel(*default_channels: int, default_users=None, allow_anywher
     """
     Allow command in specific channels or anywhere for specific users.
 
+    Users in COMMAND_CHANNEL_MAP's default_users can use the command anywhere.
+    Channel-specific users can only use the command in their designated channels.
+
     Args:
         *default_channels: Channel IDs where the command is allowed
         default_users: List of user IDs who can use the command in default channels
@@ -423,7 +426,7 @@ def is_allowed_channel(*default_channels: int, default_users=None, allow_anywher
 
     Example uses:
         @is_allowed_channel(channel_id1, channel_id2)  # Use COMMAND_CHANNEL_MAP config
-        @is_allowed_channel(channel_id1, default_users=[user_id1, user_id2])  # Explicit users
+        @is_allowed_channel(channel_id1, default_users=[user_id1])  # Explicit users
         @is_allowed_channel(default_users=[user_id1], allow_anywhere=True)  # Allow anywhere
     """
     if default_users is None:
@@ -449,15 +452,14 @@ def is_allowed_channel(*default_channels: int, default_users=None, allow_anywher
             channel_id = ctx.channel.id
             user_id = ctx.author.id
 
-            # Check if user is in default_users list from config
+            # Check if user is in default_users list (allowed anywhere)
             config_default_users = set(command_config.get("default_users", []))
-
-            # If user is in default_users and allow_anywhere is True, allow command
-            if user_id in config_default_users and allow_anywhere:
+            if user_id in config_default_users:
                 return await func(ctx, *args, **kwargs)
 
-            # Check channel authorization
+            # If not in default_users, check channel permissions
             allowed_channels = set(command_config["channels"].keys())
+
             if channel_id not in allowed_channels:
                 ctx.bot.logger.warning(
                     f"Command '{full_command}' blocked - wrong channel. "
@@ -466,10 +468,9 @@ def is_allowed_channel(*default_channels: int, default_users=None, allow_anywher
                 )
                 raise ChannelUnauthorized(ctx.channel)
 
-            # Check user authorization
+            # Check if user is allowed in this specific channel
             channel_allowed_users = set(command_config["channels"].get(channel_id, []))
-
-            if not (user_id in channel_allowed_users or user_id in config_default_users):
+            if user_id not in channel_allowed_users:
                 ctx.bot.logger.warning(
                     f"Command '{full_command}' blocked - unauthorized user. "
                     f"User: {ctx.author} (ID: {ctx.author.id}), "
