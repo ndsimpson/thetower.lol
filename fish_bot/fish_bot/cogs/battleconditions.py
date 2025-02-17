@@ -5,7 +5,7 @@ from discord.ext import commands, tasks
 from fish_bot import const
 from fish_bot.util import is_allowed_user
 
-from dtower.tourney_results.bc import predict_future_tournament, get_tournament_info
+from towerbcs.towerbcs import predict_future_tournament, TournamentPredictor
 
 league_threads = {
     "Legend" : const.legend_bc_thread_id,
@@ -25,7 +25,7 @@ class BattleConditions(commands.Cog, name="BattleConditions"):
 
     @commands.command()
     async def get_tourneyday(self, ctx):
-        tourney_id, tourney_date, days_until = get_tournament_info()
+        tourney_id, tourney_date, days_until = TournamentPredictor.get_tournament_info()
         if days_until == 0:
             await ctx.send("The tournament is today!")
         else:
@@ -34,7 +34,7 @@ class BattleConditions(commands.Cog, name="BattleConditions"):
     @commands.command()
     @is_allowed_user(const.id_pog, const.id_fishy)
     async def get_battleconditions(self, ctx, league: str = "Legend"):
-        tourney_id, tourney_date, days_until = get_tournament_info()
+        tourney_id, tourney_date, days_until = TournamentPredictor.get_tournament_info()
         battleconditions = predict_future_tournament(tourney_id, league)
         message = f"The BCs for the {league} tourney on {tourney_date} are:\n"
         for battlecondition in battleconditions:
@@ -44,7 +44,7 @@ class BattleConditions(commands.Cog, name="BattleConditions"):
 
     @tasks.loop(time=datetime.time(hour=0, minute=0))
     async def scheduled_bc_messages(self):
-        tourney_id, tourney_date, days_until = get_tournament_info()
+        tourney_id, tourney_date, days_until = TournamentPredictor.get_tournament_info()
         if days_until == 1:
             for league in ["Legend", "Champion", "Platinum"]:
                 battleconditions = predict_future_tournament(tourney_id)

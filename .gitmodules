@@ -1,0 +1,3 @@
+[submodule "towerbcs"]
+	path = towerbcs
+	url = https://github.com/ndsimpson/thetower.lol-bc-generator.git

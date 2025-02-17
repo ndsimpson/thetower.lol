@@ -269,3 +269,16 @@ def check_all_live_entry(player_id: str):
     t1_stop = perf_counter()
     logging.debug(f"check_all_live_entry({player_id}) took {t1_stop - t1_start}")
     return False
+
+
+def load_battle_conditions() -> MappingProxyType:
+    """
+    Load battle conditions from the database into an immutable dictionary.
+    Returns a read-only dictionary with condition shortcuts as keys and names as values.
+    """
+    BattleCondition = apps.get_model('tourney_results', 'BattleCondition')
+    conditions = {
+        condition.shortcut: condition.name
+        for condition in BattleCondition.objects.all()
+    }
+    return MappingProxyType(conditions)

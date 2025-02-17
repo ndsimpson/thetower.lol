@@ -268,9 +268,9 @@ async def stop(ctx: Context):
 async def pull_git(ctx: Context, method: str = None):
     await ctx.send("Attempting pull...")
     if method == "rebase":
-        response = subprocess.check_output(["git", "pull", "thetower.lol", "main", "rebase"], cwd="/tourney", )
+        response = subprocess.check_output(["git", "pull", "--recurse-submodules", "--rebase"], cwd="/tourney", )
     else:
-        response = subprocess.check_output(["git", "pull", "thetower.lol", "main"], cwd="/tourney", )
+        response = subprocess.check_output(["git", "pull", "--recurse-submodules"], cwd="/tourney", )
     await ctx.send(response.decode("utf-8"))
 
 
