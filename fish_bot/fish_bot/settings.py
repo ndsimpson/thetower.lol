@@ -40,8 +40,8 @@ COMMAND_CHANNEL_MAP = {
             const.helpers_channel_id: [const.id_pog, const.id_fishy],  # These users can use reload in helpers channel
             const.testing_channel_id: [const.id_pog, const.id_fishy],  # These users can use reload in testing channel
         },
-        "default_users": [const.id_pog, const.id_fishy]  # These users can use reload in any allowed channel
     },
+    "default_users": [const.id_pog, const.id_fishy],
     "ServiceControl restart": {
         "channels": {
             const.helpers_channel_id: [const.id_pog, const.id_fishy],
