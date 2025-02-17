@@ -2,7 +2,7 @@
 
 import streamlit as st
 from datetime import timedelta
-from bcs.towerbcs import predict_future_tournament, get_tournament_info
+from towerbcs.towerbcs import predict_future_tournament, get_tournament_info
 
 
 tourney_id, tourney_date, days_until = get_tournament_info()
