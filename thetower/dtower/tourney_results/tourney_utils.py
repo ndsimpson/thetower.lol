@@ -1,17 +1,29 @@
+# Standard library imports
 import datetime
 import logging
 import os
 import re
 from pathlib import Path
 from time import perf_counter
+from types import MappingProxyType
 
+# Third-party imports
+import anthropic
 import pandas as pd
+from django.apps import apps
 from django.db.models import Q
 
+# Local imports
 from dtower.tourney_results.constants import champ, legend, leagues
 from dtower.tourney_results.data import get_player_id_lookup, get_sus_ids
-from dtower.tourney_results.models import Injection, PromptTemplate, TourneyResult, TourneyRow
+from dtower.tourney_results.models import (
+    Injection,
+    PromptTemplate,
+    TourneyResult,
+    TourneyRow,
+)
 
+# Initialize logging
 logging.basicConfig(level=logging.INFO)
 
 
@@ -128,8 +140,6 @@ def get_summary(last_date):
     df2 = get_tourneys(champ_qs, offset=0, limit=50)
 
     df = pd.concat([df1, df2])
-
-    import anthropic
 
     ranking = ""
 
