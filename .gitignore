@@ -18,5 +18,3 @@ secrets
 /.vscode
 .aider*
 .env
-thetower/dtower/tourney_results/bc.py
-thetower/dtower/tourney_results/bc_util.py
