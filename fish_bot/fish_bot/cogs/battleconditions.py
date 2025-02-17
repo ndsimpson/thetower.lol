@@ -5,7 +5,7 @@ from discord.ext import commands, tasks
 from fish_bot import const
 from fish_bot.util import is_allowed_user
 
-from bcs.towerbcs import predict_future_tournament, get_tournament_info
+from towerbcs.towerbcs import predict_future_tournament, get_tournament_info
 
 league_threads = {
     "Legend" : const.legend_bc_thread_id,
