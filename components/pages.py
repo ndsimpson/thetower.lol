@@ -1,12 +1,16 @@
+# Standard library imports
 import os
 from datetime import date
-import django
 
+# Third-party imports
+import django
+import streamlit as st
+
+# Django setup
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "dtower.thetower.settings")
 django.setup()
 
-import streamlit as st
-
+# Local imports
 from dtower.tourney_results.constants import Graph, Options
 from components.util import makeitrain
 
