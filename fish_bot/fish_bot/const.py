@@ -28,6 +28,8 @@ verify_channel_id = 1117867265375879259
 legend_bc_thread_id = 1298434749072932864
 champ_bc_thread_id = 1298434674044960798
 plat_bc_thread_id = 1298434384445181992
+gold_bc_thread_id = 1341841694106058933
+silver_bc_thread_id = 1341841779661606973
 
 # role ids
 verified_role_id = 1119950199209611274

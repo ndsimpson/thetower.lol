@@ -10,7 +10,9 @@ from towerbcs.towerbcs import predict_future_tournament, TournamentPredictor
 league_threads = {
     "Legend" : const.legend_bc_thread_id,
     "Champion" : const.champ_bc_thread_id,
-    "Platinum" : const.plat_bc_thread_id
+    "Platinum" : const.plat_bc_thread_id,
+    "Gold" : const.gold_bc_thread_id,
+    "Silver" : const.silver_bc_thread_id
 }
 
 
@@ -39,14 +41,18 @@ class BattleConditions(commands.Cog, name="BattleConditions"):
         message = f"The BCs for the {league} tourney on {tourney_date} are:\n"
         for battlecondition in battleconditions:
             message += f"- {battlecondition}\n"
-        await ctx.message.delete()
+        try:
+            await ctx.message.delete()
+        except Exception as e:
+            print(e)
+            pass
         await ctx.send(message)
 
     @tasks.loop(time=datetime.time(hour=0, minute=0))
     async def scheduled_bc_messages(self):
         tourney_id, tourney_date, days_until = TournamentPredictor.get_tournament_info()
         if days_until == 1:
-            for league in ["Legend", "Champion", "Platinum"]:
+            for league in ["Legend", "Champion", "Platinum", "Gold", "Silver"]:
                 battleconditions = predict_future_tournament(tourney_id)
                 message = f"The BCs for the {league} tournament on {tourney_date} are:\n"
                 for battlecondition in battleconditions:
