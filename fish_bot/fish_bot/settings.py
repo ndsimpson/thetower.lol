@@ -25,6 +25,7 @@ monitored_roles = {
 
 restartable_services = {
     "discord_bot",
+    "fish_bot",
     "verification_bot",
     "tower-admin_site",
     "tower-hidden_site",

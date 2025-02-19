@@ -231,23 +231,6 @@ async def servicerestart(ctx, servicename):
 
 @bot.command()
 @is_allowed_channel(const.helpers_channel_id, const.testing_channel_id, const.tourney_bot_channel_id)
-async def restart(ctx: Context, method: str = None):
-    """Restart the bot service."""
-    await ctx.send("Restarting service...")
-    try:
-        result = subprocess.run(["systemctl", "restart", "fish_bot"],
-                                capture_output=True,
-                                text=True)
-        if result.returncode == 0:
-            await ctx.send("Bot service restart initiated successfully")
-        else:
-            await ctx.send(f"Error restarting bot service: {result.stderr}")
-    except Exception as e:
-        await ctx.send(f"Failed to restart service: {str(e)}")
-
-
-@bot.command()
-@is_allowed_channel(const.helpers_channel_id, const.testing_channel_id, const.tourney_bot_channel_id)
 async def stop(ctx: Context):
     """Stop the bot service."""
     await ctx.send(f"{ctx.author} requested a stop. Stopping service...")
