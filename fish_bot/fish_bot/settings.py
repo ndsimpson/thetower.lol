@@ -58,6 +58,7 @@ COMMAND_CHANNEL_MAP = {
     "ServiceControl restart": {
         "channels": {
             const.helpers_channel_id: [const.id_pog, const.id_fishy],
+            const.testing_channel_id: [const.id_pog, const.id_fishy],
         },
         "default_users": []
     }
