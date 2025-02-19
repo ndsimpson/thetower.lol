@@ -204,14 +204,14 @@ async def reload(ctx: Context, cog):
     await load(ctx, cog)
 
 
-@bot.group(name="ServiceControl")
+@bot.group(name="servicecontrol")
 @is_allowed_channel(const.helpers_channel_id, const.testing_channel_id, const.tourney_bot_channel_id)
-async def ServiceControl(ctx):
+async def servicecontrol(ctx):
     if ctx.invoked_subcommand is None:
         await ctx.send("Invalid command passed...")
 
 
-@ServiceControl.command(name="restart")
+@servicecontrol.command(name="restart")
 async def servicerestart(ctx, servicename):
     if servicename in settings.restartable_services:
         await ctx.send(f"Restarting {servicename}")
