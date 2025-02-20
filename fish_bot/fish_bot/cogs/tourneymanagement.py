@@ -52,7 +52,10 @@ class TourneyManagement(commands.Cog):
 
         # Format conditions into string
         conditions_str = ", ".join([c.name for c in conditions]) if conditions else "None"
-
+        try:
+            tourneysummary = 'Yes' if tournament.summary else 'No'
+        except AttributeError:
+            tourneysummary = 'No'
         # Create and send response
         response = (
             f"__**Tournament #{tournament.id}**__\n"
@@ -60,7 +63,7 @@ class TourneyManagement(commands.Cog):
             f"League: {tournament.league}\n"
             f"Participants: {rows_count}\n"
             f"Battle Conditions: {conditions_str}\n"
-            f"Summary generated: {'Yes' if tournament.summary else 'No'}\n"
+            f"Summary generated: {tourneysummary}\n"
             f"Public: {'Yes' if tournament.public else 'No'}"
         )
         await ctx.send(response)
