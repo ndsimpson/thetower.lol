@@ -10,6 +10,10 @@ from dtower.tourney_results.models import TourneyResult, BattleCondition
 from dtower.tourney_results.tourney_utils import get_summary
 
 from fish_bot.settings import prefix
+from fish_bot.util import is_allowed_channel, UserUnauthorized, ChannelUnauthorized
+from fish_bot import const
+
+from discord.ext import commands
 
 # Django setup
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "dtower.thetower.settings")
@@ -22,11 +26,14 @@ class TourneyManagement(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
-    @commands.group(name="tourney", description="Tournament management commands")
+    @commands.group(name="tourney", invoke_without_command=True)
+    @is_allowed_channel(const.website_channel_id, const.helpers_channel_id, const.testing_channel_id)
     async def tourney(self, ctx):
         """Command group for managing tournament data"""
         if ctx.invoked_subcommand is None:
-            await ctx.send("Available subcommands: ")
+            # List all available subcommands
+            commands_list = [command.name for command in self.tourney.commands]
+            await ctx.send(f"Available subcommands: {', '.join(commands_list)}")
 
     @tourney.command(name="viewpending",
                      description="View the pending tournaments waiting for publication"

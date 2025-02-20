@@ -23,6 +23,7 @@ top50_channel_id = 903354378403065949
 testing_channel_id = 930105733998080062
 tourney_bot_channel_id = 1291839463600816179
 verify_channel_id = 1117867265375879259
+website_channel_id = 1299774861908115559
 
 # thread ids
 legend_bc_thread_id = 1298434749072932864
