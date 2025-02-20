@@ -127,7 +127,7 @@ class BattleCondition(models.Model):
     shortcut = models.CharField(max_length=8, null=False, blank=False, help_text="Shortcut of the condition.")
 
     def __str__(self):
-        return f"BC: {self.name} ({self.shortcut})"
+        return f"{self.name} ({self.shortcut})"
 
 
 class TourneyResult(models.Model):
