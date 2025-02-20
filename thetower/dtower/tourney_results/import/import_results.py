@@ -18,8 +18,10 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 
 from dtower.tourney_results.constants import leagues
 from dtower.tourney_results.get_results import get_file_name, get_last_date
-from dtower.tourney_results.models import TourneyResult
+from dtower.tourney_results.models import TourneyResult, BattleCondition
 from dtower.tourney_results.tourney_utils import create_tourney_rows
+from towerbcs.towerbcs import predict_future_tournament, TournamentPredictor
+
 
 logging.basicConfig(level=logging.INFO)
 
@@ -45,6 +47,9 @@ def execute():
 
         last_file = last_files[-1]
 
+        tourney_id, tourney_date, days_until = TournamentPredictor.get_tournament_info(datetime.datetime.strptime(last_date, "%Y-%m-%d"))
+        conditions = predict_future_tournament(tourney_id, league)
+
         try:
             with open(last_file, "rb") as infile:
                 contents = infile.read()
@@ -66,7 +71,8 @@ def execute():
                 result_file=csv_file,
             ),
         )
-
+        condition_ids = BattleCondition.objects.filter(name__in=conditions).values_list('id', flat=True)
+        result.conditions.set(condition_ids)
         create_tourney_rows(result)
 
 
