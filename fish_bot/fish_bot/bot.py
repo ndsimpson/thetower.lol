@@ -1,25 +1,62 @@
+# Standard library imports
+import asyncio
+import json
 import logging
 import os
-import sys
 import subprocess
-import json
+import sys
+import time
 from collections import defaultdict
 
+# Third-party imports
 import discord
 from discord.ext import commands
 from discord.ext.commands import Context
+from watchdog.observers import Observer
+from watchdog.events import FileSystemEventHandler
 
+# Local imports
 from fish_bot import const, settings
 from fish_bot.util import is_allowed_channel, UserUnauthorized, ChannelUnauthorized
 
+# Set up logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
+# Discord setup
 intents = discord.Intents.default()
 intents.presences = True
 intents.message_content = True
 intents.members = True
 
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+
+class CogFileHandler(FileSystemEventHandler):
+    def __init__(self, bot):
+        self.bot = bot
+        self.last_reload = {}  # Track last reload time per cog
+
+    async def reload_cog(self, cog_name):
+        try:
+            # Check if enough time has passed since last reload
+            current_time = time.time()
+            if cog_name in self.last_reload:
+                if current_time - self.last_reload[cog_name] < 1:  # 1 second cooldown
+                    return
+
+            self.last_reload[cog_name] = current_time
+            await self.bot.reload_extension(f"cogs.{cog_name}")
+            print(f"🔄 Auto-reloaded cog: {cog_name}")
+        except Exception as e:
+            print(f"❌ Failed to auto-reload {cog_name}: {e}")
+
+    def on_modified(self, event):
+        if event.src_path.endswith('.py'):
+            cog_name = os.path.splitext(os.path.basename(event.src_path))[0]
+            if cog_name in self.bot.loaded_cogs:
+                asyncio.run_coroutine_threadsafe(
+                    self.reload_cog(cog_name),
+                    self.bot.loop
+                )
 
 
 class DiscordBot(commands.Bot):
@@ -67,6 +104,22 @@ class DiscordBot(commands.Bot):
         self.logger.info(f"Logged in as {self.user} (ID: {self.user.id})")
         self.logger.info("------")
         await self.load_cogs()
+
+        # Setup file monitoring
+        cogs_path = f"{os.path.realpath(os.path.dirname(__file__))}/cogs"
+        event_handler = CogFileHandler(self)
+        observer = Observer()
+        observer.schedule(event_handler, path=cogs_path, recursive=False)
+        observer.start()
+        self.logger.info("Started monitoring cog files for changes")
+
+    async def close(self):
+        # Stop the file observer if it exists
+        if hasattr(self, '_observer'):
+            self._observer.stop()
+            self._observer.join()
+        await self.async_cleanup()
+        await super().close()
 
     async def on_command_error(self, context: Context, error) -> None:
         if isinstance(error, commands.NotOwner):
@@ -123,10 +176,6 @@ class DiscordBot(commands.Bot):
 
     async def async_cleanup(self):
         print("Cleaning up!")
-
-    async def close(self):
-        await self.async_cleanup()
-        await super().close()
 
     async def on_ready(self):
         print("on_ready")
