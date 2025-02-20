@@ -47,7 +47,7 @@ def execute():
 
         last_file = last_files[-1]
 
-        tourney_id, tourney_date, days_until = TournamentPredictor.get_tournament_info(datetime.datetime.strptime(last_date, "%Y-%m-%d"))
+        tourney_id, tourney_date, days_until = TournamentPredictor.get_tournament_info(last_date)
         conditions = predict_future_tournament(tourney_id, league)
 
         try:
