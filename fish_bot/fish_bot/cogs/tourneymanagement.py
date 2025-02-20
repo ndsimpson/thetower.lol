@@ -152,7 +152,7 @@ class TourneyManagement(commands.Cog):
             summary = await sync_to_async(get_summary)(tournament.date)
 
             # Save the summary to the tournament
-            tournament.summary = summary
+            tournament.overview = summary
             await sync_to_async(tournament.save)()
 
             await ctx.send(f"Summary generated for Tournament #{id}!")
