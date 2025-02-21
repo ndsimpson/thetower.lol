@@ -166,6 +166,16 @@ async def get_all_members(
     return processed, failed
 
 
+async def send_paginated_message(ctx, content, chunk_size=1900):
+    """Helper for sending long messages in chunks"""
+    chunks = [content[i:i + chunk_size] for i in range(0, len(content), chunk_size)]
+    for i, chunk in enumerate(chunks, 1):
+        if len(chunks) > 1:
+            await ctx.send(f"```Part {i}/{len(chunks)}:\n{chunk}\n```")
+        else:
+            await ctx.send(f"```\n{chunk}\n```")
+
+
 def _create_member_dict(member: Member) -> Dict[str, Any]:
     """Create a standardized member dictionary."""
     return {
