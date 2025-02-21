@@ -34,6 +34,7 @@ class CogFileHandler(FileSystemEventHandler):
     def __init__(self, bot):
         self.bot = bot
         self.last_reload = {}  # Track last reload time per cog
+        self.logger = logging.getLogger(__name__)
 
     async def reload_cog(self, cog_name):
         try:
@@ -45,9 +46,9 @@ class CogFileHandler(FileSystemEventHandler):
 
             self.last_reload[cog_name] = current_time
             await self.bot.reload_extension(f"cogs.{cog_name}")
-            print(f"🔄 Auto-reloaded cog: {cog_name}")
+            self.logger.info(f"🔄 Auto-reloaded cog: {cog_name}")
         except Exception as e:
-            print(f"❌ Failed to auto-reload {cog_name}: {e}")
+            self.logger.error(f"❌ Failed to auto-reload {cog_name}: {e}")
 
     def on_modified(self, event):
         if event.src_path.endswith('.py'):
