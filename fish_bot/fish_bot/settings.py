@@ -34,32 +34,3 @@ restartable_services = {
     "get_results_live",
     "import_results"
 }
-
-COMMAND_CHANNEL_MAP = {
-    "reload": {
-        "channels": {
-            const.helpers_channel_id: [const.id_pog, const.id_fishy],  # These users can use reload in helpers channel
-            const.testing_channel_id: [const.id_pog, const.id_fishy],  # These users can use reload in testing channel
-        },
-    },
-    "load": {
-        "channels": {
-            const.helpers_channel_id: [const.id_pog, const.id_fishy],
-            const.testing_channel_id: [const.id_pog, const.id_fishy],
-        },
-    },
-    "unload": {
-        "channels": {
-            const.helpers_channel_id: [const.id_pog, const.id_fishy],
-            const.testing_channel_id: [const.id_pog, const.id_fishy],
-        },
-    },
-    "default_users": [const.id_pog, const.id_fishy],
-    "servicecontrol": {
-        "channels": {
-            const.helpers_channel_id: [const.id_pog, const.id_fishy],
-            const.testing_channel_id: [const.id_pog, const.id_fishy],
-        },
-        "default_users": []
-    }
-}
