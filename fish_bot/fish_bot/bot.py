@@ -198,7 +198,6 @@ bot = DiscordBot()
 
 
 @bot.command()
-@is_allowed_channel(const.helpers_channel_id, const.testing_channel_id, const.tourney_bot_channel_id)
 async def list_modules(ctx: Context):
     """Lists all cogs and their status of loading."""
     cog_list = commands.Paginator(prefix='', suffix='')
@@ -214,7 +213,6 @@ async def list_modules(ctx: Context):
 
 
 @bot.command()
-@is_allowed_channel(const.helpers_channel_id, const.testing_channel_id, const.tourney_bot_channel_id)
 async def load(ctx: Context, cog):
     """Try and load the selected cog."""
     if cog not in bot.unloaded_cogs:
@@ -236,7 +234,6 @@ async def load(ctx: Context, cog):
 
 
 @bot.command()
-@is_allowed_channel(const.helpers_channel_id, const.testing_channel_id, const.tourney_bot_channel_id)
 async def unload(ctx: Context, cog):
     if cog not in bot.loaded_cogs:
         return await ctx.send('💢 Module not loaded.')
@@ -247,15 +244,12 @@ async def unload(ctx: Context, cog):
 
 
 @bot.command()
-@is_allowed_channel(const.helpers_channel_id, const.testing_channel_id,
-                    default_users=[const.id_pog, const.id_fishy])
 async def reload(ctx: Context, cog):
     await unload(ctx, cog)
     await load(ctx, cog)
 
 
 @bot.group(name="servicecontrol")
-@is_allowed_channel(const.helpers_channel_id, const.testing_channel_id, const.tourney_bot_channel_id)
 async def servicecontrol(ctx):
     if ctx.invoked_subcommand is None:
         await ctx.send("Invalid command passed...")
@@ -280,7 +274,6 @@ async def servicerestart(ctx, servicename):
 
 
 @bot.command()
-@is_allowed_channel(const.helpers_channel_id, const.testing_channel_id, const.tourney_bot_channel_id)
 async def stop(ctx: Context):
     """Stop the bot service."""
     await ctx.send(f"{ctx.author} requested a stop. Stopping service...")
