@@ -6,14 +6,12 @@ import django
 from discord.ext import commands
 from asgiref.sync import sync_to_async
 
-from dtower.tourney_results.models import TourneyResult, BattleCondition
+from dtower.tourney_results.models import TourneyResult
 from dtower.tourney_results.tourney_utils import get_summary
 
 from fish_bot.settings import prefix
-from fish_bot.util import is_allowed_channel, UserUnauthorized, ChannelUnauthorized
+from fish_bot.util import is_allowed_channel, send_paginated_message
 from fish_bot import const
-
-from discord.ext import commands
 
 # Django setup
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "dtower.thetower.settings")
@@ -117,20 +115,8 @@ class TourneyManagement(commands.Cog):
             if not tournament.summary:
                 raise AttributeError
 
-            # Split long summaries into chunks of 1900 characters (leaving room for code block formatting)
-            chunk_size = 1900
-            summary_chunks = [tournament.summary[i:i + chunk_size]
-                              for i in range(0, len(tournament.summary), chunk_size)]
-
-            # Send header message
-            await ctx.send(f"__**Summary for Tournament #{id}**__ ({len(summary_chunks)} parts)")
-
-            # Send each chunk as a separate message
-            for i, chunk in enumerate(summary_chunks, 1):
-                if len(summary_chunks) > 1:
-                    await ctx.send(f"```Part {i}/{len(summary_chunks)}:\n{chunk}\n```")
-                else:
-                    await ctx.send(f"```\n{chunk}\n```")
+            header = f"__**Summary for Tournament #{id}**__"
+            await send_paginated_message(ctx, tournament.summary, header=header)
 
         except TourneyResult.DoesNotExist:
             await ctx.send(f"Error: Tournament #{id} not found!")
@@ -156,17 +142,7 @@ class TourneyManagement(commands.Cog):
             await sync_to_async(tournament.save)()
 
             await ctx.send(f"Summary generated for Tournament #{id}!")
-
-            # Split long summaries into chunks of 1900 characters (leaving room for code block formatting)
-            chunk_size = 1900
-            summary_chunks = [summary[i:i + chunk_size] for i in range(0, len(summary), chunk_size)]
-
-            # Send each chunk as a separate message
-            for i, chunk in enumerate(summary_chunks, 1):
-                if len(summary_chunks) > 1:
-                    await ctx.send(f"```Part {i}/{len(summary_chunks)}:\n{chunk}\n```")
-                else:
-                    await ctx.send(f"```\n{chunk}\n```")
+            await send_paginated_message(ctx, summary)
 
         except TourneyResult.DoesNotExist:
             await ctx.send(f"Error: Tournament #{id} not found!")
