@@ -54,7 +54,7 @@ class BattleConditions(commands.Cog, name="BattleConditions"):
         if days_until == 1:
             for league in ["Legend", "Champion", "Platinum", "Gold", "Silver"]:
                 battleconditions = predict_future_tournament(tourney_id)
-                message = f"The BCs for the {league} tournament on {tourney_date} are:\n"
+                message = f"The BCs for the {league.title()} tournament on {tourney_date} are:\n"
                 for battlecondition in battleconditions:
                     message += f"- {battlecondition}\n"
                 channel = self.bot.get_channel(league_threads[league])
