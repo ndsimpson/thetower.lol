@@ -5,7 +5,7 @@ import os
 import sys
 from asyncio import sleep
 from enum import Enum, auto
-from functools import partial, wraps
+from functools import partial
 from typing import Any, Dict, List, Optional, Set, Union
 
 # Third-party imports
@@ -18,11 +18,7 @@ from discord import (
     Member,
     NotFound,
     Role,
-    TextChannel,
-    User
 )
-from discord.ext import commands
-from discord.ext.commands import Context, check
 
 
 def init_django() -> None:
@@ -43,7 +39,8 @@ init_django()
 # Local application imports
 from dtower.sus.models import KnownPlayer, SusPerson
 from dtower.tourney_results.models import PatchNew as Patch
-from fish_bot import const, settings
+from fish_bot import const
+from fish_bot.utils import ConfigManager
 
 
 @lru_cache(maxsize=1)
@@ -116,10 +113,14 @@ async def get_all_members(
     logger = logging.getLogger(__name__)
     log_level = logging.INFO if verbose else logging.DEBUG
 
+    # Get memberlimit from config
+    config = ConfigManager()
+    member_limit = config["memberlimit"]
+
     logger.log(log_level, f"Starting fetch of {total_members} members...")
 
     try:
-        async for member in guild.fetch_members(limit=settings.memberlimit):
+        async for member in guild.fetch_members(limit=member_limit):
             current_batch += 1
 
             for attempt in range(retry_attempts):
@@ -422,125 +423,6 @@ async def get_latest_patch() -> Patch:
 """Custom discord predicates"""
 
 
-def is_allowed_channel(*default_channels: int, default_users=None, allow_anywhere=False):
-    """
-    Allow command in specific channels or anywhere for specific users.
-
-    Users in COMMAND_CHANNEL_MAP's default_users can use the command anywhere.
-    Channel-specific users can only use the command in their designated channels.
-
-    Args:
-        *default_channels: Channel IDs where the command is allowed
-        default_users: List of user IDs who can use the command in default channels
-        allow_anywhere: If True, specified users can use command in any channel
-
-    Example uses:
-        @is_allowed_channel(channel_id1, channel_id2)  # Use COMMAND_CHANNEL_MAP config
-        @is_allowed_channel(channel_id1, default_users=[user_id1])  # Explicit users
-        @is_allowed_channel(default_users=[user_id1], allow_anywhere=True)  # Allow anywhere
-    """
-    if default_users is None:
-        default_users = []
-
-    def decorator(func):
-        @wraps(func)
-        async def wrapper(ctx: Context, *args, **kwargs):
-            command_name = ctx.command.name
-            command_parent = ctx.command.parent
-            full_command = f"{command_parent.name} {command_name}" if command_parent else command_name
-
-            # Get command config from settings
-            command_config = settings.COMMAND_CHANNEL_MAP.get(full_command)
-
-            # If no config exists, create default config
-            if not command_config:
-                command_config = {
-                    "channels": {chan: list(default_users) for chan in default_channels},
-                    "default_users": list(default_users)
-                }
-
-            channel_id = ctx.channel.id
-            user_id = ctx.author.id
-
-            # Check if user is in default_users list (allowed anywhere)
-            config_default_users = set(command_config.get("default_users", []))
-            if user_id in config_default_users:
-                return await func(ctx, *args, **kwargs)
-
-            # If not in default_users, check channel permissions
-            allowed_channels = set(command_config["channels"].keys())
-
-            if channel_id not in allowed_channels:
-                ctx.bot.logger.warning(
-                    f"Command '{full_command}' blocked - wrong channel. "
-                    f"User: {ctx.author} (ID: {ctx.author.id}), "
-                    f"Channel: {ctx.channel} (ID: {ctx.channel.id})"
-                )
-                raise ChannelUnauthorized(ctx.channel)
-
-            # Check if user is allowed in this specific channel
-            channel_allowed_users = set(command_config["channels"].get(channel_id, []))
-            if user_id not in channel_allowed_users:
-                ctx.bot.logger.warning(
-                    f"Command '{full_command}' blocked - unauthorized user. "
-                    f"User: {ctx.author} (ID: {ctx.author.id}), "
-                    f"Channel: {ctx.channel} (ID: {ctx.channel.id})"
-                )
-                raise UserUnauthorized(ctx.author)
-
-            return await func(ctx, *args, **kwargs)
-
-        return wrapper
-    return decorator
-
-
-def is_allowed_user(*users):
-    """Check if the user id is in the list of allowed users."""
-    async def predicate(ctx: Context):
-        if ctx.author.id not in users:
-            ctx.bot.logger.warning(f"Unauthorized user attempt: {ctx.author} (ID: {ctx.author.id})")
-            raise UserUnauthorized(ctx.author)
-        return True
-    return check(predicate)
-
-
-def is_guild_owner():
-    """
-    Check if the user is the guild owner.
-    Must be used in guild context.
-
-    Raises:
-        CommandError: If used outside guild or author/owner not found
-        UserUnauthorized: If user is not guild owner
-        HTTPException: If Discord API request fails
-    """
-    async def predicate(ctx: Context):
-        if not ctx.guild:
-            raise commands.CommandError("This command can only be used in a guild")
-
-        if not ctx.author:
-            raise commands.CommandError("Could not determine command author")
-
-        try:
-            # Fetch guild to ensure we have latest owner info
-            guild = await ctx.guild.fetch()
-
-            if ctx.author != guild.owner:
-                ctx.bot.logger.warning(
-                    f"Non-owner command attempt: {ctx.author} "
-                    f"(ID: {ctx.author.id})"
-                )
-                raise UserUnauthorized(ctx.author)
-
-            return True
-
-        except HTTPException as e:
-            ctx.bot.logger.error(f"Failed to fetch guild info: {e}")
-            raise commands.CommandError("Unable to verify guild ownership") from e
-
-    return check(predicate)
-
-
 def is_channel(channel, id_):
     """Check if the channel id is the same as the given id."""
     return channel.id == id_
@@ -665,43 +547,3 @@ def convert_size(size_bytes: Union[int, float]) -> str:
     except (ValueError, OverflowError, ZeroDivisionError):
         # Fallback for any calculation errors
         return f"{size_bytes}B"
-
-
-class ChannelUnauthorized(commands.CommandError):
-    """
-    Exception raised when a channel is not authorized to use a command.
-
-    Attributes:
-        channel: The unauthorized Discord channel
-        message: Optional custom error message
-    """
-
-    def __init__(self, channel: TextChannel, message: Optional[str] = None) -> None:
-        self.channel = channel
-        # Handle case where channel attributes might be inaccessible
-        channel_name = getattr(channel, 'name', 'Unknown')
-        self.message = message or f"Channel {channel_name} (ID: {channel.id}) is not authorized"
-        super().__init__(self.message)
-
-    def __str__(self) -> str:
-        return self.message
-
-
-class UserUnauthorized(commands.CommandError):
-    """
-    Exception raised when a user is not authorized to use a command.
-
-    Attributes:
-        user: The unauthorized Discord user/member
-        message: Optional custom error message
-    """
-
-    def __init__(self, user: Union[Member, User], message: Optional[str] = None) -> None:
-        self.user = user
-        # Handle users without discriminator (Discord change)
-        display_name = getattr(user, 'global_name', None) or user.name
-        self.message = message or f"User {display_name} (ID: {user.id}) is not authorized"
-        super().__init__(self.message)
-
-    def __str__(self) -> str:
-        return self.message
