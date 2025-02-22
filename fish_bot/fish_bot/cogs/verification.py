@@ -1,6 +1,5 @@
 from functools import partial
 from discord.ext import commands
-from fish_bot import const
 from fish_bot.util import is_channel
 from fish_bot.basecog import BaseCog
 
@@ -23,9 +22,9 @@ class Verification(BaseCog, name="Verification"):
         Validates that the message contains a player ID (13-16 characters)
         and an attachment. Adds 👍🏼 if valid, 👎🏼 if invalid.
         """
-        is_player_id_please_channel = partial(is_channel, id_=const.verify_channel_id)
+        is_player_id_please_channel = partial(is_channel, id_=self.config.get_channel_id("helpers"))
         try:
-            if is_player_id_please_channel(message.channel) and message.author.id != const.id_towerbot:
+            if is_player_id_please_channel(message.channel) and message.author.id != self.config.get_bot_id("towerbot"):
                 if len(message.content) > 13 and len(message.content) < 17 and message.attachments:
                     await message.add_reaction("👍🏼")
                 else:
