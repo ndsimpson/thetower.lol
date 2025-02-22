@@ -183,7 +183,7 @@ def compute_player_lookup():
 
     if is_support_flagged(player_id):
         if not hidden_features:
-            st.error(f"No results found for the player {player_id}. Error: 102")
+            st.error(f"No results found for the player {player_id}.")
             return
 
     if not rows:
@@ -494,12 +494,14 @@ def handle_colors_dependant_on_patch(patch, player_df):
 
 def handle_sus_or_banned_ids(info_tab, player_id):
     if hidden_features:
-        if is_shun(player_id):
-            info_tab.warning("This player is currently shunned.")
+        if is_support_flagged(player_id):
+            info_tab.warning("This player is currently banned.")
         elif is_sus(player_id):
             info_tab.warning("This player is currently sussed.")
+        elif is_shun(player_id):
+            info_tab.warning("This player is currently shunned.")
         elif is_under_review(player_id):
-            info_tab.warning("This player is under review by the Support team.")
+            info_tab.warning("This player is under review.")
 
 
 compute_player_lookup()

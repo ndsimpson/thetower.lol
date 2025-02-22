@@ -350,7 +350,7 @@ def is_under_review(player_id: str):
 
 
 def is_support_flagged(player_id: str):
-    return SusPerson.objects.filter(player_id=player_id, sus=True).exists() | SusPerson.objects.filter(player_id=player_id, soft_banned=True).exists() | SusPerson.objects.filter(player_id=player_id, banned=True).exists()
+    return SusPerson.objects.filter(player_id=player_id, soft_banned=True).exists() | SusPerson.objects.filter(player_id=player_id, banned=True).exists()
 
 
 def is_shun(player_id: str):
