@@ -2,7 +2,6 @@ import subprocess
 from discord.ext import commands
 from discord.ext.commands import Context
 from fish_bot.basecog import BaseCog
-from fish_bot import const
 
 
 class ServiceControl(BaseCog, name="Service Control"):
@@ -53,7 +52,7 @@ class ServiceControl(BaseCog, name="Service Control"):
     async def stop(self, ctx: Context):
         """Stop the bot service."""
         await ctx.send(f"{ctx.author} requested a stop. Stopping service...")
-        user = self.bot.get_user(const.id_fishy)
+        user = self.bot.get_user(self.config.get_user_id("fishy"))
         await user.send(f"Emergency stop command received by {ctx.author}. Stopping service...")
         try:
             result = subprocess.run(

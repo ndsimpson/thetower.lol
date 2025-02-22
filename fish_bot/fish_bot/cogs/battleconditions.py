@@ -2,17 +2,19 @@ import datetime
 
 from discord.ext import commands, tasks
 
-from fish_bot import const
 from fish_bot.basecog import BaseCog
+from fish_bot.utils import ConfigManager  # TODO: Remove this import and transition to self.config
 
 from towerbcs.towerbcs import predict_future_tournament, TournamentPredictor
 
+config = ConfigManager()
+
 league_threads = {
-    "Legend" : const.legend_bc_thread_id,
-    "Champion" : const.champ_bc_thread_id,
-    "Platinum" : const.plat_bc_thread_id,
-    "Gold" : const.gold_bc_thread_id,
-    "Silver" : const.silver_bc_thread_id
+    "Legend" : config.get_thread_id("battleconditions", "legend"),
+    "Champion" : config.get_thread_id("battleconditions", "champion"),
+    "Platinum" : config.get_thread_id("battleconditions", "platinum"),
+    "Gold" : config.get_thread_id("battleconditions", "gold"),
+    "Silver" : config.get_thread_id("battleconditions", "silver")
 }
 
 
