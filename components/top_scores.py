@@ -6,7 +6,7 @@ from dtower.tourney_results.constants import Graph, Options, how_many_results_pu
 from dtower.tourney_results.data import get_patches, get_sus_ids, load_tourney_results
 from dtower.tourney_results.formatting import color_position__top, make_player_url
 
-patches = sorted([patch for patch in get_patches() if patch.version_minor], key=lambda patch: patch.start_date, reverse=True)
+patches = sorted([patch for patch in get_patches() if patch.version_minor and patch.version_minor < 25], key=lambda patch: patch.start_date, reverse=True)
 
 
 def compute_top(df, options: Options):

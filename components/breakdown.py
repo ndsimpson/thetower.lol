@@ -10,7 +10,7 @@ from dtower.tourney_results.constants import Options, champ, how_many_results_hi
 from dtower.tourney_results.data import get_patches, get_sus_ids, load_tourney_results
 from dtower.tourney_results.models import TourneyResult
 
-patches = sorted([patch for patch in get_patches() if patch.version_minor], key=lambda patch: patch.start_date, reverse=True)
+patches = sorted([patch for patch in get_patches() if patch.version_minor and patch.version_minor < 25], key=lambda patch: patch.start_date, reverse=True)
 
 
 def compute_breakdown(options: Optional[Options] = None) -> None:

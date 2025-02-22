@@ -31,7 +31,7 @@ def compute_fallen_defenders(df):
             last_date = pdf.date.max()
             last_seen = last_date - today
 
-            if last_seen < datetime.timedelta(days=-14):
+            if last_seen < datetime.timedelta(days=-14) and pdf.position.min() > 0:
                 best_wave = pdf.wave.max()
                 wave_color = pdf[pdf.wave == best_wave].wave_role_color.iloc[0]
                 best_position = pdf.position.min()
