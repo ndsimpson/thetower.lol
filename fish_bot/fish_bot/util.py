@@ -39,20 +39,22 @@ init_django()
 # Local application imports
 from dtower.sus.models import KnownPlayer, SusPerson
 from dtower.tourney_results.models import PatchNew as Patch
-from fish_bot import const
 from fish_bot.utils import ConfigManager
+
+config = ConfigManager()
 
 
 @lru_cache(maxsize=1)
 async def get_tower(client: Client) -> Guild:
     """Fetch and cache the guild instance."""
+    guild_id = config.get_guild_id()
     try:
-        guild = await client.fetch_guild(const.guild_id)
+        guild = await client.fetch_guild(guild_id)
         logging.debug(f"Guild cached: {guild.name} (ID: {guild.id})")
         return guild
     except NotFound:
-        logging.error(f"Guild not found: ID {const.guild_id}")
-        raise RuntimeError(f"Could not find guild with ID {const.guild_id}")
+        logging.error(f"Guild not found: ID {guild_id}")
+        raise RuntimeError(f"Could not find guild with ID {guild_id}")
     except HTTPException as e:
         logging.error(f"Failed to fetch guild: {e}")
         raise RuntimeError(f"Failed to fetch guild: {e}") from e
@@ -63,10 +65,11 @@ async def get_verified_role(client: Client) -> Role:
     """Fetch and cache the verified role."""
     try:
         guild = await get_tower(client)
-        role = guild.get_role(const.verified_role_id)
+        verified_role = config.get_role_id("verified")
+        role = guild.get_role(verified_role)
         if role is None:
-            logging.error(f"Verified role not found: ID {const.verified_role_id}")
-            raise RuntimeError(f"Could not find verified role with ID {const.verified_role_id}")
+            logging.error(f"Verified role not found: ID {verified_role}")
+            raise RuntimeError(f"Could not find verified role with ID {verified_role}")
         logging.debug(f"Role cached: {role.name} (ID: {role.id})")
         return role
     except Exception as e:
@@ -428,12 +431,12 @@ def is_channel(channel, id_):
     return channel.id == id_
 
 
-is_top1_channel = partial(is_channel, id_=const.top1_channel_id)
-is_top50_channel = partial(is_channel, id_=const.top50_channel_id)
-is_meme_channel = partial(is_channel, id_=const.meme_channel_id)
-is_testing_channel = partial(is_channel, id_=const.testing_channel_id)
-is_helpers_channel = partial(is_channel, id_=const.helpers_channel_id)
-is_player_id_please_channel = partial(is_channel, id_=const.verify_channel_id)
+is_top1_channel = partial(is_channel, id_=config.get_channel_id("top1"))
+is_top50_channel = partial(is_channel, id_=config.get_channel_id("top50"))
+is_meme_channel = partial(is_channel, id_=config.get_channel_id("meme"))
+is_testing_channel = partial(is_channel, id_=config.get_channel_id("testing"))
+is_helpers_channel = partial(is_channel, id_=config.get_channel_id("helpers"))
+is_player_id_please_channel = partial(is_channel, id_=config.get_channel_id("verify"))
 
 
 ## Bot memory check utilities
