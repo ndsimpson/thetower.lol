@@ -139,3 +139,34 @@ class ConfigManager(BaseFileMonitor):
             ConfigFileHandler(self),
             recursive=False
         )
+
+    def get_guild_id(self) -> int:
+        """Get the guild ID."""
+        return self.config["guild"]["id"]
+
+    def get_user_id(self, user: str) -> int:
+        """Get a user ID by their name."""
+        return self.config["users"].get(user)
+
+    def get_bot_id(self, bot: str) -> int:
+        """Get a bot ID by its name."""
+        return self.config["bots"].get(bot)
+
+    def get_channel_id(self, channel: str) -> int:
+        """Get a channel ID by its name."""
+        return self.config["channels"].get(channel)
+
+    def get_thread_id(self, category: str, thread: str) -> int:
+        """Get a thread ID by its category and name."""
+        return self.config["threads"].get(category, {}).get(thread)
+
+    def get_role_id(self, role: str) -> int:
+        """Get a role ID by its name."""
+        return self.config["roles"].get(role)
+
+    def get_ranking_id(self, league: str, rank: str) -> int:
+        """Get a ranking ID by its league and rank."""
+        if league == "champion":
+            return self.config["rankings"]["champion"].get(rank)
+        else:
+            return self.config["rankings"]["other_leagues"].get(f"{league.lower()}{rank}")
