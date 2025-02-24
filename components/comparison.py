@@ -8,7 +8,7 @@ import plotly.express as px
 import streamlit as st
 
 from components.search import compute_search
-from dtower.sus.models import KnownPlayer, PlayerId, SusPerson
+from dtower.sus.models import KnownPlayer, PlayerId
 from dtower.tourney_results.constants import (
     Graph,
     champ,
@@ -19,12 +19,12 @@ from dtower.tourney_results.constants import (
     stratas_boundaries,
     stratas_boundaries_018,
 )
-from dtower.tourney_results.data import get_details, get_patches
+from dtower.tourney_results.data import get_details, get_patches, get_sus_ids
 from dtower.tourney_results.formatting import BASE_URL, make_player_url
 from dtower.tourney_results.models import PatchNew as Patch
 from dtower.tourney_results.models import TourneyResult, TourneyRow
 
-sus_ids = set(SusPerson.objects.filter(sus=True).values_list("player_id", flat=True))  # Unused?
+sus_ids = get_sus_ids()
 hidden_features = os.environ.get("HIDDEN_FEATURES")
 
 
@@ -79,10 +79,11 @@ def compute_comparison(player_id=None, canvas=st):
         canvas.code(f"https://{BASE_URL}/comparison?" + urlencode({"compare": users}, doseq=True))
 
     player_ids = PlayerId.objects.filter(id__in=users)
+    player_ids = player_ids.exclude(id__in=sus_ids)
     known_players = KnownPlayer.objects.filter(ids__in=player_ids)
     all_player_ids = set(PlayerId.objects.filter(player__in=known_players).values_list("id", flat=True)) | set(users)
 
-    hidden_query = {} if hidden_features else {"result__public": True, "position__lt": how_many_results_public_site, "position__gt": 0}
+    hidden_query = {} if hidden_features else {"result__public": True, "position__lt": how_many_results_public_site}
     rows = TourneyRow.objects.filter(player_id__in=all_player_ids, **hidden_query)
 
     player_df = get_details(rows)
@@ -189,7 +190,9 @@ def compute_comparison(player_id=None, canvas=st):
 
     canvas.plotly_chart(fig, use_container_width=True)
 
-    fig = px.line(pd_datas, x="date", y="position", color="real_name", markers=True)
+    placement_datas = pd_datas[pd_datas.position >= 1].copy()  # exclude shunned/sus
+
+    fig = px.line(placement_datas, x="date", y="position", color="real_name", markers=True)
     fig.update_layout(showlegend=show_legend)
     fig.update_yaxes(title_text=None)
     fig.update_layout(margin=dict(l=20))
