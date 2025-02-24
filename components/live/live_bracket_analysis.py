@@ -9,8 +9,8 @@ from dtower.tourney_results.tourney_utils import get_live_df
 
 
 @st.cache_data(ttl=300)
-def get_data(league):
-    return get_live_df(league)
+def get_data(league: str, shun: bool = False):
+    return get_live_df(league, shun)
 
 
 def bracket_analysis():

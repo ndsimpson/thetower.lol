@@ -13,8 +13,8 @@ logging.basicConfig(level=logging.INFO)
 
 
 @st.cache_data(ttl=300)
-def get_data(league):
-    return get_live_df(league)
+def get_data(league: str, shun: bool = False):
+    return get_live_df(league, shun)
 
 
 def live_score():
