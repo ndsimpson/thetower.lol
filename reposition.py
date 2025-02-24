@@ -51,7 +51,7 @@ def view_broken_results():
         logging.info(f"Tournament {row.result.date}: Player {row.player_id} ({row.nickname}) "
                      f"placed {row.position} with wave {row.wave}")
 
-    logging.info(f"\nTotal suspicious entries found: {suspicious_rows.count()}")
+    logging.info(f"Total suspicious entries found: {suspicious_rows.count()}")
 
 
 if __name__ == "__main__":
