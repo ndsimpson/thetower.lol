@@ -200,7 +200,7 @@ def get_time(file_path: Path) -> datetime.datetime:
     return datetime.datetime.strptime(str(file_path.stem), "%Y-%m-%d__%H_%M")
 
 
-def get_live_df(league):
+def get_live_df(league, shun: bool = False) -> pd.DataFrame:
     t1_start = perf_counter()
     home = Path(os.getenv("HOME"))
     live_path = home / "tourney" / "results_cache" / f"{league}_live"
@@ -230,7 +230,10 @@ def get_live_df(league):
     df["real_name"] = [lookup.get(id, name) for id, name in zip(df.player_id, df.name)]
     df["real_name"] = df["real_name"].astype(str)
 
-    excluded_ids = get_sus_ids() | get_shun_ids()
+    if shun:
+        excluded_ids = get_sus_ids()
+    else:
+        excluded_ids = get_sus_ids() | get_shun_ids()
     df = df[~df.player_id.isin(excluded_ids)]
     df = df.reset_index(drop=True)
     t1_stop = perf_counter()
