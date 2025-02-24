@@ -14,8 +14,17 @@ from django.apps import apps
 from django.db.models import Q
 
 # Local imports
-from dtower.tourney_results.constants import champ, legend, leagues
-from dtower.tourney_results.data import get_player_id_lookup, get_sus_ids, get_shun_ids
+from dtower.tourney_results.constants import (
+    champ,
+    legend,
+    leagues,
+)
+from dtower.tourney_results.data import (
+    get_player_id_lookup,
+    get_sus_ids,
+    get_shun_ids,
+    get_tourneys,
+)
 from dtower.tourney_results.models import (
     Injection,
     PromptTemplate,
@@ -87,7 +96,23 @@ def create_tourney_rows(tourney_result: TourneyResult) -> None:
     TourneyRow.objects.bulk_create([TourneyRow(**data) for data in create_data])
 
 
-def calculate_positions(ids, indexs, waves, exclude_ids) -> list[int]:
+def calculate_positions(
+    ids: list[int],
+    indices: list[int],
+    waves: list[int],
+    exclude_ids: set[int]
+) -> list[int]:
+    """Calculate positions for tournament participants.
+
+    Args:
+        ids: List of player IDs
+        indices: List of indices corresponding to player positions
+        waves: List of wave numbers reached by players
+        exclude_ids: Set of player IDs to exclude from position calculation
+
+    Returns:
+        List of calculated positions where excluded players get -1
+    """
     positions = []
     current = 0
     borrow = 1
@@ -98,12 +123,12 @@ def calculate_positions(ids, indexs, waves, exclude_ids) -> list[int]:
     else:
         exclude_ids = set(exclude_ids)
 
-    for id_, idx, wave in zip(ids, indexs, waves):
+    for id_, idx, wave in zip(ids, indices, waves):
         if id_ in exclude_ids:
             positions.append(-1)
             continue
 
-        if idx - 1 in indexs and wave == waves[idx - 1]:
+        if idx - 1 in indices and wave == waves[idx - 1]:
             borrow += 1
         else:
             current += borrow
@@ -159,9 +184,15 @@ def reposition(
     return changes
 
 
-def get_summary(last_date):
-    from dtower.tourney_results.data import get_tourneys
+def get_summary(last_date: datetime.datetime) -> str:
+    """Generate AI summary of tournament results.
 
+    Args:
+        last_date: Latest date to include in summary
+
+    Returns:
+        Generated summary text from AI model
+    """
     logging.info("Collecting ai summary data...")
 
     qs = TourneyResult.objects.filter(league=legend, date__lte=last_date).order_by("-date")[:10]
@@ -223,10 +254,30 @@ def get_summary(last_date):
 
 
 def get_time(file_path: Path) -> datetime.datetime:
+    """Parse datetime from filename.
+
+    Args:
+        file_path: Path object containing timestamp in filename
+
+    Returns:
+        Parsed datetime object
+    """
     return datetime.datetime.strptime(str(file_path.stem), "%Y-%m-%d__%H_%M")
 
 
-def get_live_df(league, shun: bool = False) -> pd.DataFrame:
+def get_live_df(league: str, shun: bool = False) -> pd.DataFrame:
+    """Get live tournament data as DataFrame.
+
+    Args:
+        league: League identifier
+        shun: If True, only exclude suspicious IDs, otherwise exclude both suspicious and shunned
+
+    Returns:
+        DataFrame containing live tournament data
+
+    Raises:
+        ValueError: If no current tournament data is available
+    """
     t1_start = perf_counter()
     home = Path(os.getenv("HOME"))
     live_path = home / "tourney" / "results_cache" / f"{league}_live"
@@ -267,7 +318,16 @@ def get_live_df(league, shun: bool = False) -> pd.DataFrame:
     return df
 
 
-def check_live_entry(league: str, player_id: str):
+def check_live_entry(league: str, player_id: str) -> bool:
+    """Check if player has entered live tournament.
+
+    Args:
+        league: League identifier
+        player_id: Player ID to check
+
+    Returns:
+        True if player has entered, False otherwise
+    """
     t1_start = perf_counter()
     home = Path(os.getenv("HOME"))
     live_path = home / "tourney" / "results_cache" / f"{league}_live"
@@ -297,7 +357,15 @@ def check_live_entry(league: str, player_id: str):
         return False
 
 
-def check_all_live_entry(player_id: str):
+def check_all_live_entry(player_id: str) -> bool:
+    """Check if player has entered any live tournament.
+
+    Args:
+        player_id: Player ID to check
+
+    Returns:
+        True if player has entered any tournament, False otherwise
+    """
     t1_start = perf_counter()
     for league in leagues:
         if check_live_entry(league, player_id):
