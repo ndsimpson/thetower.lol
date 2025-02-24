@@ -7,7 +7,7 @@ from time import perf_counter
 from components.util import get_league_filter, get_options
 
 from dtower.tourney_results.constants import leagues
-from dtower.tourney_results.tourney_utils import get_live_df
+from dtower.tourney_results.tourney_utils import get_live_df, get_shun_ids
 
 logging.basicConfig(level=logging.INFO)
 
@@ -33,7 +33,7 @@ def live_score():
 
     tab = st
     try:
-        df = get_data(league)
+        df = get_data(league, True)
         bracket_counts = dict(df.groupby("bracket").player_id.unique().map(lambda player_ids: len(player_ids)))
         fullish_brackets = [bracket for bracket, count in bracket_counts.items() if count >= 28]
 
@@ -55,7 +55,10 @@ def live_score():
     ldf = df[df.datetime == last_moment]
     ldf.index = ldf.index + 1
 
-    selected_player = st.selectbox("Select player", [""] + sorted(df["real_name"].unique()))
+    sus_ids = get_shun_ids()
+    clean_df = df[~df.player_id.isin(sus_ids)].copy()
+
+    selected_player = st.selectbox("Select player", [""] + sorted(clean_df["real_name"].unique()))
 
     if not selected_player:
         return
