@@ -15,7 +15,7 @@ from django.db.models import Q
 
 # Local imports
 from dtower.tourney_results.constants import champ, legend, leagues
-from dtower.tourney_results.data import get_player_id_lookup, get_sus_ids
+from dtower.tourney_results.data import get_player_id_lookup, get_sus_ids, get_shun_ids
 from dtower.tourney_results.models import (
     Injection,
     PromptTemplate,
@@ -64,7 +64,8 @@ def create_tourney_rows(tourney_result: TourneyResult) -> None:
         logging.info(f"There are {len(df.query('tourney_name.str.len() == 0'))} blank tourney names.")
         df.loc[df['tourney_name'].str.len() == 0, 'tourney_name'] = df['id']
 
-    positions = calculate_positions(df.id, df.index, df.wave, get_sus_ids())
+    excluded_ids = get_sus_ids() | get_shun_ids()
+    positions = calculate_positions(df.id, df.index, df.wave, excluded_ids)
 
     df["position"] = positions
 
@@ -86,13 +87,19 @@ def create_tourney_rows(tourney_result: TourneyResult) -> None:
     TourneyRow.objects.bulk_create([TourneyRow(**data) for data in create_data])
 
 
-def calculate_positions(ids, indexs, waves, sus_ids) -> list[int]:
+def calculate_positions(ids, indexs, waves, exclude_ids) -> list[int]:
     positions = []
     current = 0
     borrow = 1
 
+    # Flatten list of exclude_ids if it's nested
+    if any(isinstance(item, (list, set)) for item in exclude_ids):
+        exclude_ids = set().union(*exclude_ids)
+    else:
+        exclude_ids = set(exclude_ids)
+
     for id_, idx, wave in zip(ids, indexs, waves):
-        if id_ in sus_ids:
+        if id_ in exclude_ids:
             positions.append(-1)
             continue
 
@@ -114,7 +121,8 @@ def reposition(tourney_result: TourneyResult) -> None:
     ids = [datum for datum, _ in bulk_data]
     waves = [wave for _, wave in bulk_data]
 
-    positions = calculate_positions(ids, indexes, waves, get_sus_ids())
+    excluded_ids = get_sus_ids() | get_shun_ids()
+    positions = calculate_positions(ids, indexes, waves, excluded_ids)
 
     bulk_update_data = []
 
@@ -222,7 +230,8 @@ def get_live_df(league):
     df["real_name"] = [lookup.get(id, name) for id, name in zip(df.player_id, df.name)]
     df["real_name"] = df["real_name"].astype(str)
 
-    df = df[~df.player_id.isin(get_sus_ids())]
+    excluded_ids = get_sus_ids() | get_shun_ids()
+    df = df[~df.player_id.isin(excluded_ids)]
     df = df.reset_index(drop=True)
     t1_stop = perf_counter()
     logging.debug(f"get_live_df({league}) took {t1_stop - t1_start}")
@@ -236,7 +245,7 @@ def check_live_entry(league: str, player_id: str):
 
     last_file = sorted(live_path.glob("*.csv"))[-1]
 
-    if (datetime.datetime.now() - get_time(last_file)) > datetime.timedelta(hours=28):
+    if (datetime.datetime.now() - get_time(last_file)) > datetime.timedelta(hours=42.5):
         return False
 
     data = pd.read_csv(last_file, usecols=["player_id", "bracket"])
