@@ -181,11 +181,6 @@ def compute_player_lookup():
             **hidden_query,
         )
 
-    if is_support_flagged(player_id):
-        if not hidden_features:
-            st.error(f"No results found for the player {player_id}.")
-            return
-
     if not rows:
         st.error(f"No results found for the player {player_id}.")
         return
