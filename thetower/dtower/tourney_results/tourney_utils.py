@@ -114,23 +114,49 @@ def calculate_positions(ids, indexs, waves, exclude_ids) -> list[int]:
     return positions
 
 
-def reposition(tourney_result: TourneyResult) -> None:
+def reposition(
+    tourney_result: TourneyResult,
+    testrun: bool = False,
+    verbose: bool = False
+) -> int:
+    """Recalculates positions for tournament results and updates the database.
+
+    Args:
+        tourney_result: Tournament result to reposition
+        testrun: If True, only calculate changes without updating database
+        verbose: If True, log detailed position changes
+
+    Returns:
+        Number of position changes made
+    """
     qs = tourney_result.rows.all().order_by("-wave")
-    bulk_data = qs.values_list("player_id", "wave")
+    bulk_data = qs.values_list("player_id", "wave", "nickname")
     indexes = [idx for idx, _ in enumerate(bulk_data)]
-    ids = [datum for datum, _ in bulk_data]
-    waves = [wave for _, wave in bulk_data]
+    ids = [datum[0] for datum in bulk_data]
+    waves = [datum[1] for datum in bulk_data]
+    nicknames = [datum[2] for datum in bulk_data]
 
     excluded_ids = get_sus_ids() | get_shun_ids()
     positions = calculate_positions(ids, indexes, waves, excluded_ids)
 
     bulk_update_data = []
+    changes = 0
 
     for index, obj in enumerate(qs):
-        obj.position = positions[index]
-        bulk_update_data.append(obj)
+        if obj.position != positions[index]:
+            changes += 1
+            if verbose:
+                logging.info(f"Player {obj.player_id} ({nicknames[index]}) at wave {waves[index]}: "
+                             f"Position changing from {obj.position} to {positions[index]}")
+            obj.position = positions[index]
+            bulk_update_data.append(obj)
 
-    TourneyRow.objects.bulk_update(bulk_update_data, ["position"])
+    if not testrun and bulk_update_data:
+        TourneyRow.objects.bulk_update(bulk_update_data, ["position"])
+
+    if changes:
+        logging.info(f"Repositioned {changes} rows in tournament {tourney_result}")
+    return changes
 
 
 def get_summary(last_date):
