@@ -38,6 +38,11 @@ def live_bracket():
     df["datetime"] = pd.to_datetime(df["datetime"])
     bracket_order = df.groupby("bracket")["datetime"].min().sort_values().index.tolist()
 
+    bracket_counts = dict(df.groupby("bracket").player_id.unique().map(lambda player_ids: len(player_ids)))
+    fullish_brackets = [bracket for bracket, count in bracket_counts.items() if count >= 28]
+
+    df = df[df.bracket.isin(fullish_brackets)]  # no sniping
+
     # Initialize session state for bracket navigation
     if "current_bracket_idx" not in st.session_state:
         st.session_state.current_bracket_idx = 0

@@ -34,6 +34,10 @@ def live_score():
     tab = st
     try:
         df = get_data(league)
+        bracket_counts = dict(df.groupby("bracket").player_id.unique().map(lambda player_ids: len(player_ids)))
+        fullish_brackets = [bracket for bracket, count in bracket_counts.items() if count >= 28]
+
+        df = df[df.bracket.isin(fullish_brackets)]  # no sniping
         t1_start = perf_counter()
         df["real_name"] = df["real_name"].astype("str")  # Make sure that users with all digit tourney_name's don't trick the column into being a float
         t1_stop = perf_counter()
