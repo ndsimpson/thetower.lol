@@ -48,12 +48,18 @@ class BattleConditions(commands.Cog, name="BattleConditions"):
             pass
         await ctx.send(message)
 
+    @commands.command()
+    @is_allowed_user(const.id_pog, const.id_fishy)
+    async def send_bc_messages(self, ctx):
+        """Manually trigger the scheduled BC messages"""
+        await self.scheduled_bc_messages()
+
     @tasks.loop(time=datetime.time(hour=0, minute=0))
     async def scheduled_bc_messages(self):
         tourney_id, tourney_date, days_until = TournamentPredictor.get_tournament_info()
         if days_until == 1:
             for league in ["Legend", "Champion", "Platinum", "Gold", "Silver"]:
-                battleconditions = predict_future_tournament(tourney_id)
+                battleconditions = predict_future_tournament(tourney_id, league)
                 message = f"The BCs for the {league.title()} tournament on {tourney_date} are:\n"
                 for battlecondition in battleconditions:
                     message += f"- {battlecondition}\n"
