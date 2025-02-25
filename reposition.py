@@ -26,7 +26,7 @@ def fix_tourney_results():
     total_changes = 0
 
     for result in tqdm(results, desc="Processing tournaments"):
-        changes = reposition(result, True, True)
+        changes = reposition(result, testrun=True, verbose=True)
         if changes:
             changes_count += 1
             total_changes += changes
