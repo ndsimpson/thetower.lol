@@ -26,11 +26,16 @@ def compute_search(player=False, comparison=False):
     st.write(table_styling, unsafe_allow_html=True)
 
     # Get all suspicious or banned player IDs
-    excluded_player_ids = list(
-        SusPerson.objects.filter(
-            Q(sus=True) | Q(soft_banned=True) | Q(banned=True)
-        ).values_list('player_id', flat=True)
-    )
+    hidden_features = os.environ.get("HIDDEN_FEATURES")
+
+    if not hidden_features:
+        excluded_player_ids = list(
+            SusPerson.objects.filter(
+                Q(sus=True) | Q(soft_banned=True) | Q(banned=True)
+            ).values_list('player_id', flat=True)
+        )
+    else:
+        excluded_player_ids = []
 
     name_col, id_col = st.columns([1, 1])
 
