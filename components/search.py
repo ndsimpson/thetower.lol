@@ -14,7 +14,7 @@ import streamlit as st
 from django.db.models import Q
 
 from components.util import add_player_id, add_to_comparison
-from dtower.sus.models import PlayerId
+from dtower.sus.models import PlayerId, SusPerson
 from dtower.tourney_results.constants import how_many_results_public_site
 from dtower.tourney_results.models import TourneyRow
 
@@ -24,6 +24,13 @@ def compute_search(player=False, comparison=False):
         table_styling = f"<style>{infile.read()}</style>"
 
     st.write(table_styling, unsafe_allow_html=True)
+
+    # Get all suspicious or banned player IDs
+    excluded_player_ids = list(
+        SusPerson.objects.filter(
+            Q(sus=True) | Q(soft_banned=True) | Q(banned=True)
+        ).values_list('player_id', flat=True)
+    )
 
     name_col, id_col = st.columns([1, 1])
 
@@ -38,8 +45,9 @@ def compute_search(player=False, comparison=False):
 
         nickname_ids = list(
             PlayerId.objects.filter(
-                Q(player__name__istartswith=fragments[0]) & match_part,
-                primary=True,
+                (Q(player__name__istartswith=fragments[0]) & match_part) &
+                Q(primary=True) &
+                ~Q(id__in=excluded_player_ids)  # Exclude suspicious or banned players
             )
             .order_by("player_id")
             .values_list("id", "player__name")[:page]
@@ -51,6 +59,7 @@ def compute_search(player=False, comparison=False):
             nickname_ids += list(
                 TourneyRow.objects.filter(
                     ~Q(player_id__in=[player_id for player_id, _ in nickname_ids]),
+                    ~Q(player_id__in=excluded_player_ids),  # Exclude suspicious or banned players
                     Q(nickname__istartswith=fragments[0]) & match_part,
                     position__lte=how_many_results_public_site,
                 )
@@ -65,6 +74,7 @@ def compute_search(player=False, comparison=False):
             nickname_ids += list(
                 PlayerId.objects.filter(
                     ~Q(id__in=[player_id for player_id, _ in nickname_ids]),
+                    ~Q(id__in=excluded_player_ids),  # Exclude suspicious or banned players
                     query,
                     primary=True,
                 )
@@ -78,6 +88,7 @@ def compute_search(player=False, comparison=False):
             nickname_ids += list(
                 TourneyRow.objects.filter(
                     ~Q(player_id__in=[player_id for player_id, _ in nickname_ids]),
+                    ~Q(player_id__in=excluded_player_ids),  # Exclude suspicious or banned players
                     query,
                     position__lte=how_many_results_public_site,
                 )
@@ -95,6 +106,7 @@ def compute_search(player=False, comparison=False):
             nickname_ids_data = (
                 TourneyRow.objects.filter(
                     Q(player_id__istartswith=player_id_fragments[0]) & match_part,
+                    ~Q(player_id__in=excluded_player_ids),  # Exclude suspicious or banned players
                     position__lte=how_many_results_public_site,
                 )
                 .order_by("player_id")
