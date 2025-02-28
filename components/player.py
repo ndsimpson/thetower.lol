@@ -28,7 +28,9 @@ from dtower.tourney_results.data import (
     get_details,
     get_id_lookup,
     get_patches,
+    is_banned,
     is_under_review,
+    is_soft_banned,
     is_shun,
     is_sus,
     is_support_flagged,
@@ -182,6 +184,10 @@ def compute_player_lookup():
         )
 
     if not rows:
+        st.error(f"No results found for the player {player_id}.")
+        return
+
+    if is_sus(player_id) or is_support_flagged():
         st.error(f"No results found for the player {player_id}.")
         return
 
