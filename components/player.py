@@ -28,9 +28,7 @@ from dtower.tourney_results.data import (
     get_details,
     get_id_lookup,
     get_patches,
-    is_banned,
     is_under_review,
-    is_soft_banned,
     is_shun,
     is_sus,
     is_support_flagged,
@@ -496,7 +494,7 @@ def handle_colors_dependant_on_patch(patch, player_df):
 def handle_sus_or_banned_ids(info_tab, player_id):
     if hidden_features:
         if is_support_flagged(player_id):
-            info_tab.warning("This player is currently banned.")
+            info_tab.warning("This player is currently (soft/hard) banned.")
         elif is_sus(player_id):
             info_tab.warning("This player is currently sussed.")
         elif is_shun(player_id):
