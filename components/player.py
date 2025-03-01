@@ -185,7 +185,7 @@ def compute_player_lookup():
         st.error(f"No results found for the player {player_id}.")
         return
 
-    if (is_sus(player_id) or is_support_flagged()) and not hidden_features:
+    if (is_sus(player_id) or is_support_flagged(player_id)) and not hidden_features:
         st.error(f"No results found for the player {player_id}.")
         return
 
