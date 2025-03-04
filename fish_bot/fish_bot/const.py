@@ -27,6 +27,8 @@ tourney_bot_channel_id = 1291839463600816179
 verify_channel_id = 1117867265375879259
 website_channel_id = 1299774861908115559
 guild_advertise_channel_id = 1346133291211821137
+member_advertise_channel_id = 1346595467009458176
+rude_people_channel_id = 1005388737833873499
 
 # thread ids
 legend_bc_thread_id = 1298434749072932864
