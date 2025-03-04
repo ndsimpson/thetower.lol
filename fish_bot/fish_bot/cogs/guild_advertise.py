@@ -162,7 +162,8 @@ class GuildForm(commands.Cog):
             if elapsed.total_seconds() < self.cooldown_hours * 3600:  # Convert hours to seconds
                 hours_left = self.cooldown_hours - (elapsed.total_seconds() / 3600)
                 return await ctx.send(f"You can only advertise once every {self.cooldown_hours} hours. "
-                                      f"Please try again in {hours_left:.1f} hours.")
+                                      f"Please try again in {hours_left:.1f} hours."
+                                      f"If you or a member of your guild attempts to bypass this limit, your guild will be banned from advertising.")
 
         # Check if form is already in progress
         if user_id in self.form_states and self.form_states[user_id].active:
