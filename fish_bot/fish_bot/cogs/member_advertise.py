@@ -15,7 +15,7 @@ class FormState:
     # Customize these questions for your needs
     questions = [
         "What is your player id?",
-        "How many weekly event boxes do you usually clear?",
+        "How many weekly event boxes do you usually clear?  There are 7 boxes total each week (35 completed missions).",
         "What else do we need to know about you?"
     ]
 
