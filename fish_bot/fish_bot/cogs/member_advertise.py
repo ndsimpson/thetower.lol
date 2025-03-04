@@ -169,10 +169,10 @@ class FormHandler(commands.Cog):
         if message.author.bot:
             return
 
-        # Check for the custom prefix
-        if message.content.startswith(self.prefix):
-            # Extract the command name
-            cmd = message.content[len(self.prefix):].strip()
+        # Check for the custom prefix (case insensitive)
+        if message.content.lower().startswith(self.prefix.lower()):
+            # Extract the command name and make it lowercase
+            cmd = message.content[len(self.prefix):].strip().lower()
 
             # Process the custom prefixed command
             if cmd == "member":
@@ -190,7 +190,7 @@ class FormHandler(commands.Cog):
         if user_id not in self.form_states or not self.form_states[user_id].active:
             return
 
-        # Check for cancellation
+        # Check for cancellation (case insensitive)
         if message.content.lower() == "cancel":
             self.form_states[user_id].active = False
             return await message.channel.send("Form submission cancelled.")
