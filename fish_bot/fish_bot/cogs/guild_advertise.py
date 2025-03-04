@@ -5,6 +5,8 @@ from fish_bot import const
 import datetime  # Add this import
 import json
 import os
+import asyncio
+import pickle
 
 
 class GuildFormState:
@@ -49,12 +51,16 @@ class GuildForm(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
         self.form_states: Dict[int, GuildFormState] = {}  # User ID -> form state
-        self.guild_channel_id = const.guild_advertise_channel_id  # Change this to your desired channel
+        self.guild_channel_id = const.guild_advertise_channel_id
+        self.mod_channel_id = const.tourney_bot_channel_id
         self.prefix = "!guild"  # Custom prefix for this cog
         self.cooldown_hours = 6  # Cooldown period in hours
         self.cooldown_file = os.path.join(os.path.dirname(__file__), "data", "guild_cooldowns.json")
         # Track both user and guild cooldowns
         self.cooldowns = self._load_cooldowns()  # Load cooldowns from file
+        self.pending_deletions_file = os.path.join(os.path.dirname(__file__), "data", "pending_deletions.pkl")
+        self.pending_deletions = self._load_pending_deletions()
+        self.bot.loop.create_task(self._resume_deletion_tasks())
 
     def _load_cooldowns(self) -> Dict[str, Dict[str, datetime.datetime]]:
         """Load cooldowns from file."""
@@ -104,6 +110,73 @@ class GuildForm(commands.Cog):
 
         except Exception as e:
             print(f"Error saving cooldowns: {e}")
+
+    def _load_pending_deletions(self):
+        """Load pending message deletions from file."""
+        try:
+            if os.path.exists(self.pending_deletions_file):
+                with open(self.pending_deletions_file, 'rb') as f:
+                    return pickle.load(f)
+        except Exception as e:
+            print(f"Error loading pending deletions: {e}")
+        return []
+
+    def _save_pending_deletions(self):
+        """Save pending message deletions to file."""
+        try:
+            os.makedirs(os.path.dirname(self.pending_deletions_file), exist_ok=True)
+            with open(self.pending_deletions_file, 'wb') as f:
+                pickle.dump(self.pending_deletions, f)
+        except Exception as e:
+            print(f"Error saving pending deletions: {e}")
+
+    async def _resume_deletion_tasks(self):
+        """Resume deletion tasks for messages that were scheduled before restart."""
+        await self.bot.wait_until_ready()
+
+        current_time = datetime.datetime.now()
+        new_pending = []
+
+        for channel_id, message_id, deletion_time in self.pending_deletions:
+            if current_time >= deletion_time:
+                # Message should already be deleted
+                try:
+                    channel = self.bot.get_channel(channel_id)
+                    if channel:
+                        try:
+                            message = await channel.fetch_message(message_id)
+                            await message.delete()
+                            print(f"Deleted message {message_id} after restart")
+                        except discord.NotFound:
+                            # Message already deleted or not found
+                            pass
+                except Exception as e:
+                    print(f"Error deleting message after restart: {e}")
+            else:
+                # Schedule this message for deletion
+                delay = (deletion_time - current_time).total_seconds()
+                self.bot.loop.create_task(self._delete_after_delay(channel_id, message_id, delay))
+                new_pending.append((channel_id, message_id, deletion_time))
+
+        self.pending_deletions = new_pending
+        self._save_pending_deletions()
+
+    async def _delete_after_delay(self, channel_id, message_id, delay):
+        """Delete a message after a specified delay in seconds."""
+        await asyncio.sleep(delay)
+        try:
+            channel = self.bot.get_channel(channel_id)
+            if channel:
+                message = await channel.fetch_message(message_id)
+                await message.delete()
+                print(f"Deleted message {message_id} after {delay / 3600:.1f} hours")
+
+                # Remove from pending deletions
+                self.pending_deletions = [(c, m, d) for c, m, d in self.pending_deletions
+                                          if m != message_id]
+                self._save_pending_deletions()
+        except Exception as e:
+            print(f"Error deleting message: {e}")
 
     @commands.Cog.listener()
     async def on_message(self, message):
@@ -161,6 +234,15 @@ class GuildForm(commands.Cog):
             elapsed = datetime.datetime.now() - self.cooldowns['users'][user_id]
             if elapsed.total_seconds() < self.cooldown_hours * 3600:  # Convert hours to seconds
                 hours_left = self.cooldown_hours - (elapsed.total_seconds() / 3600)
+
+                # Send notification to mod channel about bypass attempt
+                mod_channel = self.bot.get_channel(self.mod_channel_id)
+                if mod_channel:
+                    await mod_channel.send(f"⚠️ **Cooldown Bypass Attempt**\n"
+                                           f"User: {ctx.author.name} (ID: {ctx.author.id})\n"
+                                           f"Type: User cooldown\n"
+                                           f"Time remaining: {hours_left:.1f} hours")
+
                 return await ctx.send(f"You can only advertise once every {self.cooldown_hours} hours. "
                                       f"Please try again in {hours_left:.1f} hours."
                                       f"If you or a member of your guild attempts to bypass this limit, your guild will be banned from advertising.")
@@ -194,12 +276,23 @@ class GuildForm(commands.Cog):
 
         # Get the guild ID from the form answers (second question)
         guild_id = form_state.answers[1]  # Guild ID is the second answer
+        guild_name = form_state.answers[0]  # Guild name is the first answer
 
         # Check if this guild is on cooldown
         if guild_id in self.cooldowns['guilds']:
             elapsed = datetime.datetime.now() - self.cooldowns['guilds'][guild_id]
             if elapsed.total_seconds() < self.cooldown_hours * 3600:
                 hours_left = self.cooldown_hours - (elapsed.total_seconds() / 3600)
+
+                # Send notification to mod channel about guild cooldown bypass attempt
+                mod_channel = self.bot.get_channel(self.mod_channel_id)
+                if mod_channel:
+                    await mod_channel.send(f"⚠️ **Cooldown Bypass Attempt**\n"
+                                           f"User: {user.name} (ID: {user.id})\n"
+                                           f"Guild: {guild_name} (ID: {guild_id})\n"
+                                           f"Type: Guild cooldown\n"
+                                           f"Time remaining: {hours_left:.1f} hours")
+
                 await channel.send(f"This guild was already advertised in the past {self.cooldown_hours} hours. "
                                    f"Please try again in {hours_left:.1f} hours."
                                    f"If you or a member of your guild attempts to bypass this limit, your guild will be banned from advertising.")
@@ -241,9 +334,20 @@ class GuildForm(commands.Cog):
         guild_channel = self.bot.get_channel(self.guild_channel_id)
 
         if guild_channel:
-            await guild_channel.send(embed=embed)
+            # Send the embed and get the message object
+            sent_message = await guild_channel.send(embed=embed)
             await channel.send("Thank you! Your guild advertisement has been submitted."
                                " This guild may not be advertised for another 6 hours.")
+
+            # Schedule message for deletion after cooldown period
+            deletion_time = datetime.datetime.now() + datetime.timedelta(hours=self.cooldown_hours)
+            self.pending_deletions.append((guild_channel.id, sent_message.id, deletion_time))
+            self._save_pending_deletions()
+
+            # Create a task to delete the message after the delay
+            self.bot.loop.create_task(
+                self._delete_after_delay(guild_channel.id, sent_message.id, self.cooldown_hours * 3600)
+            )
         else:
             await channel.send("There was an error submitting your guild advertisement. Please contact @disasterfish.")
 
