@@ -1,7 +1,7 @@
 import discord
 from discord.ext import commands
 from typing import Dict, Optional
-from discord_bot import const
+from fish_bot import const
 import datetime  # Add this import
 import json
 import os
