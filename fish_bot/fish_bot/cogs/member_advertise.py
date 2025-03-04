@@ -274,7 +274,13 @@ class FormHandler(commands.Cog):
             # Use the abbreviated labels for the embed fields
             label = form_state.question_labels[i]
 
-            if i == 2:
+            # Make the Player ID (index 0) a clickable link
+            if i == 0:
+                player_id = form_state.answers[i]
+                # Format as Markdown link [text](url)
+                url_value = f"[{player_id}](https://thetower.lol/player?player={player_id})"
+                embed.add_field(name=label, value=url_value, inline=True)
+            elif i == 2:
                 embed.add_field(name=label, value=form_state.answers[i], inline=False)
             else:
                 embed.add_field(name=label, value=form_state.answers[i], inline=True)
