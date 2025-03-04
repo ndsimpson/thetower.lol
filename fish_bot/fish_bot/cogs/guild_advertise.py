@@ -1,0 +1,253 @@
+import discord
+from discord.ext import commands
+from typing import Dict, Optional
+from discord_bot import const
+import datetime  # Add this import
+import json
+import os
+
+
+class GuildFormState:
+    """Tracks the state of a user's guild form submission."""
+
+    questions = [
+        "What is your guild name?",
+        "What is your guild id?",
+        "Who is the guild leader?",
+        "How many active members do you have?",
+        "Tell us a brief description of your guild:"
+    ]
+
+    # Abbreviated versions for the embed display
+    question_labels = [
+        "Guild Name",
+        "Guild ID",
+        "Leader",
+        "Member Count",
+        "Description"
+    ]
+
+    def __init__(self):
+        self.current_question = 0
+        self.answers = []
+        self.active = True
+
+    def is_complete(self) -> bool:
+        return self.current_question >= len(self.questions)
+
+    def get_current_question(self) -> Optional[str]:
+        if self.is_complete():
+            return None
+        return self.questions[self.current_question]
+
+    def add_answer(self, answer: str):
+        self.answers.append(answer)
+        self.current_question += 1
+
+
+class GuildForm(commands.Cog):
+    def __init__(self, bot):
+        self.bot = bot
+        self.form_states: Dict[int, GuildFormState] = {}  # User ID -> form state
+        self.guild_channel_id = const.guild_advertise_channel_id  # Change this to your desired channel
+        self.prefix = "!guild"  # Custom prefix for this cog
+        self.cooldown_hours = 6  # Cooldown period in hours
+        self.cooldown_file = os.path.join(os.path.dirname(__file__), "data", "guild_cooldowns.json")
+        # Track both user and guild cooldowns
+        self.cooldowns = self._load_cooldowns()  # Load cooldowns from file
+
+    def _load_cooldowns(self) -> Dict[str, Dict[str, datetime.datetime]]:
+        """Load cooldowns from file."""
+        try:
+            if os.path.exists(self.cooldown_file):
+                with open(self.cooldown_file, 'r') as f:
+                    cooldown_dict = json.load(f)
+
+                    # Convert nested structure with string timestamps back to datetime objects
+                    result = {
+                        'users': {},
+                        'guilds': {}
+                    }
+
+                    if 'users' in cooldown_dict:
+                        result['users'] = {int(user_id): datetime.datetime.fromisoformat(timestamp)
+                                           for user_id, timestamp in cooldown_dict['users'].items()}
+
+                    if 'guilds' in cooldown_dict:
+                        result['guilds'] = {guild_id: datetime.datetime.fromisoformat(timestamp)
+                                            for guild_id, timestamp in cooldown_dict['guilds'].items()}
+
+                    return result
+
+        except Exception as e:
+            print(f"Error loading cooldowns: {e}")
+
+        # Return empty structure if file doesn't exist or there's an error
+        return {'users': {}, 'guilds': {}}
+
+    def _save_cooldowns(self):
+        """Save cooldowns to file."""
+        try:
+            # Ensure directory exists
+            os.makedirs(os.path.dirname(self.cooldown_file), exist_ok=True)
+
+            # Convert datetime objects to ISO format strings
+            cooldown_dict = {
+                'users': {str(user_id): timestamp.isoformat()
+                          for user_id, timestamp in self.cooldowns['users'].items()},
+                'guilds': {str(guild_id): timestamp.isoformat()
+                           for guild_id, timestamp in self.cooldowns['guilds'].items()}
+            }
+
+            with open(self.cooldown_file, 'w') as f:
+                json.dump(cooldown_dict, f)
+
+        except Exception as e:
+            print(f"Error saving cooldowns: {e}")
+
+    @commands.Cog.listener()
+    async def on_message(self, message):
+        # Ignore bot messages
+        if message.author.bot:
+            return
+
+        # Check for the custom prefix
+        if message.content.startswith(self.prefix):
+            # Extract the command name
+            cmd = message.content[len(self.prefix):].strip()
+
+            # Process the custom prefixed command
+            if cmd == "advertise":
+                # Create a fake context
+                ctx = await self.bot.get_context(message)
+                await self.start_guild_registration(ctx)
+                return
+
+        # Continue with existing form processing logic for DMs
+        if message.guild is not None:
+            return
+
+        # Check if user has an active form
+        user_id = message.author.id
+        if user_id not in self.form_states or not self.form_states[user_id].active:
+            return
+
+        # Check for cancellation
+        if message.content.lower() == "cancel":
+            self.form_states[user_id].active = False
+            return await message.channel.send("Guild advertisement cancelled.")
+
+        # Process the answer
+        form_state = self.form_states[user_id]
+        form_state.add_answer(message.content)
+
+        # Check if form is complete
+        if form_state.is_complete():
+            await self._process_completed_form(message.channel, message.author)
+        else:
+            # Pass both channel and user_id
+            await self._send_next_question(message.channel, user_id)
+
+    async def start_guild_registration(self, ctx):
+        """Start the guild registration process via DM."""
+        # Only allow in DMs
+        if ctx.guild is not None:
+            return await ctx.send("Please use this command in a direct message.")
+
+        user_id = ctx.author.id
+
+        # Check user cooldown
+        if user_id in self.cooldowns['users']:
+            elapsed = datetime.datetime.now() - self.cooldowns['users'][user_id]
+            if elapsed.total_seconds() < self.cooldown_hours * 3600:  # Convert hours to seconds
+                hours_left = self.cooldown_hours - (elapsed.total_seconds() / 3600)
+                return await ctx.send(f"You can only advertise once every {self.cooldown_hours} hours. "
+                                      f"Please try again in {hours_left:.1f} hours.")
+
+        # Check if form is already in progress
+        if user_id in self.form_states and self.form_states[user_id].active:
+            return await ctx.send("You already have a guild form in progress. Please complete it first.")
+
+        # Create new form state
+        self.form_states[user_id] = GuildFormState()
+
+        await ctx.send("Welcome to the guild advertisement process! I'll ask you a series of questions. "
+                       "Type 'cancel' at any time to stop.\n\n"
+                       "Let's begin!")
+
+        # Send first question - pass both ctx and user_id
+        await self._send_next_question(ctx, user_id)
+
+    async def _send_next_question(self, channel, user_id):
+        """Send the next question to the user."""
+        form_state = self.form_states[user_id]
+
+        question = form_state.get_current_question()
+        if question:
+            await channel.send(f"**{question}**")
+
+    async def _process_completed_form(self, channel, user):
+        """Process a completed form and post it to the guild channel."""
+        form_state = self.form_states[user.id]
+        form_state.active = False
+
+        # Get the guild ID from the form answers (second question)
+        guild_id = form_state.answers[1]  # Guild ID is the second answer
+
+        # Check if this guild is on cooldown
+        if guild_id in self.cooldowns['guilds']:
+            elapsed = datetime.datetime.now() - self.cooldowns['guilds'][guild_id]
+            if elapsed.total_seconds() < self.cooldown_hours * 3600:
+                hours_left = self.cooldown_hours - (elapsed.total_seconds() / 3600)
+                await channel.send(f"This guild was already advertised in the past {self.cooldown_hours} hours. "
+                                   f"Please try again in {hours_left:.1f} hours."
+                                   f"If you or a member of your guild attempts to bypass this limit, your guild will be banned from advertising.")
+                return
+
+        # Record submission time for both user and guild cooldowns
+        now = datetime.datetime.now()
+        self.cooldowns['users'][user.id] = now
+        self.cooldowns['guilds'][guild_id] = now
+        self._save_cooldowns()  # Save cooldowns after updating
+
+        # Create the embed for the guild channel with the guild name as title
+        embed = discord.Embed(
+            title=form_state.answers[0],  # Use the guild name as title
+            color=discord.Color.blue()
+        )
+
+        embed.set_author(name=f"Submitted by {user.name}", icon_url=user.avatar.url if user.avatar else None)
+
+        # Add all answers as fields, but skip the first one (guild name) since it's now the title
+        for i, question in enumerate(form_state.questions):
+            # Skip the first question since it's now the title
+            if i == 0:
+                continue
+
+            # Use the abbreviated labels for the embed fields
+            label = form_state.question_labels[i]
+
+            # Make the description field larger
+            if i == 4:  # Index of the description question
+                embed.add_field(name=label, value=form_state.answers[i], inline=False)
+            else:
+                embed.add_field(name=label, value=form_state.answers[i], inline=True)
+
+        embed.set_footer(text="DM TowerBot to submit your own guild advertisement using:  !guild advertise")
+        embed.timestamp = discord.utils.utcnow()
+
+        # Send to the guild channel
+        guild_channel = self.bot.get_channel(self.guild_channel_id)
+
+        if guild_channel:
+            await guild_channel.send(embed=embed)
+            await channel.send("Thank you! Your guild advertisement has been submitted."
+                               " This guild may not be advertised for another 6 hours.")
+        else:
+            await channel.send("There was an error submitting your guild advertisement. Please contact @disasterfish.")
+
+        self.form_states[user.id].active = False
+
+
+async def setup(bot) -> None:
+    await bot.add_cog(GuildForm(bot))

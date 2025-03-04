@@ -1,4 +1,6 @@
 # TheTower Discord
+# File containing all the constants used in the bot
+
 guild_id = 850137217828388904
 
 # user ids
@@ -24,6 +26,7 @@ testing_channel_id = 930105733998080062
 tourney_bot_channel_id = 1291839463600816179
 verify_channel_id = 1117867265375879259
 website_channel_id = 1299774861908115559
+guild_advertise_channel_id = 1346133291211821137
 
 # thread ids
 legend_bc_thread_id = 1298434749072932864
