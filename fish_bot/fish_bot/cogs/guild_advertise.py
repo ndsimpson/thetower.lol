@@ -1,5 +1,5 @@
 import discord
-from discord.ext import commands
+from discord.ext import commands, tasks
 from typing import Dict, Optional
 from fish_bot import const
 import datetime  # Add this import
@@ -7,6 +7,7 @@ import json
 import os
 import asyncio
 import pickle
+from discord import app_commands
 
 
 class GuildFormState:
@@ -61,6 +62,62 @@ class GuildForm(commands.Cog):
         self.pending_deletions_file = os.path.join(os.path.dirname(__file__), "data", "pending_deletions.pkl")
         self.pending_deletions = self._load_pending_deletions()
         self.bot.loop.create_task(self._resume_deletion_tasks())
+        self.weekly_cleanup.start()
+
+    def cog_unload(self):
+        """Called when the cog is unloaded. Cancel any scheduled tasks."""
+        self.weekly_cleanup.cancel()
+
+    @tasks.loop(hours=168)  # 168 hours = 1 week
+    async def weekly_cleanup(self):
+        """Weekly task to clean up expired cooldowns and other data files."""
+        await self._cleanup_cooldowns()
+
+    @weekly_cleanup.before_loop
+    async def before_weekly_cleanup(self):
+        """Wait until the bot is ready before starting the task."""
+        await self.bot.wait_until_ready()
+
+        # Calculate time until next midnight
+        now = datetime.datetime.now()
+        tomorrow = now + datetime.timedelta(days=1)
+        midnight = datetime.datetime(tomorrow.year, tomorrow.month, tomorrow.day, 0, 0, 0)
+        seconds_until_midnight = (midnight - now).total_seconds()
+
+        # Wait until midnight to start the first run
+        await asyncio.sleep(seconds_until_midnight)
+
+    async def _cleanup_cooldowns(self):
+        """Remove expired cooldowns from the cooldowns dictionary."""
+        current_time = datetime.datetime.now()
+        expired_users = []
+        expired_guilds = []
+
+        # Find users with expired cooldowns
+        for user_id, timestamp in list(self.cooldowns['users'].items()):
+            elapsed = current_time - timestamp
+            if elapsed.total_seconds() > self.cooldown_hours * 3600:
+                expired_users.append(user_id)
+
+        # Find guilds with expired cooldowns
+        for guild_id, timestamp in list(self.cooldowns['guilds'].items()):
+            elapsed = current_time - timestamp
+            if elapsed.total_seconds() > self.cooldown_hours * 3600:
+                expired_guilds.append(guild_id)
+
+        # Remove expired cooldowns
+        for user_id in expired_users:
+            del self.cooldowns['users'][user_id]
+
+        for guild_id in expired_guilds:
+            del self.cooldowns['guilds'][guild_id]
+
+        # If any were removed, save the updated cooldowns
+        if expired_users or expired_guilds:
+            self._save_cooldowns()
+            print(f"Weekly cleanup: Removed {len(expired_users)} expired user cooldowns and {len(expired_guilds)} expired guild cooldowns")
+        else:
+            print("Weekly cleanup: No expired cooldowns found")
 
     def _load_cooldowns(self) -> Dict[str, Dict[str, datetime.datetime]]:
         """Load cooldowns from file."""
@@ -327,7 +384,7 @@ class GuildForm(commands.Cog):
             else:
                 embed.add_field(name=label, value=form_state.answers[i], inline=True)
 
-        embed.set_footer(text="DM TowerBot to submit your own guild advertisement using:  !guild advertise")
+        embed.set_footer(text=f"DM TowerBot to submit your own guild advertisement using:  {self.prefix} advertise ")
         embed.timestamp = discord.utils.utcnow()
 
         # Send to the guild channel
@@ -353,6 +410,74 @@ class GuildForm(commands.Cog):
 
         self.form_states[user.id].active = False
 
+    # Add the slash command implementation
+    @app_commands.command(name="guild", description="Advertise your guild to find new members")
+    async def guild_slash(self, interaction: discord.Interaction):
+        """Slash command to start the guild advertisement process."""
+        # Respond to the interaction immediately
+        await interaction.response.send_message(
+            "I'll send you a DM to collect information for your guild advertisement.",
+            ephemeral=True
+        )
+
+        # Get or create DM channel
+        try:
+            dm_channel = await interaction.user.create_dm()
+
+            # Call the guild registration process with the DM channel
+            await self.start_guild_registration_slash(dm_channel, interaction.user)
+        except discord.Forbidden:
+            await interaction.followup.send(
+                "I couldn't DM you. Please make sure your privacy settings allow DMs from server members.",
+                ephemeral=True
+            )
+
+    async def start_guild_registration_slash(self, channel, user):
+        """Start the guild registration process via DM (for slash command)."""
+        user_id = user.id
+
+        # Check user cooldown
+        if user_id in self.cooldowns['users']:
+            elapsed = datetime.datetime.now() - self.cooldowns['users'][user_id]
+            if elapsed.total_seconds() < self.cooldown_hours * 3600:  # Convert hours to seconds
+                hours_left = self.cooldown_hours - (elapsed.total_seconds() / 3600)
+
+                # Send notification to mod channel about bypass attempt
+                mod_channel = self.bot.get_channel(self.mod_channel_id)
+                if mod_channel:
+                    await mod_channel.send(f"⚠️ **Guild Cooldown Bypass Attempt**\n"
+                                           f"User: {user.name} (ID: {user.id})\n"
+                                           f"Type: User cooldown\n"
+                                           f"Time remaining: {hours_left:.1f} hours")
+
+                return await channel.send(f"You can only advertise once every {self.cooldown_hours} hours. "
+                                          f"Please try again in {hours_left:.1f} hours."
+                                          f"If you or a member of your guild attempts to bypass this limit, your guild will be banned from advertising.")
+
+        # Check if form is already in progress
+        if user_id in self.form_states and self.form_states[user_id].active:
+            return await channel.send("You already have a guild form in progress. Please complete it first.")
+
+        # Create new form state
+        self.form_states[user_id] = GuildFormState()
+
+        await channel.send("Welcome to the guild advertisement process! I'll ask you a series of questions. "
+                           "Type 'cancel' at any time to stop.\n\n"
+                           "Let's begin!")
+
+        # Send first question - pass both channel and user_id
+        await self._send_next_question(channel, user_id)
+
 
 async def setup(bot) -> None:
-    await bot.add_cog(GuildForm(bot))
+    cog = GuildForm(bot)
+    await bot.add_cog(cog)
+
+    # Sync the slash commands with Discord
+    try:
+        # For specific guild testing (faster updates):
+        guild = discord.Object(id=const.guild_id)  # Your test server ID
+        bot.tree.copy_global_to(guild=guild)
+        await bot.tree.sync(guild=guild)
+    except Exception as e:
+        print(f"Error syncing app commands: {e}")
