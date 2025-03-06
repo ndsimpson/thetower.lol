@@ -95,8 +95,15 @@ async def handle_adding(
     logging.info("fetching roles")
     roles = await tower.fetch_roles()
     position_roles = await filter_roles(roles, role_id_to_position)
-    wave_roles_by_league = {league: await filter_roles(roles, {role_id: wave_bottom}) for league, (wave_bottom, role_id) in lower_roles.items()}
-    wave_roles = [role for role_data in wave_roles_by_league.values() for role in role_data.values()]
+    wave_roles_by_league = {}
+    for league, wave_thresholds in lower_roles.items():
+        wave_roles = {}
+        for wave_threshold, role_id in wave_thresholds.items():
+            for role in roles:
+                if role.id == role_id:
+                    wave_roles[wave_threshold] = role
+                    break
+        wave_roles_by_league[league] = wave_roles
     logging.info("fetched roles")
 
     logging.info("getting all members")
@@ -226,6 +233,10 @@ async def handle_adding(
 
 
 async def filter_roles(roles, role_id_to_wave):
+    """
+    Maps role IDs to role objects, when roles have a 1:1 mapping
+    Used for position roles (league positions)
+    """
     return {role_id_to_wave[role.id]: role for role in roles if role.id in role_id_to_wave}
 
 
