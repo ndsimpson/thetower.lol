@@ -42,17 +42,31 @@ async def on_message(message: discord.Message) -> None:
     try:
         if is_testing_channel(message.channel) and message.content.startswith("!add_roles"):
             try:
-                command, argument = message.content.split()
+                parts = message.content.split()
+                command = parts[0]
 
-                if len(argument) < 10:
-                    discord_ids = None
-                    limit = int(argument)
+                # Check for info flag
+                info_only = "--info" in parts
+                if info_only:
+                    parts.remove("--info")
+
+                # Parse limit/discord_ids
+                if len(parts) > 1:
+                    argument = parts[1]
+                    if len(argument) < 10:
+                        discord_ids = None
+                        limit = int(argument)
+                    else:
+                        discord_ids = [int(argument)]
+                        limit = None
                 else:
-                    discord_ids = [int(argument)]
                     limit = None
+                    discord_ids = None
+
             except Exception:
                 limit = None
                 discord_ids = None
+                info_only = False
 
             async with semaphore:
                 await handle_adding(
@@ -62,6 +76,7 @@ async def on_message(message: discord.Message) -> None:
                     channel=message.channel,
                     debug_channel=message.channel,
                     verbose=True,
+                    info_only=info_only,  # Pass the info flag
                 )
 
     except discord.DiscordException as exc:
