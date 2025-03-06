@@ -181,7 +181,9 @@ async def handle_adding(
                     if role_assigned:
                         break
         else:
-            for role in wave_roles + list(position_roles.values()):
+            # Fix: compile all wave roles from all leagues into a list
+            all_wave_roles = [role for league_roles in wave_roles_by_league.values() for wave_threshold, role in league_roles.items()]
+            for role in all_wave_roles + list(position_roles.values()):
                 if role in discord_player.roles:
                     await discord_player.remove_roles(role)
             skipped += 1
