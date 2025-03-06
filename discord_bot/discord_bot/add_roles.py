@@ -49,12 +49,18 @@ async def handle_adding(
     channel: discord.TextChannel | None = None,
     debug_channel: discord.TextChannel | None = None,
     verbose: bool | None = None,
+    info_only: bool = False,
 ) -> None:
+    # Add info message at beginning
+    if info_only and channel:
+        await channel.send("**INFO MODE**: Showing what would happen without making changes 📊")
+
     discord_id_kwargs = {} if discord_ids is None else {"discord_id__in": discord_ids}
 
     skipped = 0
     unchanged = defaultdict(list)
     changed = defaultdict(list)
+    removed_roles_count = defaultdict(int)
 
     if debug_channel is None:
         debug_channel = channel
@@ -152,7 +158,7 @@ async def handle_adding(
 
             if not player_df.empty:
                 if league == legend:
-                    role_assigned = await handle_position_league(player_df, position_roles, discord_player, changed, unchanged)
+                    role_assigned = await handle_position_league(player_df, position_roles, discord_player, changed, unchanged, info_only)
 
                     if not role_assigned:  # doesn't qualify for legend role but has some results in legends
                         # Get the highest tier threshold for Champion league
@@ -163,20 +169,18 @@ async def handle_adding(
                             unchanged[legend].append((discord_player, role))
                             break
 
-                        other_roles = [other_role for other_role in wave_roles if other_role != role]
-                        await add_wave_roles(changed, discord_player, champ, next_wave_min, role)
+                        await remove_all_other_roles(discord_player, role, wave_roles_by_league, position_roles, removed_roles_count, info_only)
+                        await add_wave_roles(changed, discord_player, champ, next_wave_min, role, info_only)
                         role_assigned = True
                     else:
-                        other_roles = wave_roles
+                        # Player qualified for a position role, make sure to remove all other roles
+                        position_role = discord_player.roles[-1]  # The role they just received
+                        await remove_all_other_roles(discord_player, position_role, wave_roles_by_league, position_roles, removed_roles_count, info_only)
 
                     if role_assigned:
-                        for other_role in other_roles:
-                            if other_role in discord_player.roles:
-                                await discord_player.remove_roles(other_role)
-
                         break
                 else:
-                    role_assigned = await handle_wave_league(player_df, wave_roles_by_league, position_roles, discord_player, league, changed, unchanged)
+                    role_assigned = await handle_wave_league(player_df, wave_roles_by_league, position_roles, discord_player, league, changed, unchanged, removed_roles_count, info_only)
 
                     if role_assigned:
                         break
@@ -202,7 +206,8 @@ async def handle_adding(
     unchanged_summary = {league: len(unchanged_data) for league, unchanged_data in unchanged.items()}
 
     if verbose:
-        await debug_channel.send(f"""Successfully reviewed all players :tada: \n\n{skipped=} (no role eligible), \n{unchanged_summary=}, \n{changed=}.""")
+        summary_message = f"""Successfully reviewed all players :tada: \n\n{skipped=} (no role eligible), \n{unchanged_summary=}, \n{changed=}."""
+        await send_chunked_message(debug_channel, summary_message)
     else:
         total_players = skipped + sum(unchanged_summary.values()) + sum(len(values) for values in changed.values())
 
@@ -222,14 +227,20 @@ async def handle_adding(
     try:
         for chunk in range(ceil(len(added_roles) / chunk_by)):
             added_roles_message = "\n".join(added_roles[chunk * chunk_by : (chunk + 1) * chunk_by])
-            await channel.send(added_roles_message)
+            await send_chunked_message(channel, added_roles_message)
 
             if channel != debug_channel:
-                await debug_channel.send(added_roles_message)
+                await send_chunked_message(debug_channel, added_roles_message)
 
             await asyncio.sleep(1)
-    except Exception:
-        pass
+    except Exception as e:
+        logging.error(f"Error sending role updates: {e}")
+
+    if removed_roles_count:
+        logging.info(f"{'Would remove' if info_only else 'Removed'} roles statistics: {dict(removed_roles_count)}")
+        if verbose:
+            removed_roles_summary = ", ".join(f"{league}: {count}" for league, count in removed_roles_count.items())
+            await debug_channel.send(f"{'Would remove' if info_only else 'Roles removed'}: {removed_roles_summary}")
 
     logging.info("**********Done**********")
 
@@ -248,6 +259,7 @@ async def handle_position_league(
     discord_player,
     changed,
     unchanged,
+    info_only: bool = False,  # New parameter
 ) -> bool:
     logging.debug(f"{discord_player=} {df.position=}")
 
@@ -259,10 +271,12 @@ async def handle_position_league(
             return True  # Don't actually do anything if the player already has the role
 
         for position_role in position_roles.values():
-            await discord_player.remove_roles(position_role)
+            if not info_only:
+                await discord_player.remove_roles(position_role)
 
-        await discord_player.add_roles(rightful_role)
-        logging.info(f"Added champ top1 role to {discord_player=}")
+        if not info_only:
+            await discord_player.add_roles(rightful_role)
+        logging.info(f"{'Would add' if info_only else 'Added'} champ top1 role to {discord_player=}")
         changed[legend].append((discord_player.name, rightful_role.name))
         return True
 
@@ -279,22 +293,26 @@ async def handle_position_league(
                 return True  # Don't actually do anything if the player already has the role
 
             for role in [role for role in discord_player.roles if role.id in role_id_to_position]:
-                await discord_player.remove_roles(role)
+                if not info_only:
+                    await discord_player.remove_roles(role)
 
-            await discord_player.add_roles(rightful_role)
+            if not info_only:
+                await discord_player.add_roles(rightful_role)
             logging.info(f"Added {role=} to {discord_player=}")
             changed[legend].append((discord_player.name, rightful_role.name))
             return True
     else:
         for role in [role for role in discord_player.roles if role.id in role_id_to_position]:
-            await discord_player.remove_roles(role)
+            if not info_only:
+                await discord_player.remove_roles(role)
 
     return False
 
 
-async def handle_wave_league(df, wave_roles_by_league, position_roles, discord_player, league, changed, unchanged):
+async def handle_wave_league(df, wave_roles_by_league, position_roles, discord_player, league, changed, unchanged, removed_roles_count=None, info_only: bool = False):  # New parameter
     wave_roles = wave_roles_by_league[league]
     player_waves = df.wave.tolist() if not df.empty else []
+    player_max_wave = max(player_waves) if player_waves else 0
 
     # Sort wave thresholds from highest to lowest to check highest tier first
     for wave_min in sorted(wave_roles.keys(), reverse=True):
@@ -303,53 +321,98 @@ async def handle_wave_league(df, wave_roles_by_league, position_roles, discord_p
         # Check if player qualifies for this tier
         if any(wave >= wave_min for wave in player_waves):
             # Player qualifies for this tier
-            other_roles = [
-                other_role
-                for league_roles in wave_roles_by_league.values()
-                for wave_threshold, other_role in league_roles.items()
-                if other_role != role
-            ]
-
-            for other_role in other_roles + list(position_roles.values()):
-                if other_role in discord_player.roles:
-                    await discord_player.remove_roles(other_role)
-
             if role in discord_player.roles:
                 unchanged[league].append((discord_player, role))
                 return True
 
-            await add_wave_roles(changed, discord_player, league, wave_min, role)
+            await remove_all_other_roles(discord_player, role, wave_roles_by_league, position_roles, removed_roles_count, info_only)
+            await add_wave_roles(changed, discord_player, league, wave_min, role, info_only)
             return wave_min
 
-    # Player doesn't qualify for any tier in this league, fall back to the highest tier of the next league down
+    # Player doesn't qualify for any tier in this league, check the next league down
     if leagues.index(league) + 1 < len(leagues):
         next_league = leagues[leagues.index(league) + 1]
         next_wave_roles = wave_roles_by_league[next_league]
-        next_wave_min = max(next_wave_roles.keys())  # Get highest threshold of next league
-        next_role = next_wave_roles[next_wave_min]
 
-        other_roles = [
-            other_role
-            for league_roles in wave_roles_by_league.values()
-            for wave_threshold, other_role in league_roles.items()
-            if other_role != next_role
-        ]
+        # Check each tier in next league, from highest to lowest
+        for next_wave_min in sorted(next_wave_roles.keys(), reverse=True):
+            # Only assign if player actually meets this wave requirement
+            if player_max_wave >= next_wave_min:
+                next_role = next_wave_roles[next_wave_min]
 
-        for other_role in other_roles + list(position_roles.values()):
-            if other_role in discord_player.roles:
-                await discord_player.remove_roles(other_role)
+                if next_role in discord_player.roles:
+                    unchanged[next_league].append((discord_player, next_role))
+                    return True
 
-        if next_role in discord_player.roles:
-            unchanged[next_league].append((discord_player, next_role))
-            return True
+                await remove_all_other_roles(discord_player, next_role, wave_roles_by_league, position_roles, removed_roles_count, info_only)
+                await add_wave_roles(changed, discord_player, next_league, next_wave_min, next_role, info_only)
+                return next_wave_min
 
-        await add_wave_roles(changed, discord_player, next_league, next_wave_min, next_role)
-        return next_wave_min
+        # If they don't meet any tier in the next league, recursively check the league below
+        # This is optional - remove if you want to stop checking after one league down
+        return await handle_wave_league(df, wave_roles_by_league, position_roles, discord_player, next_league, changed, unchanged, removed_roles_count, info_only)
 
     return False
 
 
-async def add_wave_roles(changed, discord_player, league, wave_min, role):
-    await discord_player.add_roles(role)
+async def add_wave_roles(changed, discord_player, league, wave_min, role, info_only=False):
+    if not info_only:
+        await discord_player.add_roles(role)
     changed[league].append((discord_player.name, f"{league}: {wave_min}"))
-    logging.info(f"Added {league=}, {wave_min=} to {discord_player=}")
+    logging.info(f"{'Would add' if info_only else 'Added'} {league=}, {wave_min=} to {discord_player=}")
+
+
+async def remove_all_other_roles(discord_player, keep_role, wave_roles_by_league, position_roles, removed_roles_count=None, info_only=False):
+    """Remove all league roles except the one to keep"""
+    # Get all wave roles from all leagues with their league info
+    all_wave_roles_with_info = []
+    for league, league_roles in wave_roles_by_league.items():
+        for wave_threshold, role in league_roles.items():
+            all_wave_roles_with_info.append((role, league))
+
+    # Create lookup dict for quick league identification
+    role_to_league = {role: league for role, league in all_wave_roles_with_info}
+    all_wave_roles = [role for role, _ in all_wave_roles_with_info]
+
+    # Get all position roles
+    all_position_roles = list(position_roles.values())
+
+    # Combined list of all roles that should be removed if they're not the one to keep
+    all_roles_to_check = all_wave_roles + all_position_roles
+
+    # Remove all roles except the one to keep
+    roles_to_remove = [role for role in all_roles_to_check if role != keep_role and role in discord_player.roles]
+
+    if roles_to_remove:
+        # Count removed roles by type if counter is provided
+        if removed_roles_count is not None:
+            for role in roles_to_remove:
+                if role in all_position_roles:
+                    removed_roles_count["Legend"] += 1
+                elif role in all_wave_roles:
+                    league = role_to_league[role]
+                    removed_roles_count[league] += 1
+
+        # Only actually remove roles if not in info mode
+        if not info_only:
+            await discord_player.remove_roles(*roles_to_remove)
+
+        role_names = [role.name for role in roles_to_remove]
+        logging.debug(f"{'Would remove' if info_only else 'Removed'} {len(roles_to_remove)} roles from {discord_player}: {role_names}")
+
+    return roles_to_remove
+
+
+async def send_chunked_message(channel, content, chunk_size=1900):
+    """Send a message in chunks if it's too long for Discord's character limit."""
+    if not content:
+        return
+
+    if len(content) <= chunk_size:
+        await channel.send(content)
+    else:
+        # Split into smaller chunks
+        chunks = [content[i:i + chunk_size] for i in range(0, len(content), chunk_size)]
+        for chunk in chunks:
+            await channel.send(chunk)
+            await asyncio.sleep(0.5)
