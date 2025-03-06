@@ -19,11 +19,26 @@ logger = logging.getLogger(__name__)
 
 
 lower_roles = {
-    copper: [1, const.copper1_id],
-    silver: [50, const.silver50_id],
-    gold: [100, const.gold100_id],
-    plat: [250, const.plat250_id],
-    champ: [500, const.champ500_id],
+    copper: {
+        1: const.copper1_id,
+        50: const.copper50_id,
+    },
+    silver: {
+        50: const.silver50_id,
+        100: const.silver100_id,
+    },
+    gold: {
+        100: const.gold100_id,
+        250: const.gold250_id,
+    },
+    plat: {
+        250: const.plat250_id,
+        500: const.plat500_id,
+    },
+    champ: {
+        500: const.champ500_id,
+        1000: const.champ1000_id,
+    },
 }
 
 
@@ -133,14 +148,16 @@ async def handle_adding(
                     role_assigned = await handle_position_league(player_df, position_roles, discord_player, changed, unchanged)
 
                     if not role_assigned:  # doesn't qualify for legend role but has some results in legends
-                        role = wave_roles_by_league[champ][500]
+                        # Get the highest tier threshold for Champion league
+                        next_wave_min = max(wave_roles_by_league[champ].keys())
+                        role = wave_roles_by_league[champ][next_wave_min]
 
                         if role in discord_player.roles:
                             unchanged[legend].append((discord_player, role))
                             break
 
                         other_roles = [other_role for other_role in wave_roles if other_role != role]
-                        await add_wave_roles(changed, discord_player, champ, 500, role)
+                        await add_wave_roles(changed, discord_player, champ, next_wave_min, role)
                         role_assigned = True
                     else:
                         other_roles = wave_roles
@@ -264,27 +281,57 @@ async def handle_position_league(
 
 async def handle_wave_league(df, wave_roles_by_league, position_roles, discord_player, league, changed, unchanged):
     wave_roles = wave_roles_by_league[league]
+    player_waves = df.wave.tolist() if not df.empty else []
 
-    for wave_min, role in wave_roles.items():
-        qualifies = any(wave >= wave_min for wave in df.wave)
+    # Sort wave thresholds from highest to lowest to check highest tier first
+    for wave_min in sorted(wave_roles.keys(), reverse=True):
+        role = wave_roles[wave_min]
 
-        if not qualifies:  # this only happens if a player has a result in this league, but doesn't qualify. Then we give the role one lower
-            league = leagues[leagues.index(league) + 1]
-            wave_roles = wave_roles_by_league[league]
-            wave_min, role = list(wave_roles.items())[0]
+        # Check if player qualifies for this tier
+        if any(wave >= wave_min for wave in player_waves):
+            # Player qualifies for this tier
+            other_roles = [
+                other_role
+                for league_roles in wave_roles_by_league.values()
+                for wave_threshold, other_role in league_roles.items()
+                if other_role != role
+            ]
 
-        other_roles = [other_role for role_data in wave_roles_by_league.values() for other_role in role_data.values() if other_role != role]
+            for other_role in other_roles + list(position_roles.values()):
+                if other_role in discord_player.roles:
+                    await discord_player.remove_roles(other_role)
+
+            if role in discord_player.roles:
+                unchanged[league].append((discord_player, role))
+                return True
+
+            await add_wave_roles(changed, discord_player, league, wave_min, role)
+            return wave_min
+
+    # Player doesn't qualify for any tier in this league, fall back to the highest tier of the next league down
+    if leagues.index(league) + 1 < len(leagues):
+        next_league = leagues[leagues.index(league) + 1]
+        next_wave_roles = wave_roles_by_league[next_league]
+        next_wave_min = max(next_wave_roles.keys())  # Get highest threshold of next league
+        next_role = next_wave_roles[next_wave_min]
+
+        other_roles = [
+            other_role
+            for league_roles in wave_roles_by_league.values()
+            for wave_threshold, other_role in league_roles.items()
+            if other_role != next_role
+        ]
 
         for other_role in other_roles + list(position_roles.values()):
             if other_role in discord_player.roles:
                 await discord_player.remove_roles(other_role)
 
-        if role in discord_player.roles:
-            unchanged[league].append((discord_player, role))
+        if next_role in discord_player.roles:
+            unchanged[next_league].append((discord_player, next_role))
             return True
 
-        await add_wave_roles(changed, discord_player, league, wave_min, role)
-        return wave_min
+        await add_wave_roles(changed, discord_player, next_league, next_wave_min, next_role)
+        return next_wave_min
 
     return False
 
