@@ -255,7 +255,7 @@ async def handle_position_league(
     discord_player,
     changed,
     unchanged,
-    info_only: bool = False,  # New parameter
+    info_only: bool = False,
 ) -> bool:
     logging.debug(f"{discord_player=} {df.position=}")
 
@@ -266,9 +266,12 @@ async def handle_position_league(
             unchanged[legend].append((discord_player, rightful_role))
             return True  # Don't actually do anything if the player already has the role
 
-        for position_role in position_roles.values():
-            if not info_only:
-                await discord_player.remove_roles(position_role)
+        # Only remove other position roles, not the rightful one
+        position_roles_to_remove = [role for role in discord_player.roles
+                                    if role.id in role_id_to_position and role != rightful_role]
+
+        if position_roles_to_remove and not info_only:
+            await discord_player.remove_roles(*position_roles_to_remove)
 
         if not info_only:
             await discord_player.add_roles(rightful_role)
@@ -288,9 +291,12 @@ async def handle_position_league(
                 unchanged[legend].append((discord_player, rightful_role))
                 return True  # Don't actually do anything if the player already has the role
 
-            for role in [role for role in discord_player.roles if role.id in role_id_to_position]:
-                if not info_only:
-                    await discord_player.remove_roles(role)
+            # Only remove other position roles, not the rightful one
+            position_roles_to_remove = [role for role in discord_player.roles
+                                        if role.id in role_id_to_position and role != rightful_role]
+
+            if position_roles_to_remove and not info_only:
+                await discord_player.remove_roles(*position_roles_to_remove)
 
             if not info_only:
                 await discord_player.add_roles(rightful_role)
