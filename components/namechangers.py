@@ -34,8 +34,15 @@ def get_namechangers():
     rdf = pd.DataFrame(rows)
 
     rdf["real_name"] = [id_real_name_mapping[id] for id in rdf.player_id]
-    # populate with primary ids only, such that it's unique
-    rdf["player_id"] = [real_name_id_mapping[real_name] for real_name in rdf.real_name]
+
+    # Safely get primary IDs and handle missing keys
+    player_ids = []
+    for real_name in rdf.real_name:
+        player_ids.append(real_name_id_mapping.get(real_name))
+
+    rdf["player_id"] = player_ids
+    # Filter out rows with no matching primary ID
+    rdf = rdf[rdf.player_id.notna()]
 
     rdf = rdf[~rdf.player_id.isin(get_sus_ids())]
     rdf = rdf.rename(columns={"player_id": "id", "nickname": "tourney_name"})
