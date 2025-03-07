@@ -172,10 +172,6 @@ async def handle_adding(
                         await remove_all_other_roles(discord_player, role, wave_roles_by_league, position_roles, removed_roles_count, info_only)
                         await add_wave_roles(changed, discord_player, champ, next_wave_min, role, info_only)
                         role_assigned = True
-                    else:
-                        # Player qualified for a position role, make sure to remove all other roles
-                        position_role = discord_player.roles[-1]  # The role they just received
-                        await remove_all_other_roles(discord_player, position_role, wave_roles_by_league, position_roles, removed_roles_count, info_only)
 
                     if role_assigned:
                         break
