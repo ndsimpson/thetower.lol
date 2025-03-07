@@ -2,12 +2,14 @@ import discord
 from discord import app_commands
 from discord.ext import commands, tasks
 from typing import Dict, Optional
-from fish_bot import const
 import datetime
 import json
 import os
 import asyncio
 import pickle
+from fish_bot.utils import ConfigManager
+
+config = ConfigManager()
 
 
 class FormState:
@@ -49,8 +51,8 @@ class FormHandler(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
         self.form_states: Dict[int, FormState] = {}  # User ID -> form state
-        self.target_channel_id = const.member_advertise_channel_id  # Set to your target channel
-        self.mod_channel_id = const.rude_people_channel_id  # Same mod channel as guild_advertise
+        self.target_channel_id = config.get_channel_id("member_advertise")
+        self.mod_channel_id = config.get_channel_id("rude_people")
         self.prefix = "!guild"  # Custom prefix for this cog
         self.cooldown_hours = 6  # Cooldown period in hours
 
@@ -425,7 +427,7 @@ async def setup(bot) -> None:
         # await bot.tree.sync()
 
         # For specific guild testing (faster updates):
-        guild = discord.Object(id=const.guild_id)  # Your test server ID
+        guild = discord.Object(id=config.get_guild_id())  # Your test server ID
         bot.tree.copy_global_to(guild=guild)
         await bot.tree.sync(guild=guild)
     except Exception as e:

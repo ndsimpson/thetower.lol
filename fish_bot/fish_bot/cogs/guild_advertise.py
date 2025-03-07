@@ -1,13 +1,15 @@
 import discord
 from discord.ext import commands, tasks
 from typing import Dict, Optional
-from fish_bot import const
 import datetime  # Add this import
 import json
 import os
 import asyncio
 import pickle
 from discord import app_commands
+from fish_bot.utils import ConfigManager
+
+config = ConfigManager()
 
 
 class GuildFormState:
@@ -52,8 +54,8 @@ class GuildForm(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
         self.form_states: Dict[int, GuildFormState] = {}  # User ID -> form state
-        self.guild_channel_id = const.guild_advertise_channel_id
-        self.mod_channel_id = const.rude_people_channel_id
+        self.guild_channel_id = config.get_channel_id("member_advertise")
+        self.mod_channel_id = config.get_channel_id("rude_people")
         self.prefix = "!guild"  # Custom prefix for this cog
         self.cooldown_hours = 6  # Cooldown period in hours
         self.cooldown_file = os.path.join(os.path.dirname(__file__), "data", "guild_cooldowns.json")
@@ -476,7 +478,7 @@ async def setup(bot) -> None:
     # Sync the slash commands with Discord
     try:
         # For specific guild testing (faster updates):
-        guild = discord.Object(id=const.guild_id)  # Your test server ID
+        guild = discord.Object(id=config.get_guild_id())  # Your test server ID
         bot.tree.copy_global_to(guild=guild)
         await bot.tree.sync(guild=guild)
     except Exception as e:
