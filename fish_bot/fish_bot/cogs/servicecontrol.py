@@ -29,9 +29,9 @@ class ServiceControl(BaseCog, name="Service Control"):
             await ctx.send(f"Available subcommands: {', '.join(commands_list)}")
 
     @service.command(name="restart")
-    async def restart(self, ctx, servicename):
+    async def restart_service(self, ctx: Context, servicename: str):
         """Restart a system service."""
-        if servicename in self.config["restartable_services"]:
+        if servicename in self.config.get("restartable_services", []):
             await ctx.send(f"Restarting {servicename}")
             try:
                 result = subprocess.run(
@@ -48,22 +48,45 @@ class ServiceControl(BaseCog, name="Service Control"):
         else:
             await ctx.send("Service not found.")
 
-    @commands.command()
-    async def stop(self, ctx: Context):
-        """Stop the bot service."""
-        await ctx.send(f"{ctx.author} requested a stop. Stopping service...")
-        user = self.bot.get_user(self.config.get_user_id("fishy"))
-        await user.send(f"Emergency stop command received by {ctx.author}. Stopping service...")
-        try:
-            result = subprocess.run(
-                ["systemctl", "stop", "fish_bot"],
-                capture_output=True,
-                text=True
-            )
-            if result.returncode != 0:
-                await ctx.send(f"Error stopping service: {result.stderr}")
-        except Exception as e:
-            await ctx.send(f"Failed to stop service: {str(e)}")
+    @service.command(name="start")
+    async def start_service(self, ctx: Context, servicename: str):
+        """Start a system service."""
+        if servicename in self.config.get("restartable_services", []):
+            await ctx.send(f"Starting {servicename}")
+            try:
+                result = subprocess.run(
+                    ["systemctl", "start", servicename],
+                    capture_output=True,
+                    text=True
+                )
+                if result.returncode == 0:
+                    await ctx.send(f"Successfully started {servicename}")
+                else:
+                    await ctx.send(f"Error starting {servicename}: {result.stderr}")
+            except Exception as e:
+                await ctx.send(f"Failed to start service: {str(e)}")
+        else:
+            await ctx.send("Service not found.")
+
+    @service.command(name="stop")
+    async def stop_service(self, ctx: Context, servicename: str):
+        """Stop a system service."""
+        if servicename in self.config.get("restartable_services", []):
+            await ctx.send(f"Stopping {servicename}")
+            try:
+                result = subprocess.run(
+                    ["systemctl", "stop", servicename],
+                    capture_output=True,
+                    text=True
+                )
+                if result.returncode == 0:
+                    await ctx.send(f"Successfully stopped {servicename}")
+                else:
+                    await ctx.send(f"Error stopping {servicename}: {result.stderr}")
+            except Exception as e:
+                await ctx.send(f"Failed to stop service: {str(e)}")
+        else:
+            await ctx.send("Service not found.")
 
 
 async def setup(bot) -> None:
