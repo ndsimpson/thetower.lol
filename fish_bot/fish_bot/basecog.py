@@ -13,6 +13,23 @@ class BaseCog(commands.Cog):
         self.bot = bot
         self.config = ConfigManager()
         self._permissions = self.load_command_permissions()
+        self._guild = None  # Cache for guild object
+
+        # Register for the reconnect event to clear the guild cache
+        self.bot.add_listener(self.on_reconnect, 'on_resumed')
+
+    async def on_reconnect(self):
+        """Reset the guild cache when the bot reconnects."""
+        self._guild = None
+        logger = logging.getLogger(__name__)
+        logger.debug(f"Guild cache reset for {self.__class__.__name__}")
+
+    @property
+    def guild(self):
+        """Get and cache the primary guild for this bot."""
+        if self._guild is None:
+            self._guild = self.bot.get_guild(self.config.get_guild_id())
+        return self._guild
 
     def load_command_permissions(self) -> Dict[str, Any]:
         """Load command permissions from configuration."""
