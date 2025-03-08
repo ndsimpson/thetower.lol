@@ -1,15 +1,12 @@
 import discord
 from discord.ext import commands, tasks
 from typing import Dict, Optional
-import datetime  # Add this import
+import datetime
 import json
-import os
 import asyncio
 import pickle
 from discord import app_commands
-from fish_bot.utils import ConfigManager
-
-config = ConfigManager()
+from fish_bot.basecog import BaseCog
 
 
 class GuildFormState:
@@ -50,18 +47,21 @@ class GuildFormState:
         self.current_question += 1
 
 
-class GuildForm(commands.Cog):
+class GuildForm(BaseCog):
     def __init__(self, bot):
-        self.bot = bot
+        super().__init__(bot)
+
         self.form_states: Dict[int, GuildFormState] = {}  # User ID -> form state
-        self.guild_channel_id = config.get_channel_id("member_advertise")
-        self.mod_channel_id = config.get_channel_id("rude_people")
+        self.guild_channel_id = self.config.get_channel_id("member_advertise")
+        self.mod_channel_id = self.config.get_channel_id("rude_people")
         self.prefix = "!guild"  # Custom prefix for this cog
         self.cooldown_hours = 6  # Cooldown period in hours
-        self.cooldown_file = os.path.join(os.path.dirname(__file__), "data", "guild_cooldowns.json")
+
+        self.cooldown_file = self.data_directory / "guild_cooldowns.json"
+        self.pending_deletions_file = self.data_directory / "pending_deletions.pkl"
+
         # Track both user and guild cooldowns
         self.cooldowns = self._load_cooldowns()  # Load cooldowns from file
-        self.pending_deletions_file = os.path.join(os.path.dirname(__file__), "data", "pending_deletions.pkl")
         self.pending_deletions = self._load_pending_deletions()
         self.bot.loop.create_task(self._resume_deletion_tasks())
         self.weekly_cleanup.start()
@@ -124,7 +124,7 @@ class GuildForm(commands.Cog):
     def _load_cooldowns(self) -> Dict[str, Dict[str, datetime.datetime]]:
         """Load cooldowns from file."""
         try:
-            if os.path.exists(self.cooldown_file):
+            if self.cooldown_file.exists():
                 with open(self.cooldown_file, 'r') as f:
                     cooldown_dict = json.load(f)
 
@@ -154,7 +154,7 @@ class GuildForm(commands.Cog):
         """Save cooldowns to file."""
         try:
             # Ensure directory exists
-            os.makedirs(os.path.dirname(self.cooldown_file), exist_ok=True)
+            self.cooldown_file.parent.mkdir(parents=True, exist_ok=True)
 
             # Convert datetime objects to ISO format strings
             cooldown_dict = {
@@ -173,7 +173,7 @@ class GuildForm(commands.Cog):
     def _load_pending_deletions(self):
         """Load pending message deletions from file."""
         try:
-            if os.path.exists(self.pending_deletions_file):
+            if self.pending_deletions_file.exists():
                 with open(self.pending_deletions_file, 'rb') as f:
                     return pickle.load(f)
         except Exception as e:
@@ -183,7 +183,7 @@ class GuildForm(commands.Cog):
     def _save_pending_deletions(self):
         """Save pending message deletions to file."""
         try:
-            os.makedirs(os.path.dirname(self.pending_deletions_file), exist_ok=True)
+            self.pending_deletions_file.parent.mkdir(parents=True, exist_ok=True)
             with open(self.pending_deletions_file, 'wb') as f:
                 pickle.dump(self.pending_deletions, f)
         except Exception as e:
@@ -478,7 +478,7 @@ async def setup(bot) -> None:
     # Sync the slash commands with Discord
     try:
         # For specific guild testing (faster updates):
-        guild = discord.Object(id=config.get_guild_id())  # Your test server ID
+        guild = discord.Object(id=cog.config.get_guild_id())
         bot.tree.copy_global_to(guild=guild)
         await bot.tree.sync(guild=guild)
     except Exception as e:

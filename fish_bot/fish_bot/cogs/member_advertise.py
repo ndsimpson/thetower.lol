@@ -4,12 +4,9 @@ from discord.ext import commands, tasks
 from typing import Dict, Optional
 import datetime
 import json
-import os
 import asyncio
 import pickle
-from fish_bot.utils import ConfigManager
-
-config = ConfigManager()
+from fish_bot.basecog import BaseCog
 
 
 class FormState:
@@ -47,18 +44,18 @@ class FormState:
         self.current_question += 1
 
 
-class FormHandler(commands.Cog):
+class FormHandler(BaseCog):
     def __init__(self, bot):
-        self.bot = bot
+        super().__init__(bot)
+
         self.form_states: Dict[int, FormState] = {}  # User ID -> form state
-        self.target_channel_id = config.get_channel_id("member_advertise")
-        self.mod_channel_id = config.get_channel_id("rude_people")
+        self.target_channel_id = self.config.get_channel_id("member_advertise")
+        self.mod_channel_id = self.config.get_channel_id("rude_people")
         self.prefix = "!guild"  # Custom prefix for this cog
         self.cooldown_hours = 6  # Cooldown period in hours
 
-        # Setup file paths
-        self.cooldown_file = os.path.join(os.path.dirname(__file__), "data", "member_cooldowns.json")
-        self.pending_deletions_file = os.path.join(os.path.dirname(__file__), "data", "member_pending_deletions.pkl")
+        self.cooldown_file = self.data_directory / "member_cooldowns.json"
+        self.pending_deletions_file = self.data_directory / "member_pending_deletions.pkl"
 
         # Load saved data
         self.cooldowns = self._load_cooldowns()
@@ -118,7 +115,7 @@ class FormHandler(commands.Cog):
     def _load_cooldowns(self) -> Dict[str, Dict[str, datetime.datetime]]:
         """Load cooldowns from file."""
         try:
-            if os.path.exists(self.cooldown_file):
+            if self.cooldown_file.exists():
                 with open(self.cooldown_file, 'r') as f:
                     cooldown_dict = json.load(f)
 
@@ -135,7 +132,7 @@ class FormHandler(commands.Cog):
         """Save cooldowns to file."""
         try:
             # Ensure directory exists
-            os.makedirs(os.path.dirname(self.cooldown_file), exist_ok=True)
+            self.cooldown_file.parent.mkdir(parents=True, exist_ok=True)
 
             # Convert datetime objects to ISO format strings
             cooldown_dict = {str(user_id): timestamp.isoformat()
@@ -150,7 +147,7 @@ class FormHandler(commands.Cog):
     def _load_pending_deletions(self):
         """Load pending message deletions from file."""
         try:
-            if os.path.exists(self.pending_deletions_file):
+            if self.pending_deletions_file.exists():
                 with open(self.pending_deletions_file, 'rb') as f:
                     return pickle.load(f)
         except Exception as e:
@@ -160,7 +157,7 @@ class FormHandler(commands.Cog):
     def _save_pending_deletions(self):
         """Save pending message deletions to file."""
         try:
-            os.makedirs(os.path.dirname(self.pending_deletions_file), exist_ok=True)
+            self.pending_deletions_file.parent.mkdir(parents=True, exist_ok=True)
             with open(self.pending_deletions_file, 'wb') as f:
                 pickle.dump(self.pending_deletions, f)
         except Exception as e:
@@ -427,7 +424,7 @@ async def setup(bot) -> None:
         # await bot.tree.sync()
 
         # For specific guild testing (faster updates):
-        guild = discord.Object(id=config.get_guild_id())  # Your test server ID
+        guild = discord.Object(id=cog.config.get_guild_id())  # Your test server ID
         bot.tree.copy_global_to(guild=guild)
         await bot.tree.sync(guild=guild)
     except Exception as e:
