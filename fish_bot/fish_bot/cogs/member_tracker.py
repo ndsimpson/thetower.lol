@@ -14,7 +14,6 @@ class MemberTracker(BaseCog, name="Member Tracker"):
 
     def __init__(self, bot):
         super().__init__(bot)
-        self.bot = bot
         self.members = defaultdict(list)
 
     @commands.Cog.listener()

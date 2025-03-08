@@ -18,7 +18,6 @@ class TourneyManagement(BaseCog, name="Tourney Management"):
 
     def __init__(self, bot):
         super().__init__(bot)
-        self.bot = bot
 
     @commands.group(name="tourney", invoke_without_command=True)
     async def tourney(self, ctx):
@@ -124,7 +123,7 @@ class TourneyManagement(BaseCog, name="Tourney Management"):
         except TourneyResult.DoesNotExist:
             await ctx.send(f"Error: Tournament #{id} not found!")
         except AttributeError:
-            await ctx.send(f"No summary available for Tournament #{id}. Generate one using `{self.config['prefix']}tourney gensummary {id}`")
+            await ctx.send(f"No summary available for Tournament #{id}. Generate one using `{self.config.get('prefix', '')}tourney gensummary {id}`")
         except Exception as e:
             await ctx.send(f"Error displaying summary: {str(e)}")
             self.bot.logger.error(f"Summary display error: {e}", exc_info=True)
