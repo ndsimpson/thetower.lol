@@ -9,7 +9,6 @@ from discord.ext import commands
 import easyocr
 
 # Local application imports
-from discord_bot import const
 from fish_bot.basecog import BaseCog
 from fish_bot.util import is_channel
 
@@ -159,7 +158,11 @@ class Verification(BaseCog, name="Verification"):
         is_player_id_please_channel = partial(is_channel, id_=self.config.get_channel_id("verify"))
 
         # Ignore specific users and non-target channels
-        ignored_ids = [const.id_pog, const.id_susjite, self.config.get_bot_id("towerbot")]
+        ignored_ids = [
+            self.config.get_user_id("pog"),
+            self.config.get_user_id("susjite"),
+            self.config.get_bot_id("towerbot")
+        ]
         if message.author.id in ignored_ids or not is_player_id_please_channel(message.channel):
             return
 

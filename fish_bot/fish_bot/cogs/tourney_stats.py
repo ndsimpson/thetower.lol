@@ -29,7 +29,6 @@ class TourneyStats(BaseCog, name="Tourney Stats"):
 
     def __init__(self, bot):
         super().__init__(bot)
-        self.bot = bot
         self.league_dfs = {}  # Cache for tournament dataframes by league
         self.latest_patch = None  # Cache for the latest patch
         self.data_file = Path("data/tourney_stats_data.pkl")

@@ -13,7 +13,6 @@ class ServiceControl(BaseCog, name="Service Control"):
 
     def __init__(self, bot):
         super().__init__(bot)
-        self.bot = bot
 
     @commands.group(name="service", invoke_without_command=True)
     async def service(self, ctx):

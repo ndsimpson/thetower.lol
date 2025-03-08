@@ -3,19 +3,8 @@ import datetime
 from discord.ext import commands, tasks
 
 from fish_bot.basecog import BaseCog
-from fish_bot.utils import ConfigManager  # TODO: Remove this import and transition to self.config
 
 from towerbcs.towerbcs import predict_future_tournament, TournamentPredictor
-
-config = ConfigManager()
-
-league_threads = {
-    "Legend" : config.get_thread_id("battleconditions", "legend"),
-    "Champion" : config.get_thread_id("battleconditions", "champion"),
-    "Platinum" : config.get_thread_id("battleconditions", "platinum"),
-    "Gold" : config.get_thread_id("battleconditions", "gold"),
-    "Silver" : config.get_thread_id("battleconditions", "silver")
-}
 
 
 class BattleConditions(BaseCog, name="Battle Conditions"):
@@ -30,6 +19,15 @@ class BattleConditions(BaseCog, name="Battle Conditions"):
     def __init__(self, bot):
         super().__init__(bot)
         self.bot = bot
+
+        self.league_threads = {
+            "Legend": self.config.get_thread_id("battleconditions", "legend"),
+            "Champion": self.config.get_thread_id("battleconditions", "champion"),
+            "Platinum": self.config.get_thread_id("battleconditions", "platinum"),
+            "Gold": self.config.get_thread_id("battleconditions", "gold"),
+            "Silver": self.config.get_thread_id("battleconditions", "silver")
+        }
+
         self.scheduled_bc_messages.start()
 
     def cog_unload(self):
@@ -85,7 +83,7 @@ class BattleConditions(BaseCog, name="Battle Conditions"):
                 message = f"The BCs for the {league.title()} tournament on {tourney_date} are:\n"
                 for battlecondition in battleconditions:
                     message += f"- {battlecondition}\n"
-                channel = self.bot.get_channel(league_threads[league])
+                channel = self.bot.get_channel(self.league_threads[league])
                 await channel.send(message)
 
 
