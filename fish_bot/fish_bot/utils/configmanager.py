@@ -166,7 +166,7 @@ class ConfigManager(BaseFileMonitor):
 
     def get_ranking_id(self, league: str, rank: str) -> int:
         """Get a ranking ID by its league and rank."""
-        if league == "champion":
-            return self.config["rankings"]["champion"].get(rank)
+        if league == "legend":
+            return self.config["rankings"]["legend"].get(rank)
         else:
             return self.config["rankings"]["other_leagues"].get(f"{league.lower()}{rank}")
