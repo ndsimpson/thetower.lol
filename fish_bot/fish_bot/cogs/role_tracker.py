@@ -10,9 +10,6 @@ from asgiref.sync import sync_to_async
 
 from fish_bot.basecog import BaseCog
 from dtower.sus.models import KnownPlayer
-from fish_bot.utils import ConfigManager
-
-config = ConfigManager()
 
 # Set up logging
 logger = logging.getLogger(__name__)
@@ -74,7 +71,7 @@ class RoleTracker(BaseCog, name="Role Tracker"):
         self.tracked_roles_ordered.clear()
 
         # Get legend rankings
-        legend_ranks = self.config.config.get("rankings", {}).get("legend", {})
+        legend_ranks = self.config.get("rankings", {}).get("legend", {})
         # Track top1 separately as it's a special case
         self.top1_role_id = None
         for rank_name, role_id in legend_ranks.items():
@@ -86,7 +83,7 @@ class RoleTracker(BaseCog, name="Role Tracker"):
                 logger.info(f"Tracking legend rank {rank_name} ({role_id})")
 
         # Get other league rankings
-        other_leagues = self.config.config.get("rankings", {}).get("other_leagues", {})
+        other_leagues = self.config.get("rankings", {}).get("other_leagues", {})
         for rank_name, role_id in other_leagues.items():
             if role_id:
                 self.tracked_roles.add(role_id)
@@ -349,7 +346,7 @@ class RoleTracker(BaseCog, name="Role Tracker"):
                 logger.info(f"Member {tracked_member.name} ({after.id}) lost verified role - triggering role update")
 
                 # Find a suitable channel to use for the context (same as we do for verification)
-                log_channel_id = config.get_channel_id("testing")
+                log_channel_id = self.config.get_channel_id("testing")
                 channel = None
 
                 if log_channel_id:
@@ -454,7 +451,7 @@ class RoleTracker(BaseCog, name="Role Tracker"):
             logger.info(f"Processing automatic role update for newly verified member {discord_id}")
 
             # Find a suitable channel to use for the context (needed for status messages)
-            log_channel_id = config.get_channel_id("testing")
+            log_channel_id = self.config.get_channel_id("testing")
             channel = None
 
             if log_channel_id:
@@ -548,8 +545,8 @@ class RoleTracker(BaseCog, name="Role Tracker"):
                     role_counts[role_id] += 1
 
         # Get roles configuration to identify league types
-        legend_roles = self.config.config.get("rankings", {}).get("legend", {})
-        other_leagues = self.config.config.get("rankings", {}).get("other_leagues", {})
+        legend_roles = self.config.get("rankings", {}).get("legend", {})
+        other_leagues = self.config.get("rankings", {}).get("other_leagues", {})
 
         # Split roles by league type
         legend_role_ids = set(legend_roles.values())
@@ -800,8 +797,8 @@ class RoleTracker(BaseCog, name="Role Tracker"):
         verified_role_id = self.config.get_role_id("verified")
 
         # Get the roles configuration
-        legend_roles = self.config.config.get("rankings", {}).get("legend", {})
-        other_league_roles = self.config.config.get("rankings", {}).get("other_leagues", {})
+        legend_roles = self.config.get("rankings", {}).get("legend", {})
+        other_league_roles = self.config.get("rankings", {}).get("other_leagues", {})
 
         # Convert to ordered lists for role precedence
         legend_role_ids = []
@@ -1310,8 +1307,8 @@ class RoleTracker(BaseCog, name="Role Tracker"):
             return
 
         # Get roles configuration
-        legend_roles = self.config.config.get("rankings", {}).get("legend", {})
-        other_league_roles = self.config.config.get("rankings", {}).get("other_leagues", {})
+        legend_roles = self.config.get("rankings", {}).get("legend", {})
+        other_league_roles = self.config.get("rankings", {}).get("other_leagues", {})
 
         # Define league hierarchy (highest to lowest)
         league_hierarchy = ["legend", "champion", "platinum", "gold", "silver", "copper"]
