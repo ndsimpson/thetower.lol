@@ -1,4 +1,5 @@
 import logging
+from pathlib import Path
 from typing import Dict, Any
 from discord.ext import commands
 from discord.ext.commands import Context
@@ -14,6 +15,7 @@ class BaseCog(commands.Cog):
         self.config = ConfigManager()
         self._permissions = self.load_command_permissions()
         self._guild = None  # Cache for guild object
+        self._cog_data_directory = None  # Cache for cog data directory
 
         # Register for the reconnect event to clear the guild cache
         self.bot.add_listener(self.on_reconnect, 'on_resumed')
@@ -30,6 +32,14 @@ class BaseCog(commands.Cog):
         if self._guild is None:
             self._guild = self.bot.get_guild(self.config.get_guild_id())
         return self._guild
+
+    @property
+    def data_directory(self) -> Path:
+        """Get and cache the cog's data directory."""
+        if self._cog_data_directory is None:
+            cog_name = self.__class__.__name__
+            self._cog_data_directory = self.config.get_cog_data_directory(cog_name)
+        return self._cog_data_directory
 
     def load_command_permissions(self) -> Dict[str, Any]:
         """Load command permissions from configuration."""
