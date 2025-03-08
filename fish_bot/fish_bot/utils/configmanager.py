@@ -25,7 +25,7 @@ class ConfigManager(BaseFileMonitor):
                 logger.error("FISHBOT_CONFIG environment variable is not set")
                 sys.exit(1)
 
-            self.config_path = Path(config_path)
+            self.config_path = Path(config_path) / "config.json"
             if not self.config_path.exists():
                 logger.error(f"Config file not found at: {self.config_path}")
                 sys.exit(1)
@@ -170,3 +170,28 @@ class ConfigManager(BaseFileMonitor):
             return self.config["rankings"]["legend"].get(rank)
         else:
             return self.config["rankings"]["other_leagues"].get(f"{league.lower()}{rank}")
+
+    def get_cog_data_directory(self, cog_name: str) -> Path:
+        """Get or create a cog-specific data directory.
+
+        Args:
+            cog_name: The name of the cog
+
+        Returns:
+            Path object to the cog's data directory
+        """
+        # Create a 'cogs' directory next to the config file
+        base_data_dir = self.config_path.parent / "cogs"
+        base_data_dir.mkdir(exist_ok=True, parents=True)
+
+        # Sanitize the cog name to ensure it's a valid directory name
+        safe_name = "".join(c for c in cog_name.lower() if c.isalnum() or c in "._- ")
+
+        # Create the path
+        cog_dir = base_data_dir / safe_name
+
+        # Ensure the directory exists
+        cog_dir.mkdir(exist_ok=True, parents=True)
+
+        logger.debug(f"Cog directory for '{cog_name}' created/accessed at {cog_dir}")
+        return cog_dir
