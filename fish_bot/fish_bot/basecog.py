@@ -395,7 +395,7 @@ class BaseCog(commands.Cog):
             if name.endswith(('_interval', '_threshold', '_timeout', '_delay', '_duration'))
         }
 
-    def cog_unload(self):
+    async def cog_unload(self):
         """Clean up resources when cog is unloaded."""
         # Cancel periodic save tasks
         self.cancel_save_tasks()
@@ -406,4 +406,4 @@ class BaseCog(commands.Cog):
 
         # Call parent implementation if it exists
         if hasattr(super(), 'cog_unload'):
-            super().cog_unload()
+            await super().cog_unload()
