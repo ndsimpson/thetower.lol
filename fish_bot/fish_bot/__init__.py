@@ -2,7 +2,6 @@
 
 from .bot import DiscordBot
 from .basecog import basecog
-from .const import *
 from .exceptions import UserUnauthorized, ChannelUnauthorized
 
 __all__ = [
