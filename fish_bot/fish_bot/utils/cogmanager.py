@@ -21,7 +21,8 @@ class CogManager:
         """
         Load cogs based on configuration settings.
         """
-        cogs_path = Path(self.bot.__module__).parent.resolve() / "cogs"
+        cogs_path = Path(__file__).parent.parent.resolve() / "cogs"
+        print(cogs_path)
 
         # Access global configuration for cogs
         enabled_cogs = self.config.get("enabled_cogs", [])
@@ -188,7 +189,7 @@ class CogManager:
         load_all = self.config.get("load_all_cogs", False)
 
         # Get cog files
-        cogs_path = Path(self.bot.__module__).parent.resolve() / "cogs"
+        cogs_path = Path(__file__).parent.parent.resolve() / "cogs"
         available_cogs = [file.stem for file in cogs_path.iterdir() if file.suffix == ".py"]
 
         cog_status = []
