@@ -1,9 +1,13 @@
+# Standard library imports
 import logging
 from pathlib import Path
 from typing import Dict, Any
+
+# Third-party imports
 from discord.ext import commands
 from discord.ext.commands import Context
 
+# Local application imports
 from fish_bot.exceptions import ChannelUnauthorized, UserUnauthorized
 from fish_bot.utils import ConfigManager
 

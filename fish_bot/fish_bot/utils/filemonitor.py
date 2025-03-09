@@ -1,7 +1,7 @@
+import logging
 from pathlib import Path
 from watchdog.events import FileSystemEventHandler
 from watchdog.observers import Observer
-import logging
 
 logger = logging.getLogger(__name__)
 

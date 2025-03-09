@@ -1,11 +1,11 @@
 import json
 import logging
-import os
 import sys
+from os import getenv
 from pathlib import Path
 from typing import Any, Dict
 from watchdog.events import FileSystemEventHandler, FileModifiedEvent
-from fish_bot.utils.filemonitor import BaseFileMonitor
+from .filemonitor import BaseFileMonitor
 
 logger = logging.getLogger(__name__)
 
@@ -20,7 +20,7 @@ class ConfigManager(BaseFileMonitor):
 
     def __init__(self):
         if not hasattr(self, 'initialized'):
-            config_path = os.getenv('FISHBOT_CONFIG')
+            config_path = getenv('FISHBOT_CONFIG')
             if not config_path:
                 logger.error("FISHBOT_CONFIG environment variable is not set")
                 sys.exit(1)
