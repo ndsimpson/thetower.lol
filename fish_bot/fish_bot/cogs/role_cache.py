@@ -2,7 +2,9 @@ import asyncio
 import json
 import logging
 import datetime
+import concurrent.futures
 from fish_bot.basecog import BaseCog
+import discord
 from discord.ext import commands
 from pathlib import Path
 
@@ -18,24 +20,24 @@ class RoleCache(BaseCog):
         # Create an event that signals when cache is ready
         self._cache_ready = asyncio.Event()
 
+        # Flag to track if changes need to be saved
+        self._cache_modified = False
+
+        # Lock for save operations to prevent race conditions
+        self._save_lock = asyncio.Lock()
+
         # Store a reference to this cog on the bot for easy access
         self.bot.role_cache = self
 
-        # Setup default settings if they don't exist yet
-        if not self.has_setting('refresh_interval'):
-            self.update_settings({
-                'refresh_interval': 1800,  # 30 minutes in seconds
-                'staleness_threshold': 3600,  # 1 hour in seconds
-                'cache_filename': 'role_cache.json'
-            })
-
         # Configure cache settings from stored settings
-        self.staleness_threshold = self.get_setting('staleness_threshold')
-        self.refresh_interval = self.get_setting('refresh_interval')
+        self.staleness_threshold = self.get_setting('staleness_threshold', 3600)
+        self.refresh_interval = self.get_setting('refresh_interval', 1800)
+        self.save_interval = self.get_setting('save_interval', 3600)  # Default to 1 hour if not set
 
         self.logger = logging.getLogger(__name__)
         self.logger.info(f"RoleCache initialized with refresh_interval={self.refresh_interval}s, "
-                         f"staleness_threshold={self.staleness_threshold}s")
+                         f"staleness_threshold={self.staleness_threshold}s, "
+                         f"save_interval={self.save_interval}s")
 
         # Try to load existing cache from file
         self.load_cache_from_file()
@@ -46,13 +48,13 @@ class RoleCache(BaseCog):
         # Start periodic refresh task
         self.refresh_task = self.bot.loop.create_task(self.periodic_refresh())
 
-        # Start periodic save task
+        # Start periodic save task (separate from refresh)
         self.save_task = self.bot.loop.create_task(self.periodic_save())
 
     @property
     def cache_file(self) -> Path:
         """Get the cache file path using the cog's data directory"""
-        cache_filename = self.get_setting('cache_filename')
+        cache_filename = self.get_setting('cache_filename', 'role_cache.json')
         return self.data_directory / cache_filename
 
     # Add a command to modify settings
@@ -66,29 +68,66 @@ class RoleCache(BaseCog):
     async def settings_command(self, ctx):
         """Display current role cache settings"""
         settings = self.get_all_settings()
-        settings_str = "\n".join(f"• {k}: {v}" for k, v in settings.items())
-        await ctx.send(f"**Role Cache Settings:**\n{settings_str}")
+
+        embed = discord.Embed(
+            title="Role Cache Settings",
+            description="Current configuration for role caching system",
+            color=discord.Color.blue()
+        )
+
+        for name, value in settings.items():
+            # Format durations in a more readable way for time-based settings
+            if name in ["refresh_interval", "staleness_threshold", "save_interval"]:
+                hours = value // 3600
+                minutes = (value % 3600) // 60
+                seconds = value % 60
+                formatted_value = f"{hours}h {minutes}m {seconds}s ({value} seconds)"
+                embed.add_field(name=name, value=formatted_value, inline=False)
+            else:
+                embed.add_field(name=name, value=str(value), inline=False)
+
+        await ctx.send(embed=embed)
 
     @rolecache_group.command(name="set")
     async def set_setting_command(self, ctx, setting_name: str, value: int):
         """Change a role cache setting
 
-        Valid settings: refresh_interval, staleness_threshold
-        Values are in seconds
+        Args:
+            setting_name: Setting to change (refresh_interval, staleness_threshold, save_interval)
+            value: New value for the setting (in seconds)
         """
-        if setting_name not in ['refresh_interval', 'staleness_threshold']:
-            await ctx.send("Invalid setting name. Valid options: refresh_interval, staleness_threshold")
-            return
+        valid_settings = [
+            "refresh_interval",
+            "staleness_threshold",
+            "save_interval"
+        ]
 
-        self.set_setting(setting_name, value)
+        if setting_name not in valid_settings:
+            valid_settings_str = ", ".join(valid_settings)
+            return await ctx.send(f"Invalid setting name. Valid options: {valid_settings_str}")
 
-        # Update instance variables
-        if setting_name == 'refresh_interval':
-            self.refresh_interval = value
-        elif setting_name == 'staleness_threshold':
-            self.staleness_threshold = value
+        # Validate inputs based on the setting
+        if setting_name in ["refresh_interval", "staleness_threshold", "save_interval"]:
+            if value < 60:  # Minimum 60 seconds for time intervals
+                return await ctx.send(f"Value for {setting_name} must be at least 60 seconds")
 
-        await ctx.send(f"✅ Set {setting_name} to {value} seconds")
+            # Update instance variables immediately
+            if setting_name == 'refresh_interval':
+                self.refresh_interval = value
+            elif setting_name == 'staleness_threshold':
+                self.staleness_threshold = value
+            elif setting_name == 'save_interval':
+                self.save_interval = value
+
+            # Save the setting
+            self.set_setting(setting_name, value)
+
+            # Format confirmation message with time breakdown
+            hours = value // 3600
+            minutes = (value % 3600) // 60
+            seconds = value % 60
+            time_format = f"{hours}h {minutes}m {seconds}s"
+            await ctx.send(f"✅ Set {setting_name} to {value} seconds ({time_format})")
 
     @rolecache_group.command(name="rolestats")
     async def role_stats_command(self, ctx, *, role_name=None):
@@ -202,28 +241,39 @@ class RoleCache(BaseCog):
 
         return False
 
-    async def save_cache_to_file(self):
-        """Save the current role cache to file"""
-        try:
-            # Ensure directory exists
-            cache_path = self.cache_file
-            cache_path.parent.mkdir(parents=True, exist_ok=True)
+    def mark_modified(self):
+        """Mark the cache as modified, needing to be saved"""
+        self._cache_modified = True
 
-            with open(cache_path, 'w') as f:
-                json.dump(self.member_roles, f)
-
-            self.logger.info(f"Saved role cache to {cache_path}")
+    async def save_cache_to_file(self, force=False):
+        """Save the current role cache to file if modified or forced"""
+        # Skip saving if nothing has changed and not forced
+        if not force and not self._cache_modified:
             return True
-        except Exception as e:
-            self.logger.error(f"Failed to save role cache to file: {str(e)}")
-            return False
+
+        # Use a lock to prevent multiple simultaneous saves
+        async with self._save_lock:
+            try:
+                # Ensure directory exists
+                cache_path = self.cache_file
+                cache_path.parent.mkdir(parents=True, exist_ok=True)
+
+                with open(cache_path, 'w') as f:
+                    json.dump(self.member_roles, f)
+
+                self._cache_modified = False  # Reset modified flag
+                self.logger.info(f"Saved role cache to {cache_path}")
+                return True
+            except Exception as e:
+                self.logger.error(f"Failed to save role cache to file: {str(e)}")
+                return False
 
     async def periodic_save(self):
         """Periodically save the cache to file"""
         await self.bot.wait_until_ready()
         while not self.bot.is_closed():
-            await asyncio.sleep(self.refresh_interval)  # Save at the same interval as refresh
-            await self.save_cache_to_file()
+            await asyncio.sleep(self.save_interval)  # Use dedicated save interval
+            await self.save_cache_to_file()  # Only saves if modified
 
     async def _build_initial_cache(self):
         """Build role cache for all guilds after bot is ready"""
@@ -275,6 +325,7 @@ class RoleCache(BaseCog):
             "roles": [role.id for role in member.roles],
             "updated_at": datetime.datetime.now(datetime.timezone.utc).timestamp()
         }
+        self._cache_modified = True
 
     def has_role(self, guild_id, user_id, role_id):
         """Check if user has role from cache"""
@@ -307,23 +358,11 @@ class RoleCache(BaseCog):
                     self.update_member_roles(member)
                     refreshed_count += 1
 
-        self.logger.info(f"Refreshed roles for {refreshed_count} members")
-
-        # Save cache after refreshing
         if refreshed_count > 0:
-            await self.save_cache_to_file()
+            self.logger.info(f"Refreshed roles for {refreshed_count} members")
+            # No need to explicitly save here - will be saved by periodic_save
 
-    async def periodic_refresh(self):
-        """Periodically refresh stale role entries and clean up missing members"""
-        await self.bot.wait_until_ready()
-        while not self.bot.is_closed():
-            await asyncio.sleep(self.refresh_interval)
-            await self.refresh_stale_roles()
-
-            # Run cleanup every few refresh cycles using explicit UTC time
-            current_time = int(datetime.datetime.now(datetime.timezone.utc).timestamp())
-            if current_time % (self.refresh_interval * 3) < self.refresh_interval:
-                await self.cleanup_missing_members()
+        return refreshed_count
 
     async def cleanup_missing_members(self):
         """Remove cache entries for members who are no longer in guilds"""
@@ -344,12 +383,25 @@ class RoleCache(BaseCog):
             for member_id in missing_member_ids:
                 del self.member_roles[guild.id][member_id]
                 removed_count += 1
+                self.mark_modified()  # Mark cache as modified
 
         if removed_count > 0:
             self.logger.info(f"Cleaned up {removed_count} cached entries for members no longer in guilds")
-            await self.save_cache_to_file()
+            # No need to explicitly save here - will be saved by periodic_save
 
         return removed_count
+
+    async def periodic_refresh(self):
+        """Periodically refresh stale role entries and clean up missing members"""
+        await self.bot.wait_until_ready()
+        while not self.bot.is_closed():
+            await asyncio.sleep(self.refresh_interval)
+            await self.refresh_stale_roles()
+
+            # Run cleanup every few refresh cycles using explicit UTC time
+            current_time = int(datetime.datetime.now(datetime.timezone.utc).timestamp())
+            if current_time % (self.refresh_interval * 3) < self.refresh_interval:
+                await self.cleanup_missing_members()
 
     @commands.Cog.listener()
     async def on_member_update(self, before, after):
@@ -367,16 +419,15 @@ class RoleCache(BaseCog):
         if member.guild.id in self.member_roles:
             if member.id in self.member_roles[member.guild.id]:
                 del self.member_roles[member.guild.id][member.id]
+                self.mark_modified()  # Mark as modified instead of saving
                 self.logger.debug(f"Removed cached roles for {member.display_name} leaving {member.guild.name}")
-                # Save cache after removing a member
-                self.bot.loop.create_task(self.save_cache_to_file())
 
     @commands.Cog.listener()
     async def on_guild_join(self, guild):
         await self.build_cache(guild)
         self.logger.info(f"Built role cache for new guild: {guild.name}")
-        # Save cache after adding a new guild
-        await self.save_cache_to_file()
+        # Force save after adding a new guild
+        await self.save_cache_to_file(force=True)
 
     @commands.Cog.listener()
     async def on_guild_remove(self, guild):
@@ -387,17 +438,45 @@ class RoleCache(BaseCog):
 
             # Remove the guild data
             del self.member_roles[guild.id]
+            self.mark_modified()  # Mark as modified
 
             self.logger.info(f"Removed role cache for departed guild: {guild.name} ({members_count} members)")
-
-            # Save cache after removing guild data
-            await self.save_cache_to_file()
 
     # Refresh stale roles on reconnect instead of rebuilding entire cache
     async def on_reconnect(self):
         await super().on_reconnect()  # Call the parent method first
         self.logger.info("Refreshing stale roles after reconnect")
         await self.refresh_stale_roles()
+
+    def cog_unload(self):
+        """Called when the cog is unloaded. Ensures data is saved."""
+        # Cancel the background tasks first
+        if hasattr(self, 'refresh_task'):
+            self.refresh_task.cancel()
+        if hasattr(self, 'save_task'):
+            self.save_task.cancel()
+
+        # Force a synchronous save
+        loop = asyncio.get_event_loop()
+        if self._cache_modified and loop.is_running():
+            # We're in an async context, run the save coroutine
+            future = asyncio.run_coroutine_threadsafe(
+                self.save_cache_to_file(force=True),
+                loop
+            )
+            try:
+                # Wait for a short time to allow save to complete
+                future.result(timeout=5)
+                self.logger.info("Role cache saved during cog unload")
+            except (asyncio.TimeoutError, concurrent.futures.TimeoutError):
+                self.logger.warning("Timed out while saving role cache during unload")
+            except Exception as e:
+                self.logger.error(f"Error saving role cache during unload: {e}")
+        else:
+            # We can't run the coroutine, log a warning
+            self.logger.warning("Could not save role cache during unload - no running event loop")
+
+        self.logger.info("Role cache unloaded")
 
 
 async def setup(bot):
