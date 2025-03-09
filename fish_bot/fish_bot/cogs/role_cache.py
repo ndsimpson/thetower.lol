@@ -56,13 +56,18 @@ class RoleCache(BaseCog):
         return self.data_directory / cache_filename
 
     # Add a command to modify settings
-    @commands.group(name="rolecache")
+    @commands.group(name="rolecache", aliases=["rc"], invoke_without_command=True)
     async def rolecache_group(self, ctx):
         """Commands for managing the role cache"""
         if ctx.invoked_subcommand is None:
-            settings = self.get_all_settings()
-            settings_str = "\n".join(f"• {k}: {v}" for k, v in settings.items())
-            await ctx.send(f"**Role Cache Settings:**\n{settings_str}")
+            await ctx.send_help(ctx.command)
+
+    @rolecache_group.command(name="settings")
+    async def settings_command(self, ctx):
+        """Display current role cache settings"""
+        settings = self.get_all_settings()
+        settings_str = "\n".join(f"• {k}: {v}" for k, v in settings.items())
+        await ctx.send(f"**Role Cache Settings:**\n{settings_str}")
 
     @rolecache_group.command(name="set")
     async def set_setting_command(self, ctx, setting_name: str, value: int):
