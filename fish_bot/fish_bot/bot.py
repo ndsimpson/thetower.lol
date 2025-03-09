@@ -47,6 +47,58 @@ class DiscordBot(commands.Bot, BaseFileMonitor):
         cogs_path = Path(__file__).parent.resolve() / "cogs"
         self.start_monitoring(cogs_path, CogAutoReload(self), recursive=False)
 
+        # Add global command check
+        self.add_check(self.global_command_check)
+
+    async def global_command_check(self, ctx):
+        """Global permissions check for all commands."""
+        # Always allow the help command
+        if ctx.command.name == 'help':
+            return True
+
+        # Skip checks for cog commands as they have their own check
+        if ctx.cog:
+            return True
+
+        # Always allow DMs from bot owner
+        if ctx.guild is None and await self.is_owner(ctx.author):
+            # self.logger.info(f"Bot owner {ctx.author} (ID: {ctx.author.id}) used command '{ctx.command.name}' in DM")
+            return True
+
+        permissions = self.config.get("command_permissions", {"commands": {}})
+
+        # Check for wildcard command permission
+        wildcard_config = permissions["commands"].get("*", {})
+        if str(ctx.channel.id) in wildcard_config.get("channels", {}):
+            return True
+
+        command_name = ctx.command.name
+        command_config = permissions["commands"].get(command_name, {})
+        channel_config = command_config.get("channels", {}).get(str(ctx.channel.id))
+
+        # Check for wildcard channel permission
+        if "*" in command_config.get("channels", {}):
+            return True
+
+        # Check channel permissions
+        if not channel_config:
+            self.logger.warning(
+                f"Command '{command_name}' blocked - unauthorized channel. "
+                f"Channel: {ctx.channel} (ID: {ctx.channel.id})"
+            )
+            raise ChannelUnauthorized(ctx.channel)
+
+        # Check user permissions if channel is not public
+        if not channel_config.get("public", False):
+            if str(ctx.author.id) not in channel_config.get("authorized_users", []):
+                self.logger.warning(
+                    f"Command '{command_name}' blocked - unauthorized user. "
+                    f"User: {ctx.author} (ID: {ctx.author.id})"
+                )
+                raise UserUnauthorized(ctx.author)
+
+        return True
+
     async def on_command_error(self, context: Context, error) -> None:
         if isinstance(error, commands.NotOwner):
             embed = discord.Embed(
