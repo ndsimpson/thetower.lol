@@ -286,5 +286,16 @@ async def remove_user(ctx, command: str, channel: discord.TextChannel, user: dis
     else:
         await ctx.send(f"Failed to remove {user.mention} from authorized users for command '{command}' in channel {channel.mention}")
 
+
+@bot.command()
+async def reload_cog(ctx, cog_name: str):
+    """Reload a specific cog."""
+    success = await bot.cog_manager.reload_cog(cog_name)
+    if success:
+        await ctx.send(f"✅ Cog `{cog_name}` has been reloaded.")
+    else:
+        await ctx.send(f"❌ Failed to reload cog `{cog_name}`.")
+
+
 # Start the bot
 bot.run(getenv("DISCORD_TOKEN"), log_level=logging.INFO)
