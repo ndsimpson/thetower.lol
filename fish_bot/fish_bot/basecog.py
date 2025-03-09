@@ -109,3 +109,102 @@ class BaseCog(commands.Cog):
     def reload_permissions(self) -> None:
         """Reload permissions from file."""
         self._permissions = self.load_command_permissions()
+
+    # Cog settings methods
+
+    def get_setting(self, key: str, default: Any = None, guild_id: int = None) -> Any:
+        """Get a cog-specific setting.
+
+        Args:
+            key: Setting name
+            default: Default value if setting doesn't exist
+            guild_id: Optional guild ID (uses current guild by default)
+
+        Returns:
+            The setting value or default
+
+        Example:
+            value = self.get_setting('timeout_seconds', 60)
+        """
+        cog_name = self.__class__.__name__
+        return self.config.get_cog_setting(cog_name, key, default, guild_id)
+
+    def set_setting(self, key: str, value: Any, guild_id: int = None) -> None:
+        """Save a cog-specific setting.
+
+        Args:
+            key: Setting name
+            value: Setting value
+            guild_id: Optional guild ID (uses current guild by default)
+
+        Example:
+            self.set_setting('timeout_seconds', 120)
+        """
+        cog_name = self.__class__.__name__
+        self.config.set_cog_setting(cog_name, key, value, guild_id)
+
+    def update_settings(self, settings: Dict[str, Any], guild_id: int = None) -> None:
+        """Update multiple cog settings at once.
+
+        Args:
+            settings: Dictionary of settings to update
+            guild_id: Optional guild ID (uses current guild by default)
+
+        Example:
+            self.update_settings({
+                'timeout_seconds': 120,
+                'max_retries': 3,
+                'enabled': True
+            })
+        """
+        cog_name = self.__class__.__name__
+        self.config.update_cog_settings(cog_name, settings, guild_id)
+
+    def remove_setting(self, key: str, guild_id: int = None) -> bool:
+        """Remove a cog-specific setting.
+
+        Args:
+            key: Setting name to remove
+            guild_id: Optional guild ID (uses current guild by default)
+
+        Returns:
+            True if setting was removed, False if it didn't exist
+
+        Example:
+            self.remove_setting('legacy_option')
+        """
+        cog_name = self.__class__.__name__
+        return self.config.remove_cog_setting(cog_name, key, guild_id)
+
+    def has_setting(self, key: str, guild_id: int = None) -> bool:
+        """Check if a cog-specific setting exists.
+
+        Args:
+            key: Setting name to check
+            guild_id: Optional guild ID (uses current guild by default)
+
+        Returns:
+            True if setting exists, False otherwise
+
+        Example:
+            if self.has_setting('feature_enabled'):
+                # use the feature
+        """
+        cog_name = self.__class__.__name__
+        return self.config.has_cog_setting(cog_name, key, guild_id)
+
+    def get_all_settings(self, guild_id: int = None) -> Dict[str, Any]:
+        """Get all settings for this cog.
+
+        Args:
+            guild_id: Optional guild ID (uses current guild by default)
+
+        Returns:
+            Dictionary of all cog settings
+
+        Example:
+            all_settings = self.get_all_settings()
+            print(f"Current configuration: {all_settings}")
+        """
+        cog_name = self.__class__.__name__
+        return self.config.get_all_cog_settings(cog_name, guild_id)
