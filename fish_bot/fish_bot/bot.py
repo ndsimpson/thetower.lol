@@ -239,7 +239,18 @@ async def list_cogs(ctx):
 
 @bot.command()
 async def add_channel(ctx, command: str, channel: discord.TextChannel):
-    """Add a channel to command permissions."""
+    """Add a channel to command permissions.
+
+    Parameters:
+    -----------
+    command: The name of the command to authorize in the channel
+    channel: The Discord channel to grant permission to
+
+    Examples:
+    ---------
+    $add_channel list_cogs #bot-commands
+    $add_channel * #admin-channel    (allows all commands in admin-channel)
+    """
     config_manager = ConfigManager()
     channel_id = str(channel.id)
 
