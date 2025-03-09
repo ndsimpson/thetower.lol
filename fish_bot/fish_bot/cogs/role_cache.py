@@ -85,6 +85,94 @@ class RoleCache(BaseCog):
 
         await ctx.send(f"✅ Set {setting_name} to {value} seconds")
 
+    @rolecache_group.command(name="rolestats")
+    async def role_stats_command(self, ctx, *, role_name=None):
+        """Show member counts for roles
+
+        If no role name is provided, shows counts for all roles.
+        Role name can be partial - will match any role containing the text.
+        """
+        if not ctx.guild:
+            await ctx.send("This command can only be used in a server.")
+            return
+
+        guild_id = ctx.guild.id
+        if guild_id not in self.member_roles:
+            await ctx.send("No role cache data available for this server.")
+            return
+
+        # Build role counts from cache
+        role_counts = {}
+        for user_id, user_data in self.member_roles[guild_id].items():
+            for role_id in user_data.get("roles", []):
+                if role_id not in role_counts:
+                    role_counts[role_id] = 0
+                role_counts[role_id] += 1
+
+        # Get role objects from the guild
+        guild_roles = {role.id: role for role in ctx.guild.roles}
+
+        # If a specific role is requested, filter the results
+        if role_name:
+            matching_roles = {
+                rid: role for rid, role in guild_roles.items()
+                if role_name.lower() in role.name.lower()
+            }
+
+            if not matching_roles:
+                await ctx.send(f"No roles found matching '{role_name}'")
+                return
+
+            # Show only matching roles
+            lines = []
+            for role_id, role in matching_roles.items():
+                count = role_counts.get(role_id, 0)
+                lines.append(f"**{role.name}**: {count} members")
+
+            # Split into chunks if too long
+            chunks = []
+            current_chunk = []
+            for line in lines:
+                if len("\n".join(current_chunk + [line])) > 1900:  # Discord message limit buffer
+                    chunks.append("\n".join(current_chunk))
+                    current_chunk = [line]
+                else:
+                    current_chunk.append(line)
+            if current_chunk:
+                chunks.append("\n".join(current_chunk))
+
+            # Send results
+            for i, chunk in enumerate(chunks):
+                header = f"**Role Stats** (Matching '{role_name}')" if i == 0 else ""
+                await ctx.send(f"{header}\n{chunk}")
+        else:
+            # Show all roles, sorted by count
+            sorted_roles = sorted(
+                [(guild_roles.get(rid), count) for rid, count in role_counts.items() if rid in guild_roles],
+                key=lambda x: x[1],
+                reverse=True
+            )
+
+            # Generate chunks to stay within Discord message limits
+            chunks = []
+            current_chunk = []
+            for role, count in sorted_roles:
+                if not role:  # Skip roles that don't exist anymore
+                    continue
+                line = f"**{role.name}**: {count} members"
+                if len("\n".join(current_chunk + [line])) > 1900:  # Discord message limit buffer
+                    chunks.append("\n".join(current_chunk))
+                    current_chunk = [line]
+                else:
+                    current_chunk.append(line)
+            if current_chunk:
+                chunks.append("\n".join(current_chunk))
+
+            # Send results
+            for i, chunk in enumerate(chunks):
+                header = "**All Role Stats**" if i == 0 else "**All Role Stats** (Continued)"
+                await ctx.send(f"{header}\n{chunk}")
+
     def load_cache_from_file(self):
         """Load the role cache from file if it exists"""
         try:
