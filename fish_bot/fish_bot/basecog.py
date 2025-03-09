@@ -1,7 +1,8 @@
 # Standard library imports
+import asyncio
 import logging
 from pathlib import Path
-from typing import Dict, Any
+from typing import Dict, Any, Union, Callable
 
 # Third-party imports
 from discord.ext import commands
@@ -10,9 +11,30 @@ from discord.ext.commands import Context
 # Local application imports
 from fish_bot.exceptions import ChannelUnauthorized, UserUnauthorized
 from fish_bot.utils import ConfigManager
+from fish_bot.utils.data_management import DataManager
+from fish_bot.utils.command_helpers import (
+    create_settings_command,
+    create_set_command,
+    add_settings_commands,
+    register_settings_commands,
+    add_standard_admin_commands
+)
+
+
+logger = logging.getLogger(__name__)
 
 
 class BaseCog(commands.Cog):
+    """
+    Base class for all cogs with common functionality.
+
+    Provides utilities for:
+    - Command permission management
+    - Settings management
+    - Data persistence
+    - Standard command interfaces
+    """
+
     def __init__(self, bot):
         super().__init__()  # Initialize commands.Cog
         self.bot = bot
@@ -21,13 +43,16 @@ class BaseCog(commands.Cog):
         self._guild = None  # Cache for guild object
         self._cog_data_directory = None  # Cache for cog data directory
 
+        # Data management components
+        self._data_manager = DataManager()
+        self._save_tasks = {}  # Store periodic save tasks
+
         # Register for the reconnect event to clear the guild cache
         self.bot.add_listener(self.on_reconnect, 'on_resumed')
 
     async def on_reconnect(self):
         """Reset the guild cache when the bot reconnects."""
         self._guild = None
-        logger = logging.getLogger(__name__)
         logger.debug(f"Guild cache reset for {self.__class__.__name__}")
 
     @property
@@ -208,3 +233,177 @@ class BaseCog(commands.Cog):
         """
         cog_name = self.__class__.__name__
         return self.config.get_all_cog_settings(cog_name, guild_id)
+
+    # ----- Data Management Methods -----
+
+    def mark_data_modified(self):
+        """Mark the cog's data as modified, needing to be saved."""
+        self._data_manager.mark_modified()
+
+    def is_data_modified(self) -> bool:
+        """Check if the cog's data has been modified."""
+        return self._data_manager.is_modified()
+
+    async def save_data_if_modified(self, data: Any, file_path: Union[str, Path], force: bool = False) -> bool:
+        """
+        Save data to file if it's been modified or if forced.
+
+        Args:
+            data: The data to save (must be JSON/pickle serializable)
+            file_path: Path where the data should be saved
+            force: Whether to save even if not modified
+
+        Returns:
+            bool: True if save was successful, False otherwise
+        """
+        return await self._data_manager.save_if_modified(data, file_path, force)
+
+    async def load_data(self, file_path: Union[str, Path], default: Any = None) -> Any:
+        """
+        Load data from a file with fallback to default if file doesn't exist.
+
+        Args:
+            file_path: Path to the data file
+            default: Default value to return if file doesn't exist
+
+        Returns:
+            The loaded data or default value
+        """
+        return await self._data_manager.load_data(file_path, default)
+
+    async def create_periodic_save_task(self, data: Any, file_path: Union[str, Path], save_interval: int) -> asyncio.Task:
+        """
+        Create a task that periodically saves data.
+
+        Args:
+            data: The data to save (must be serializable)
+            file_path: Path where the data should be saved
+            save_interval: How often to save (in seconds)
+
+        Returns:
+            asyncio.Task: The created task
+        """
+        async def periodic_save():
+            await self.bot.wait_until_ready()
+            while not self.bot.is_closed():
+                await asyncio.sleep(save_interval)
+                await self.save_data_if_modified(data, file_path)
+
+        # Cancel any existing task for this file
+        file_key = str(file_path)
+        if file_key in self._save_tasks and not self._save_tasks[file_key].done():
+            self._save_tasks[file_key].cancel()
+
+        # Create and store the new task
+        task = self.bot.loop.create_task(periodic_save())
+        self._save_tasks[file_key] = task
+        return task
+
+    def cancel_save_tasks(self):
+        """Cancel all periodic save tasks."""
+        for task in self._save_tasks.values():
+            if not task.done():
+                task.cancel()
+        self._save_tasks.clear()
+
+    # ----- Command Helper Methods -----
+
+    def create_settings_command(self, group_command) -> Callable:
+        """
+        Create a standard settings display command.
+
+        Args:
+            group_command: The command group to add this command to
+
+        Returns:
+            The created command function
+        """
+        return create_settings_command(self)
+
+    def create_set_command(self, valid_settings=None, validators=None) -> Callable:
+        """
+        Create a standard command for changing settings.
+
+        Args:
+            valid_settings: Optional list of valid setting names
+            validators: Optional dict mapping setting names to validator functions
+
+        Returns:
+            The created command function
+        """
+        return create_set_command(self, valid_settings, validators)
+
+    def add_settings_commands(self, group_command, valid_settings=None, validators=None):
+        """
+        Add both settings and set commands to a command group.
+
+        Args:
+            group_command: The command group to add commands to
+            valid_settings: Optional list of valid setting names
+            validators: Optional dict mapping setting names to validator functions
+        """
+        add_settings_commands(self, group_command, valid_settings, validators)
+
+    def register_settings_commands(self, group_name, valid_settings=None, validators=None, aliases=None) -> commands.Group:
+        """
+        Register a complete settings command group for this cog.
+
+        Args:
+            group_name: Name for the command group
+            valid_settings: Optional list of valid setting names
+            validators: Optional dict mapping setting names to validator functions
+            aliases: Optional list of aliases for the command group
+
+        Returns:
+            The created command group
+        """
+        return register_settings_commands(self, group_name, valid_settings, validators, aliases)
+
+    def add_admin_commands(self, group_name, aliases=None) -> commands.Group:
+        """
+        Add standard administrative commands to this cog.
+
+        Args:
+            group_name: Name for the admin command group
+            aliases: Optional aliases for the admin command group
+
+        Returns:
+            The created command group
+        """
+        return add_standard_admin_commands(self, group_name, aliases)
+
+    # Utility method to get common time-based validators
+    def get_time_validators(self, min_seconds=60) -> Dict[str, Callable]:
+        """
+        Get common validators for time-based settings.
+
+        Args:
+            min_seconds: Minimum allowed seconds
+
+        Returns:
+            Dict of validator functions for time settings
+        """
+        def time_validator(value):
+            if not isinstance(value, (int, float)):
+                return "Value must be a number"
+            if value < min_seconds:
+                return f"Value must be at least {min_seconds} seconds"
+            return True
+
+        return {
+            name: time_validator for name in self.get_all_settings().keys()
+            if name.endswith(('_interval', '_threshold', '_timeout', '_delay', '_duration'))
+        }
+
+    def cog_unload(self):
+        """Clean up resources when cog is unloaded."""
+        # Cancel periodic save tasks
+        self.cancel_save_tasks()
+
+        # Force save any modified data
+        if self.is_data_modified():
+            logger.warning(f"Cog {self.__class__.__name__} has unsaved data on unload")
+
+        # Call parent implementation if it exists
+        if hasattr(super(), 'cog_unload'):
+            super().cog_unload()
