@@ -469,10 +469,10 @@ class RoleCache(BaseCog):
         self.logger.info("Refreshing stale roles after reconnect")
         await self.refresh_stale_roles()
 
-    def cog_unload(self):
+    async def cog_unload(self):
         """Called when the cog is unloaded. Ensures data is saved."""
         # Use BaseCog's unload method which handles saving and task cleanup
-        super().cog_unload()
+        await super().cog_unload()
 
 
 async def setup(bot):
