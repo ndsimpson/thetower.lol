@@ -2,7 +2,6 @@ import asyncio
 import json
 import logging
 import datetime
-import concurrent.futures
 from fish_bot.basecog import BaseCog
 import discord
 from discord.ext import commands
@@ -20,19 +19,23 @@ class RoleCache(BaseCog):
         # Create an event that signals when cache is ready
         self._cache_ready = asyncio.Event()
 
-        # Flag to track if changes need to be saved
-        self._cache_modified = False
-
-        # Lock for save operations to prevent race conditions
-        self._save_lock = asyncio.Lock()
-
         # Store a reference to this cog on the bot for easy access
         self.bot.role_cache = self
 
+        # Set default settings if they don't exist
+        if not self.has_setting("refresh_interval"):
+            self.set_setting("refresh_interval", 1800)  # 30 minutes
+
+        if not self.has_setting("staleness_threshold"):
+            self.set_setting("staleness_threshold", 3600)  # 1 hour
+
+        if not self.has_setting("save_interval"):
+            self.set_setting("save_interval", 3600)  # 1 hour by default
+
         # Configure cache settings from stored settings
-        self.staleness_threshold = self.get_setting('staleness_threshold', 3600)
-        self.refresh_interval = self.get_setting('refresh_interval', 1800)
-        self.save_interval = self.get_setting('save_interval', 3600)  # Default to 1 hour if not set
+        self.staleness_threshold = self.get_setting('staleness_threshold')
+        self.refresh_interval = self.get_setting('refresh_interval')
+        self.save_interval = self.get_setting('save_interval')
 
         self.logger = logging.getLogger(__name__)
         self.logger.info(f"RoleCache initialized with refresh_interval={self.refresh_interval}s, "
@@ -48,8 +51,12 @@ class RoleCache(BaseCog):
         # Start periodic refresh task
         self.refresh_task = self.bot.loop.create_task(self.periodic_refresh())
 
-        # Start periodic save task (separate from refresh)
-        self.save_task = self.bot.loop.create_task(self.periodic_save())
+        # Start periodic save task using BaseCog's functionality
+        self.save_task = self.create_periodic_save_task(
+            data=self.member_roles,
+            file_path=self.cache_file,
+            save_interval=self.save_interval
+        )
 
     @property
     def cache_file(self) -> Path:
@@ -57,7 +64,151 @@ class RoleCache(BaseCog):
         cache_filename = self.get_setting('cache_filename', 'role_cache.json')
         return self.data_directory / cache_filename
 
-    # Add a command to modify settings
+    async def wait_until_ready(self):
+        """Wait until the role cache is ready"""
+        await self._cache_ready.wait()
+
+    def load_cache_from_file(self):
+        """Load role cache from file."""
+        try:
+            cache_file = self.cache_file
+            if not cache_file.exists():
+                self.logger.info("No role cache file found, starting with empty cache")
+                return
+
+            with open(cache_file, 'r') as f:
+                self.member_roles = json.load(f)
+
+            self.logger.info(f"Loaded role cache from {cache_file}")
+        except Exception as e:
+            self.logger.error(f"Failed to load role cache: {e}")
+            # Start with empty cache on error
+            self.member_roles = {}
+
+    async def _build_initial_cache(self):
+        """Build the initial role cache for all guilds"""
+        await self.bot.wait_until_ready()
+        self.logger.info("Building initial role cache...")
+
+        total_members = 0
+        for guild in self.bot.guilds:
+            guild_members = await self.build_cache(guild)
+            total_members += guild_members
+
+        self._cache_ready.set()  # Signal that cache is ready
+        self.logger.info(f"Initial role cache built with {total_members} members across {len(self.bot.guilds)} guilds")
+
+    async def build_cache(self, guild):
+        """Build role cache for a specific guild"""
+        if guild.id not in self.member_roles:
+            self.member_roles[guild.id] = {}
+
+        count = 0
+        for member in guild.members:
+            self.update_member_roles(member)
+            count += 1
+
+        self.logger.info(f"Built role cache for {count} members in {guild.name}")
+        return count
+
+    async def periodic_refresh(self):
+        """Periodically refresh stale roles and clean up missing members"""
+        await self.bot.wait_until_ready()
+        await self._cache_ready.wait()  # Wait for initial cache to be built
+
+        while not self.bot.is_closed():
+            try:
+                await self.refresh_stale_roles()
+                await self.cleanup_missing_members()
+            except Exception as e:
+                self.logger.error(f"Error in periodic refresh: {e}", exc_info=True)
+
+            # Sleep between refresh cycles
+            await asyncio.sleep(self.refresh_interval)
+
+    def update_member_roles(self, member):
+        """Update cached roles for a member with timestamp"""
+        if not member or not member.guild:
+            return
+
+        if member.guild.id not in self.member_roles:
+            self.member_roles[member.guild.id] = {}
+
+        # Store roles with explicit UTC timestamp
+        self.member_roles[member.guild.id][member.id] = {
+            "roles": [role.id for role in member.roles],
+            "updated_at": datetime.datetime.now(datetime.timezone.utc).timestamp()
+        }
+
+        # Mark data as modified using BaseCog's method
+        self.mark_data_modified()
+
+    def has_role(self, guild_id, user_id, role_id):
+        """Check if a user has a specific role"""
+        try:
+            return role_id in self.member_roles[guild_id][user_id]["roles"]
+        except (KeyError, TypeError):
+            return False
+
+    def get_roles(self, guild_id, user_id):
+        """Get all role IDs for a user"""
+        try:
+            return self.member_roles[guild_id][user_id]["roles"]
+        except (KeyError, TypeError):
+            return []
+
+    def is_stale(self, guild_id, user_id):
+        """Check if cached roles for a user are stale and need refresh"""
+        try:
+            updated_at = self.member_roles[guild_id][user_id]["updated_at"]
+            now = datetime.datetime.now(datetime.timezone.utc).timestamp()
+            return (now - updated_at) > self.staleness_threshold
+        except (KeyError, TypeError):
+            return True
+
+    async def refresh_stale_roles(self):
+        """Refresh roles for users whose cache is stale"""
+        self.logger.info("Checking for stale roles to refresh...")
+        refreshed_count = 0
+
+        for guild in self.bot.guilds:
+            for member in guild.members:
+                if self.is_stale(guild.id, member.id):
+                    self.update_member_roles(member)
+                    refreshed_count += 1
+
+        if refreshed_count > 0:
+            self.logger.info(f"Refreshed roles for {refreshed_count} members")
+        else:
+            self.logger.info("No stale roles found to refresh")
+        return refreshed_count
+
+    async def cleanup_missing_members(self):
+        """Remove cache entries for members who are no longer in guilds"""
+        removed_count = 0
+
+        for guild in self.bot.guilds:
+            if guild.id not in self.member_roles:
+                continue
+
+            # Get set of current member IDs in the guild
+            current_member_ids = {member.id for member in guild.members}
+
+            # Find cached members who are no longer in the guild
+            cached_member_ids = set(self.member_roles[guild.id].keys())
+            missing_member_ids = cached_member_ids - current_member_ids
+
+            # Remove those members from cache
+            for member_id in missing_member_ids:
+                del self.member_roles[guild.id][member_id]
+                removed_count += 1
+                self.mark_data_modified()
+
+        if removed_count > 0:
+            self.logger.info(f"Cleaned up {removed_count} cached entries for members no longer in guilds")
+
+        return removed_count
+
     @commands.group(name="rolecache", aliases=["rc"], invoke_without_command=True)
     async def rolecache_group(self, ctx):
         """Commands for managing the role cache"""
@@ -111,323 +262,193 @@ class RoleCache(BaseCog):
             if value < 60:  # Minimum 60 seconds for time intervals
                 return await ctx.send(f"Value for {setting_name} must be at least 60 seconds")
 
-            # Update instance variables immediately
-            if setting_name == 'refresh_interval':
-                self.refresh_interval = value
-            elif setting_name == 'staleness_threshold':
-                self.staleness_threshold = value
-            elif setting_name == 'save_interval':
-                self.save_interval = value
+        # Update instance variables immediately
+        if setting_name == 'refresh_interval':
+            self.refresh_interval = value
+        elif setting_name == 'staleness_threshold':
+            self.staleness_threshold = value
+        elif setting_name == 'save_interval':
+            self.save_interval = value
 
-            # Save the setting
-            self.set_setting(setting_name, value)
+        # Save the setting
+        self.set_setting(setting_name, value)
 
-            # Format confirmation message with time breakdown
-            hours = value // 3600
-            minutes = (value % 3600) // 60
-            seconds = value % 60
-            time_format = f"{hours}h {minutes}m {seconds}s"
-            await ctx.send(f"✅ Set {setting_name} to {value} seconds ({time_format})")
+        # Format confirmation message
+        hours = value // 3600
+        minutes = (value % 3600) // 60
+        seconds = value % 60
+        time_format = f"{hours}h {minutes}m {seconds}s"
+        await ctx.send(f"✅ Set {setting_name} to {value} seconds ({time_format})")
 
-    @rolecache_group.command(name="rolestats")
-    async def role_stats_command(self, ctx, *, role_name=None):
-        """Show member counts for roles
+        self.logger.info(f"Settings changed: {setting_name} set to {value} by {ctx.author}")
 
-        If no role name is provided, shows counts for all roles.
-        Role name can be partial - will match any role containing the text.
-        """
-        if not ctx.guild:
-            await ctx.send("This command can only be used in a server.")
-            return
+    @rolecache_group.command(name="stats")
+    async def cache_stats_command(self, ctx):
+        """Show statistics about the role cache"""
+        embed = discord.Embed(
+            title="Role Cache Statistics",
+            color=discord.Color.blue()
+        )
 
-        guild_id = ctx.guild.id
-        if guild_id not in self.member_roles:
-            await ctx.send("No role cache data available for this server.")
-            return
+        # Calculate statistics
+        guild_count = len(self.member_roles)
+        total_members = sum(len(guild_data) for guild_data in self.member_roles.values())
 
-        # Build role counts from cache
-        role_counts = {}
-        for user_id, user_data in self.member_roles[guild_id].items():
-            for role_id in user_data.get("roles", []):
-                if role_id not in role_counts:
-                    role_counts[role_id] = 0
-                role_counts[role_id] += 1
+        # Count stale entries
+        stale_count = 0
+        for guild_id, members in self.member_roles.items():
+            for member_id, data in members.items():
+                if self.is_stale(guild_id, member_id):
+                    stale_count += 1
 
-        # Get role objects from the guild
-        guild_roles = {role.id: role for role in ctx.guild.roles}
+        # Add fields to embed
+        embed.add_field(name="Guilds Cached", value=str(guild_count), inline=True)
+        embed.add_field(name="Members Cached", value=str(total_members), inline=True)
+        embed.add_field(name="Stale Entries", value=str(stale_count), inline=True)
 
-        # If a specific role is requested, filter the results
-        if role_name:
-            matching_roles = {
-                rid: role for rid, role in guild_roles.items()
-                if role_name.lower() in role.name.lower()
-            }
+        embed.add_field(name="Cache Status", value="Ready" if self._cache_ready.is_set() else "Building", inline=True)
+        embed.add_field(name="Refresh Interval", value=f"{self.refresh_interval}s", inline=True)
+        embed.add_field(name="Staleness Threshold", value=f"{self.staleness_threshold}s", inline=True)
 
-            if not matching_roles:
-                await ctx.send(f"No roles found matching '{role_name}'")
-                return
-
-            # Show only matching roles
-            lines = []
-            for role_id, role in matching_roles.items():
-                count = role_counts.get(role_id, 0)
-                lines.append(f"**{role.name}**: {count} members")
-
-            # Split into chunks if too long
-            chunks = []
-            current_chunk = []
-            for line in lines:
-                if len("\n".join(current_chunk + [line])) > 1900:  # Discord message limit buffer
-                    chunks.append("\n".join(current_chunk))
-                    current_chunk = [line]
-                else:
-                    current_chunk.append(line)
-            if current_chunk:
-                chunks.append("\n".join(current_chunk))
-
-            # Send results
-            for i, chunk in enumerate(chunks):
-                header = f"**Role Stats** (Matching '{role_name}')" if i == 0 else ""
-                await ctx.send(f"{header}\n{chunk}")
-        else:
-            # Show all roles, sorted by count
-            sorted_roles = sorted(
-                [(guild_roles.get(rid), count) for rid, count in role_counts.items() if rid in guild_roles],
-                key=lambda x: x[1],
-                reverse=True
+        # Add cache file info
+        cache_file = self.cache_file
+        if cache_file.exists():
+            size_kb = cache_file.stat().st_size / 1024
+            modified = datetime.datetime.fromtimestamp(cache_file.stat().st_mtime)
+            embed.add_field(
+                name="Cache File",
+                value=f"Size: {size_kb:.1f} KB\nLast Modified: {modified.strftime('%Y-%m-%d %H:%M:%S')}",
+                inline=False
             )
 
-            # Generate chunks to stay within Discord message limits
-            chunks = []
-            current_chunk = []
-            for role, count in sorted_roles:
-                if not role:  # Skip roles that don't exist anymore
-                    continue
-                line = f"**{role.name}**: {count} members"
-                if len("\n".join(current_chunk + [line])) > 1900:  # Discord message limit buffer
-                    chunks.append("\n".join(current_chunk))
-                    current_chunk = [line]
-                else:
-                    current_chunk.append(line)
-            if current_chunk:
-                chunks.append("\n".join(current_chunk))
+        await ctx.send(embed=embed)
 
-            # Send results
-            for i, chunk in enumerate(chunks):
-                header = "**All Role Stats**" if i == 0 else "**All Role Stats** (Continued)"
-                await ctx.send(f"{header}\n{chunk}")
+    @rolecache_group.command(name="rolestats")
+    async def rolestats_command(self, ctx, *, match_string=None):
+        """Show counts of how many users have each role
 
-    def load_cache_from_file(self):
-        """Load the role cache from file if it exists"""
-        try:
-            cache_path = self.cache_file
-            if cache_path.exists():
-                with open(cache_path, 'r') as f:
-                    cache_data = json.load(f)
+        Args:
+            match_string: Optional filter to show only roles containing this string
+        """
+        await ctx.typing()
 
-                # Convert string keys to integers for guild_id and user_id
-                self.member_roles = {}
-                for guild_id_str, guild_data in cache_data.items():
-                    guild_id = int(guild_id_str)
-                    self.member_roles[guild_id] = {}
-                    for user_id_str, user_data in guild_data.items():
-                        user_id = int(user_id_str)
-                        self.member_roles[guild_id][user_id] = user_data
+        if not ctx.guild:
+            return await ctx.send("This command must be used in a server.")
 
-                self.logger.info(f"Loaded role cache from {cache_path}")
-                return True
-        except Exception as e:
-            self.logger.error(f"Failed to load role cache from file: {str(e)}")
+        # Make sure the cache for this guild is ready
+        if not self._cache_ready.is_set():
+            return await ctx.send("Role cache is still being built. Please try again later.")
 
-        return False
+        # Count users per role
+        role_counts = {}
+        guild_id = ctx.guild.id
 
-    def mark_modified(self):
-        """Mark the cache as modified, needing to be saved"""
-        self._cache_modified = True
+        # Initialize counts for all roles in the guild
+        for role in ctx.guild.roles:
+            role_counts[role.id] = 0
 
-    async def save_cache_to_file(self, force=False):
-        """Save the current role cache to file if modified or forced"""
-        # Skip saving if nothing has changed and not forced
-        if not force and not self._cache_modified:
-            return True
+        # Count instances of each role
+        if guild_id in self.member_roles:
+            for member_id, data in self.member_roles[guild_id].items():
+                for role_id in data.get("roles", []):
+                    if role_id in role_counts:
+                        role_counts[role_id] += 1
 
-        # Use a lock to prevent multiple simultaneous saves
-        async with self._save_lock:
-            try:
-                # Ensure directory exists
-                cache_path = self.cache_file
-                cache_path.parent.mkdir(parents=True, exist_ok=True)
+        # Create a list of (role, count) tuples filtered by match string if provided
+        role_stats = []
+        for role in ctx.guild.roles:
+            if match_string is None or match_string.lower() in role.name.lower():
+                role_stats.append((role, role_counts[role.id]))
 
-                with open(cache_path, 'w') as f:
-                    json.dump(self.member_roles, f)
+        # Sort by count (highest first)
+        role_stats.sort(key=lambda x: x[1], reverse=True)
 
-                self._cache_modified = False  # Reset modified flag
-                self.logger.info(f"Saved role cache to {cache_path}")
-                return True
-            except Exception as e:
-                self.logger.error(f"Failed to save role cache to file: {str(e)}")
-                return False
+        # No matching roles
+        if not role_stats:
+            return await ctx.send(f"No roles found matching '{match_string}'")
 
-    async def periodic_save(self):
-        """Periodically save the cache to file"""
-        await self.bot.wait_until_ready()
-        while not self.bot.is_closed():
-            await asyncio.sleep(self.save_interval)  # Use dedicated save interval
-            await self.save_cache_to_file()  # Only saves if modified
+        # Create plain text output
+        header = f"Role Statistics in {ctx.guild.name}"
+        if match_string:
+            header += f" matching '{match_string}'"
 
-    async def _build_initial_cache(self):
-        """Build role cache for all guilds after bot is ready"""
-        await self.bot.wait_until_ready()
-        self.logger.info("Building initial role cache...")
+        lines = [header, "=" * len(header), ""]
 
-        # Only build cache for primary guild if we don't already have data for it
-        if self.guild.id not in self.member_roles or not self.member_roles.get(self.guild.id):
-            self.logger.info(f"No cached data found for {self.guild.name}. Building fresh cache...")
-            await self.build_cache(self.guild)
+        # Add role counts
+        for role, count in role_stats:
+            lines.append(f"{role.name}: {count} members")
+
+        # Footer with total count
+        lines.append("")
+        lines.append(f"Total: {len(role_stats)} roles")
+
+        # Join all lines
+        full_text = "\n".join(lines)
+
+        # Handle Discord's 2000 character limit
+        if len(full_text) <= 1994:  # Leave room for code block markers
+            await ctx.send(f"```\n{full_text}\n```")
         else:
-            self.logger.info(f"Using cached data for {self.guild.name} with {len(self.member_roles[self.guild.id])} members")
-            # Optionally refresh stale entries
-            await self.refresh_stale_roles()
+            # Split into multiple messages if too long
+            chunks = []
+            current_chunk = [header, "=" * len(header), ""]
+            current_length = sum(len(line) + 1 for line in current_chunk)  # +1 for newline
 
-        self.logger.info("Role cache is ready")
-        self._cache_ready.set()
+            for line in lines[3:-2]:  # Skip header and footer we already added
+                # Check if adding this line would exceed limit
+                line_length = len(line) + 1  # +1 for newline
+                if current_length + line_length > 1900:  # Conservative limit
+                    # Finish current chunk
+                    chunks.append("\n".join(current_chunk))
+                    # Start new chunk
+                    current_chunk = [f"{header} (continued)", "=" * len(header), ""]
+                    current_length = sum(len(line) + 1 for line in current_chunk)
 
-        # Save the cache to file if we built a new one
-        if self.guild.id not in self.member_roles:
-            await self.save_cache_to_file()
+                # Add line to current chunk
+                current_chunk.append(line)
+                current_length += line_length
 
-    async def build_cache(self, guild):
-        """Cache roles for a specific guild"""
-        if not guild:
-            self.logger.warning("Attempted to build cache for None guild")
-            return
+            # Add footer to last chunk
+            current_chunk.append("")
+            current_chunk.append(f"Total: {len(role_stats)} roles")
+            chunks.append("\n".join(current_chunk))
 
-        self.member_roles[guild.id] = {}
-        for member in guild.members:
-            self.update_member_roles(member)
-
-        self.logger.info(f"Built role cache for {guild.name} with {len(guild.members)} members")
-
-    async def wait_until_ready(self):
-        """Wait until the cache is fully built - other cogs can call this"""
-        await self._cache_ready.wait()
-
-    def update_member_roles(self, member):
-        """Update cached roles for a member with timestamp"""
-        if not member or not member.guild:
-            return
-
-        if member.guild.id not in self.member_roles:
-            self.member_roles[member.guild.id] = {}
-
-        # Store roles with explicit UTC timestamp
-        self.member_roles[member.guild.id][member.id] = {
-            "roles": [role.id for role in member.roles],
-            "updated_at": datetime.datetime.now(datetime.timezone.utc).timestamp()
-        }
-        self._cache_modified = True
-
-    def has_role(self, guild_id, user_id, role_id):
-        """Check if user has role from cache"""
-        user_data = self.member_roles.get(guild_id, {}).get(user_id, {})
-        return role_id in user_data.get("roles", [])
-
-    def get_roles(self, guild_id, user_id):
-        """Get all cached roles for a user"""
-        user_data = self.member_roles.get(guild_id, {}).get(user_id, {})
-        return user_data.get("roles", [])
-
-    def is_stale(self, guild_id, user_id):
-        """Check if a user's role cache is stale"""
-        user_data = self.member_roles.get(guild_id, {}).get(user_id, {})
-        if not user_data:
-            return True
-
-        last_updated = user_data.get("updated_at", 0)
-        current_time = datetime.datetime.now(datetime.timezone.utc).timestamp()
-        return (current_time - last_updated) > self.staleness_threshold
-
-    async def refresh_stale_roles(self):
-        """Refresh roles for users whose cache is stale"""
-        self.logger.info("Refreshing stale role caches...")
-        refreshed_count = 0
-
-        for guild in self.bot.guilds:
-            for member in guild.members:
-                if self.is_stale(guild.id, member.id):
-                    self.update_member_roles(member)
-                    refreshed_count += 1
-
-        if refreshed_count > 0:
-            self.logger.info(f"Refreshed roles for {refreshed_count} members")
-            # No need to explicitly save here - will be saved by periodic_save
-
-        return refreshed_count
-
-    async def cleanup_missing_members(self):
-        """Remove cache entries for members who are no longer in guilds"""
-        removed_count = 0
-
-        for guild in self.bot.guilds:
-            if guild.id not in self.member_roles:
-                continue
-
-            # Get set of current member IDs in the guild
-            current_member_ids = {member.id for member in guild.members}
-
-            # Find cached members who are no longer in the guild
-            cached_member_ids = set(self.member_roles[guild.id].keys())
-            missing_member_ids = cached_member_ids - current_member_ids
-
-            # Remove those members from cache
-            for member_id in missing_member_ids:
-                del self.member_roles[guild.id][member_id]
-                removed_count += 1
-                self.mark_modified()  # Mark cache as modified
-
-        if removed_count > 0:
-            self.logger.info(f"Cleaned up {removed_count} cached entries for members no longer in guilds")
-            # No need to explicitly save here - will be saved by periodic_save
-
-        return removed_count
-
-    async def periodic_refresh(self):
-        """Periodically refresh stale role entries and clean up missing members"""
-        await self.bot.wait_until_ready()
-        while not self.bot.is_closed():
-            await asyncio.sleep(self.refresh_interval)
-            await self.refresh_stale_roles()
-
-            # Run cleanup every few refresh cycles using explicit UTC time
-            current_time = int(datetime.datetime.now(datetime.timezone.utc).timestamp())
-            if current_time % (self.refresh_interval * 3) < self.refresh_interval:
-                await self.cleanup_missing_members()
+            # Send all chunks
+            for i, chunk in enumerate(chunks):
+                if i == 0:
+                    await ctx.send(f"```\n{chunk}\n```")
+                else:
+                    await ctx.send(f"```\n{chunk}\n```")
 
     @commands.Cog.listener()
     async def on_member_update(self, before, after):
+        """Update role cache when member's roles change"""
         if before.roles != after.roles:
             self.update_member_roles(after)
             self.logger.debug(f"Updated roles for {after.display_name} in {after.guild.name}")
 
     @commands.Cog.listener()
     async def on_member_join(self, member):
+        """Add new member to role cache"""
         self.update_member_roles(member)
-        self.logger.debug(f"Cached roles for new member {member.display_name} in {member.guild.name}")
+        self.logger.debug(f"Added new member {member.display_name} to role cache for {member.guild.name}")
 
     @commands.Cog.listener()
     async def on_member_remove(self, member):
+        """Remove member from role cache when they leave"""
         if member.guild.id in self.member_roles:
             if member.id in self.member_roles[member.guild.id]:
                 del self.member_roles[member.guild.id][member.id]
-                self.mark_modified()  # Mark as modified instead of saving
+                self.mark_data_modified()
                 self.logger.debug(f"Removed cached roles for {member.display_name} leaving {member.guild.name}")
 
     @commands.Cog.listener()
     async def on_guild_join(self, guild):
+        """Build role cache when bot joins a new guild"""
         await self.build_cache(guild)
         self.logger.info(f"Built role cache for new guild: {guild.name}")
         # Force save after adding a new guild
-        await self.save_cache_to_file(force=True)
+        await self.save_data_if_modified(self.member_roles, self.cache_file, force=True)
 
     @commands.Cog.listener()
     async def on_guild_remove(self, guild):
@@ -438,7 +459,7 @@ class RoleCache(BaseCog):
 
             # Remove the guild data
             del self.member_roles[guild.id]
-            self.mark_modified()  # Mark as modified
+            self.mark_data_modified()
 
             self.logger.info(f"Removed role cache for departed guild: {guild.name} ({members_count} members)")
 
@@ -450,33 +471,8 @@ class RoleCache(BaseCog):
 
     def cog_unload(self):
         """Called when the cog is unloaded. Ensures data is saved."""
-        # Cancel the background tasks first
-        if hasattr(self, 'refresh_task'):
-            self.refresh_task.cancel()
-        if hasattr(self, 'save_task'):
-            self.save_task.cancel()
-
-        # Force a synchronous save
-        loop = asyncio.get_event_loop()
-        if self._cache_modified and loop.is_running():
-            # We're in an async context, run the save coroutine
-            future = asyncio.run_coroutine_threadsafe(
-                self.save_cache_to_file(force=True),
-                loop
-            )
-            try:
-                # Wait for a short time to allow save to complete
-                future.result(timeout=5)
-                self.logger.info("Role cache saved during cog unload")
-            except (asyncio.TimeoutError, concurrent.futures.TimeoutError):
-                self.logger.warning("Timed out while saving role cache during unload")
-            except Exception as e:
-                self.logger.error(f"Error saving role cache during unload: {e}")
-        else:
-            # We can't run the coroutine, log a warning
-            self.logger.warning("Could not save role cache during unload - no running event loop")
-
-        self.logger.info("Role cache unloaded")
+        # Use BaseCog's unload method which handles saving and task cleanup
+        super().cog_unload()
 
 
 async def setup(bot):
