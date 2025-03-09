@@ -195,3 +195,113 @@ class ConfigManager(BaseFileMonitor):
 
         logger.debug(f"Cog directory for '{cog_name}' created/accessed at {cog_dir}")
         return cog_dir
+
+    def get_cog_setting(self, cog_name: str, setting_name: str, default: Any = None, guild_id: int = None) -> Any:
+        """Get a cog-specific setting.
+
+        Args:
+            cog_name: The name of the cog
+            setting_name: The name of the setting
+            default: Default value if setting doesn't exist
+            guild_id: The guild ID (uses current guild if None)
+
+        Returns:
+            The setting value or default
+        """
+        if guild_id is None:
+            guild_id = self.get_guild_id()
+
+        cog_settings = self.config.setdefault("cogs", {}).setdefault(str(guild_id), {}).setdefault(cog_name, {})
+        return cog_settings.get(setting_name, default)
+
+    def set_cog_setting(self, cog_name: str, setting_name: str, value: Any, guild_id: int = None) -> None:
+        """Set a cog-specific setting.
+
+        Args:
+            cog_name: The name of the cog
+            setting_name: The name of the setting
+            value: The value to set
+            guild_id: The guild ID (uses current guild if None)
+        """
+        if guild_id is None:
+            guild_id = self.get_guild_id()
+
+        cog_settings = self.config.setdefault("cogs", {}).setdefault(str(guild_id), {}).setdefault(cog_name, {})
+        cog_settings[setting_name] = value
+        self.save_config()
+        logger.info(f"Set {cog_name} setting '{setting_name}' for guild {guild_id}")
+
+    def update_cog_settings(self, cog_name: str, settings: Dict[str, Any], guild_id: int = None) -> None:
+        """Update multiple cog settings at once.
+
+        Args:
+            cog_name: The name of the cog
+            settings: Dictionary of setting names and values
+            guild_id: The guild ID (uses current guild if None)
+        """
+        if guild_id is None:
+            guild_id = self.get_guild_id()
+
+        cog_settings = self.config.setdefault("cogs", {}).setdefault(str(guild_id), {}).setdefault(cog_name, {})
+        cog_settings.update(settings)
+        self.save_config()
+        logger.info(f"Updated multiple settings for {cog_name} in guild {guild_id}")
+
+    def remove_cog_setting(self, cog_name: str, setting_name: str, guild_id: int = None) -> bool:
+        """Remove a cog-specific setting.
+
+        Args:
+            cog_name: The name of the cog
+            setting_name: The name of the setting
+            guild_id: The guild ID (uses current guild if None)
+
+        Returns:
+            True if setting was removed, False if it didn't exist
+        """
+        if guild_id is None:
+            guild_id = self.get_guild_id()
+
+        try:
+            cog_settings = self.config["cogs"][str(guild_id)][cog_name]
+            if setting_name in cog_settings:
+                del cog_settings[setting_name]
+                self.save_config()
+                logger.info(f"Removed {cog_name} setting '{setting_name}' for guild {guild_id}")
+                return True
+            return False
+        except KeyError:
+            return False
+
+    def has_cog_setting(self, cog_name: str, setting_name: str, guild_id: int = None) -> bool:
+        """Check if a cog-specific setting exists.
+
+        Args:
+            cog_name: The name of the cog
+            setting_name: The name of the setting
+            guild_id: The guild ID (uses current guild if None)
+
+        Returns:
+            True if the setting exists, False otherwise
+        """
+        if guild_id is None:
+            guild_id = self.get_guild_id()
+
+        try:
+            return setting_name in self.config["cogs"][str(guild_id)][cog_name]
+        except KeyError:
+            return False
+
+    def get_all_cog_settings(self, cog_name: str, guild_id: int = None) -> Dict[str, Any]:
+        """Get all settings for a specific cog.
+
+        Args:
+            cog_name: The name of the cog
+            guild_id: The guild ID (uses current guild if None)
+
+        Returns:
+            Dictionary of all cog settings
+        """
+        if guild_id is None:
+            guild_id = self.get_guild_id()
+
+        return self.config.setdefault("cogs", {}).setdefault(str(guild_id), {}).setdefault(cog_name, {}).copy()
