@@ -20,15 +20,16 @@ class CogAutoReload(FileSystemEventHandler):
                     return
 
             self.last_reload[cog_name] = current_time
-            await self.bot.reload_extension(f"cogs.{cog_name}")
+            await self.bot.cog_manager.reload_cog(cog_name)
             self.logger.info(f"🔄 Auto-reloaded cog: {cog_name}")
         except Exception as e:
             self.logger.error(f"❌ Failed to auto-reload {cog_name}: {e}")
 
     def on_modified(self, event):
-        if event.src_path.endswith('.py'):
-            cog_name = os.path.splitext(os.path.basename(event.src_path))[0]
-            if cog_name in self.bot.loaded_cogs:
+        path = Path(event.src_path)
+        if path.suffix == '.py':
+            cog_name = path.stem
+            if cog_name in self.bot.cog_manager.loaded_cogs:
                 asyncio.run_coroutine_threadsafe(
                     self.reload_cog(cog_name),
                     self.bot.loop
