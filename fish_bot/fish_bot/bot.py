@@ -36,57 +36,7 @@ class DiscordBot(commands.Bot, BaseFileMonitor):
             case_insensitive=True,
         )
         self.logger = logger
-        self.loaded_cogs = []
-        self.unloaded_cogs = []
-        self._cog_loader = CogLoader(self)
-
-    async def load_cogs(self) -> None:
-        """
-        The code in this function is executed whenever the bot starts.
-        """
-        cogs_path = f"{os.path.realpath(os.path.dirname(__file__))}/cogs"
-        for file in os.listdir(cogs_path):
-            if file.endswith(".py"):
-                extension = file[:-3]
-                try:
-                    await self.load_extension(f"cogs.{extension}")
-                    self.loaded_cogs.append(extension)
-                    self.logger.info(f"Loaded extension '{extension}'")
-                except Exception as e:
-                    exception = f"{type(e).__name__}: {e}"
-                    self.logger.error(
-                        f"Failed to load extension {extension}\n{exception}"
-                    )
-                    self.unloaded_cogs.append(extension)
-
-    async def reload_cog(self, cog_name: str) -> None:
-        """Reload a specific cog"""
-        await self._cog_loader.reload_cog(cog_name)
-        self.logger.info(f"Reloaded cog '{cog_name}'")
-
-    async def unload_cog(self, cog_name: str) -> None:
-        """Unload a specific cog"""
-        await self._cog_loader.unload_cog(cog_name)
-        if cog_name in self.loaded_cogs:
-            self.loaded_cogs.remove(cog_name)
-            self.unloaded_cogs.append(cog_name)
-        self.logger.info(f"Unloaded cog '{cog_name}'")
-
-    async def load_cog(self, cog_name: str) -> None:
-        """Load a specific cog"""
-        await self._cog_loader.load_cog(cog_name)
-        if cog_name in self.unloaded_cogs:
-            self.unloaded_cogs.remove(cog_name)
-            self.loaded_cogs.append(cog_name)
-        self.logger.info(f"Loaded cog '{cog_name}'")
-
-    async def get_loaded_cogs(self) -> list:
-        """Get list of currently loaded cogs"""
-        return self.loaded_cogs
-
-    async def get_unloaded_cogs(self) -> list:
-        """Get list of currently unloaded cogs"""
-        return self.unloaded_cogs
+        self.cog_manager = CogManager(self)
 
     async def setup_hook(self) -> None:
         """This will just be executed when the bot starts the first time."""
@@ -170,6 +120,69 @@ class DiscordBot(commands.Bot, BaseFileMonitor):
 
 
 bot = DiscordBot()
+
+
+@bot.command()
+async def enable_cog(ctx, cog_name: str):
+    """Enable a cog by adding it to enabled_cogs list."""
+    success_msg, error_msg = await bot.cog_manager.enable_cog(cog_name)
+
+    response = success_msg
+    if error_msg:
+        response += f"\n{error_msg}"
+
+    await ctx.send(response)
+
+
+@bot.command()
+async def disable_cog(ctx, cog_name: str):
+    """Disable a cog by adding it to disabled_cogs list."""
+    success_msg, error_msg = await bot.cog_manager.disable_cog(cog_name)
+
+    response = success_msg
+    if error_msg:
+        response += f"\n{error_msg}"
+
+    await ctx.send(response)
+
+
+@bot.command()
+async def toggle_load_all(ctx):
+    """Toggle the load_all_cogs setting."""
+    new_setting = await bot.cog_manager.toggle_load_all()
+    status = "enabled" if new_setting else "disabled"
+    await ctx.send(f"🔄 Load all cogs setting is now {status}.")
+
+
+@bot.command()
+async def list_cogs(ctx):
+    """List all available cogs and their status."""
+    cog_status_list, load_all = bot.cog_manager.get_cog_status_list()
+
+    # Create status message
+    load_all_status = "✅ Enabled" if load_all else "❌ Disabled"
+    message = f"**Load All Cogs:** {load_all_status}\n\n**Cogs Status:**\n"
+
+    for cog in cog_status_list:
+        status = []
+        if cog['loaded']:
+            status.append("▶️ Loaded")
+        else:
+            status.append("⏹️ Not Loaded")
+
+        if cog['explicitly_disabled']:
+            status.append("❌ Disabled")
+        elif cog['explicitly_enabled']:
+            status.append("✅ Enabled")
+        elif load_all:
+            status.append("✅ Enabled (via load_all)")
+        else:
+            status.append("❌ Disabled (not in enabled list)")
+
+        message += f"- **{cog['name']}**: {' | '.join(status)}\n"
+
+    embed = discord.Embed(title="Cog Configuration", description=message, color=discord.Color.blue())
+    await ctx.send(embed=embed)
 
 
 @bot.command()
