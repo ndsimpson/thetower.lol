@@ -137,14 +137,21 @@ class RoleCache(BaseCog):
         await self.bot.wait_until_ready()
         self.logger.info("Building initial role cache...")
 
-        # Build cache for primary guild
-        await self.build_cache(self.guild)
+        # Only build cache for primary guild if we don't already have data for it
+        if self.guild.id not in self.member_roles or not self.member_roles.get(self.guild.id):
+            self.logger.info(f"No cached data found for {self.guild.name}. Building fresh cache...")
+            await self.build_cache(self.guild)
+        else:
+            self.logger.info(f"Using cached data for {self.guild.name} with {len(self.member_roles[self.guild.id])} members")
+            # Optionally refresh stale entries
+            await self.refresh_stale_roles()
 
-        self.logger.info("Initial role cache built")
+        self.logger.info("Role cache is ready")
         self._cache_ready.set()
 
-        # Save the initial cache to file
-        await self.save_cache_to_file()
+        # Save the cache to file if we built a new one
+        if self.guild.id not in self.member_roles:
+            await self.save_cache_to_file()
 
     async def build_cache(self, guild):
         """Cache roles for a specific guild"""
