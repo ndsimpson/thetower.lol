@@ -251,10 +251,9 @@ async def add_channel(ctx, command: str, channel: discord.TextChannel):
     $add_channel list_cogs #bot-commands
     $add_channel * #admin-channel    (allows all commands in admin-channel)
     """
-    config_manager = ConfigManager()
     channel_id = str(channel.id)
 
-    if config_manager.add_command_channel(command, channel_id):
+    if bot.config.add_command_channel(command, channel_id):
         await ctx.send(f"Added channel {channel.mention} to command '{command}' permissions")
     else:
         await ctx.send(f"Failed to add channel {channel.mention} to command '{command}' permissions")
@@ -263,10 +262,9 @@ async def add_channel(ctx, command: str, channel: discord.TextChannel):
 @bot.command()
 async def remove_channel(ctx, command: str, channel: discord.TextChannel):
     """Remove a channel from command permissions."""
-    config_manager = ConfigManager()
     channel_id = str(channel.id)
 
-    if config_manager.remove_command_channel(command, channel_id):
+    if bot.config.remove_command_channel(command, channel_id):
         await ctx.send(f"Removed channel {channel.mention} from command '{command}' permissions")
     else:
         await ctx.send(f"Failed to remove channel {channel.mention} from command '{command}' permissions")
@@ -275,11 +273,10 @@ async def remove_channel(ctx, command: str, channel: discord.TextChannel):
 @bot.command()
 async def add_user(ctx, command: str, channel: discord.TextChannel, user: discord.Member):
     """Add an authorized user to a command channel."""
-    config_manager = ConfigManager()
     channel_id = str(channel.id)
     user_id = str(user.id)
 
-    if config_manager.add_authorized_user(command, channel_id, user_id):
+    if bot.config.add_authorized_user(command, channel_id, user_id):
         await ctx.send(f"Added {user.mention} to authorized users for command '{command}' in channel {channel.mention}")
     else:
         await ctx.send(f"Failed to add {user.mention} to authorized users for command '{command}' in channel {channel.mention}")
@@ -288,11 +285,10 @@ async def add_user(ctx, command: str, channel: discord.TextChannel, user: discor
 @bot.command()
 async def remove_user(ctx, command: str, channel: discord.TextChannel, user: discord.Member):
     """Remove an authorized user from a command channel."""
-    config_manager = ConfigManager()
     channel_id = str(channel.id)
     user_id = str(user.id)
 
-    if config_manager.remove_authorized_user(command, channel_id, user_id):
+    if bot.config.remove_authorized_user(command, channel_id, user_id):
         await ctx.send(f"Removed {user.mention} from authorized users for command '{command}' in channel {channel.mention}")
     else:
         await ctx.send(f"Failed to remove {user.mention} from authorized users for command '{command}' in channel {channel.mention}")
