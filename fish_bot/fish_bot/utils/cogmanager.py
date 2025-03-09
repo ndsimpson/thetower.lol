@@ -1,5 +1,5 @@
-import os
 import logging
+from pathlib import Path
 
 from .configmanager import ConfigManager
 
@@ -21,7 +21,7 @@ class CogManager:
         """
         Load cogs based on configuration settings.
         """
-        cogs_path = f"{os.path.realpath(os.path.dirname(self.bot.__module__))}/cogs"
+        cogs_path = Path(self.bot.__module__).parent.resolve() / "cogs"
 
         # Access global configuration for cogs
         enabled_cogs = self.config.get("enabled_cogs", [])
@@ -30,9 +30,9 @@ class CogManager:
 
         logger.info(f"Cog loading configuration: load_all={load_all}, enabled={enabled_cogs}, disabled={disabled_cogs}")
 
-        for file in os.listdir(cogs_path):
-            if file.endswith(".py"):
-                extension = file[:-3]
+        for file in cogs_path.iterdir():
+            if file.suffix == ".py":
+                extension = file.stem
 
                 # Skip disabled cogs
                 if extension in disabled_cogs:
@@ -188,8 +188,8 @@ class CogManager:
         load_all = self.config.get("load_all_cogs", False)
 
         # Get cog files
-        cogs_path = f"{os.path.realpath(os.path.dirname(self.bot.__module__))}/cogs"
-        available_cogs = [file[:-3] for file in os.listdir(cogs_path) if file.endswith(".py")]
+        cogs_path = Path(self.bot.__module__).parent.resolve() / "cogs"
+        available_cogs = [file.stem for file in cogs_path.iterdir() if file.suffix == ".py"]
 
         cog_status = []
         for cog in available_cogs:
