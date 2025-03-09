@@ -1,5 +1,4 @@
-from discord.ext import commands
-from discord.ext.commands import Context
+from discord.ext.commands import Context, Paginator
 
 
 class CogLoader:
@@ -8,7 +7,7 @@ class CogLoader:
 
     async def list_modules(self, ctx: Context) -> None:
         """Lists all cogs and their status of loading."""
-        cog_list = commands.Paginator(prefix='', suffix='')
+        cog_list = Paginator(prefix='', suffix='')
         cog_list.add_line('**✅ Succesfully loaded:**')
         for cog in self.bot.loaded_cogs:
             cog_list.add_line('- ' + cog)

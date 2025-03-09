@@ -1,6 +1,6 @@
 # Standard library imports
 import logging
-import os
+from os import environ, getenv
 from pathlib import Path
 
 # Third-party imports
@@ -11,7 +11,8 @@ from discord.ext.commands import Context
 
 # Local imports
 from fish_bot.exceptions import UserUnauthorized, ChannelUnauthorized
-from fish_bot.utils import CogAutoReload, CogLoader, ConfigManager, BaseFileMonitor
+from fish_bot.utils import CogAutoReload, ConfigManager, BaseFileMonitor
+from fish_bot.utils.cogmanager import CogManager
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -26,7 +27,7 @@ intents.members = True
 
 class DiscordBot(commands.Bot, BaseFileMonitor):
     def __init__(self) -> None:
-        os.environ.setdefault("DJANGO_SETTINGS_MODULE", "dtower.thetower.settings")
+        environ.setdefault("DJANGO_SETTINGS_MODULE", "dtower.thetower.settings")
         django.setup()
         self.config = ConfigManager()
         super().__init__(
@@ -93,7 +94,7 @@ class DiscordBot(commands.Bot, BaseFileMonitor):
         self.logger.info("------")
 
         # Setup file monitoring
-        cogs_path = Path(f"{os.path.realpath(os.path.dirname(__file__))}/cogs")
+        cogs_path = Path(__file__).parent.resolve() / "cogs"
         self.start_monitoring(cogs_path, CogAutoReload(self), recursive=False)
 
     async def on_command_error(self, context: Context, error) -> None:
@@ -155,8 +156,8 @@ class DiscordBot(commands.Bot, BaseFileMonitor):
         self.logger.info("Bot is ready!")
 
         # Load cogs after bot is ready
-        if not self.loaded_cogs:  # Only load if not already loaded
-            await self.load_cogs()
+        if not self.cog_manager.loaded_cogs:  # Only load if not already loaded
+            await self.cog_manager.load_cogs()
 
     async def on_connect(self):
         self.logger.info("Bot connected to Discord!")
@@ -221,4 +222,4 @@ async def remove_user(ctx, command: str, channel: discord.TextChannel, user: dis
         await ctx.send(f"Failed to remove {user.mention} from authorized users for command '{command}' in channel {channel.mention}")
 
 # Start the bot
-bot.run(os.getenv("DISCORD_TOKEN"), log_level=logging.INFO)
+bot.run(getenv("DISCORD_TOKEN"), log_level=logging.INFO)
