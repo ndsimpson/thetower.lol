@@ -4,7 +4,6 @@ import logging
 import asyncio
 import datetime
 import pickle
-from pathlib import Path
 from typing import Dict, List, Set
 from asgiref.sync import sync_to_async
 
@@ -22,15 +21,6 @@ class TrackedMember:
         self.discord_id = discord_id
         self.player_id = player_id
         self.name = name
-        self.roles = set()  # Stores role IDs
-
-    def update_roles(self, roles: List[discord.Role]):
-        """Update the roles for this member."""
-        self.roles = {role.id for role in roles}
-
-    def has_role(self, role_id: int) -> bool:
-        """Check if the member has a specific role."""
-        return role_id in self.roles
 
 
 class RoleTracker(BaseCog, name="Role Tracker"):
@@ -42,11 +32,11 @@ class RoleTracker(BaseCog, name="Role Tracker"):
 
     def __init__(self, bot):
         super().__init__(bot)
-        self.bot = bot
         self.tracked_members: Dict[int, TrackedMember] = {}  # discord_id -> TrackedMember
         self.tracked_roles: Set[int] = set()  # Role IDs we're interested in (for fast lookup)
         self.tracked_roles_ordered: List[int] = []  # Role IDs in order from config (for display)
-        self.data_file = Path("data/role_tracker_data.pkl")
+        self.data_file = self.data_directory / "role_tracker_data.pkl"
+        self._role_cache = None
 
         # Load tracked roles
         self.load_tracked_roles()
@@ -57,6 +47,46 @@ class RoleTracker(BaseCog, name="Role Tracker"):
         # Schedule the initial data loading if needed
         if not self.tracked_members:
             self.bot.loop.create_task(self.load_known_players())
+
+        # Initialize role cache access
+        self.bot.loop.create_task(self._initialize_role_cache())
+
+    async def _initialize_role_cache(self):
+        """Wait for role cache to become available"""
+        await self.bot.wait_until_ready()
+
+        while self._role_cache is None:
+            self._role_cache = self.bot.get_cog('RoleCache')
+            if self._role_cache is not None:
+                await self._role_cache.wait_until_ready()
+                logger.info("RoleCache is now available to RoleTracker")
+                return
+            await asyncio.sleep(1)
+
+    async def _ensure_role_cache(self):
+        """Ensure role cache is available before using it"""
+        if self._role_cache is None:
+            # Immediately check if it's available now
+            self._role_cache = self.bot.get_cog('RoleCache')
+            if self._role_cache is None:
+                # If not available, log a warning and return False
+                logger.warning("Role cache not available")
+                return False
+            # Make sure it's ready before proceeding
+            await self._role_cache.wait_until_ready()
+        return True
+
+    def has_role(self, guild_id, user_id, role_id):
+        """Check if user has role using RoleCache if available, otherwise fallback"""
+        if hasattr(self.bot, 'role_cache') and self.bot.role_cache:
+            return self.bot.role_cache.has_role(guild_id, user_id, role_id)
+        return False
+
+    def get_roles(self, guild_id, user_id):
+        """Get all roles for a user using RoleCache if available"""
+        if hasattr(self.bot, 'role_cache') and self.bot.role_cache:
+            return self.bot.role_cache.get_roles(guild_id, user_id)
+        return []
 
     def cog_unload(self):
         """Called when the cog is unloaded."""
@@ -387,13 +417,8 @@ class RoleTracker(BaseCog, name="Role Tracker"):
                 # Run updateroles for this user (not a dry run)
                 self.bot.loop.create_task(self.updateroles(ctx, after.id, False))
 
+            # Handle role change logging
             if added_tracked_roles or removed_tracked_roles:
-                # Update the tracked member's roles
-                tracked_member.update_roles(after.roles)
-
-                # Save the updated data
-                self.save_data()
-
                 # Log the changes
                 if added_tracked_roles:
                     added_role_names = [discord.utils.get(after.guild.roles, id=role_id).name
@@ -435,11 +460,6 @@ class RoleTracker(BaseCog, name="Role Tracker"):
             try:
                 await member.add_roles(verified_role, reason="Auto-verification of tracked member")
                 logger.info(f"Auto-verified member {tracked_member.name} ({member.id})")
-
-                # Update the tracked member's roles
-                tracked_member.update_roles(member.roles + [verified_role])
-                self.save_data()
-
             except discord.Forbidden:
                 logger.error(f"Bot does not have permission to assign roles to {member.id}")
             except Exception as e:
@@ -487,8 +507,7 @@ class RoleTracker(BaseCog, name="Role Tracker"):
     async def roletracker(self, ctx):
         """Role tracker commands."""
         if ctx.invoked_subcommand is None:
-            commands_list = [command.name for command in self.roletracker.commands]
-            await ctx.send(f"Available subcommands: {', '.join(commands_list)}")
+            await ctx.send_help(ctx.command)
 
     @roletracker.command(name="refresh")
     async def refresh(self, ctx):
@@ -723,7 +742,7 @@ class RoleTracker(BaseCog, name="Role Tracker"):
         # Build embed with tracked information
         embed = discord.Embed(
             title=f"Role Information for {tracked_member.name}",
-            description="Data from tracker cache (not querying Discord)",
+            description="Data from role cache (not querying Discord)",
             color=discord.Color.green()
         )
 
@@ -739,10 +758,11 @@ class RoleTracker(BaseCog, name="Role Tracker"):
             inline=True
         )
 
-        # Get tracked roles
+        # Get tracked roles using the role cache
+        guild_id = ctx.guild.id
         user_tracked_roles = []
         for role_id in self.tracked_roles_ordered:
-            if tracked_member.has_role(role_id):
+            if self.has_role(guild_id, discord_id, role_id):
                 # Try to get the role name from guild if possible without API call
                 role = discord.utils.get(ctx.guild.roles, id=role_id)
                 role_name = role.name if role else f"Role ID: {role_id}"
@@ -762,7 +782,7 @@ class RoleTracker(BaseCog, name="Role Tracker"):
             )
 
         # Add timestamp to show when the data was last updated
-        embed.set_footer(text="Data from cached tracker info but should be up-to-date. ")
+        embed.set_footer(text="Data from role cache")
 
         await ctx.send(embed=embed)
 
