@@ -1,122 +1,187 @@
-import discord
-from discord.ext import commands
 import logging
 import asyncio
 import pandas as pd
-from typing import List, Optional
+from typing import Dict
 from asgiref.sync import sync_to_async
 import datetime
 import pickle
+import discord
+from discord.ext import commands
 from pathlib import Path
 
 from fish_bot.basecog import BaseCog
-from dtower.sus.models import KnownPlayer, SusPerson
+from dtower.sus.models import SusPerson
 from dtower.tourney_results.constants import leagues, legend, how_many_results_hidden_site
 from dtower.tourney_results.data import get_results_for_patch, get_tourneys
 from dtower.tourney_results.models import PatchNew as Patch
 
-# Set up logging
-logger = logging.getLogger(__name__)
+# Define league hierarchy - order matters for importance
+LEAGUE_HIERARCHY = ["legend", "champion", "platinum", "gold", "silver", "copper"]
 
 
 class TourneyStats(BaseCog, name="Tourney Stats"):
     """
-    Provides tournament statistics for players using data from the RoleTracker cog.
+    Player-focused tournament statistics.
 
-    Shows players' best performances across different leagues and tournaments,
-    utilizing the cached member data for efficient lookups.
+    Tracks player performance metrics across different leagues and tournaments,
+    focusing on wave counts, placements, and other statistics.
     """
 
     def __init__(self, bot):
-        super().__init__(bot)
+        super().__init__(bot)  # Initialize the BaseCog
+
+        # Tourney data cache storage
         self.league_dfs = {}  # Cache for tournament dataframes by league
         self.latest_patch = None  # Cache for the latest patch
-        self.data_file = Path("data/tourney_stats_data.pkl")
         self.last_updated = None  # When the data was last updated
         self.tournament_counts = {}  # Track number of tournaments per league
-        self.latest_tournament_dates = {}  # Track the most recent tournament date per league
 
-        # Load any previously saved data
-        self.load_data()
+        # Create an event that signals when cache is ready
+        self._cache_ready = asyncio.Event()
 
-        # Schedule a task to check for updates
-        self.bot.loop.create_task(self.check_for_updates())
+        # Set default settings if they don't exist
+        if not self.has_setting("update_check_interval"):
+            self.set_setting("update_check_interval", 6 * 60 * 60)  # 6 hours in seconds
 
-    def save_data(self):
-        """Save tournament data to a pickle file."""
+        if not self.has_setting("update_error_retry_interval"):
+            self.set_setting("update_error_retry_interval", 30 * 60)  # 30 minutes in seconds
+
+        if not self.has_setting("recent_tournaments_display_count"):
+            self.set_setting("recent_tournaments_display_count", 3)  # Default display count
+
+        # Configure instance variables from settings
+        self.update_check_interval = self.get_setting('update_check_interval')
+        self.update_error_retry_interval = self.get_setting('update_error_retry_interval')
+        self.recent_tournaments_display_count = self.get_setting('recent_tournaments_display_count')
+
+        self.logger = logging.getLogger(__name__)
+
+        self.load_cache_from_file()
+
+    @property
+    def cache_file(self) -> Path:
+        """Get the cache file path using the cog's data directory"""
+        cache_filename = self.get_setting('cache_filename', 'player_tourney_stats_data.pkl')
+        return self.data_directory / cache_filename
+
+    async def wait_until_ready(self):
+        """Wait until the role cache is ready"""
+        await self._cache_ready.wait()
+
+    def load_cache_from_file(self):
+        """Load the cache from a file"""
         try:
-            # Ensure the directory exists
-            self.data_file.parent.mkdir(parents=True, exist_ok=True)
+            # Check if file exists
+            cache_file = self.cache_file
+            if not cache_file.exists():
+                self.logger.info("No tourney data cache file found, starting with empty cache")
+                return
 
-            # Prepare the data to save
-            save_data = {
-                'latest_patch': self.latest_patch,
-                'league_dfs': self.league_dfs,
-                'last_updated': self.last_updated or datetime.datetime.now(),
-                'tournament_counts': self.tournament_counts,
-                'latest_tournament_dates': self.latest_tournament_dates
-            }
+            # Load pickle data
+            with open(cache_file, 'rb') as f:
+                data = pickle.load(f)
+            self.latest_patch = data.get('latest_patch')
+            self.league_dfs = data.get('league_dfs', {})
+            self.last_updated = data.get('last_updated')
+            self.tournament_counts = data.get('tournament_counts', {})
 
-            # Save the data
-            with open(self.data_file, 'wb') as f:
-                pickle.dump(save_data, f)
+            # Set cache ready if we have loaded all leagues
+            if self.league_dfs and len(self.league_dfs) == len(leagues):
+                self._cache_ready.set()
+                self.logger.info("Cache marked as ready after loading from file")
 
-            logger.info(f"Saved tournament data to {self.data_file} (patch: {self.latest_patch})")
+            self.logger.info(f"Loaded data from {cache_file}")
+            return data
         except Exception as e:
-            logger.error(f"Failed to save tournament data: {e}")
+            self.logger.error(f"Failed to load data from {cache_file}: {e}")
+            return
 
-    def load_data(self):
-        """Load tournament data from a pickle file."""
+    async def save_data(self):
+        """Save tournament data using BaseCog's utility."""
+        # Prepare the data to save
+        save_data = {
+            'latest_patch': self.latest_patch,
+            'league_dfs': self.league_dfs,
+            'last_updated': self.last_updated or datetime.datetime.now(),
+            'tournament_counts': self.tournament_counts
+        }
+
+        # Use BaseCog's utility to save data
+        success = await self.save_data_if_modified(save_data, self.cache_file, force=True)
+
+        if success:
+            self.logger.info(f"Saved player tournament data to {self.cache_file} (patch: {self.latest_patch})")
+        else:
+            self.logger.error("Failed to save player tournament data")
+
+    async def load_data(self):
+        """Load tournament data using BaseCog's utility."""
         try:
-            if self.data_file.exists():
-                with open(self.data_file, 'rb') as f:
-                    save_data = pickle.load(f)
+            # Use BaseCog's utility to load data
+            save_data = await self.load_data_from_file(self.cache_file, default={})
 
+            if save_data:
                 self.latest_patch = save_data.get('latest_patch')
                 self.league_dfs = save_data.get('league_dfs', {})
                 self.last_updated = save_data.get('last_updated')
                 self.tournament_counts = save_data.get('tournament_counts', {})
-                self.latest_tournament_dates = save_data.get('latest_tournament_dates', {})
 
-                logger.info(f"Loaded tournament data from {self.data_file}")
-                logger.info(f"  - Patch: {self.latest_patch}")
-                logger.info(f"  - Leagues: {list(self.league_dfs.keys())}")
-                logger.info(f"  - Tournament row counts: {self.tournament_counts}")
-                logger.info(f"  - Last updated: {self.last_updated}")
+                self.logger.info(f"Loaded player tournament data from {self.cache_file}")
+                self.logger.info(f"  - Patch: {self.latest_patch}")
+                self.logger.info(f"  - Leagues: {list(self.league_dfs.keys())}")
+                self.logger.info(f"  - Tournament row counts: {self.tournament_counts}")
+                self.logger.info(f"  - Last updated: {self.last_updated}")
             else:
-                logger.info(f"No saved tournament data file found at {self.data_file}")
+                self.logger.info(f"No saved player tournament data file found at {self.cache_file}")
+                # Initialize as empty
+                self.league_dfs = {}
+                self.latest_patch = None
+                self.last_updated = None
+                self.tournament_counts = {}
         except Exception as e:
-            logger.error(f"Failed to load tournament data: {e}")
+            self.logger.error(f"Failed to load player tournament data: {e}")
             # Initialize as empty in case of loading error
             self.league_dfs = {}
             self.latest_patch = None
             self.last_updated = None
             self.tournament_counts = {}
-            self.latest_tournament_dates = {}
 
-    async def check_for_new_patch(self):
-        """Check if there's a new patch and refresh data if needed."""
+    async def check_for_updates(self):
+        """Check for new patches and refresh data if needed."""
         await self.bot.wait_until_ready()
+        await self._cache_ready.wait()  # Wait for initial cache to be built
 
-        try:
-            # Get the current latest patch from DB
-            current_patch = await self.get_latest_patch_from_db()
+        while not self.bot.is_closed():
+            try:
+                # Get the current latest patch from DB
+                current_patch = await self.get_latest_patch_from_db()
 
-            # If we have data and patch is different, refresh
-            if self.latest_patch and str(current_patch) != str(self.latest_patch):
-                logger.info(f"New patch detected: {current_patch} (was {self.latest_patch})")
+                # Check if patch is different
+                if self.latest_patch and str(current_patch) != str(self.latest_patch):
+                    self.logger.info(f"New patch detected: {current_patch} (was {self.latest_patch})")
 
-                # Reset patch and force refresh
-                self.latest_patch = None
-                await self.get_tournament_data(refresh=True)
+                    # Reset patch and force refresh
+                    self.latest_patch = None
+                    await self.get_tournament_data(refresh=True)
 
-                # Update last_updated time
-                self.last_updated = datetime.datetime.now()
+                    # Update last_updated time
+                    self.last_updated = datetime.datetime.now()
 
-                # Save refreshed data
-                self.save_data()
-        except Exception as e:
-            logger.error(f"Error checking for new patch: {e}")
+                    # Mark data as modified
+                    self.mark_data_modified()
+
+                    # Save refreshed data
+                    await self.save_data()
+
+                # Use configurable sleep intervals from settings
+                update_interval = self.get_setting("update_check_interval")
+                await asyncio.sleep(update_interval)
+
+            except Exception as e:
+                self.logger.error(f"Error checking for patch updates: {e}")
+                # Use configurable error retry interval from settings
+                error_retry_interval = self.get_setting("update_error_retry_interval")
+                await asyncio.sleep(error_retry_interval)
 
     async def get_latest_patch_from_db(self):
         """Get the latest patch directly from the database."""
@@ -130,44 +195,30 @@ class TourneyStats(BaseCog, name="Tourney Stats"):
             self.latest_patch = await self.get_latest_patch_from_db()
         return self.latest_patch
 
-    async def get_tournament_data(self, league=None, refresh=False, ctx=None, status_message=None):
+    async def get_tournament_data(self, league=None, refresh=False):
         """Get tournament data for the latest patch, optionally filtered by league."""
         # If we need to refresh or don't have data yet
         if refresh or not self.league_dfs:
             try:
-                # Get patch info and log it
-                if status_message:
-                    await status_message.edit(content="Retrieving latest patch information...")
-
+                # Get patch info
                 patch = await self.get_latest_patch()
-                logger.info(f"Using patch: {patch}")
+                self.logger.info(f"Using patch: {patch}")
 
-                # Get sus IDs
-                if status_message:
-                    await status_message.edit(content="Retrieving list of excluded players...")
-
+                # Get sus IDs to filter out
                 sus_ids = {item.player_id for item in await sync_to_async(list)(SusPerson.objects.filter(sus=True))}
-                logger.info(f"Found {len(sus_ids)} excluded player IDs")
+                self.logger.info(f"Found {len(sus_ids)} excluded player IDs")
+
+                # Clear existing data if refreshing
+                self.league_dfs = {}
+                self.tournament_counts = {}
 
                 # Load data for all leagues
                 total_leagues = len(leagues)
                 start_time = datetime.datetime.now()
 
-                # Clear existing data
-                self.league_dfs = {}
-
-                # Reset tournament tracking data
-                self.tournament_counts = {}
-                self.latest_tournament_dates = {}
-
                 for i, league_name in enumerate(leagues):
                     league_start_time = datetime.datetime.now()
-
-                    # Update status with progress
-                    progress_msg = f"Loading data for {league_name} league ({i + 1}/{total_leagues})..."
-                    logger.info(progress_msg)
-                    if status_message:
-                        await status_message.edit(content=progress_msg)
+                    self.logger.info(f"Loading data for {league_name} league ({i + 1}/{total_leagues})...")
 
                     # Wrap the database operations in sync_to_async
                     results = await sync_to_async(get_results_for_patch)(patch=patch, league=league_name)
@@ -184,43 +235,15 @@ class TourneyStats(BaseCog, name="Tourney Stats"):
                     # Record the tournament count
                     self.tournament_counts[league_name] = filtered_rows
 
-                    # If available, store the most recent tournament date
-                    if 'date' in self.league_dfs[league_name].columns:
-                        try:
-                            most_recent = self.league_dfs[league_name]['date'].max()
-                            self.latest_tournament_dates[league_name] = most_recent
-                            logger.info(f"Most recent tournament in {league_name}: {most_recent}")
-                        except Exception as e:
-                            logger.warning(f"Could not determine most recent tournament date for {league_name}: {e}")
-
                     # Calculate timing info
                     league_time = datetime.datetime.now() - league_start_time
-                    elapsed_total = datetime.datetime.now() - start_time
-
-                    # Estimate remaining time
-                    remaining_leagues = total_leagues - (i + 1)
-                    if i > 0:  # Only after first league to get better estimates
-                        avg_time_per_league = elapsed_total.total_seconds() / (i + 1)
-                        est_remaining = datetime.timedelta(seconds=avg_time_per_league * remaining_leagues)
-                    else:
-                        est_remaining = "Calculating..."
 
                     # Log detailed stats
                     stats_msg = (
                         f"Loaded {league_name} data: {filtered_rows} rows "
                         f"({original_rows - filtered_rows} filtered) in {league_time.total_seconds():.1f}s"
                     )
-                    logger.info(stats_msg)
-
-                    # Update status with more details
-                    if status_message:
-                        progress_percent = ((i + 1) / total_leagues) * 100
-                        detailed_msg = (
-                            f"Progress: {i + 1}/{total_leagues} leagues loaded ({progress_percent:.1f}%)\n"
-                            f"Latest: {league_name} with {filtered_rows} rows in {league_time.total_seconds():.1f}s\n"
-                            f"Time elapsed: {elapsed_total}, remaining: {est_remaining}"
-                        )
-                        await status_message.edit(content=detailed_msg)
+                    self.logger.info(stats_msg)
 
                     # Give asyncio a chance to process other tasks
                     await asyncio.sleep(0)
@@ -228,650 +251,594 @@ class TourneyStats(BaseCog, name="Tourney Stats"):
                 # Final status update
                 total_time = datetime.datetime.now() - start_time
                 total_rows = sum(len(df) for df in self.league_dfs.values())
-                final_msg = f"✅ Loaded tournament data for {len(self.league_dfs)} leagues with {total_rows} total rows in {total_time}"
-                logger.info(final_msg)
+                final_msg = f"Loaded tournament data for {len(self.league_dfs)} leagues with {total_rows} total rows in {total_time}"
+                self.logger.info(final_msg)
 
-                if status_message:
-                    await status_message.edit(content=final_msg)
+                # Set cache as ready if we have all leagues loaded
+                if len(self.league_dfs) == len(leagues):
+                    self._cache_ready.set()
+                    self.logger.info("Tournament data cache is now marked as ready")
 
                 # Update last updated timestamp
                 self.last_updated = datetime.datetime.now()
 
-                # Save the updated data
-                self.save_data()
+                # Mark data as modified
+                self.mark_data_modified()
+
+                try:
+                    # Save the updated data
+                    await self.save_data()
+                except Exception as e:
+                    self.logger.error(f"Error saving tournament data: {e}")
+                    # Even if saving fails, we still have the data in memory
+                    # so we should make sure the cache is marked ready
+                    if not self._cache_ready.is_set() and len(self.league_dfs) == len(leagues):
+                        self._cache_ready.set()
+                        self.logger.info("Cache marked as ready despite save error")
 
             except Exception as e:
-                error_msg = f"❌ Error loading tournament data: {str(e)}"
-                logger.error(error_msg)
-                if status_message:
-                    await status_message.edit(content=error_msg)
+                error_msg = f"Error loading tournament data: {str(e)}"
+                self.logger.error(error_msg)
                 raise
+            finally:
+                # Make sure the cache is marked as ready if we've loaded all leagues
+                # This ensures the cache is ready even if other post-processing fails
+                if not self._cache_ready.is_set() and self.league_dfs and len(self.league_dfs) == len(leagues):
+                    self._cache_ready.set()
+                    self.logger.info("Cache marked as ready in finally block")
 
         # Return either all data or just the requested league
         if league:
             return self.league_dfs.get(league, pd.DataFrame())
         return self.league_dfs
 
-    def cog_unload(self):
-        """Called when the cog is unloaded."""
-        self.save_data()
-        logger.info("Tournament stats unloaded, data saved.")
+    async def get_player_stats(self, player_id: str, league: str = None) -> Dict:
+        """
+        Get comprehensive tournament statistics for a player in a specific league.
 
-    async def get_player_tournament_stats(self, player_id: str):
-        """Get tournament statistics for a specific player ID."""
+        Args:
+            player_id: The player's ID
+            league: The league to get stats from. If None, returns stats for all leagues.
+
+        Returns:
+            Dictionary containing statistics for the player
+        """
         stats = {}
         dfs = await self.get_tournament_data()
 
-        for league_name, df in dfs.items():
-            # Get this player's data in this league
-            player_df = df[df.id == player_id]
-
-            if player_df.empty:
-                continue
-
-            if league_name == legend:
-                # For legend league, track best position
-                best_position = player_df.position.min()
-                best_row = player_df[player_df.position == best_position].iloc[0]
-                best_wave = best_row.wave
-                best_date = best_row.date if 'date' in best_row else 'Unknown'
-
-                stats[league_name] = {
-                    'best_position': best_position,
-                    'best_wave': best_wave,
-                    'best_date': best_date,
-                    'total_tourneys': len(player_df)
-                }
-            else:
-                # For other leagues, track best wave
-                best_wave = player_df.wave.max()
-                best_row = player_df[player_df.wave == best_wave].iloc[0]
-                position_at_best = best_row.position
-                best_date = best_row.date if 'date' in best_row else 'Unknown'
-
-                stats[league_name] = {
-                    'best_wave': best_wave,
-                    'position_at_best': position_at_best,
-                    'best_date': best_date,
-                    'total_tourneys': len(player_df)
-                }
+        # If a specific league is provided, only analyze that league
+        if league:
+            if league in dfs:
+                league_df = dfs[league]
+                player_df = league_df[league_df.id == player_id]
+                if not player_df.empty:
+                    stats[league] = self._calculate_league_stats(player_df, league)
+        else:
+            # Analyze all leagues
+            for league_name, df in dfs.items():
+                player_df = df[df.id == player_id]
+                if not player_df.empty:
+                    stats[league_name] = self._calculate_league_stats(player_df, league_name)
 
         return stats
 
-    async def get_player_tournament_stats_batch(self, player_ids):
-        """Fetch tournament stats for multiple players at once."""
-        result = {}
-        for player_id in player_ids:
-            result[player_id] = await self.get_player_tournament_stats(player_id)
-        return result
+    def _calculate_league_stats(self, player_df: pd.DataFrame, league_name: str) -> Dict:
+        """Calculate statistics for a player in a specific league."""
+        total_tourneys = len(player_df)
 
-    async def get_player_ids_by_discord_id(self, discord_id: int) -> List[str]:
-        """Get all player IDs associated with a Discord user."""
-        # Get the RoleTracker cog to access member data
-        role_tracker = await self.get_role_tracker()
+        if league_name == legend:
+            # For legend league, lower position is better
+            best_position = player_df.position.min()
+            best_position_row = player_df[player_df.position == best_position].iloc[0]
+            best_wave = best_position_row.wave
+            best_date = best_position_row.date if 'date' in best_position_row else None
 
-        # Check if the Discord ID is being tracked
-        tracked_member = role_tracker.tracked_members.get(discord_id)
-        if tracked_member and tracked_member.player_id:
-            return [tracked_member.player_id]
+            # Calculate average position and wave
+            avg_position = player_df.position.mean()
+            avg_wave = player_df.wave.mean()
 
-        # If not in role tracker, try database lookup
-        player = await sync_to_async(lambda: next(iter(KnownPlayer.objects.filter(discord_id=str(discord_id))), None))()
-        if player:
-            player_ids = await sync_to_async(lambda p=player: list(p.ids.all().values_list('id', flat=True)))()
-            return player_ids
+            # Find most recent tournament
+            latest_tournament = player_df.sort_values('date', ascending=False).iloc[0] if 'date' in player_df.columns else None
+            latest_position = latest_tournament.position if latest_tournament is not None else None
+            latest_wave = latest_tournament.wave if latest_tournament is not None else None
+            latest_date = latest_tournament.date if latest_tournament is not None else None
 
-        return []
-
-    async def get_role_tracker(self):
-        """Get the RoleTracker cog."""
-        role_tracker = self.bot.get_cog("Role Tracker")
-        if not role_tracker:
-            raise ValueError("Role Tracker cog is not loaded")
-        return role_tracker
-
-    @commands.group(name="tourneystats", aliases=["ts"], invoke_without_command=True)
-    async def tourneystats(self, ctx):
-        """Tournament statistics commands."""
-        if ctx.invoked_subcommand is None:
-            commands_list = [command.name for command in self.tourneystats.commands]
-            await ctx.send(f"Available subcommands: {', '.join(commands_list)}")
-
-    @tourneystats.command(name="refresh")
-    async def refresh(self, ctx):
-        """Refresh tournament data from the database."""
-        # Create initial status message
-        status_message = await ctx.send("Starting tournament data refresh...")
-
-        try:
-            # Force a refresh of tournament data with status updates
-            self.latest_patch = None
-            await self.get_tournament_data(refresh=True, ctx=ctx, status_message=status_message)
-
-            # Final success message (the method will have already updated the status message)
-            leagues_loaded = list(self.league_dfs.keys())
-            total_rows = sum(len(df) for df in self.league_dfs.values())
-
-            # Add a final confirmation that includes the leagues_loaded and total_rows
-            await ctx.send(f"✅ Successfully refreshed data for {len(leagues_loaded)} leagues with {total_rows} total rows.")
-
-            # Also display which leagues were loaded
-            league_details = ", ".join(f"{league} ({len(self.league_dfs[league])} rows)" for league in leagues_loaded)
-            await ctx.send(f"Leagues loaded: {league_details}")
-
-        except Exception as e:
-            # Error handling (the method will have already updated the status message with the error)
-            logger.error(f"Error in refresh command: {e}")
-            await ctx.send(f"❌ Error refreshing tournament data: {str(e)}")
-
-    @tourneystats.command(name="player")
-    async def player(self, ctx, *, user_input: str = None):
-        """Show tournament statistics for a player.
-
-        Arguments:
-            user_input: Discord mention, ID, or name
-        """
-        discord_id = None
-        player_ids = []
-        player_name = None
-
-        # Handle case when no input is provided
-        if not user_input and not ctx.message.mentions:
-            # Use the command author
-            discord_id = ctx.author.id
-            player_ids = await self.get_player_ids_by_discord_id(discord_id)
-            player_name = ctx.author.display_name
+            return {
+                'best_position': best_position,
+                'position_at_best_wave': best_position,
+                'best_wave': best_wave,
+                'best_date': best_date,
+                'avg_position': round(avg_position, 2),
+                'avg_wave': round(avg_wave, 2),
+                'latest_position': latest_position,
+                'latest_wave': latest_wave,
+                'latest_date': latest_date,
+                'total_tourneys': total_tourneys,
+                'max_wave': player_df.wave.max(),
+                'min_wave': player_df.wave.min(),
+                'tournaments': player_df[['date', 'position', 'wave']].sort_values('date', ascending=False).to_dict('records') if 'date' in player_df.columns else []
+            }
         else:
-            # Try to extract user from mention
-            if ctx.message.mentions:
-                discord_id = ctx.message.mentions[0].id
-                player_ids = await self.get_player_ids_by_discord_id(discord_id)
-                player_name = ctx.message.mentions[0].display_name
-            else:
-                # Try by ID
-                if user_input.isdigit():
-                    discord_id = int(user_input)
-                    player_ids = await self.get_player_ids_by_discord_id(discord_id)
-                    member = ctx.guild.get_member(discord_id)
-                    player_name = member.display_name if member else str(discord_id)
-                else:
-                    # Try by name using role tracker data
-                    role_tracker = await self.get_role_tracker()
-                    user_input_lower = user_input.lower()
+            # For other leagues, higher wave is better
+            best_wave = player_df.wave.max()
+            best_wave_row = player_df[player_df.wave == best_wave].iloc[0]
+            position_at_best = best_wave_row.position
+            best_date = best_wave_row.date if 'date' in best_wave_row else None
 
-                    for member_id, member in role_tracker.tracked_members.items():
-                        if member.name and user_input_lower in member.name.lower():
-                            discord_id = member_id
-                            player_ids = [member.player_id] if member.player_id else []
-                            player_name = member.name
-                            break
+            # Calculate average position and wave
+            avg_position = player_df.position.mean()
+            avg_wave = player_df.wave.mean()
 
-        if not player_ids:
-            await ctx.send(f"❌ No player IDs found for: {user_input or ctx.author.mention}")
-            return
+            # Find most recent tournament
+            latest_tournament = player_df.sort_values('date', ascending=False).iloc[0] if 'date' in player_df.columns else None
+            latest_position = latest_tournament.position if latest_tournament is not None else None
+            latest_wave = latest_tournament.wave if latest_tournament is not None else None
+            latest_date = latest_tournament.date if latest_tournament is not None else None
 
-        # Ensure we have tournament data
-        if not self.league_dfs:
-            await ctx.send("Loading tournament data. This may take a moment...")
-            await self.get_tournament_data()
+            return {
+                'best_wave': best_wave,
+                'position_at_best_wave': position_at_best,
+                'best_date': best_date,
+                'avg_position': round(avg_position, 2),
+                'avg_wave': round(avg_wave, 2),
+                'latest_position': latest_position,
+                'latest_wave': latest_wave,
+                'latest_date': latest_date,
+                'total_tourneys': total_tourneys,
+                'best_position': player_df.position.min(),
+                'max_wave': best_wave,
+                'min_wave': player_df.wave.min(),
+                'tournaments': player_df[['date', 'position', 'wave']].sort_values('date', ascending=False).to_dict('records') if 'date' in player_df.columns else []
+            }
 
-        # Get stats for all player IDs
-        all_stats = {}
-        for player_id in player_ids:
-            player_stats = await self.get_player_tournament_stats(player_id)
-            # Merge stats (taking best results if multiple IDs)
-            for league, league_stats in player_stats.items():
-                if league not in all_stats:
-                    all_stats[league] = league_stats
-                else:
-                    # For legend, keep the best position
-                    if league == legend and 'best_position' in league_stats:
-                        if league_stats['best_position'] < all_stats[league]['best_position']:
-                            all_stats[league] = league_stats
-                    # For others, keep the best wave
-                    elif 'best_wave' in league_stats:
-                        if league_stats['best_wave'] > all_stats[league]['best_wave']:
-                            all_stats[league] = league_stats
+    @commands.group(name="tourney", aliases=["t"], invoke_without_command=True)
+    async def tourney_group(self, ctx):
+        """Commands for tournament statistics and player analysis"""
+        if ctx.invoked_subcommand is None:
+            await ctx.send_help(ctx.command)
 
-        if not all_stats:
-            await ctx.send(f"❌ No tournament statistics found for {player_name}")
-            return
+    @tourney_group.command(name="settings")
+    async def tourney_settings_command(self, ctx):
+        """Display current tournament statistics settings"""
+        settings = self.get_all_settings()
 
-        # Create embed for stats
         embed = discord.Embed(
-            title=f"Tournament Statistics for {player_name}",
-            color=discord.Color.gold()
+            title="Tournament Stats Settings",
+            description="Current configuration for tournament statistics",
+            color=discord.Color.blue()
         )
 
-        # Format and add stats for each league
-        for league_name in leagues:
-            if league_name in all_stats:
-                stats = all_stats[league_name]
+        for name, value in settings.items():
+            # Format durations in a more readable way for time-based settings
+            if name in ["update_check_interval", "update_error_retry_interval"]:
+                hours = value // 3600
+                minutes = (value % 3600) // 60
+                seconds = value % 60
+                formatted_value = f"{hours}h {minutes}m {seconds}s ({value} seconds)"
+                embed.add_field(name=name, value=formatted_value, inline=False)
+            else:
+                embed.add_field(name=name, value=str(value), inline=False)
 
-                if league_name == legend:
-                    value = f"Best Position: {stats['best_position']} (Wave {stats['best_wave']})\n"
-                    value += f"Achieved on: {stats['best_date']}\n"
-                else:
-                    value = f"Best Wave: {stats['best_wave']} (Position {stats.get('position_at_best', 'N/A')})\n"
-                    value += f"Achieved on: {stats['best_date']}\n"
+        await ctx.send(embed=embed)
 
-                value += f"Total Tournaments: {stats['total_tourneys']}"
+    @tourney_group.command(name="set")
+    async def tourney_set_setting_command(self, ctx, setting_name: str, value: int):
+        """Change a tournament stats setting
+
+        Args:
+            setting_name: Setting to change (update_check_interval, update_error_retry_interval, recent_tournaments_display_count)
+            value: New value for the setting
+        """
+        valid_settings = [
+            "update_check_interval",
+            "update_error_retry_interval",
+            "recent_tournaments_display_count"
+        ]
+
+        if setting_name not in valid_settings:
+            valid_settings_str = ", ".join(valid_settings)
+            return await ctx.send(f"Invalid setting name. Valid options: {valid_settings_str}")
+
+        # Validate inputs based on the setting
+        if setting_name in ["update_check_interval", "update_error_retry_interval"]:
+            if value < 60:  # Minimum 60 seconds for time intervals
+                return await ctx.send(f"Value for {setting_name} must be at least 60 seconds")
+        elif setting_name == "recent_tournaments_display_count":
+            if value < 1 or value > 10:
+                return await ctx.send(f"Value for {setting_name} must be between 1 and 10")
+
+        # Save the setting
+        self.set_setting(setting_name, value)
+
+        # Update instance variable
+        if hasattr(self, setting_name):
+            setattr(self, setting_name, value)
+
+        # Format confirmation message
+        if setting_name in ["update_check_interval", "update_error_retry_interval"]:
+            hours = value // 3600
+            minutes = (value % 3600) // 60
+            seconds = value % 60
+            time_format = f"{hours}h {minutes}m {seconds}s"
+            await ctx.send(f"✅ Set {setting_name} to {value} seconds ({time_format})")
+        else:
+            await ctx.send(f"✅ Set {setting_name} to {value}")
+
+        # Log the change
+        self.logger.info(f"Settings changed: {setting_name} set to {value} by {ctx.author}")
+
+        # Mark settings as modified
+        self.mark_data_modified()
+
+    @tourney_group.command(name="player")
+    async def tourney_player_stats(self, ctx, player_id: str, league: str = None):
+        """
+        Get player stats for a specific league
+
+        Args:
+            player_id: The player's ID
+            league: (Optional) Specific league to check stats for
+        """
+        async with ctx.typing():
+            stats = await self.get_player_stats(player_id, league)
+
+            if not stats:
+                return await ctx.send(f"No data found for player {player_id}")
+
+            embed = discord.Embed(title=f"Player Stats: {player_id}", color=discord.Color.blue())
+
+            for league_name, league_stats in stats.items():
+                # Format dates for display
+                best_date = league_stats.get('best_date')
+                latest_date = league_stats.get('latest_date')
+                best_date_str = best_date.strftime("%Y-%m-%d") if best_date else "N/A"
+                latest_date_str = latest_date.strftime("%Y-%m-%d") if latest_date else "N/A"
+
+                # Format key stats for the embed
+                stat_text = (
+                    f"**Wave Stats:**\n"
+                    f"• Best wave: **{league_stats.get('best_wave', 'N/A')}** (Position {league_stats.get('position_at_best_wave', 'N/A')}, {best_date_str})\n"
+                    f"• Average: **{league_stats.get('avg_wave', 'N/A')}**\n"
+                    f"• Latest: **{league_stats.get('latest_wave', 'N/A')}** ({latest_date_str})\n"
+                    f"• Range: {league_stats.get('min_wave', 'N/A')} - {league_stats.get('max_wave', 'N/A')}\n\n"
+
+                    f"**Position Stats:**\n"
+                    f"• Best position: **{league_stats.get('best_position', 'N/A')}**\n"
+                    f"• Average: **{league_stats.get('avg_position', 'N/A')}**\n"
+                    f"• Latest: **{league_stats.get('latest_position', 'N/A')}** ({latest_date_str})\n\n"
+
+                    f"**Participation:**\n"
+                    f"• Total tournaments: **{league_stats.get('total_tourneys', 'N/A')}**"
+                )
+
+                embed.add_field(name=f"{league_name.title()} League", value=stat_text, inline=False)
+
+                # Add brief recent history if available
+                tournaments = league_stats.get('tournaments', [])
+                if tournaments and len(tournaments) > 0:
+                    history_text = "**Recent tournaments:**\n"
+                    # Show last 3 tournaments
+                    for i, t in enumerate(tournaments[:3]):
+                        t_date = t.get('date')
+                        date_str = t_date.strftime("%Y-%m-%d") if t_date else "N/A"
+                        history_text += f"• {date_str}: Wave {t.get('wave')}, Position {t.get('position')}\n"
+
+                    embed.add_field(name=f"{league_name.title()} History", value=history_text, inline=False)
+
+        await ctx.send(embed=embed)
+
+    @tourney_group.command(name="refresh")
+    async def tourney_refresh_command(self, ctx):
+        """Force refresh tournament data cache"""
+        try:
+            message = await ctx.send("🔄 Refreshing tournament data cache... This may take a while.")
+
+            # Start refreshing in the background
+            async with ctx.typing():
+                start_time = datetime.datetime.now()
+                await self.get_tournament_data(refresh=True)
+                duration = datetime.datetime.now() - start_time
+
+                # Create a response with stats about the refresh
+                counts = [f"{league}: {count}" for league, count in self.tournament_counts.items()]
+                stats = "\n".join(counts)
+
+                embed = discord.Embed(
+                    title="Tournament Data Refreshed",
+                    description=f"Successfully refreshed tournament data in {duration.total_seconds():.1f} seconds.",
+                    color=discord.Color.green()
+                )
+                embed.add_field(name="Tournament Counts", value=stats)
+                embed.add_field(name="Patch", value=str(self.latest_patch), inline=False)
+                embed.add_field(name="Last Updated", value=self.last_updated.strftime("%Y-%m-%d %H:%M:%S"), inline=False)
+
+                await message.edit(content=None, embed=embed)
+
+        except Exception as e:
+            self.logger.error(f"Error refreshing tournament data: {e}")
+            await ctx.send(f"❌ Error refreshing tournament data: {str(e)}")
+
+    @tourney_group.command(name="league")
+    async def tourney_league_summary(self, ctx, league_name: str = "legend"):
+        """
+        Show summary statistics for a tournament league
+
+        Args:
+            league_name: The league to get stats for (optional - shows all if not specified)
+        """
+        async with ctx.typing():
+            dfs = await self.get_tournament_data()
+
+            if league_name and league_name.capitalize() not in dfs:
+                league_list = ", ".join(dfs.keys())
+                return await ctx.send(f"League not found. Available leagues: {league_list}")
+
+            leagues_to_show = [league_name] if league_name else dfs.keys()
+
+            embed = discord.Embed(
+                title="Tournament League Summary",
+                color=discord.Color.blue()
+            )
+
+            for league in leagues_to_show:
+                df = dfs[league.capitalize()]
+
+                # Calculate league statistics
+                total_players = df['id'].nunique()
+                total_tournaments = self.tournament_counts.get(league, 0)
+                avg_wave = round(df['wave'].mean(), 2)
+                max_wave = df['wave'].max()
+
+                stats = (
+                    f"**Players:** {total_players}\n"
+                    f"**Tournaments:** {total_tournaments}\n"
+                    f"**Average Wave:** {avg_wave}\n"
+                    f"**Highest Wave:** {max_wave}\n"
+                )
+
+                embed.add_field(name=f"{league.title()} League", value=stats, inline=False)
+
+            embed.set_footer(text=f"Patch: {self.latest_patch} | Last Updated: {self.last_updated.strftime('%Y-%m-%d %H:%M:%S')}")
+
+        await ctx.send(embed=embed)
+
+    @tourney_group.command(name="top")
+    async def tourney_top_players(self, ctx, league: str = "legend", count: int = 5):
+        """
+        Show top players in a league by highest wave
+
+        Args:
+            league: The league to check
+            count: Number of players to show (default: 5, max: 20)
+        """
+        if count > 20:
+            return await ctx.send("Cannot show more than 20 players at once")
+
+        async with ctx.typing():
+            dfs = await self.get_tournament_data()
+
+            if league.capitalize() not in dfs:
+                league_list = ", ".join(dfs.keys())
+                return await ctx.send(f"League not found. Available leagues: {league_list}")
+
+            df = dfs[league.capitalize()]
+
+            # Get the highest wave for each player
+            if league.lower() == "legend":
+                # For legend league, lower position is better
+                best_players = df.sort_values('position').drop_duplicates('id').head(count)
+                ranking_metric = "position"
+            else:
+                # For other leagues, higher wave is better
+                best_players = df.sort_values('wave', ascending=False).drop_duplicates('id').head(count)
+                ranking_metric = "wave"
+
+            embed = discord.Embed(
+                title=f"Top Players in {league.title()} League",
+                description=f"By {'position' if ranking_metric == 'position' else 'highest wave'}",
+                color=discord.Color.gold()
+            )
+
+            for i, (_, player) in enumerate(best_players.iterrows(), 1):
+                player_name = f"Player {player['id']}"
+                value = f"{'Position' if ranking_metric == 'position' else 'Wave'}: **{player[ranking_metric]}**"
+
+                if 'date' in player and player['date']:
+                    value += f" (on {player['date'].strftime('%Y-%m-%d')})"
 
                 embed.add_field(
-                    name=f"{league_name.capitalize()} League",
+                    name=f"#{i}: {player_name}",
                     value=value,
                     inline=False
                 )
 
-        # Add footer with data source
-        patch = await self.get_latest_patch()
-        embed.set_footer(text=f"Data from patch {patch}")
-
         await ctx.send(embed=embed)
 
-    @tourneystats.command(name="leaderboard")
-    async def leaderboard(self, ctx, league: str = None):
-        """Show leaderboard for a specific league."""
-        # Normalize and validate league name
-        if league:
-            league_lower = league.lower()
+    @tourney_group.command(name="compare")
+    async def tourney_compare_players(self, ctx, league: str = "league", *player_ids):
+        """
+        Compare stats between multiple players in the same league
 
-            # Check if the input matches any league name (case-insensitive)
-            valid_league = None
-            for x in leagues:
-                if x.lower() == league_lower:
-                    valid_league = x
-                    break
+        Args:
+            league: The league to compare in
+            player_ids: Two or more player IDs to compare
+        """
+        if len(player_ids) < 2:
+            return await ctx.send("Please provide at least two player IDs to compare")
 
-            if not valid_league:
-                # Show the actual league names as they exist in the constants
-                league_names = ", ".join(leagues)
-                await ctx.send(f"❌ Invalid league. Valid leagues: {league_names}")
-                return
+        if len(player_ids) > 5:
+            return await ctx.send("Cannot compare more than 5 players at once")
 
-            league = valid_league
-        else:
-            league = legend  # Default to legend
+        async with ctx.typing():
+            dfs = await self.get_tournament_data()
 
-        # Ensure we have data
-        if not self.league_dfs:
-            await ctx.send("Loading tournament data. This may take a moment...")
-            await self.get_tournament_data()
+            if league.capitalize() not in dfs:
+                league_list = ", ".join(dfs.keys())
+                return await ctx.send(f"League not found. Available leagues: {league_list}")
 
-        df = self.league_dfs.get(league)
-        if df is None or df.empty:
-            await ctx.send(f"❌ No tournament data found for {league} league")
-            return
+            df = dfs[league.capitalize()]
 
-        # Log available columns for debugging
-        logger.info(f"Available columns in {league} DataFrame: {df.columns.tolist()}")
+            comparison_data = []
+            missing_players = []
 
-        # Group by player ID and get best stats
-        if league == legend:
-            # For legend, group by ID and get best position
-            best_positions = df.groupby('id').apply(
-                lambda x: x.loc[x['position'].idxmin()]
-            ).sort_values(['position', 'wave', 'date'], ascending=[True, False, False]).head(10)
+            for player_id in player_ids:
+                player_df = df[df.id == player_id]
 
-            # Create embed
+                if player_df.empty:
+                    missing_players.append(player_id)
+                    continue
+
+                stats = self._calculate_league_stats(player_df, league.lower())
+                comparison_data.append((player_id, stats))
+
+            if missing_players:
+                missing_str = ", ".join(missing_players)
+                await ctx.send(f"⚠️ No data found for: {missing_str}")
+
+            if not comparison_data:
+                return await ctx.send("No valid players to compare")
+
             embed = discord.Embed(
-                title=f"Top 10 Players in {league.capitalize()} League",
-                description="Rankings based on best tournament position",
+                title=f"Player Comparison - {league.title()} League",
                 color=discord.Color.blue()
             )
 
-            # Add entries
-            for i, (player_id, row) in enumerate(best_positions.iterrows()):
-                discord_name = await self.get_discord_name_from_player_id(row.name)
+            # Add comparison fields for key stats
+            for stat_name, display_name in [
+                ('best_wave', 'Best Wave'),
+                ('avg_wave', 'Avg Wave'),
+                ('best_position', 'Best Position'),
+                ('total_tourneys', 'Tournaments')
+            ]:
+                values = []
+                for player_id, stats in comparison_data:
+                    stat_value = stats.get(stat_name, 'N/A')
+                    values.append(f"{player_id}: **{stat_value}**")
 
-                # Get nickname if available, otherwise use player ID
-                if 'nickname' in row:
-                    player_name = row['nickname']
-                else:
-                    player_name = f"Player {row.name}"
-
-                name_field = f"{discord_name} ({player_name})" if discord_name else player_name
-
-                date_str = f"{row['date']}" if 'date' in row else "Unknown date"
-
-                embed.add_field(
-                    name=f"{i + 1}. {name_field}",
-                    value=f"Position: {row['position']}, Wave: {row['wave']}\nAchieved on: {date_str}",
-                    inline=False
-                )
-        else:
-            # For other leagues, group by ID and get best wave
-            best_waves = df.groupby('id').apply(
-                lambda x: x.loc[x['wave'].idxmax()]
-            ).sort_values('wave', ascending=False).head(10)
-
-            # Create embed
-            embed = discord.Embed(
-                title=f"Top 10 Players in {league.capitalize()} League",
-                description="Rankings based on best wave reached",
-                color=discord.Color.blue()
-            )
-
-            # Add entries
-            for i, (player_id, row) in enumerate(best_waves.iterrows()):
-                discord_name = await self.get_discord_name_from_player_id(row.name)
-
-                # Get nickname if available, otherwise use player ID
-                if 'nickname' in row:
-                    player_name = row['nickname']
-                else:
-                    player_name = f"Player {row.name}"
-
-                name_field = f"{discord_name} ({player_name})" if discord_name else player_name
-
-                date_str = f"{row['date']}" if 'date' in row else "Unknown date"
-
-                embed.add_field(
-                    name=f"{i + 1}. {name_field}",
-                    value=f"Wave: {row['wave']}, Position: {row['position']}\nAchieved on: {date_str}",
-                    inline=False
-                )
-
-        # Add footer with data source
-        patch = await self.get_latest_patch()
-        embed.set_footer(text=f"Data from patch {patch}")
+                embed.add_field(name=display_name, value="\n".join(values), inline=True)
 
         await ctx.send(embed=embed)
 
-    async def get_discord_name_from_player_id(self, player_id: str) -> Optional[str]:
-        """Try to find a Discord name for a player ID using RoleTracker data."""
-        role_tracker = await self.get_role_tracker()
+    @tourney_group.command(name="info")
+    async def tourney_info_command(self, ctx):
+        """Display information about the tournament stats system"""
+        # Check if cache is ready or still loading
+        try:
+            # Try to wait for cache to become ready, but only for a short time
+            # to avoid blocking the command for too long
+            await asyncio.wait_for(self._cache_ready.wait(), timeout=0.5)
+            cache_is_ready = True
+        except asyncio.TimeoutError:
+            cache_is_ready = False
 
-        # Look through tracked members for matching player ID
-        for tracked_member in role_tracker.tracked_members.values():
-            if tracked_member.player_id == player_id:
-                return tracked_member.name
-
-        return None
-
-    @tourneystats.command(name="status")
-    async def status(self, ctx):
-        """Show status of tournament data."""
         embed = discord.Embed(
-            title="Tournament Stats Status",
-            color=discord.Color.blue()
+            title="Tournament Stats Information",
+            color=discord.Color.blue() if cache_is_ready else discord.Color.orange()
         )
 
-        # Add patch info
+        # General information
         embed.add_field(
             name="Current Patch",
-            value=str(self.latest_patch) if self.latest_patch else "Not loaded",
+            value=str(self.latest_patch) if self.latest_patch else "Loading...",
             inline=False
         )
 
-        # Add last updated time
-        if self.last_updated:
-            time_since = datetime.datetime.now() - self.last_updated
-            days = time_since.days
-            hours = time_since.seconds // 3600
-            minutes = (time_since.seconds // 60) % 60
+        embed.add_field(
+            name="Last Updated",
+            value=self.last_updated.strftime("%Y-%m-%d %H:%M:%S") if self.last_updated else "Never",
+            inline=False
+        )
 
-            time_str = f"{self.last_updated.strftime('%Y-%m-%d %H:%M:%S')}\n"
-            time_str += f"({days}d {hours}h {minutes}m ago)"
+        # Find latest tournament date
+        latest_tourney_date = None
+        if cache_is_ready and self.league_dfs:
+            try:
+                # Find the most recent tournament date across all leagues
+                for league_name, df in self.league_dfs.items():
+                    self.logger.debug(f"Checking dates for league {league_name}, columns: {df.columns.tolist()}")
 
+                    if 'date' in df.columns and not df.empty:
+                        # Make sure we're handling NaT values correctly
+                        max_date = df['date'].max()
+                        if pd.notna(max_date):  # Check if the date is valid (not NaT)
+                            if latest_tourney_date is None or max_date > latest_tourney_date:
+                                latest_tourney_date = max_date
+                                self.logger.debug(f"Found new latest date: {latest_tourney_date} in league {league_name}")
+            except Exception as e:
+                self.logger.error(f"Error finding latest tournament date: {e}")
+                # Don't let this error break the whole command
+                latest_tourney_date = None
+
+        # Add latest tournament date field
+        if latest_tourney_date is not None:
+            try:
+                embed.add_field(
+                    name="Latest Tournament Date",
+                    value=latest_tourney_date.strftime("%Y-%m-%d"),
+                    inline=False
+                )
+            except Exception as e:
+                self.logger.error(f"Error formatting tournament date: {e}")
+                embed.add_field(
+                    name="Latest Tournament Date",
+                    value=f"Error formatting date: {latest_tourney_date}",
+                    inline=False
+                )
+        elif cache_is_ready:
             embed.add_field(
-                name="Last Updated",
-                value=time_str,
-                inline=True
+                name="Latest Tournament Date",
+                value="No tournament dates found",
+                inline=False
             )
-        else:
+
+        # League tournament counts
+        if cache_is_ready and self.tournament_counts:
+            counts_text = "\n".join([f"• **{league.title()}**: {count} tournament rows"
+                                    for league, count in self.tournament_counts.items()])
+
             embed.add_field(
-                name="Last Updated",
-                value="Never",
-                inline=True
-            )
-
-        # Add tournament information
-        league_info = []
-        total_rows = 0
-
-        for league_name in leagues:
-            if league_name in self.league_dfs and league_name in self.tournament_counts:
-                rows = len(self.league_dfs[league_name])
-                total_rows += rows
-
-                league_str = f"{league_name.capitalize()}: {rows} tournament rows"
-
-                # Add most recent date if available
-                if league_name in self.latest_tournament_dates:
-                    most_recent = self.latest_tournament_dates[league_name]
-                    league_str += f" (Latest: {most_recent})"
-
-                league_info.append(league_str)
-
-        if league_info:
-            embed.add_field(
-                name=f"Leagues Loaded ({total_rows} total tournaments)",
-                value="\n".join(league_info),
+                name="Tournament Counts",
+                value=counts_text,
                 inline=False
             )
         else:
             embed.add_field(
-                name="Leagues Loaded",
-                value="None",
+                name="Tournament Counts",
+                value="Data is currently being loaded...",
                 inline=False
             )
 
-        # Update data freshness checks
-        try:
-            # Check for patch freshness
-            current_db_patch = await self.get_latest_patch_from_db()
-            patch_current = str(current_db_patch) == str(self.latest_patch) if self.latest_patch else False
+        # System status with more detailed information
+        if cache_is_ready:
+            cache_status = "✅ Ready"
+            embed.add_field(name="Cache Status", value=cache_status, inline=True)
+        else:
+            # If data is loading, provide estimated completion info
+            loaded_leagues = len(self.league_dfs) if self.league_dfs else 0
+            total_leagues = len(leagues)
+            progress = f"{loaded_leagues}/{total_leagues} leagues"
 
-            # Check for tournament freshness
-            has_new_tournaments = await self.has_new_tournament_data()
+            cache_status = f"⏳ Loading... ({progress})"
+            embed.add_field(name="Cache Status", value=cache_status, inline=True)
 
-            # Determine overall status
-            if not patch_current:
-                status_str = f"❌ Outdated patch (new patch: {current_db_patch})"
-            elif has_new_tournaments:
-                status_str = "❌ New tournament data available"
-            else:
-                status_str = "✅ Data is up to date"
-
-            embed.add_field(
-                name="Data Status",
-                value=status_str,
-                inline=False
-            )
-        except Exception as e:
-            embed.add_field(
-                name="Data Status",
-                value=f"❌ Error checking: {str(e)}",
-                inline=False
-            )
+            # Add a note about functionality during loading
+            embed.set_footer(text="Some commands may have limited functionality until data loading completes.")
 
         await ctx.send(embed=embed)
 
-    @tourneystats.command(name="userstats")
-    async def userstats(self, ctx):
-        """Show statistics about known users with tournament results for the latest patch."""
-        # Send initial message
-        status_message = await ctx.send("⏳ Gathering tournament player statistics...")
+    async def cog_unload(self):
+        """Called when the cog is unloaded."""
+        # Cancel the update task
+        if hasattr(self, 'update_task'):
+            self.update_task.cancel()
 
-        # Ensure we have data
-        if not self.league_dfs:
-            await status_message.edit(content="Loading tournament data. This may take a moment...")
-            await self.get_tournament_data()
+        # Save data when unloaded using super's implementation which handles
+        # checking if data is modified and saving it appropriately
+        await super().cog_unload()
 
-        await status_message.edit(content="⏳ Processing player data...")
-
-        # Create embed
-        embed = discord.Embed(
-            title="Tournament Player Statistics",
-            description="Known Discord users vs. total players in tournaments",
-            color=discord.Color.green()
-        )
-
-        # Pre-fetch ALL discord names for ALL player IDs once to avoid repeated lookups
-        all_player_ids = set()
-        for league_name, df in self.league_dfs.items():
-            if df is not None and not df.empty:
-                all_player_ids.update(set(df['id'].unique()))
-
-        # Create a lookup dictionary mapping player IDs to Discord names
-        player_id_to_discord_name = {}
-
-        # Get the role tracker once
-        role_tracker = await self.get_role_tracker()
-
-        # First use the cached data from role tracker (fast)
-        for member in role_tracker.tracked_members.values():
-            if member.player_id and member.player_id in all_player_ids:
-                player_id_to_discord_name[member.player_id] = member.name
-
-        # Process in chunks for progress updates
-        total_leagues = len(leagues)
-
-        # Track unique IDs across all leagues
-        known_player_ids = set()
-
-        # Process each league with status updates
-        for i, league_name in enumerate(leagues):
-            # Update progress every league
-            progress = ((i + 1) / total_leagues) * 100
-            await status_message.edit(content=f"⏳ Processing league data: {league_name} ({progress:.1f}%)...")
-
-            df = self.league_dfs.get(league_name)
-            if df is None or df.empty:
-                embed.add_field(
-                    name=f"{league_name.capitalize()} League",
-                    value="No tournament data available",
-                    inline=True
-                )
-                continue
-
-            # Count unique player IDs in this league
-            league_player_ids = set(df['id'].unique())
-
-            # Count how many are known Discord users (using our pre-built lookup)
-            league_known_ids = {pid for pid in league_player_ids if pid in player_id_to_discord_name}
-            known_player_ids.update(league_known_ids)
-
-            # Calculate percentage
-            known_count = len(league_known_ids)
-            total_count = len(league_player_ids)
-            percentage = (known_count / total_count * 100) if total_count > 0 else 0
-
-            # Add to embed
-            embed.add_field(
-                name=f"{league_name.capitalize()} League",
-                value=f"Known users: {known_count}/{total_count} ({percentage:.1f}%)",
-                inline=True
-            )
-
-        # Calculate totals across all leagues
-        total_known = len(known_player_ids)
-        total_players = len(all_player_ids)
-        total_percentage = (total_known / total_players * 100) if total_players > 0 else 0
-
-        # Add totals to embed
-        embed.add_field(
-            name="Total Unique Known Users",
-            value=f"{total_known}/{total_players} ({total_percentage:.1f}%)",
-            inline=False
-        )
-
-        # Add footer with data source
-        patch = await self.get_latest_patch()
-        embed.timestamp = datetime.datetime.now(datetime.timezone.utc)
-        embed.set_footer(text=f"Data from patch {patch}")
-
-        # Send the final result
-        await status_message.edit(content="✅ Player statistics complete!", embed=embed)
-
-    async def check_for_updates(self):
-        """Check for new patches or tournaments and refresh data if needed."""
-        await self.bot.wait_until_ready()
-
-        try:
-            # Get the current latest patch from DB
-            current_patch = await self.get_latest_patch_from_db()
-
-            # Check if patch is different
-            patch_changed = self.latest_patch and str(current_patch) != str(self.latest_patch)
-
-            # Check if there are new tournaments
-            has_new_tournaments = await self.has_new_tournament_data()
-
-            # If either patch changed or new tournaments detected, refresh data
-            if patch_changed or has_new_tournaments:
-                if patch_changed:
-                    logger.info(f"New patch detected: {current_patch} (was {self.latest_patch})")
-                if has_new_tournaments:
-                    logger.info("New tournament data detected")
-
-                # Reset patch and force refresh
-                if patch_changed:
-                    self.latest_patch = None
-                await self.get_tournament_data(refresh=True)
-
-                # Update last_updated time
-                self.last_updated = datetime.datetime.now()
-
-                # Save refreshed data
-                self.save_data()
-        except Exception as e:
-            logger.error(f"Error checking for updates: {e}")
-
-    async def has_new_tournament_data(self):
-        """Check if there are any new tournaments since last update."""
-        # If we don't have any data yet, we need to get it
-        if not self.league_dfs:
-            return True
-
-        try:
-            # For each league, check if the tournament count has changed
-            for league_name in leagues:
-                # Get a small sample of recent tournament data
-                results = await sync_to_async(get_results_for_patch)(
-                    patch=await self.get_latest_patch(),
-                    league=league_name
-                )
-
-                # Get the tournament count
-                current_count = await sync_to_async(lambda: len(results))()
-                previous_count = self.tournament_counts.get(league_name, 0)
-
-                if current_count > previous_count:
-                    logger.info(f"Detected new tournaments in {league_name} league: {current_count} vs {previous_count}")
-                    return True
-
-                # Check also for the most recent tournament date if available
-                if results:
-                    # Try to get the most recent tournament date
-                    try:
-                        dates = await sync_to_async(lambda: [r.date for r in results if hasattr(r, 'date')])()
-                        if dates:
-                            most_recent = max(dates)
-                            previous_recent = self.latest_tournament_dates.get(league_name)
-
-                            # If we have a new most recent date, or we didn't have one before
-                            if not previous_recent or most_recent > previous_recent:
-                                logger.info(f"Detected newer tournament in {league_name} league: {most_recent} vs {previous_recent}")
-                                return True
-                    except Exception as e:
-                        logger.warning(f"Could not compare tournament dates for {league_name}: {e}")
-
-        except Exception as e:
-            logger.error(f"Error checking for new tournament data: {e}")
-
-        # No new tournaments detected
-        return False
-
-    async def get_latest_tournament_date(self, league):
-        """Get the date of the most recent tournament for a specific league."""
-        if league.lower() in self.league_dfs:
-            df = self.league_dfs[league.lower()]
-            if not df.empty and 'date' in df.columns:
-                return df['date'].max()
-        return None
+        self.logger.info("Player tournament stats unloaded, data saved.")
 
 
 async def setup(bot) -> None:
     await bot.add_cog(TourneyStats(bot))
+
