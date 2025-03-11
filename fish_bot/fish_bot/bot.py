@@ -274,25 +274,13 @@ bot = DiscordBot()
 @bot.command()
 async def enable_cog(ctx, cog_name: str):
     """Enable a cog by adding it to enabled_cogs list."""
-    success_msg, error_msg = await bot.cog_manager.enable_cog(cog_name)
-
-    response = success_msg
-    if error_msg:
-        response += f"\n{error_msg}"
-
-    await ctx.send(response)
+    await bot.cog_manager.enable_cog_with_ctx(ctx, cog_name)
 
 
 @bot.command()
 async def disable_cog(ctx, cog_name: str):
     """Disable a cog by adding it to disabled_cogs list."""
-    success_msg, error_msg = await bot.cog_manager.disable_cog(cog_name)
-
-    response = success_msg
-    if error_msg:
-        response += f"\n{error_msg}"
-
-    await ctx.send(response)
+    await bot.cog_manager.disable_cog_with_ctx(ctx, cog_name)
 
 
 @bot.command()
@@ -306,32 +294,7 @@ async def toggle_load_all(ctx):
 @bot.command()
 async def list_cogs(ctx):
     """List all available cogs and their status."""
-    cog_status_list, load_all = bot.cog_manager.get_cog_status_list()
-
-    # Create status message
-    load_all_status = "✅ Enabled" if load_all else "❌ Disabled"
-    message = f"**Load All Cogs:** {load_all_status}\n\n**Cogs Status:**\n"
-
-    for cog in cog_status_list:
-        status = []
-        if cog['loaded']:
-            status.append("▶️ Loaded")
-        else:
-            status.append("⏹️ Not Loaded")
-
-        if cog['explicitly_disabled']:
-            status.append("❌ Disabled")
-        elif cog['explicitly_enabled']:
-            status.append("✅ Enabled")
-        elif load_all:
-            status.append("✅ Enabled (via load_all)")
-        else:
-            status.append("❌ Disabled (not in enabled list)")
-
-        message += f"- **{cog['name']}**: {' | '.join(status)}\n"
-
-    embed = discord.Embed(title="Cog Configuration", description=message, color=discord.Color.blue())
-    await ctx.send(embed=embed)
+    await bot.cog_manager.list_modules(ctx)
 
 
 @bot.command()
@@ -449,11 +412,7 @@ async def remove_user(ctx, command: str, channel: discord.TextChannel, user: dis
 @bot.command()
 async def reload_cog(ctx, cog_name: str):
     """Reload a specific cog."""
-    success = await bot.cog_manager.reload_cog(cog_name)
-    if success:
-        await ctx.send(f"✅ Cog `{cog_name}` has been reloaded.")
-    else:
-        await ctx.send(f"❌ Failed to reload cog `{cog_name}`.")
+    await bot.cog_manager.reload_cog_with_ctx(ctx, cog_name)
 
 
 @bot.group(name="memory", aliases=["mem"], invoke_without_command=True)
