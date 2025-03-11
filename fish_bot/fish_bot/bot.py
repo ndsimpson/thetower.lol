@@ -415,6 +415,59 @@ async def reload_cog(ctx, cog_name: str):
     await bot.cog_manager.reload_cog_with_ctx(ctx, cog_name)
 
 
+@bot.command()
+async def reload_all_cogs(ctx):
+    """Reload all currently loaded cogs."""
+    await ctx.send("🔄 Reloading all cogs...")
+
+    loaded_cogs = list(bot.cogs.keys())
+    total_cogs = len(loaded_cogs)
+
+    if total_cogs == 0:
+        return await ctx.send("⚠️ No cogs are currently loaded.")
+
+    # Progress message
+    progress_msg = await ctx.send(f"Beginning reload of {total_cogs} cogs...")
+
+    # Track results
+    success_count = 0
+    failed_cogs = []
+
+    # Attempt to reload each cog
+    for cog_name in loaded_cogs:
+        try:
+            success = await bot.cog_manager.reload_cog(cog_name)
+            if success:
+                success_count += 1
+            else:
+                failed_cogs.append(f"{cog_name} (unknown error)")
+        except Exception as e:
+            bot.logger.error(f"Failed to reload cog {cog_name}: {str(e)}")
+            failed_cogs.append(f"{cog_name} ({str(e)[:50]}{'...' if len(str(e)) > 50 else ''})")
+
+    # Create result embed
+    embed = discord.Embed(
+        title="Cog Reload Results",
+        color=discord.Color.green() if not failed_cogs else discord.Color.orange()
+    )
+
+    embed.add_field(
+        name="Summary",
+        value=f"✅ Successfully reloaded: {success_count}/{total_cogs}",
+        inline=False
+    )
+
+    if failed_cogs:
+        embed.add_field(
+            name="❌ Failed to reload",
+            value="\n".join(failed_cogs) or "None",
+            inline=False
+        )
+
+    await progress_msg.delete()
+    await ctx.send(embed=embed)
+
+
 @bot.group(name="memory", aliases=["mem"], invoke_without_command=True)
 async def memory_group(ctx):
     """Commands for checking memory usage"""
