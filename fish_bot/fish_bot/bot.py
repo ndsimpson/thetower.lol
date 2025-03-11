@@ -335,19 +335,41 @@ async def list_cogs(ctx):
 
 
 @bot.command()
-async def add_channel(ctx, command: str, channel: discord.TextChannel):
+async def add_channel(ctx, command: str, channel_input):
     """Add a channel to command permissions.
 
     Parameters:
     -----------
     command: The name of the command to authorize in the channel
-    channel: The Discord channel to grant permission to
+    channel_input: The Discord channel to grant permission to (mention, name, or ID)
 
     Examples:
     ---------
     $add_channel list_cogs #bot-commands
     $add_channel * #admin-channel    (allows all commands in admin-channel)
+    $add_channel list_cogs bot-commands
+    $add_channel * 1234567890123456789
     """
+    # Handle different channel input types
+    channel = None
+
+    # Check if it's a channel mention
+    if len(ctx.message.channel_mentions) > 0:
+        channel = ctx.message.channel_mentions[0]
+    else:
+        # Try to interpret as a channel ID
+        try:
+            channel_id = int(channel_input)
+            channel = ctx.guild.get_channel(channel_id)
+        except (ValueError, TypeError):
+            # Try to interpret as a channel name
+            channel = discord.utils.get(ctx.guild.text_channels, name=channel_input)
+
+    # If we couldn't find a channel, inform the user
+    if not channel:
+        await ctx.send(f"Could not find channel '{channel_input}'. Please provide a valid channel mention, name, or ID.")
+        return
+
     channel_id = str(channel.id)
 
     if bot.config.add_command_channel(command, channel_id):
@@ -357,8 +379,41 @@ async def add_channel(ctx, command: str, channel: discord.TextChannel):
 
 
 @bot.command()
-async def remove_channel(ctx, command: str, channel: discord.TextChannel):
-    """Remove a channel from command permissions."""
+async def remove_channel(ctx, command: str, channel_input):
+    """Remove a channel from command permissions.
+
+    Parameters:
+    -----------
+    command: The name of the command to remove permission for
+    channel_input: The Discord channel to remove permission from (mention, name, or ID)
+
+    Examples:
+    ---------
+    $remove_channel list_cogs #bot-commands
+    $remove_channel * #admin-channel
+    $remove_channel list_cogs bot-commands
+    $remove_channel * 1234567890123456789
+    """
+    # Handle different channel input types
+    channel = None
+
+    # Check if it's a channel mention
+    if len(ctx.message.channel_mentions) > 0:
+        channel = ctx.message.channel_mentions[0]
+    else:
+        # Try to interpret as a channel ID
+        try:
+            channel_id = int(channel_input)
+            channel = ctx.guild.get_channel(channel_id)
+        except (ValueError, TypeError):
+            # Try to interpret as a channel name
+            channel = discord.utils.get(ctx.guild.text_channels, name=channel_input)
+
+    # If we couldn't find a channel, inform the user
+    if not channel:
+        await ctx.send(f"Could not find channel '{channel_input}'. Please provide a valid channel mention, name, or ID.")
+        return
+
     channel_id = str(channel.id)
 
     if bot.config.remove_command_channel(command, channel_id):
