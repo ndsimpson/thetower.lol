@@ -11,8 +11,7 @@ from discord.ext.commands import Context
 
 # Local imports
 from fish_bot.exceptions import UserUnauthorized, ChannelUnauthorized
-from fish_bot.utils import CogAutoReload, ConfigManager, BaseFileMonitor
-from fish_bot.utils.cogmanager import CogManager
+from fish_bot.utils import BaseFileMonitor, ConfigManager, CogAutoReload, CogManager, MemoryUtils
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -302,6 +301,69 @@ async def reload_cog(ctx, cog_name: str):
         await ctx.send(f"✅ Cog `{cog_name}` has been reloaded.")
     else:
         await ctx.send(f"❌ Failed to reload cog `{cog_name}`.")
+
+
+@bot.group(name="memory", aliases=["mem"], invoke_without_command=True)
+async def memory_group(ctx):
+    """Commands for checking memory usage"""
+    if ctx.invoked_subcommand is None:
+        await MemoryUtils.send_memory_report(ctx, ctx.bot, "Bot Memory Usage")
+
+
+@memory_group.command(name="detailed")
+async def memory_detailed(ctx):
+    """Get detailed memory usage for the entire bot"""
+    await ctx.send("Analyzing detailed memory usage... this may take a moment.")
+    await MemoryUtils.send_memory_report(ctx, ctx.bot, "Detailed Bot Memory Usage", detailed=True)
+
+
+@memory_group.command(name="cog")
+async def memory_cog(ctx, cog_name: str):
+    """Get memory usage for a specific cog"""
+    cog = ctx.bot.get_cog(cog_name)
+    if not cog:
+        return await ctx.send(f"Cog '{cog_name}' not found")
+
+    await MemoryUtils.send_memory_report(ctx, cog, f"{cog_name} Memory Usage")
+
+
+@memory_group.command(name="cogs")
+async def memory_all_cogs(ctx):
+    """Get memory usage breakdown for all cogs"""
+    from pympler import asizeof
+
+    # Measure all cogs
+    cog_sizes = {}
+    for cog_name, cog in ctx.bot.cogs.items():
+        cog_sizes[cog_name] = asizeof.asizeof(cog)
+
+    # Create embed
+    embed = discord.Embed(
+        title="Cog Memory Usage",
+        color=discord.Color.blue()
+    )
+
+    # Calculate total size
+    total_size = sum(cog_sizes.values())
+    embed.add_field(
+        name="Total Cogs Size",
+        value=MemoryUtils.format_bytes(total_size),
+        inline=False
+    )
+
+    # Sort cogs by size and create the breakdown text
+    cog_size_text = "\n".join([
+        f"**{name}**: {MemoryUtils.format_bytes(size)}"
+        for name, size in sorted(cog_sizes.items(), key=lambda x: x[1], reverse=True)
+    ])
+
+    embed.add_field(
+        name="Size by Cog",
+        value=cog_size_text or "No cogs found",
+        inline=False
+    )
+
+    await ctx.send(embed=embed)
 
 
 # Start the bot

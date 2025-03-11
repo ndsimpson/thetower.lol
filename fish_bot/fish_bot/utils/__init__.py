@@ -1,15 +1,16 @@
-"""Utility modules for the fish bot."""
+"""Utility modules for the Fish Bot."""
 
-from .cogautoreload import CogAutoReload
-from .cogloader import CogLoader
-from .cogmanager import CogManager
-from .configmanager import ConfigManager
-from .filemonitor import BaseFileMonitor
+# Import the classes you want to expose at the package level
+from fish_bot.utils.filemonitor import BaseFileMonitor
+from fish_bot.utils.configmanager import ConfigManager
+from fish_bot.utils.cogautoreload import CogAutoReload
+from fish_bot.utils.cogmanager import CogManager
+from fish_bot.utils.memory_utils import MemoryUtils
 
 __all__ = [
-    'CogAutoReload',
-    'CogLoader',
-    'CogManager',
-    'ConfigManager',
     'BaseFileMonitor',
+    'ConfigManager',
+    'CogAutoReload',
+    'CogManager',
+    'MemoryUtils'
 ]
