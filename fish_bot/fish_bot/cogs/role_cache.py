@@ -105,6 +105,13 @@ class RoleCache(BaseCog):
         self._cache_ready.set()  # Signal that cache is ready
         self.logger.info(f"Initial role cache built with {total_members} members across {len(self.bot.guilds)} guilds")
 
+    async def get_all_members(self, guild):
+        """Fetch all members from a guild using the async iterator."""
+        members = []
+        async for member in guild.fetch_members(limit=None):
+            members.append(member)
+        return members
+
     async def build_cache(self, guild):
         """Build role cache for a specific guild using fetch_members for completeness"""
         if guild.id not in self.member_roles:
@@ -118,7 +125,7 @@ class RoleCache(BaseCog):
 
         try:
             # Fetch all members using fetch_members for complete data
-            members = await guild.fetch_members(limit=None).flatten()
+            members = await self.get_all_members(guild)
             count = len(members)
 
             # Build the cache from fetched members
