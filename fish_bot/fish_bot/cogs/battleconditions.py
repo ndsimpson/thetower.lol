@@ -668,6 +668,54 @@ class BattleConditions(BaseCog, name="Battle Conditions"):
         else:
             await ctx.send("⚠️ No battle conditions were sent. Check that leagues are enabled and channels exist.")
 
+    @bc_group.command(name="schedules_reload")
+    async def bc_schedules_reload_command(self, ctx):
+        """Reload battle conditions schedules from the config file.
+
+        This is useful when configurations have been edited externally
+        and you need to refresh them in the running bot without restarting.
+        """
+        try:
+            # Get the guild ID to access the proper config section
+            guild_id = str(ctx.guild.id)
+
+            # Reload the config from disk
+            self.bot.config.reload_config()
+
+            # Access the BattleConditions section for the current guild
+            cog_configs = self.bot.config.config.get("cogs", {}).get(guild_id, {})
+            bc_config = cog_configs.get("BattleConditions", {})
+
+            # Update settings with fresh values from config
+            thread_schedules = bc_config.get("thread_schedules", [])
+            self.set_setting("thread_schedules", thread_schedules)
+
+            # Update other relevant settings that might have changed
+            self.set_setting("notification_hour", bc_config.get("notification_hour", 0))
+            self.set_setting("notification_minute", bc_config.get("notification_minute", 0))
+            self.set_setting("days_before_notification", bc_config.get("days_before_notification", 1))
+            self.set_setting("enabled_leagues", bc_config.get("enabled_leagues", ["Legend", "Champion", "Platinum", "Gold", "Silver"]))
+            self.set_setting("paused", bc_config.get("paused", False))
+
+            # Update the defaults
+            self.default_hour = self.get_setting("notification_hour")
+            self.default_minute = self.get_setting("notification_minute")
+            self.default_days_before = self.get_setting("days_before_notification")
+            self.enabled_leagues = self.get_setting("enabled_leagues")
+
+            # Count schedules for feedback
+            schedule_count = len(thread_schedules)
+
+            await ctx.send(f"✅ Successfully reloaded battle conditions settings. {schedule_count} schedules loaded.")
+
+            # Log the action
+            self.logger.info(f"Battle conditions schedules reloaded by {ctx.author}. {schedule_count} schedules loaded.")
+
+        except Exception as e:
+            # Log the error
+            self.logger.error(f"Error reloading battle conditions schedules: {e}")
+            await ctx.send(f"❌ Error reloading schedules: {str(e)}")
+
     @tasks.loop(minutes=1)  # Check every 1 minute
     async def scheduled_bc_messages(self):
         """Check all schedules and send battle condition messages as needed"""
