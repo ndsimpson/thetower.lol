@@ -6,6 +6,7 @@ from fish_bot.basecog import BaseCog
 import discord
 from discord.ext import commands
 from pathlib import Path
+from collections import deque
 
 
 class RoleCache(BaseCog):
@@ -18,6 +19,12 @@ class RoleCache(BaseCog):
 
         # Create an event that signals when cache is ready
         self._cache_ready = asyncio.Event()
+
+        # Track which guilds are currently being fetched
+        self._fetching_guilds = set()
+
+        # Queue for role updates during fetching
+        self._update_queues = {}  # {guild_id: deque()}
 
         # Store a reference to this cog on the bot for easy access
         self.bot.role_cache = self
@@ -99,16 +106,50 @@ class RoleCache(BaseCog):
         self.logger.info(f"Initial role cache built with {total_members} members across {len(self.bot.guilds)} guilds")
 
     async def build_cache(self, guild):
-        """Build role cache for a specific guild"""
+        """Build role cache for a specific guild using fetch_members for completeness"""
         if guild.id not in self.member_roles:
             self.member_roles[guild.id] = {}
 
-        count = 0
-        for member in guild.members:
-            self.update_member_roles(member)
-            count += 1
+        # Mark that we're fetching this guild and create an update queue
+        self._fetching_guilds.add(guild.id)
+        self._update_queues[guild.id] = deque()
 
-        self.logger.info(f"Built role cache for {count} members in {guild.name}")
+        self.logger.info(f"Fetching all members for {guild.name} (ID: {guild.id})")
+
+        try:
+            # Fetch all members using fetch_members for complete data
+            members = await guild.fetch_members(limit=None).flatten()
+            count = len(members)
+
+            # Build the cache from fetched members
+            for member in members:
+                self.update_member_roles(member)
+
+            # Process any role updates that happened during fetching
+            updates_count = len(self._update_queues[guild.id])
+            if updates_count > 0:
+                self.logger.info(f"Processing {updates_count} queued role updates for {guild.name}")
+
+            while self._update_queues[guild.id]:
+                member = self._update_queues[guild.id].popleft()
+                self.update_member_roles(member)
+
+            self.logger.info(f"Built role cache for {count} members in {guild.name} (including {updates_count} updates during fetch)")
+
+        except Exception as e:
+            self.logger.error(f"Error fetching members for {guild.name}: {e}", exc_info=True)
+            # Fall back to using guild.members if fetch_members fails
+            self.logger.info(f"Falling back to cached members for {guild.name}")
+            count = 0
+            for member in guild.members:
+                self.update_member_roles(member)
+                count += 1
+            self.logger.info(f"Built role cache with fallback method for {count} members in {guild.name}")
+        finally:
+            # Clean up
+            self._fetching_guilds.remove(guild.id)
+            del self._update_queues[guild.id]
+
         return count
 
     async def periodic_refresh(self):
@@ -424,8 +465,16 @@ class RoleCache(BaseCog):
     async def on_member_update(self, before, after):
         """Update role cache when member's roles change"""
         if before.roles != after.roles:
-            self.update_member_roles(after)
-            self.logger.debug(f"Updated roles for {after.display_name} in {after.guild.name}")
+            guild_id = after.guild.id
+
+            # If we're currently fetching this guild, queue the update
+            if guild_id in self._fetching_guilds:
+                self._update_queues[guild_id].append(after)
+                self.logger.debug(f"Queued role update for {after.display_name} during fetching")
+            else:
+                # Otherwise process it immediately
+                self.update_member_roles(after)
+                self.logger.debug(f"Updated roles for {after.display_name} in {after.guild.name}")
 
     @commands.Cog.listener()
     async def on_member_join(self, member):
@@ -468,6 +517,29 @@ class RoleCache(BaseCog):
         await super().on_reconnect()  # Call the parent method first
         self.logger.info("Refreshing stale roles after reconnect")
         await self.refresh_stale_roles()
+
+    # Add listener for GUILD_MEMBERS_CHUNK for better debugging
+    @commands.Cog.listener()
+    async def on_guild_members_chunk(self, guild, members):
+        """Log when receiving member chunks from Discord"""
+        self.logger.debug(f"Received member chunk from Discord: {len(members)} members for {guild.name}")
+
+    # Add command to force refresh using fetch_members
+    @commands.command(name="forcefetch")
+    @commands.is_owner()
+    async def force_fetch_command(self, ctx):
+        """Force a complete refresh using fetch_members"""
+        await ctx.send("Starting complete member fetch for all guilds...")
+
+        for guild in self.bot.guilds:
+            await ctx.send(f"Fetching {guild.name}...")
+            try:
+                count = await self.build_cache(guild)
+                await ctx.send(f"✅ Fetched {count} members from {guild.name}")
+            except Exception as e:
+                await ctx.send(f"❌ Error fetching {guild.name}: {str(e)}")
+
+        await ctx.send("Complete member fetch finished!")
 
     async def cog_unload(self):
         """Called when the cog is unloaded. Ensures data is saved."""
