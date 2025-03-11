@@ -82,6 +82,7 @@ class TourneyRoles(BaseCog, name="Tournament Roles"):
         self.last_full_update = None
         self.currently_updating = False
         self.update_task = None
+        self.startup_message_shown = False  # Track if we've shown the startup message
 
         # Stats tracking
         self.processed_users = 0
@@ -145,8 +146,10 @@ class TourneyRoles(BaseCog, name="Tournament Roles"):
                     if self.get_setting("update_on_startup"):
                         should_update = True
                         self.logger.info("No previous update found, running initial role update")
-                    else:
+                    elif not self.startup_message_shown:
+                        # Only log this message once
                         self.logger.info("No previous update found, but update_on_startup is disabled. Waiting for manual update.")
+                        self.startup_message_shown = True
                 else:
                     time_since_update = (datetime.datetime.now(datetime.timezone.utc) - self.last_full_update).total_seconds()
                     if time_since_update >= self.update_interval:
