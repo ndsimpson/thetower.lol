@@ -132,6 +132,104 @@ class DiscordBot(commands.Bot, BaseFileMonitor):
                 color=0xE02B2B,
             )
             await context.send(embed=embed)
+
+            # Check if the user is the bot owner
+            if await self.is_owner(context.author):
+                command_name = context.command.name
+                permissions = self.config.get("command_permissions", {"commands": {}})
+
+                # Get command permissions
+                command_config = permissions["commands"].get(command_name, {})
+                wildcard_config = permissions["commands"].get("*", {})
+
+                # Create detailed permissions message for bot owner
+                authorized_channels = []
+
+                # Add command-specific authorized channels
+                for channel_id, channel_config in command_config.get("channels", {}).items():
+                    if channel_id == "*":
+                        authorized_channels.append("All channels (wildcard)")
+                        continue
+
+                    channel = self.get_channel(int(channel_id))
+                    channel_name = f"#{channel.name}" if channel else f"Unknown channel ({channel_id})"
+
+                    # Check if channel is public
+                    is_public = channel_config.get("public", False)
+
+                    if is_public:
+                        channel_info = f"{channel_name} (Public: anyone can use)"
+                    else:
+                        # Get authorized users for this channel
+                        auth_users = channel_config.get("authorized_users", [])
+                        user_mentions = []
+                        for user_id in auth_users[:3]:  # Show up to 3 users
+                            user = self.get_user(int(user_id))
+                            user_mentions.append(f"@{user.name}" if user else f"ID:{user_id}")
+
+                        if len(auth_users) > 3:
+                            user_mentions.append(f"+{len(auth_users) - 3} more")
+
+                        users_str = ", ".join(user_mentions) if user_mentions else "None"
+                        channel_info = f"{channel_name} (Non-public: {users_str})"
+
+                    authorized_channels.append(channel_info)
+
+                # Add wildcard authorized channels
+                for channel_id, channel_config in wildcard_config.get("channels", {}).items():
+                    channel = self.get_channel(int(channel_id))
+                    channel_name = f"#{channel.name}" if channel else f"Unknown channel ({channel_id})"
+
+                    # Check if this wildcard channel is already in the list (specific permission overrides wildcard)
+                    if any(channel_name in ch for ch in authorized_channels):
+                        continue
+
+                    # Check if channel is public
+                    is_public = channel_config.get("public", False)
+
+                    if is_public:
+                        channel_info = f"{channel_name} (via wildcard command, Public)"
+                    else:
+                        # Get authorized users for this channel
+                        auth_users = channel_config.get("authorized_users", [])
+                        user_mentions = []
+                        for user_id in auth_users[:3]:  # Show up to 3 users
+                            user = self.get_user(int(user_id))
+                            user_mentions.append(f"@{user.name}" if user else f"ID:{user_id}")
+
+                        if len(auth_users) > 3:
+                            user_mentions.append(f"+{len(auth_users) - 3} more")
+
+                        users_str = ", ".join(user_mentions) if user_mentions else "None"
+                        channel_info = f"{channel_name} (via wildcard command, Non-public: {users_str})"
+
+                    authorized_channels.append(channel_info)
+
+                # Create and send DM
+                dm_embed = discord.Embed(
+                    title="Command Permission Error",
+                    description=f"Your command `{command_name}` was blocked in {context.channel.mention}",
+                    color=discord.Color.orange()
+                )
+
+                if authorized_channels:
+                    dm_embed.add_field(
+                        name="Allowed Channels",
+                        value="\n".join(authorized_channels) or "None",
+                        inline=False
+                    )
+                else:
+                    dm_embed.add_field(
+                        name="Allowed Channels",
+                        value="No channels are authorized for this command",
+                        inline=False
+                    )
+
+                try:
+                    await context.author.send(embed=dm_embed)
+                except discord.Forbidden:
+                    # Can't send DM to the owner
+                    pass
         elif isinstance(error, commands.BotMissingPermissions):
             embed = discord.Embed(
                 description="I am missing the permission(s) `"
