@@ -52,8 +52,6 @@ class KnownPlayers(BaseCog, name="Known Players"):
         self.last_cache_update = None
         self.cached_player_ids = {}  # Map player IDs to their KnownPlayer PKs for quick lookup
 
-        # Create an event that signals when cache is ready
-        self._cache_ready = asyncio.Event()
         self._save_task = None
 
     @property
@@ -61,10 +59,6 @@ class KnownPlayers(BaseCog, name="Known Players"):
         """Get the cache file path using the cog's data directory"""
         cache_filename = self.get_setting('cache_filename')
         return self.data_directory / cache_filename
-
-    async def wait_until_ready(self):
-        """Wait until the player cache is ready"""
-        await self._cache_ready.wait()
 
     async def save_cache(self):
         """Save the cache to disk"""
@@ -113,7 +107,6 @@ class KnownPlayers(BaseCog, name="Known Players"):
             self.cached_player_ids = data.get('player_map', {})
 
             # Rebuild the player cache with actual Django objects (to be done on demand)
-            self._cache_ready.set()
             self.logger.info(f"Loaded player cache from {self.cache_file} with {len(self.player_details_cache)} entries")
             return True
 
@@ -197,7 +190,6 @@ class KnownPlayers(BaseCog, name="Known Players"):
                     self.cached_player_ids[pid.id] = player.pk
 
             self.last_cache_update = now
-            self._cache_ready.set()
 
             # Mark cache as modified to ensure it gets saved
             self.mark_data_modified()
@@ -206,8 +198,6 @@ class KnownPlayers(BaseCog, name="Known Players"):
 
         except Exception as e:
             self.logger.error(f"Error refreshing player cache: {e}")
-            # Set cache ready even on error so commands don't hang
-            self._cache_ready.set()
 
     async def search_player(self, search_term: str) -> List[KnownPlayer]:
         """
@@ -752,7 +742,7 @@ class KnownPlayers(BaseCog, name="Known Players"):
 
         async def periodic_save():
             await self.bot.wait_until_ready()
-            await self._cache_ready.wait()  # Wait until initial cache is built
+            await self.wait_until_ready()  # Wait until initial cache is built
             self.logger.info(f"Starting periodic cache save task (every {save_interval}s)")
 
             while not self.bot.is_closed():
@@ -764,7 +754,7 @@ class KnownPlayers(BaseCog, name="Known Players"):
         task = self.bot.loop.create_task(periodic_save())
         return task
 
-    async def cog_load(self):
+    async def cog_initialize(self):
         """Setup tasks when cog is loaded"""
         # Try to load cache from disk first
         await self.load_cache()

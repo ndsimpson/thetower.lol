@@ -1,5 +1,4 @@
 import logging
-import asyncio
 import datetime
 from typing import List, Optional
 
@@ -24,9 +23,6 @@ class BattleConditions(BaseCog, name="Battle Conditions"):
         self.bot = bot
         self.logger = logging.getLogger(__name__)
 
-        # Create an event that signals when the system is ready
-        self._ready = asyncio.Event()
-
         # Add default settings if they don't exist
         if not self.has_setting("notification_hour"):
             self.set_setting("notification_hour", 0)  # Default to midnight
@@ -41,7 +37,7 @@ class BattleConditions(BaseCog, name="Battle Conditions"):
             self.set_setting("enabled_leagues", ["Legends", "Champion", "Platinum", "Gold", "Silver"])
 
         if not self.has_setting("thread_schedules"):
-            # Default empty schedules - you'll add them manually
+            # Default empty schedules
             self.set_setting("thread_schedules", [])
 
         if not self.has_setting("paused"):
@@ -63,19 +59,17 @@ class BattleConditions(BaseCog, name="Battle Conditions"):
             "Silver": self.config.get_thread_id("battleconditions", "silver")
         }
 
+    async def cog_initialize(self):
+        """Initialize the cog - called by BaseCog during ready process"""
         # Start the scheduler
         self.scheduled_bc_messages.start()
-        self._ready.set()
+        self.logger.info("Battle conditions initialization complete")
 
-    async def wait_until_ready(self):
-        """Wait until the battle conditions system is ready"""
-        await self._ready.wait()
-
-    def cog_unload(self):
+    async def cog_unload(self):
         """Clean up when cog is unloaded"""
         self.scheduled_bc_messages.cancel()
         # Call parent implementation for data saving
-        super().cog_unload()
+        await super().cog_unload()
         self.logger.info("Battle conditions cog unloaded")
 
     async def get_battle_conditions(self, league: str) -> List[str]:
@@ -720,6 +714,7 @@ class BattleConditions(BaseCog, name="Battle Conditions"):
     async def scheduled_bc_messages(self):
         """Check all schedules and send battle condition messages as needed"""
         await self.bot.wait_until_ready()
+        await self.wait_until_ready()
 
         # Check global pause setting
         if self.get_setting("paused"):

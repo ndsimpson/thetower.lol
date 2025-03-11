@@ -36,9 +36,6 @@ class TourneyStats(BaseCog, name="Tourney Stats"):
         self.last_updated = None  # When the data was last updated
         self.tournament_counts = {}  # Track number of tournaments per league
 
-        # Create an event that signals when cache is ready
-        self._cache_ready = asyncio.Event()
-
         # Set default settings if they don't exist
         if not self.has_setting("update_check_interval"):
             self.set_setting("update_check_interval", 6 * 60 * 60)  # 6 hours in seconds
@@ -64,9 +61,15 @@ class TourneyStats(BaseCog, name="Tourney Stats"):
         cache_filename = self.get_setting('cache_filename', 'player_tourney_stats_data.pkl')
         return self.data_directory / cache_filename
 
-    async def wait_until_ready(self):
-        """Wait until the role cache is ready"""
-        await self._cache_ready.wait()
+    async def cog_initialize(self):
+        """Initialize the cog - called by BaseCog during ready process"""
+        # Load the tournament data
+        await self.get_tournament_data(refresh=not self.league_dfs)
+
+        # Start the update check task
+        self.update_task = self.bot.loop.create_task(self.check_for_updates())
+
+        self.logger.info("Tournament stats initialization complete")
 
     def load_cache_from_file(self):
         """Load the cache from a file"""
@@ -84,11 +87,6 @@ class TourneyStats(BaseCog, name="Tourney Stats"):
             self.league_dfs = data.get('league_dfs', {})
             self.last_updated = data.get('last_updated')
             self.tournament_counts = data.get('tournament_counts', {})
-
-            # Set cache ready if we have loaded all leagues
-            if self.league_dfs and len(self.league_dfs) == len(leagues):
-                self._cache_ready.set()
-                self.logger.info("Cache marked as ready after loading from file")
 
             self.logger.info(f"Loaded data from {cache_file}")
             return data
@@ -149,7 +147,7 @@ class TourneyStats(BaseCog, name="Tourney Stats"):
     async def check_for_updates(self):
         """Check for new patches and refresh data if needed."""
         await self.bot.wait_until_ready()
-        await self._cache_ready.wait()  # Wait for initial cache to be built
+        await self.wait_until_ready()
 
         while not self.bot.is_closed():
             try:
@@ -254,11 +252,6 @@ class TourneyStats(BaseCog, name="Tourney Stats"):
                 final_msg = f"Loaded tournament data for {len(self.league_dfs)} leagues with {total_rows} total rows in {total_time}"
                 self.logger.info(final_msg)
 
-                # Set cache as ready if we have all leagues loaded
-                if len(self.league_dfs) == len(leagues):
-                    self._cache_ready.set()
-                    self.logger.info("Tournament data cache is now marked as ready")
-
                 # Update last updated timestamp
                 self.last_updated = datetime.datetime.now()
 
@@ -270,22 +263,11 @@ class TourneyStats(BaseCog, name="Tourney Stats"):
                     await self.save_data()
                 except Exception as e:
                     self.logger.error(f"Error saving tournament data: {e}")
-                    # Even if saving fails, we still have the data in memory
-                    # so we should make sure the cache is marked ready
-                    if not self._cache_ready.is_set() and len(self.league_dfs) == len(leagues):
-                        self._cache_ready.set()
-                        self.logger.info("Cache marked as ready despite save error")
 
             except Exception as e:
                 error_msg = f"Error loading tournament data: {str(e)}"
                 self.logger.error(error_msg)
                 raise
-            finally:
-                # Make sure the cache is marked as ready if we've loaded all leagues
-                # This ensures the cache is ready even if other post-processing fails
-                if not self._cache_ready.is_set() and self.league_dfs and len(self.league_dfs) == len(leagues):
-                    self._cache_ready.set()
-                    self.logger.info("Cache marked as ready in finally block")
 
         # Return either all data or just the requested league
         if league:
@@ -723,13 +705,7 @@ class TourneyStats(BaseCog, name="Tourney Stats"):
     async def tourney_info_command(self, ctx):
         """Display information about the tournament stats system"""
         # Check if cache is ready or still loading
-        try:
-            # Try to wait for cache to become ready, but only for a short time
-            # to avoid blocking the command for too long
-            await asyncio.wait_for(self._cache_ready.wait(), timeout=0.5)
-            cache_is_ready = True
-        except asyncio.TimeoutError:
-            cache_is_ready = False
+        cache_is_ready = self.is_ready
 
         embed = discord.Embed(
             title="Tournament Stats Information",
