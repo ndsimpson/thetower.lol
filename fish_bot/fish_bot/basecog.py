@@ -2,7 +2,7 @@
 import asyncio
 import logging
 from pathlib import Path
-from typing import Dict, Any, Union, Callable
+from typing import Dict, Any, Union, Callable, Optional
 
 # Third-party imports
 from discord.ext import commands
@@ -33,6 +33,7 @@ class BaseCog(commands.Cog):
     - Settings management
     - Data persistence
     - Standard command interfaces
+    - Ready state tracking
     """
 
     def __init__(self, bot):
@@ -47,8 +48,66 @@ class BaseCog(commands.Cog):
         self._data_manager = DataManager()
         self._save_tasks = {}  # Store periodic save tasks
 
+        # Ready state tracking
+        self._ready = asyncio.Event()
+        self._ready_task = None
+        self._ready_timeout = 60  # Default timeout in seconds
+
         # Register for the reconnect event to clear the guild cache
         self.bot.add_listener(self.on_reconnect, 'on_resumed')
+        self.bot.add_listener(self._on_ready, 'on_ready')
+
+    async def _on_ready(self):
+        """Internal handler for bot ready event."""
+        # If there's no ready task, create one
+        if not self._ready_task or self._ready_task.done():
+            self._ready_task = self.bot.loop.create_task(self._initialize_cog())
+
+    async def _initialize_cog(self):
+        """Initialize the cog and set the ready event."""
+        try:
+            # Call the cog-specific initialization if it exists
+            if hasattr(self, 'cog_initialize') and callable(self.cog_initialize):
+                await self.cog_initialize()
+
+            # Set the ready event to signal the cog is fully initialized
+            self._ready.set()
+            logger.info(f"Cog {self.__class__.__name__} is now ready")
+        except Exception as e:
+            logger.error(f"Error initializing cog {self.__class__.__name__}: {e}")
+            # Don't set ready event on error
+
+    async def wait_until_ready(self, timeout: Optional[float] = None) -> bool:
+        """
+        Wait until the cog is ready to use.
+
+        Args:
+            timeout: Maximum time to wait in seconds. If None, uses the cog's default timeout.
+
+        Returns:
+            bool: True if the cog is ready, False if timed out
+        """
+        timeout = timeout if timeout is not None else self._ready_timeout
+        try:
+            await asyncio.wait_for(self._ready.wait(), timeout=timeout)
+            return True
+        except asyncio.TimeoutError:
+            logger.warning(f"Timed out waiting for cog {self.__class__.__name__} to become ready")
+            return False
+
+    @property
+    def is_ready(self) -> bool:
+        """Check if the cog is ready."""
+        return self._ready.is_set()
+
+    def set_ready_timeout(self, timeout: float) -> None:
+        """
+        Set the timeout for the ready event.
+
+        Args:
+            timeout: Timeout in seconds
+        """
+        self._ready_timeout = timeout
 
     async def on_reconnect(self):
         """Reset the guild cache when the bot reconnects."""
@@ -399,6 +458,13 @@ class BaseCog(commands.Cog):
         """Clean up resources when cog is unloaded."""
         # Cancel periodic save tasks
         self.cancel_save_tasks()
+
+        # Cancel the ready task if it exists and is still running
+        if self._ready_task and not self._ready_task.done():
+            self._ready_task.cancel()
+
+        # Clear the ready event
+        self._ready.clear()
 
         # Force save any modified data
         if self.is_data_modified():

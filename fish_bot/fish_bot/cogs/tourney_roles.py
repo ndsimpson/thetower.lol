@@ -90,13 +90,6 @@ class TourneyRoles(BaseCog, name="Tournament Roles"):
         self.roles_removed = 0
         self.users_with_no_player_data = 0
 
-        # Create an event that signals when systems are ready
-        self._ready = asyncio.Event()
-
-    async def wait_until_ready(self):
-        """Wait until the role system is ready"""
-        await self._ready.wait()
-
     async def get_known_players_cog(self):
         """Get a reference to the KnownPlayers cog"""
         known_players_cog = self.bot.get_cog("Known Players")
@@ -132,9 +125,6 @@ class TourneyRoles(BaseCog, name="Tournament Roles"):
     async def schedule_periodic_updates(self):
         """Schedule periodic role updates"""
         await self.bot.wait_until_ready()
-
-        # Set ready flag after bot is ready
-        self._ready.set()
 
         while not self.bot.is_closed():
             try:
@@ -882,7 +872,7 @@ class TourneyRoles(BaseCog, name="Tournament Roles"):
             embed.add_field(name=name, value=str(value), inline=True)
 
         # Add status information to main embed
-        status = "✅ Ready" if self._ready.is_set() else "⏳ Initializing"
+        status = "✅ Ready" if self.is_ready else "⏳ Initializing"
         if self.currently_updating:
             status = "🔄 Updating roles"
         if self.get_setting("pause"):
@@ -1164,7 +1154,7 @@ class TourneyRoles(BaseCog, name="Tournament Roles"):
         )
 
         # Check if system is ready
-        is_ready = self._ready.is_set()
+        is_ready = self.is_ready  # Use BaseCog's is_ready property
         status = "✅ Ready" if is_ready else "⏳ Initializing"
         if self.currently_updating:
             status = "🔄 Updating roles"
@@ -1574,11 +1564,11 @@ class TourneyRoles(BaseCog, name="Tournament Roles"):
             except Exception as e:
                 self.logger.error(f"Error sending final role log batch: {e}")
 
-    async def cog_load(self):
-        """Setup tasks when cog is loaded"""
+    async def cog_initialize(self):
+        """Initialize the cog - called by BaseCog during ready process"""
         # Start the periodic update task
         self.update_task = self.bot.loop.create_task(self.schedule_periodic_updates())
-        self.logger.info("Tournament roles cog loaded")
+        self.logger.info("Tournament roles cog initialization complete")
 
     async def cog_unload(self):
         """Clean up when cog is unloaded"""

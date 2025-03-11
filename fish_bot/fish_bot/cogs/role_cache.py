@@ -17,9 +17,6 @@ class RoleCache(BaseCog):
         # {guild_id: {user_id: {"roles": [role_ids], "updated_at": timestamp}}}
         self.member_roles = {}
 
-        # Create an event that signals when cache is ready
-        self._cache_ready = asyncio.Event()
-
         # Track which guilds are currently being fetched
         self._fetching_guilds = set()
 
@@ -52,28 +49,28 @@ class RoleCache(BaseCog):
         # Try to load existing cache from file
         self.load_cache_from_file()
 
-        # Start building cache after bot is ready
-        self.bot.loop.create_task(self._build_initial_cache())
+    async def cog_initialize(self):
+        """Initialize the cog - called by BaseCog during ready process"""
+        # Build the initial cache
+        await self._build_initial_cache()
 
         # Start periodic refresh task
         self.refresh_task = self.bot.loop.create_task(self.periodic_refresh())
 
         # Start periodic save task using BaseCog's functionality
-        self.save_task = self.create_periodic_save_task(
+        self.save_task = await self.create_periodic_save_task(
             data=self.member_roles,
             file_path=self.cache_file,
             save_interval=self.save_interval
         )
+
+        self.logger.info("RoleCache initialization complete")
 
     @property
     def cache_file(self) -> Path:
         """Get the cache file path using the cog's data directory"""
         cache_filename = self.get_setting('cache_filename', 'role_cache.json')
         return self.data_directory / cache_filename
-
-    async def wait_until_ready(self):
-        """Wait until the role cache is ready"""
-        await self._cache_ready.wait()
 
     def load_cache_from_file(self):
         """Load role cache from file."""
@@ -94,7 +91,6 @@ class RoleCache(BaseCog):
 
     async def _build_initial_cache(self):
         """Build the initial role cache for all guilds"""
-        await self.bot.wait_until_ready()
         self.logger.info("Building initial role cache...")
 
         total_members = 0
@@ -102,7 +98,6 @@ class RoleCache(BaseCog):
             guild_members = await self.build_cache(guild)
             total_members += guild_members
 
-        self._cache_ready.set()  # Signal that cache is ready
         self.logger.info(f"Initial role cache built with {total_members} members across {len(self.bot.guilds)} guilds")
 
     async def get_all_members(self, guild):
@@ -161,8 +156,7 @@ class RoleCache(BaseCog):
 
     async def periodic_refresh(self):
         """Periodically refresh stale roles and clean up missing members"""
-        await self.bot.wait_until_ready()
-        await self._cache_ready.wait()  # Wait for initial cache to be built
+        await self.wait_until_ready()  # Wait for cog initialization to complete using BaseCog method
 
         while not self.bot.is_closed():
             try:
@@ -354,7 +348,7 @@ class RoleCache(BaseCog):
         embed.add_field(name="Members Cached", value=str(total_members), inline=True)
         embed.add_field(name="Stale Entries", value=str(stale_count), inline=True)
 
-        embed.add_field(name="Cache Status", value="Ready" if self._cache_ready.is_set() else "Building", inline=True)
+        embed.add_field(name="Cache Status", value="Ready" if self.is_ready else "Building", inline=True)
         embed.add_field(name="Refresh Interval", value=f"{self.refresh_interval}s", inline=True)
         embed.add_field(name="Staleness Threshold", value=f"{self.staleness_threshold}s", inline=True)
 
@@ -384,7 +378,7 @@ class RoleCache(BaseCog):
             return await ctx.send("This command must be used in a server.")
 
         # Make sure the cache for this guild is ready
-        if not self._cache_ready.is_set():
+        if not self.is_ready:
             return await ctx.send("Role cache is still being built. Please try again later.")
 
         # Count users per role
@@ -533,7 +527,6 @@ class RoleCache(BaseCog):
 
     # Add command to force refresh using fetch_members
     @commands.command(name="forcefetch")
-    @commands.is_owner()
     async def force_fetch_command(self, ctx):
         """Force a complete refresh using fetch_members"""
         await ctx.send("Starting complete member fetch for all guilds...")
@@ -547,11 +540,6 @@ class RoleCache(BaseCog):
                 await ctx.send(f"❌ Error fetching {guild.name}: {str(e)}")
 
         await ctx.send("Complete member fetch finished!")
-
-    async def cog_unload(self):
-        """Called when the cog is unloaded. Ensures data is saved."""
-        # Use BaseCog's unload method which handles saving and task cleanup
-        await super().cog_unload()
 
 
 async def setup(bot):
