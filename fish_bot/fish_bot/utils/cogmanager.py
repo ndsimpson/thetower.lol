@@ -1,5 +1,6 @@
 import logging
 from pathlib import Path
+from discord.ext.commands import Context, Paginator
 
 from .configmanager import ConfigManager
 
@@ -56,7 +57,7 @@ class CogManager:
                     logger.error(f"Failed to load extension {extension}\n{exception}")
                     self.unloaded_cogs.append(extension)
 
-    async def reload_cog(self, cog_name: str) -> None:
+    async def reload_cog(self, cog_name: str) -> bool:
         """Reload a specific cog"""
         try:
             await self.bot.reload_extension(f"cogs.{cog_name}")
@@ -66,7 +67,7 @@ class CogManager:
             logger.error(f"Failed to reload cog '{cog_name}': {str(e)}")
             return False
 
-    async def unload_cog(self, cog_name: str) -> None:
+    async def unload_cog(self, cog_name: str) -> bool:
         """Unload a specific cog"""
         try:
             await self.bot.unload_extension(f"cogs.{cog_name}")
@@ -79,8 +80,24 @@ class CogManager:
             logger.error(f"Failed to unload cog '{cog_name}': {str(e)}")
             return False
 
-    async def load_cog(self, cog_name: str) -> None:
+    async def load_cog(self, cog_name: str) -> bool:
         """Load a specific cog"""
+        # First check if this cog is enabled or if load_all_cogs is enabled
+        load_all = self.config.get("load_all_cogs", False)
+        enabled_cogs = self.config.get("enabled_cogs", [])
+        disabled_cogs = self.config.get("disabled_cogs", [])
+
+        # Never load disabled cogs
+        if cog_name in disabled_cogs:
+            logger.warning(f"Cannot load disabled cog: {cog_name}")
+            return False
+
+        # Check if cog is enabled or load_all is true
+        if not (load_all or cog_name in enabled_cogs):
+            logger.warning(f"Cannot load cog that is not enabled: {cog_name}")
+            return False
+
+        # Now proceed with loading if allowed
         try:
             await self.bot.load_extension(f"cogs.{cog_name}")
             if cog_name in self.unloaded_cogs:
@@ -205,3 +222,98 @@ class CogManager:
             cog_status.append(status)
 
         return cog_status, load_all
+
+    async def list_modules(self, ctx: Context) -> None:
+        """Lists all cogs and their status of loading."""
+        cog_list = Paginator(prefix='', suffix='')
+        cog_list.add_line('**✅ Successfully loaded:**')
+        for cog in self.loaded_cogs:
+            cog_list.add_line('- ' + cog)
+        cog_list.add_line('**❌ Not loaded:**')
+        for cog in self.unloaded_cogs:
+            cog_list.add_line('- ' + cog)
+        for page in cog_list.pages:
+            await ctx.send(page)
+
+    async def load_cog_with_ctx(self, ctx: Context, cog: str) -> None:
+        """Try and load the selected cog with Discord context feedback."""
+        # First check if this cog is enabled
+        load_all = self.config.get("load_all_cogs", False)
+        enabled_cogs = self.config.get("enabled_cogs", [])
+        disabled_cogs = self.config.get("disabled_cogs", [])
+
+        # Never load disabled cogs
+        if cog in disabled_cogs:
+            return await ctx.send('❌ Cannot load disabled cog. Enable it first with `enable_cog` command.')
+
+        # Check if cog is enabled or load_all is true
+        if not (load_all or cog in enabled_cogs):
+            return await ctx.send('❌ Cannot load cog that is not enabled. Enable it first with `enable_cog` command.')
+
+        if cog in self.loaded_cogs:
+            return await ctx.send('Cog already loaded.')
+
+        try:
+            success = await self.load_cog(cog)
+            if success:
+                await ctx.send('✅ Module successfully loaded.')
+            else:
+                await ctx.send('**💢 Could not load module. Check logs for details.**')
+        except Exception as e:
+            await ctx.send('**💢 Could not load module: An exception was raised. For your convenience, the exception will be printed below:**')
+            await ctx.send('```{}\n{}```'.format(type(e).__name__, e))
+
+    async def unload_cog_with_ctx(self, ctx: Context, cog: str) -> None:
+        """Unload the selected cog with Discord context feedback."""
+        if cog not in self.loaded_cogs:
+            return await ctx.send('💢 Module not loaded.')
+
+        success = await self.unload_cog(cog)
+        if success:
+            await ctx.send('✅ Module successfully unloaded.')
+        else:
+            await ctx.send('**💢 Could not unload module. Check logs for details.**')
+
+    async def reload_cog_with_ctx(self, ctx: Context, cog: str) -> None:
+        """Reload the selected cog with Discord context feedback."""
+        # Check if the cog is enabled before reloading
+        load_all = self.config.get("load_all_cogs", False)
+        enabled_cogs = self.config.get("enabled_cogs", [])
+        disabled_cogs = self.config.get("disabled_cogs", [])
+
+        if cog in disabled_cogs:
+            return await ctx.send('❌ Cannot reload disabled cog. Enable it first with `enable_cog` command.')
+
+        if not (load_all or cog in enabled_cogs):
+            return await ctx.send('❌ Cannot reload cog that is not enabled. Enable it first with `enable_cog` command.')
+
+        if cog not in self.loaded_cogs:
+            return await ctx.send('💢 Module not loaded, cannot reload.')
+
+        try:
+            success = await self.reload_cog(cog)
+            if success:
+                await ctx.send('✅ Module successfully reloaded.')
+            else:
+                await ctx.send('**💢 Could not reload module. Check logs for details.**')
+        except Exception as e:
+            await ctx.send('**💢 Could not reload module: An exception was raised. For your convenience, the exception will be printed below:**')
+            await ctx.send('```{}\n{}```'.format(type(e).__name__, e))
+
+    async def enable_cog_with_ctx(self, ctx: Context, cog: str) -> None:
+        """Enable a cog with Discord context feedback."""
+        success_msg, error_msg = await self.enable_cog(cog)
+
+        if success_msg:
+            await ctx.send(success_msg)
+        if error_msg:
+            await ctx.send(error_msg)
+
+    async def disable_cog_with_ctx(self, ctx: Context, cog: str) -> None:
+        """Disable a cog with Discord context feedback."""
+        success_msg, error_msg = await self.disable_cog(cog)
+
+        if success_msg:
+            await ctx.send(success_msg)
+        if error_msg:
+            await ctx.send(error_msg)
