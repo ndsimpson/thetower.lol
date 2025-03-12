@@ -472,7 +472,7 @@ class GuildForm(commands.Cog):
         if guild_forum:
             try:
                 # Create thread title for the forum post
-                thread_title = f"{guild_name} ({guild_id})"
+                thread_title = f"[Guild Looking] {guild_name} ({guild_id})"
 
                 # Create an initial message for the forum thread
                 initial_message = ""

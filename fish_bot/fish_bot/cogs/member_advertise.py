@@ -424,7 +424,7 @@ class FormHandler(commands.Cog):
         if target_forum:
             try:
                 # Create thread title for the forum post
-                thread_title = f"{user.name} ({player_id})"
+                thread_title = f"[Member Looking] {user.name} ({player_id})"
 
                 # Create an initial message for the forum thread
                 initial_message = ""
