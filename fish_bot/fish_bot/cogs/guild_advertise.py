@@ -474,16 +474,16 @@ class GuildForm(commands.Cog):
                 # Create thread title for the forum post
                 thread_title = f"{guild_name} Guild"
 
-                # Create the forum thread with the embed as the first message
+                # Create an initial message for the forum thread
+                initial_message = f"This thread is for discussing the {guild_name} guild."
+
+                # Create the forum thread with both content and embed
                 thread = await guild_forum.create_thread(
                     name=thread_title,
-                    content=None,  # No plain text content
+                    content=initial_message,  # Include initial message as content
                     embed=embed,   # Include our embed
                     auto_archive_duration=1440  # Auto-archive after 24 hours
                 )
-
-                # Send a welcome message in the thread
-                await thread.send(f"This thread is for discussing the {guild_name} guild. Feel free to ask questions or request to join!")
 
                 await channel.send("Thank you! Your guild advertisement has been submitted."
                                    " This guild may not be advertised for another 6 hours.")

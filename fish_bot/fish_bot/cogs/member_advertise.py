@@ -426,16 +426,16 @@ class FormHandler(commands.Cog):
                 # Create thread title for the forum post
                 thread_title = f"{user.name}'s Member Advertisement"
 
-                # Create the forum thread with the embed as the first message
+                # Create an initial message for the forum thread
+                initial_message = f"This thread is for discussing {user.name}'s advertisement."
+
+                # Create the forum thread with both content and embed
                 thread = await target_forum.create_thread(
                     name=thread_title,
-                    content=None,  # No plain text content
+                    content=initial_message,  # Include initial message as content
                     embed=embed,   # Include our embed
-                    auto_archive_duration=1440  # Auto-archive after 24 hours (can be 60, 1440, 4320, or 10080 minutes)
+                    auto_archive_duration=1440  # Auto-archive after 24 hours
                 )
-
-                # Send a welcome message in the thread
-                await thread.send(f"This thread is for discussing {user.name}'s advertisement. Feel free to ask questions or provide feedback!")
 
                 await channel.send("Thank you! Your advertisement has been submitted successfully."
                                    f" You may submit another advertisement in {self.cooldown_hours} hours.")
