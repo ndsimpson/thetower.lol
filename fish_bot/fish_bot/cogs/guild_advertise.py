@@ -472,18 +472,21 @@ class GuildForm(commands.Cog):
         if guild_forum:
             try:
                 # Create thread title for the forum post
-                thread_title = f"{guild_name} Guild"
+                thread_title = f"{guild_name} ({guild_id})"
 
                 # Create an initial message for the forum thread
-                initial_message = f"This thread is for discussing the {guild_name} guild."
+                initial_message = f"{guild_name} ({guild_id})"
 
                 # Create the forum thread with both content and embed
-                thread = await guild_forum.create_thread(
+                thread_with_message = await guild_forum.create_thread(
                     name=thread_title,
                     content=initial_message,  # Include initial message as content
                     embed=embed,   # Include our embed
                     auto_archive_duration=1440  # Auto-archive after 24 hours
                 )
+
+                # Access the thread object properly - it's in the thread attribute of the returned object
+                thread = thread_with_message.thread
 
                 await channel.send("Thank you! Your guild advertisement has been submitted."
                                    " This guild may not be advertised for another 6 hours.")
