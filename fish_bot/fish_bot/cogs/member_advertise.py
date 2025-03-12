@@ -153,7 +153,7 @@ class FormHandler(commands.Cog):
                     return pickle.load(f)
         except Exception as e:
             print(f"Error loading form pending deletions: {e}")
-        return []
+        return []  # Return empty list if file doesn't exist or there's an error
 
     def _save_pending_deletions(self):
         """Save pending message deletions to file."""
@@ -171,12 +171,22 @@ class FormHandler(commands.Cog):
         current_time = datetime.datetime.now()
         new_pending = []
 
-        for channel_id, message_id, deletion_time in self.pending_deletions:
+        for item in self.pending_deletions:
+            # Check if we have a thread ID (4 elements) or just message (3 elements)
+            has_thread = len(item) == 4
+
+            if has_thread:
+                channel_id, message_id, thread_id, deletion_time = item
+            else:
+                channel_id, message_id, deletion_time = item
+                thread_id = None
+
             if current_time >= deletion_time:
                 # Message should already be deleted
                 try:
                     channel = self.bot.get_channel(channel_id)
                     if channel:
+                        # Try to delete the message
                         try:
                             message = await channel.fetch_message(message_id)
                             await message.delete()
@@ -184,33 +194,57 @@ class FormHandler(commands.Cog):
                         except discord.NotFound:
                             # Message already deleted or not found
                             pass
+
+                        # Try to delete the thread if it exists
+                        if thread_id:
+                            try:
+                                thread = await self.bot.fetch_channel(thread_id)
+                                await thread.delete()
+                                print(f"Deleted thread {thread_id} after restart")
+                            except (discord.NotFound, discord.HTTPException):
+                                # Thread already deleted or not found
+                                pass
                 except Exception as e:
-                    print(f"Error deleting form message after restart: {e}")
+                    print(f"Error deleting form message/thread after restart: {e}")
             else:
                 # Schedule this message for deletion
                 delay = (deletion_time - current_time).total_seconds()
-                self.bot.loop.create_task(self._delete_after_delay(channel_id, message_id, delay))
-                new_pending.append((channel_id, message_id, deletion_time))
+                self.bot.loop.create_task(self._delete_after_delay(channel_id, message_id, thread_id, delay))
+                new_pending.append(item)
 
         self.pending_deletions = new_pending
         self._save_pending_deletions()
 
-    async def _delete_after_delay(self, channel_id, message_id, delay):
-        """Delete a message after a specified delay in seconds."""
+    async def _delete_after_delay(self, channel_id, message_id, thread_id=None, delay=0):
+        """Delete a message and its thread after a specified delay in seconds."""
         await asyncio.sleep(delay)
         try:
             channel = self.bot.get_channel(channel_id)
             if channel:
-                message = await channel.fetch_message(message_id)
-                await message.delete()
-                print(f"Deleted form message {message_id} after {delay / 3600:.1f} hours")
+                # Try to delete the message
+                try:
+                    message = await channel.fetch_message(message_id)
+                    await message.delete()
+                    print(f"Deleted form message {message_id} after {delay / 3600:.1f} hours")
+                except discord.NotFound:
+                    print(f"Message {message_id} already deleted")
+
+                # Try to delete the thread if it exists
+                if thread_id:
+                    try:
+                        thread = await self.bot.fetch_channel(thread_id)
+                        await thread.delete()
+                        print(f"Deleted thread {thread_id} after {delay / 3600:.1f} hours")
+                    except (discord.NotFound, discord.HTTPException) as e:
+                        print(f"Error deleting thread {thread_id}: {e}")
 
                 # Remove from pending deletions
-                self.pending_deletions = [(c, m, d) for c, m, d in self.pending_deletions
-                                          if m != message_id]
+                self.pending_deletions = [item for item in self.pending_deletions
+                                          if (len(item) == 3 and item[0] == channel_id and item[1] != message_id) or
+                                          (len(item) == 4 and item[0] == channel_id and item[1] != message_id)]
                 self._save_pending_deletions()
         except Exception as e:
-            print(f"Error deleting form message: {e}")
+            print(f"Error in delete_after_delay: {e}")
 
     @commands.Cog.listener()
     async def on_message(self, message):
@@ -343,17 +377,36 @@ class FormHandler(commands.Cog):
         if target_channel:
             # Send the embed and get the message object
             sent_message = await target_channel.send(embed=embed)
+            thread_id = None
+
+            # Create a thread based on the message
+            try:
+                thread_name = f"Discussion: {user.name}'s Advertisement"
+                thread = await sent_message.create_thread(
+                    name=thread_name,
+                    auto_archive_duration=1440,  # Auto-archive after 24 hours (can be 60, 1440, 4320, or 10080 minutes)
+                )
+                # Save the thread ID for later deletion
+                thread_id = thread.id
+                # Optionally, send an initial message to the thread
+                await thread.send(f"This thread is for discussing {user.name}'s advertisement.")
+            except discord.HTTPException as e:
+                print(f"Error creating thread for member advertisement: {e}")
+
             await channel.send("Thank you! Your advertisement has been submitted successfully."
                                f" You may submit another advertisement in {self.cooldown_hours} hours.")
 
-            # Schedule message for deletion after cooldown period
+            # Schedule message and thread for deletion after cooldown period
             deletion_time = datetime.datetime.now() + datetime.timedelta(hours=self.cooldown_hours)
-            self.pending_deletions.append((target_channel.id, sent_message.id, deletion_time))
+            if thread_id:
+                self.pending_deletions.append((target_channel.id, sent_message.id, thread_id, deletion_time))
+            else:
+                self.pending_deletions.append((target_channel.id, sent_message.id, deletion_time))
             self._save_pending_deletions()
 
-            # Create a task to delete the message after the delay
+            # Create a task to delete the message and thread after the delay
             self.bot.loop.create_task(
-                self._delete_after_delay(target_channel.id, sent_message.id, self.cooldown_hours * 3600)
+                self._delete_after_delay(target_channel.id, sent_message.id, thread_id, self.cooldown_hours * 3600)
             )
         else:
             await channel.send("There was an error submitting your advertisement. Please contact @thedisasterfish.")
