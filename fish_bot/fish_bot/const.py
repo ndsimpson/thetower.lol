@@ -67,3 +67,7 @@ plat250_id = 1078761063681630361
 gold100_id = 1078760915312320573
 silver50_id = 1078760773809090600
 copper1_id = 1078760480362999978
+
+# Add these constants for the forum tags
+guild_tag_id = 1349477644391153800  # Replace with your actual guild tag ID
+member_tag_id = 1349477578137665567  # Replace with your actual member tag ID
