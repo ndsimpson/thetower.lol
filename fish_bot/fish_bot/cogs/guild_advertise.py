@@ -475,7 +475,7 @@ class GuildForm(commands.Cog):
                 thread_title = f"{guild_name} ({guild_id})"
 
                 # Create an initial message for the forum thread
-                initial_message = f"{guild_name} ({guild_id})"
+                initial_message = ""
 
                 # Create the forum thread with both content and embed
                 thread_with_message = await guild_forum.create_thread(

@@ -427,7 +427,7 @@ class FormHandler(commands.Cog):
                 thread_title = f"{user.name} ({player_id})"
 
                 # Create an initial message for the forum thread
-                initial_message = f"{user.name} ({player_id})"
+                initial_message = ""
 
                 # Create the forum thread with both content and embed
                 thread_with_message = await target_forum.create_thread(
