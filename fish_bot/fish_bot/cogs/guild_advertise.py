@@ -195,48 +195,93 @@ class GuildForm(commands.Cog):
         new_pending = []
 
         for item in self.pending_deletions:
-            # Check if we have a thread ID (4 elements) or just message (3 elements)
-            has_thread = len(item) == 4
+            # Forum posts are stored with 2 elements (thread_id, deletion_time)
+            # Old format had 3 or 4 elements (channel_id, message_id, [thread_id], deletion_time)
+            is_forum_thread = len(item) == 2
 
-            if has_thread:
-                channel_id, message_id, thread_id, deletion_time = item
-            else:
-                channel_id, message_id, deletion_time = item
-                thread_id = None
+            if is_forum_thread:
+                thread_id, deletion_time = item
 
-            if current_time >= deletion_time:
-                # Message should already be deleted
-                try:
-                    channel = self.bot.get_channel(channel_id)
-                    if channel:
-                        # Try to delete the message
+                if current_time >= deletion_time:
+                    # Thread should already be deleted
+                    try:
                         try:
-                            message = await channel.fetch_message(message_id)
-                            await message.delete()
-                            print(f"Deleted guild advertisement {message_id} after restart")
-                        except discord.NotFound:
-                            # Message already deleted or not found
+                            thread = await self.bot.fetch_channel(thread_id)
+                            await thread.delete()
+                            print(f"Deleted guild forum thread {thread_id} after restart")
+                        except (discord.NotFound, discord.HTTPException):
+                            # Thread already deleted or not found
                             pass
-
-                        # Try to delete the thread if it exists
-                        if thread_id:
-                            try:
-                                thread = await self.bot.fetch_channel(thread_id)
-                                await thread.delete()
-                                print(f"Deleted guild thread {thread_id} after restart")
-                            except (discord.NotFound, discord.HTTPException):
-                                # Thread already deleted or not found
-                                pass
-                except Exception as e:
-                    print(f"Error deleting guild message/thread after restart: {e}")
+                    except Exception as e:
+                        print(f"Error deleting guild forum thread after restart: {e}")
+                else:
+                    # Schedule this thread for deletion
+                    delay = (deletion_time - current_time).total_seconds()
+                    self.bot.loop.create_task(self._delete_forum_thread_after_delay(thread_id, delay))
+                    new_pending.append(item)
             else:
-                # Schedule this message for deletion
-                delay = (deletion_time - current_time).total_seconds()
-                self.bot.loop.create_task(self._delete_after_delay(channel_id, message_id, thread_id, delay))
-                new_pending.append(item)
+                # Handle old format for backward compatibility
+                has_thread = len(item) == 4
+
+                if has_thread:
+                    channel_id, message_id, thread_id, deletion_time = item
+                else:
+                    channel_id, message_id, deletion_time = item
+                    thread_id = None
+
+                if current_time >= deletion_time:
+                    # Message should already be deleted
+                    try:
+                        channel = self.bot.get_channel(channel_id)
+                        if channel:
+                            # Try to delete the message
+                            try:
+                                message = await channel.fetch_message(message_id)
+                                await message.delete()
+                                print(f"Deleted guild advertisement {message_id} after restart")
+                            except discord.NotFound:
+                                # Message already deleted or not found
+                                pass
+
+                            # Try to delete the thread if it exists
+                            if thread_id:
+                                try:
+                                    thread = await self.bot.fetch_channel(thread_id)
+                                    await thread.delete()
+                                    print(f"Deleted guild thread {thread_id} after restart")
+                                except (discord.NotFound, discord.HTTPException):
+                                    # Thread already deleted or not found
+                                    pass
+                    except Exception as e:
+                        print(f"Error deleting guild message/thread after restart: {e}")
+                else:
+                    # Schedule this message for deletion
+                    delay = (deletion_time - current_time).total_seconds()
+                    self.bot.loop.create_task(self._delete_after_delay(channel_id, message_id, thread_id, delay))
+                    new_pending.append(item)
 
         self.pending_deletions = new_pending
         self._save_pending_deletions()
+
+    async def _delete_forum_thread_after_delay(self, thread_id, delay):
+        """Delete a forum thread after a specified delay in seconds."""
+        await asyncio.sleep(delay)
+        try:
+            try:
+                thread = await self.bot.fetch_channel(thread_id)
+                await thread.delete()
+                print(f"Deleted guild forum thread {thread_id} after {delay / 3600:.1f} hours")
+            except (discord.NotFound, discord.HTTPException) as e:
+                print(f"Error deleting guild forum thread {thread_id}: {e}")
+
+            # Remove from pending deletions
+            self.pending_deletions = [item for item in self.pending_deletions
+                                      if len(item) != 2 or item[0] != thread_id]
+            self._save_pending_deletions()
+        except Exception as e:
+            print(f"Error in delete_forum_thread_after_delay: {e}")
+
+    # Keep the existing _delete_after_delay method for backward compatibility
 
     async def _delete_after_delay(self, channel_id, message_id, thread_id=None, delay=0):
         """Delete a message and its thread after a specified delay in seconds."""
@@ -421,43 +466,42 @@ class GuildForm(commands.Cog):
         embed.set_footer(text=f"DM TowerBot to submit your own guild advertisement using:  {self.prefix} advertise ")
         embed.timestamp = discord.utils.utcnow()
 
-        # Send to the guild channel
-        guild_channel = self.bot.get_channel(self.guild_channel_id)
+        # Get the forum channel
+        guild_forum = self.bot.get_channel(self.guild_channel_id)
 
-        if guild_channel:
-            # Send the embed and get the message object
-            sent_message = await guild_channel.send(embed=embed)
-            thread_id = None
-
-            # Create a thread based on the message
+        if guild_forum:
             try:
-                thread_name = f"Discussion: {user.name}'s Guild Advertisement"
-                thread = await sent_message.create_thread(
-                    name=thread_name,
-                    auto_archive_duration=1440,  # Auto-archive after 24 hours
+                # Create thread title for the forum post
+                thread_title = f"{guild_name} Guild"
+
+                # Create the forum thread with the embed as the first message
+                thread = await guild_forum.create_thread(
+                    name=thread_title,
+                    content=None,  # No plain text content
+                    embed=embed,   # Include our embed
+                    auto_archive_duration=1440  # Auto-archive after 24 hours
                 )
-                # Save the thread ID for later deletion
-                thread_id = thread.id
-                # Optionally, send an initial message to the thread
-                await thread.send(f"This thread is for discussing {user.name}'s guild advertisement.")
+
+                # Send a welcome message in the thread
+                await thread.send(f"This thread is for discussing the {guild_name} guild. Feel free to ask questions or request to join!")
+
+                await channel.send("Thank you! Your guild advertisement has been submitted."
+                                   " This guild may not be advertised for another 6 hours.")
+
+                # Schedule thread for deletion after cooldown period
+                deletion_time = datetime.datetime.now() + datetime.timedelta(hours=self.cooldown_hours)
+
+                # Store only thread_id and deletion_time for forum posts
+                self.pending_deletions.append((thread.id, deletion_time))
+                self._save_pending_deletions()
+
+                # Create a task to delete the thread after the delay
+                self.bot.loop.create_task(
+                    self._delete_forum_thread_after_delay(thread.id, self.cooldown_hours * 3600)
+                )
             except discord.HTTPException as e:
-                print(f"Error creating thread for guild advertisement: {e}")
-
-            await channel.send("Thank you! Your guild advertisement has been submitted."
-                               " This guild may not be advertised for another 6 hours.")
-
-            # Schedule message for deletion after cooldown period
-            deletion_time = datetime.datetime.now() + datetime.timedelta(hours=self.cooldown_hours)
-            if thread_id:
-                self.pending_deletions.append((guild_channel.id, sent_message.id, thread_id, deletion_time))
-            else:
-                self.pending_deletions.append((guild_channel.id, sent_message.id, deletion_time))
-            self._save_pending_deletions()
-
-            # Create a task to delete the message after the delay
-            self.bot.loop.create_task(
-                self._delete_after_delay(guild_channel.id, sent_message.id, thread_id, self.cooldown_hours * 3600)
-            )
+                print(f"Error creating guild forum thread: {e}")
+                await channel.send("There was an error submitting your guild advertisement. Please contact @disasterfish.")
         else:
             await channel.send("There was an error submitting your guild advertisement. Please contact @disasterfish.")
 
