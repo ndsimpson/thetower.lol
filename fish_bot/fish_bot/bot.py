@@ -12,6 +12,7 @@ from discord.ext.commands import Context
 # Local imports
 from fish_bot.exceptions import UserUnauthorized, ChannelUnauthorized
 from fish_bot.utils import BaseFileMonitor, ConfigManager, CogAutoReload, CogManager, MemoryUtils
+from fish_bot.utils.permission_manager import PermissionManager
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -36,6 +37,7 @@ class DiscordBot(commands.Bot, BaseFileMonitor):
         )
         self.logger = logger
         self.cog_manager = CogManager(self)
+        self.permission_manager = PermissionManager(self.config)
 
     async def setup_hook(self) -> None:
         """This will just be executed when the bot starts the first time."""
@@ -59,44 +61,12 @@ class DiscordBot(commands.Bot, BaseFileMonitor):
         if ctx.cog:
             return True
 
-        # Always allow DMs from bot owner
-        if ctx.guild is None and await self.is_owner(ctx.author):
-            # self.logger.info(f"Bot owner {ctx.author} (ID: {ctx.author.id}) used command '{ctx.command.name}' in DM")
-            return True
-
-        permissions = self.config.get("command_permissions", {"commands": {}})
-
-        # Check for wildcard command permission
-        wildcard_config = permissions["commands"].get("*", {})
-        if str(ctx.channel.id) in wildcard_config.get("channels", {}):
-            return True
-
-        command_name = ctx.command.name
-        command_config = permissions["commands"].get(command_name, {})
-        channel_config = command_config.get("channels", {}).get(str(ctx.channel.id))
-
-        # Check for wildcard channel permission
-        if "*" in command_config.get("channels", {}):
-            return True
-
-        # Check channel permissions
-        if not channel_config:
-            self.logger.warning(
-                f"Command '{command_name}' blocked - unauthorized channel. "
-                f"Channel: {ctx.channel} (ID: {ctx.channel.id})"
-            )
-            raise ChannelUnauthorized(ctx.channel)
-
-        # Check user permissions if channel is not public
-        if not channel_config.get("public", False):
-            if str(ctx.author.id) not in channel_config.get("authorized_users", []):
-                self.logger.warning(
-                    f"Command '{command_name}' blocked - unauthorized user. "
-                    f"User: {ctx.author} (ID: {ctx.author.id})"
-                )
-                raise UserUnauthorized(ctx.author)
-
-        return True
+        # Let the permission manager handle the check
+        try:
+            return await self.permission_manager.check_command_permissions(ctx)
+        except (UserUnauthorized, ChannelUnauthorized):
+            # Let these exceptions propagate for the error handler
+            raise
 
     async def on_command_error(self, context: Context, error) -> None:
         if isinstance(error, commands.NotOwner):
@@ -136,14 +106,13 @@ class DiscordBot(commands.Bot, BaseFileMonitor):
             # Check if the user is the bot owner
             if await self.is_owner(context.author):
                 command_name = context.command.name
-                permissions = self.config.get("command_permissions", {"commands": {}})
 
-                # Get command permissions
-                command_config = permissions["commands"].get(command_name, {})
-                wildcard_config = permissions["commands"].get("*", {})
-
-                # Create detailed permissions message for bot owner
+                # Get authorized channels from permission manager
                 authorized_channels = []
+
+                # Get all command permissions
+                command_config = self.permission_manager.get_command_permissions(command_name)
+                wildcard_config = self.permission_manager.get_command_permissions("*")
 
                 # Add command-specific authorized channels
                 for channel_id, channel_config in command_config.get("channels", {}).items():
@@ -313,32 +282,7 @@ async def add_channel(ctx, command: str, channel_input):
     $add_channel list_cogs bot-commands
     $add_channel * 1234567890123456789
     """
-    # Handle different channel input types
-    channel = None
-
-    # Check if it's a channel mention
-    if len(ctx.message.channel_mentions) > 0:
-        channel = ctx.message.channel_mentions[0]
-    else:
-        # Try to interpret as a channel ID
-        try:
-            channel_id = int(channel_input)
-            channel = ctx.guild.get_channel(channel_id)
-        except (ValueError, TypeError):
-            # Try to interpret as a channel name
-            channel = discord.utils.get(ctx.guild.text_channels, name=channel_input)
-
-    # If we couldn't find a channel, inform the user
-    if not channel:
-        await ctx.send(f"Could not find channel '{channel_input}'. Please provide a valid channel mention, name, or ID.")
-        return
-
-    channel_id = str(channel.id)
-
-    if bot.config.add_command_channel(command, channel_id):
-        await ctx.send(f"Added channel {channel.mention} to command '{command}' permissions")
-    else:
-        await ctx.send(f"Failed to add channel {channel.mention} to command '{command}' permissions")
+    await bot.permission_manager.cmd_add_channel(ctx, command, channel_input)
 
 
 @bot.command()
@@ -357,56 +301,19 @@ async def remove_channel(ctx, command: str, channel_input):
     $remove_channel list_cogs bot-commands
     $remove_channel * 1234567890123456789
     """
-    # Handle different channel input types
-    channel = None
-
-    # Check if it's a channel mention
-    if len(ctx.message.channel_mentions) > 0:
-        channel = ctx.message.channel_mentions[0]
-    else:
-        # Try to interpret as a channel ID
-        try:
-            channel_id = int(channel_input)
-            channel = ctx.guild.get_channel(channel_id)
-        except (ValueError, TypeError):
-            # Try to interpret as a channel name
-            channel = discord.utils.get(ctx.guild.text_channels, name=channel_input)
-
-    # If we couldn't find a channel, inform the user
-    if not channel:
-        await ctx.send(f"Could not find channel '{channel_input}'. Please provide a valid channel mention, name, or ID.")
-        return
-
-    channel_id = str(channel.id)
-
-    if bot.config.remove_command_channel(command, channel_id):
-        await ctx.send(f"Removed channel {channel.mention} from command '{command}' permissions")
-    else:
-        await ctx.send(f"Failed to remove channel {channel.mention} from command '{command}' permissions")
+    await bot.permission_manager.cmd_remove_channel(ctx, command, channel_input)
 
 
 @bot.command()
 async def add_user(ctx, command: str, channel: discord.TextChannel, user: discord.Member):
     """Add an authorized user to a command channel."""
-    channel_id = str(channel.id)
-    user_id = str(user.id)
-
-    if bot.config.add_authorized_user(command, channel_id, user_id):
-        await ctx.send(f"Added {user.mention} to authorized users for command '{command}' in channel {channel.mention}")
-    else:
-        await ctx.send(f"Failed to add {user.mention} to authorized users for command '{command}' in channel {channel.mention}")
+    await bot.permission_manager.cmd_add_user(ctx, command, channel, user)
 
 
 @bot.command()
 async def remove_user(ctx, command: str, channel: discord.TextChannel, user: discord.Member):
     """Remove an authorized user from a command channel."""
-    channel_id = str(channel.id)
-    user_id = str(user.id)
-
-    if bot.config.remove_authorized_user(command, channel_id, user_id):
-        await ctx.send(f"Removed {user.mention} from authorized users for command '{command}' in channel {channel.mention}")
-    else:
-        await ctx.send(f"Failed to remove {user.mention} from authorized users for command '{command}' in channel {channel.mention}")
+    await bot.permission_manager.cmd_remove_user(ctx, command, channel, user)
 
 
 @bot.command()
@@ -529,6 +436,103 @@ async def memory_all_cogs(ctx):
     )
 
     await ctx.send(embed=embed)
+
+
+@bot.group(name="perm", aliases=["perms", "permission", "permissions"], invoke_without_command=True)
+async def permission_group(ctx):
+    """Command group for managing command permissions"""
+    if ctx.invoked_subcommand is None:
+        await bot.permission_manager.show_permissions_overview(ctx)
+
+
+@permission_group.command(name="list")
+async def permission_list(ctx, command_name: str = None):
+    """List permissions for a specific command or all commands"""
+    await bot.permission_manager.show_permissions(ctx, command_name)
+
+
+@permission_group.command(name="add_channel", aliases=["ac"])
+async def permission_add_channel(ctx, command: str, channel_input, public: bool = False):
+    """Add a channel to command permissions
+
+    Examples:
+    ---------
+    !perm add_channel list_cogs #bot-commands true  (public command)
+    !perm add_channel list_cogs #bot-commands       (non-public)
+    !perm add_channel * #admin-channel              (allows all commands in admin-channel)
+    !perm ac list_cogs bot-commands                 (using alias)
+    """
+    await bot.permission_manager.cmd_add_channel(ctx, command, channel_input, public)
+
+
+@permission_group.command(name="remove_channel", aliases=["rc"])
+async def permission_remove_channel(ctx, command: str, channel_input):
+    """Remove a channel from command permissions
+
+    Examples:
+    ---------
+    !perm remove_channel list_cogs #bot-commands
+    !perm rc list_cogs bot-commands          (using alias)
+    """
+    await bot.permission_manager.cmd_remove_channel(ctx, command, channel_input)
+
+
+@permission_group.command(name="add_user", aliases=["au"])
+async def permission_add_user(ctx, command: str, channel_input, user: discord.Member):
+    """Add an authorized user to a command channel
+
+    Examples:
+    ---------
+    !perm add_user list_cogs #bot-commands @username
+    !perm au list_cogs #bot-commands @username      (using alias)
+    """
+    channel = await bot.permission_manager.resolve_channel_from_input(ctx, channel_input)
+    if not channel:
+        return await ctx.send(f"Could not find channel '{channel_input}'")
+    await bot.permission_manager.cmd_add_user(ctx, command, channel, user)
+
+
+@permission_group.command(name="remove_user", aliases=["ru"])
+async def permission_remove_user(ctx, command: str, channel_input, user: discord.Member):
+    """Remove an authorized user from a command channel
+
+    Examples:
+    ---------
+    !perm remove_user list_cogs #bot-commands @username
+    !perm ru list_cogs #bot-commands @username      (using alias)
+    """
+    channel = await bot.permission_manager.resolve_channel_from_input(ctx, channel_input)
+    if not channel:
+        return await ctx.send(f"Could not find channel '{channel_input}'")
+    await bot.permission_manager.cmd_remove_user(ctx, command, channel, user)
+
+
+@permission_group.command(name="set_public")
+async def permission_set_public(ctx, command: str, channel_input, public: bool = True):
+    """Set whether a command is public in a channel
+
+    Examples:
+    ---------
+    !perm set_public list_cogs #bot-commands true    (make public)
+    !perm set_public list_cogs #bot-commands false   (make non-public)
+    """
+    channel = await bot.permission_manager.resolve_channel_from_input(ctx, channel_input)
+    if not channel:
+        return await ctx.send(f"Could not find channel '{channel_input}'")
+
+    success = bot.permission_manager.set_channel_public(command, str(channel.id), public)
+    if success:
+        status = "public" if public else "non-public"
+        await ctx.send(f"✅ Set command '{command}' to {status} in {channel.mention}")
+    else:
+        await ctx.send("❌ Failed to update permission settings")
+
+
+@permission_group.command(name="reload")
+async def permission_reload(ctx):
+    """Reload permissions from configuration file"""
+    bot.permission_manager.reload_permissions()
+    await ctx.send("✅ Permission settings reloaded from configuration")
 
 
 # Start the bot
