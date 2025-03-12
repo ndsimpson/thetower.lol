@@ -1,0 +1,566 @@
+"""
+Unified permission management system for the bot.
+
+This module provides centralized command permission checking and management
+for both global commands and cog-specific commands.
+"""
+
+# Standard library imports
+import logging
+from typing import Dict, Any, List, Optional
+
+# Third-party imports
+import discord
+from discord.ext.commands import Context
+
+# Local imports
+from fish_bot.exceptions import UserUnauthorized, ChannelUnauthorized
+
+logger = logging.getLogger(__name__)
+
+
+class PermissionManager:
+    """
+    Central manager for Discord bot command permissions.
+
+    Provides methods to check and manage permissions for both global and
+    cog-specific commands uniformly.
+    """
+
+    def __init__(self, config_manager):
+        """
+        Initialize the permission manager with a config manager.
+
+        Args:
+            config_manager: The configuration manager to use for storing/retrieving permissions
+        """
+        self.config = config_manager
+        self.permissions = self._load_permissions()
+
+    def _load_permissions(self) -> Dict[str, Any]:
+        """
+        Load command permissions from configuration.
+
+        Returns:
+            Dict containing the command permissions structure
+        """
+        try:
+            permissions = self.config.get("command_permissions", {"commands": {}})
+            return permissions
+        except Exception as e:
+            logger.error(f"Failed to load command permissions: {e}")
+            return {"commands": {}}
+
+    def reload_permissions(self) -> None:
+        """Reload permissions from the configuration."""
+        self.permissions = self._load_permissions()
+
+    async def check_command_permissions(self, ctx: Context, command_name: str = None) -> bool:
+        """
+        Check if a command can be executed in the current context.
+
+        Args:
+            ctx: The command context
+            command_name: Optional command name override (defaults to ctx.command.name)
+
+        Returns:
+            True if the command is allowed, False otherwise
+
+        Raises:
+            ChannelUnauthorized: If the channel is not authorized for this command
+            UserUnauthorized: If the user is not authorized for this command
+        """
+        if not command_name:
+            command_name = ctx.command.name
+
+        # Always allow the help command
+        if command_name == 'help':
+            return True
+
+        # Always allow DMs from bot owner
+        if ctx.guild is None and await ctx.bot.is_owner(ctx.author):
+            return True
+
+        # Check for wildcard command permission
+        wildcard_config = self.permissions["commands"].get("*", {})
+        if str(ctx.channel.id) in wildcard_config.get("channels", {}):
+            channel_config = wildcard_config["channels"].get(str(ctx.channel.id), {})
+
+            # If not public, check user permissions
+            if not channel_config.get("public", False):
+                if str(ctx.author.id) not in channel_config.get("authorized_users", []):
+                    logger.warning(
+                        f"Command '{command_name}' blocked - unauthorized user in wildcard channel. "
+                        f"User: {ctx.author} (ID: {ctx.author.id})"
+                    )
+                    raise UserUnauthorized(ctx.author)
+            return True
+
+        # Get command-specific permissions
+        command_config = self.permissions["commands"].get(command_name, {})
+        channel_config = command_config.get("channels", {}).get(str(ctx.channel.id))
+
+        # Check for wildcard channel permission
+        if "*" in command_config.get("channels", {}):
+            wildcard_channel_config = command_config["channels"].get("*", {})
+            # If wildcard is public or user is authorized
+            if wildcard_channel_config.get("public", False) or \
+               str(ctx.author.id) in wildcard_channel_config.get("authorized_users", []):
+                return True
+
+        # Check channel permissions
+        if not channel_config:
+            logger.warning(
+                f"Command '{command_name}' blocked - unauthorized channel. "
+                f"Channel: {ctx.channel} (ID: {ctx.channel.id})"
+            )
+            raise ChannelUnauthorized(ctx.channel)
+
+        # Check user permissions if channel is not public
+        if not channel_config.get("public", False):
+            if str(ctx.author.id) not in channel_config.get("authorized_users", []):
+                logger.warning(
+                    f"Command '{command_name}' blocked - unauthorized user. "
+                    f"User: {ctx.author} (ID: {ctx.author.id})"
+                )
+                raise UserUnauthorized(ctx.author)
+
+        return True
+
+    def add_command_channel(
+        self, command: str, channel_id: str, public: bool = False, authorized_users: List[str] = None
+    ) -> bool:
+        """
+        Add a channel to command permissions.
+
+        Args:
+            command: The command name
+            channel_id: The channel ID
+            public: Whether the command is public in this channel
+            authorized_users: List of authorized user IDs if not public
+
+        Returns:
+            True if successful, False otherwise
+        """
+        return self.config.add_command_channel(command, channel_id, public, authorized_users)
+
+    def remove_command_channel(self, command: str, channel_id: str) -> bool:
+        """
+        Remove a channel from command permissions.
+
+        Args:
+            command: The command name
+            channel_id: The channel ID
+
+        Returns:
+            True if successful, False otherwise
+        """
+        return self.config.remove_command_channel(command, channel_id)
+
+    def add_authorized_user(self, command: str, channel_id: str, user_id: str) -> bool:
+        """
+        Add an authorized user to a command channel.
+
+        Args:
+            command: The command name
+            channel_id: The channel ID
+            user_id: The user ID
+
+        Returns:
+            True if successful, False otherwise
+        """
+        return self.config.add_authorized_user(command, channel_id, user_id)
+
+    def remove_authorized_user(self, command: str, channel_id: str, user_id: str) -> bool:
+        """
+        Remove an authorized user from a command channel.
+
+        Args:
+            command: The command name
+            channel_id: The channel ID
+            user_id: The user ID
+
+        Returns:
+            True if successful, False otherwise
+        """
+        return self.config.remove_authorized_user(command, channel_id, user_id)
+
+    def set_channel_public(self, command: str, channel_id: str, public: bool = True) -> bool:
+        """
+        Set whether a command is public in a channel.
+
+        Args:
+            command: The command name
+            channel_id: The channel ID
+            public: Whether the command is public
+
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            permissions = self.config.get("command_permissions", {"commands": {}})
+
+            # Initialize commands dict if it doesn't exist
+            commands = permissions.setdefault("commands", {})
+
+            # Initialize command config if it doesn't exist
+            command_config = commands.setdefault(command, {})
+
+            # Initialize channels dict if it doesn't exist
+            channels = command_config.setdefault("channels", {})
+
+            # Initialize channel config if it doesn't exist
+            channel_config = channels.setdefault(channel_id, {})
+
+            # Set public flag
+            channel_config["public"] = public
+
+            # Save updated permissions
+            self.config.save("command_permissions", permissions)
+
+            # Reload permissions
+            self.permissions = permissions
+
+            return True
+        except Exception as e:
+            logger.error(f"Failed to set channel public flag: {e}")
+            return False
+
+    def get_command_permissions(self, command: str) -> Dict[str, Any]:
+        """
+        Get permissions for a specific command.
+
+        Args:
+            command: The command name
+
+        Returns:
+            Dict containing the command permissions
+        """
+        return self.permissions.get("commands", {}).get(command, {})
+
+    def get_authorized_channels(self, command: str) -> List[str]:
+        """
+        Get all channels authorized for a command.
+
+        Args:
+            command: The command name
+
+        Returns:
+            List of channel IDs authorized for the command
+        """
+        command_config = self.get_command_permissions(command)
+        channels = command_config.get("channels", {})
+
+        # Also check the wildcard command
+        wildcard_channels = self.permissions.get("commands", {}).get("*", {}).get("channels", {})
+
+        # Combine both sets of channels
+        return list(set(channels.keys()).union(wildcard_channels.keys()))
+
+    def get_authorized_users(self, command: str, channel_id: str) -> List[str]:
+        """
+        Get all users authorized for a command in a channel.
+
+        Args:
+            command: The command name
+            channel_id: The channel ID
+
+        Returns:
+            List of user IDs authorized for the command in the channel
+        """
+        command_config = self.get_command_permissions(command)
+        channel_config = command_config.get("channels", {}).get(channel_id, {})
+
+        return channel_config.get("authorized_users", [])
+
+    def is_command_public(self, command: str, channel_id: str) -> bool:
+        """
+        Check if a command is public in a channel.
+
+        Args:
+            command: The command name
+            channel_id: The channel ID
+
+        Returns:
+            True if the command is public, False otherwise
+        """
+        # Check specific command channel
+        command_config = self.get_command_permissions(command)
+        channel_config = command_config.get("channels", {}).get(channel_id, {})
+
+        if channel_config.get("public", False):
+            return True
+
+        # Check wildcard command
+        wildcard_config = self.permissions.get("commands", {}).get("*", {})
+        wildcard_channel_config = wildcard_config.get("channels", {}).get(channel_id, {})
+
+        return wildcard_channel_config.get("public", False)
+
+    @staticmethod
+    async def resolve_channel_from_input(ctx, channel_input):
+        """Resolve a channel from different input types (mention, ID, or name).
+
+        Args:
+            ctx: The command context
+            channel_input: The channel input (mention, ID, or name)
+
+        Returns:
+            discord.TextChannel or None: The resolved channel, or None if not found
+        """
+        channel = None
+
+        # Check if it's a channel mention
+        if ctx.message.channel_mentions:
+            channel = ctx.message.channel_mentions[0]
+        else:
+            # Try to interpret as a channel ID
+            try:
+                channel_id = int(channel_input)
+                channel = ctx.guild.get_channel(channel_id)
+            except (ValueError, TypeError):
+                # Try to interpret as a channel name
+                channel = discord.utils.get(ctx.guild.text_channels, name=channel_input)
+
+        return channel
+
+    async def cmd_add_channel(self, ctx, command, channel_input, public: bool = False):
+        """Add a channel to command permissions.
+
+        Args:
+            ctx: The command context
+            command: The command name
+            channel_input: The channel input
+            public: Whether the command should be public in this channel
+
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        channel = await self.resolve_channel_from_input(ctx, channel_input)
+
+        if not channel:
+            await ctx.send(f"Could not find channel '{channel_input}'. Please provide a valid channel mention, name, or ID.")
+            return False
+
+        channel_id = str(channel.id)
+
+        if self.add_command_channel(command, channel_id, public):
+            status = "public" if public else "non-public"
+            await ctx.send(f"✅ Added channel {channel.mention} to command '{command}' permissions ({status})")
+            return True
+        else:
+            await ctx.send(f"❌ Failed to add channel {channel.mention} to command '{command}' permissions")
+            return False
+
+    async def cmd_remove_channel(self, ctx, command, channel_input):
+        """Remove a channel from command permissions.
+
+        Args:
+            ctx: The command context
+            command: The command name
+            channel_input: The channel input
+
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        channel = await self.resolve_channel_from_input(ctx, channel_input)
+
+        if not channel:
+            await ctx.send(f"Could not find channel '{channel_input}'. Please provide a valid channel mention, name, or ID.")
+            return False
+
+        channel_id = str(channel.id)
+
+        if self.remove_command_channel(command, channel_id):
+            await ctx.send(f"Removed channel {channel.mention} from command '{command}' permissions")
+            return True
+        else:
+            await ctx.send(f"Failed to remove channel {channel.mention} from command '{command}' permissions")
+            return False
+
+    async def cmd_add_user(self, ctx, command, channel, user):
+        """Add a user to authorized users for a command channel.
+
+        Args:
+            ctx: The command context
+            command: The command name
+            channel: The channel
+            user: The user to add
+
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        channel_id = str(channel.id)
+        user_id = str(user.id)
+
+        if self.add_authorized_user(command, channel_id, user_id):
+            await ctx.send(f"Added {user.mention} to authorized users for command '{command}' in channel {channel.mention}")
+            return True
+        else:
+            await ctx.send(f"Failed to add {user.mention} to authorized users for command '{command}' in channel {channel.mention}")
+            return False
+
+    async def cmd_remove_user(self, ctx, command, channel, user):
+        """Remove a user from authorized users for a command channel.
+
+        Args:
+            ctx: The command context
+            command: The command name
+            channel: The channel
+            user: The user to remove
+
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        channel_id = str(channel.id)
+        user_id = str(user.id)
+
+        if self.remove_authorized_user(command, channel_id, user_id):
+            await ctx.send(f"Removed {user.mention} from authorized users for command '{command}' in channel {channel.mention}")
+            return True
+        else:
+            await ctx.send(f"Failed to remove {user.mention} from authorized users for command '{command}' in channel {channel.mention}")
+            return False
+
+    async def show_permissions_overview(self, ctx: Context) -> None:
+        """
+        Display an overview of command permissions.
+
+        Args:
+            ctx: The command context
+        """
+        embed = discord.Embed(
+            title="Permission Management",
+            description="Overview of command permissions",
+            color=discord.Color.blue()
+        )
+
+        # List all commands with permissions
+        commands_with_perms = list(self.permissions.get("commands", {}).keys())
+        if commands_with_perms:
+            commands_list = "\n".join([f"• {cmd}" for cmd in commands_with_perms])
+            embed.add_field(
+                name="Commands with Permissions",
+                value=commands_list,
+                inline=False
+            )
+        else:
+            embed.add_field(
+                name="Commands with Permissions",
+                value="No commands have permissions set",
+                inline=False
+            )
+
+        # Add help text
+        embed.add_field(
+            name="Available Commands",
+            value=(
+                "• `!perm list [command]` - List permissions for a command\n"
+                "• `!perm add_channel <command> <channel> [public]` - Add channel\n"
+                "• `!perm remove_channel <command> <channel>` - Remove channel\n"
+                "• `!perm add_user <command> <channel> <user>` - Add user\n"
+                "• `!perm remove_user <command> <channel> <user>` - Remove user\n"
+                "• `!perm set_public <command> <channel> [true/false]` - Set public status"
+            ),
+            inline=False
+        )
+
+        await ctx.send(embed=embed)
+
+    async def show_permissions(self, ctx: Context, command_name: Optional[str] = None) -> None:
+        """
+        Display permissions for a specific command or all commands.
+
+        Args:
+            ctx: The command context
+            command_name: Optional command name to show permissions for
+        """
+        bot = ctx.bot
+        commands_dict = self.permissions.get("commands", {})
+
+        if command_name:
+            # Show permissions for a specific command
+            if command_name not in commands_dict and command_name != "*":
+                return await ctx.send(f"No permissions set for command `{command_name}`")
+
+            embed = discord.Embed(
+                title=f"Permissions for `{command_name}`",
+                color=discord.Color.blue()
+            )
+
+            command_config = commands_dict.get(command_name, {})
+            channels = command_config.get("channels", {})
+
+            if not channels:
+                embed.description = "No channels configured for this command"
+            else:
+                for channel_id, channel_config in channels.items():
+                    if channel_id == "*":
+                        channel_desc = "All channels (wildcard)"
+                    else:
+                        channel = bot.get_channel(int(channel_id))
+                        channel_desc = f"#{channel.name}" if channel else f"Unknown ({channel_id})"
+
+                    is_public = channel_config.get("public", False)
+                    status = "Public" if is_public else "Non-public"
+
+                    value = f"**Status**: {status}\n"
+
+                    if not is_public:
+                        users = channel_config.get("authorized_users", [])
+                        if users:
+                            user_mentions = []
+                            for user_id in users[:10]:  # Limit to first 10 users
+                                user = bot.get_user(int(user_id))
+                                user_mentions.append(f"<@{user_id}>" if user else f"ID:{user_id}")
+
+                            if len(users) > 10:
+                                user_mentions.append(f"...and {len(users) - 10} more")
+
+                            value += f"**Authorized Users**: {', '.join(user_mentions)}"
+                        else:
+                            value += "**Authorized Users**: None"
+
+                    embed.add_field(
+                        name=f"Channel: {channel_desc}",
+                        value=value,
+                        inline=False
+                    )
+
+            await ctx.send(embed=embed)
+        else:
+            # Show overview of all commands
+            embed = discord.Embed(
+                title="Command Permissions Overview",
+                description="List of commands with their permissions",
+                color=discord.Color.blue()
+            )
+
+            if not commands_dict:
+                embed.description = "No command permissions configured"
+            else:
+                for cmd_name, cmd_config in commands_dict.items():
+                    channels = cmd_config.get("channels", {})
+                    channel_list = []
+
+                    for chan_id, chan_config in channels.items():
+                        if chan_id == "*":
+                            channel_desc = "All channels"
+                        else:
+                            channel = bot.get_channel(int(chan_id))
+                            channel_desc = f"#{channel.name}" if channel else f"ID:{chan_id}"
+
+                        is_public = chan_config.get("public", False)
+                        status = " (Public)" if is_public else f" ({len(chan_config.get('authorized_users', []))} users)"
+                        channel_list.append(f"{channel_desc}{status}")
+
+                    if channel_list:
+                        embed.add_field(
+                            name=f"Command: {cmd_name}",
+                            value="\n".join(channel_list[:5]) + (
+                                f"\n...and {len(channel_list) - 5} more channels" if len(channel_list) > 5 else ""
+                            ),
+                            inline=False
+                        )
+
+            await ctx.send(embed=embed)

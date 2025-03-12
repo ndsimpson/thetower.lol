@@ -40,7 +40,6 @@ class BaseCog(commands.Cog):
         super().__init__()  # Initialize commands.Cog
         self.bot = bot
         self.config = ConfigManager()
-        self._permissions = self.load_command_permissions()
         self._guild = None  # Cache for guild object
         self._cog_data_directory = None  # Cache for cog data directory
 
@@ -156,39 +155,15 @@ class BaseCog(commands.Cog):
         if ctx.command.name == 'help':
             return True
 
-        # Check for wildcard command permission
-        wildcard_config = self._permissions["commands"].get("*", {})
-        if str(ctx.channel.id) in wildcard_config.get("channels", {}):
-            return True
-
+        # Get the full command name for subcommands
         command_name = self.get_command_name(ctx)
-        command_config = self._permissions["commands"].get(command_name, {})
-        channel_config = command_config.get("channels", {}).get(str(ctx.channel.id))
 
-        # Check for wildcard channel permission
-        if "*" in command_config.get("channels", {}):
-            return True
-
-        # Check channel permissions
-        if not channel_config:
-            logger = logging.getLogger(__name__)
-            logger.warning(
-                f"Command '{command_name}' blocked - unauthorized channel. "
-                f"Channel: {ctx.channel} (ID: {ctx.channel.id})"
-            )
-            raise ChannelUnauthorized(ctx.channel)
-
-        # Check user permissions if channel is not public
-        if not channel_config.get("public", False):
-            if ctx.author.id not in channel_config.get("authorized_users", []):
-                logger = logging.getLogger(__name__)
-                logger.warning(
-                    f"Command '{command_name}' blocked - unauthorized user. "
-                    f"User: {ctx.author} (ID: {ctx.author.id})"
-                )
-                raise UserUnauthorized(ctx.author)
-
-        return True
+        # Use the bot's permission manager to check permissions
+        try:
+            return await self.bot.permission_manager.check_command_permissions(ctx, command_name)
+        except (UserUnauthorized, ChannelUnauthorized):
+            # Let these exceptions propagate for the error handler
+            raise
 
     def reload_permissions(self) -> None:
         """Reload permissions from file."""
