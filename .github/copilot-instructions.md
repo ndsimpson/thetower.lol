@@ -78,5 +78,22 @@
 - "Django view": Create a Django view with appropriate patterns
 - "Streamlit component": Create a Streamlit UI component
 
-## Custom Notes
-- When display code, please indent it such that I can copy and paste it directly into my files.
+## Project Specific Guidelines
+- **Imports**:
+  - Don't leave unused imports behind
+  - Use absolute imports for Discord cogs
+
+- **Configuration Management**:
+  - The ConfigManager class (primarily used in bot.py and basecog.py) handles application settings
+  - Configuration files store infrequently changed application parameters
+  - The settings file is saved as json format.
+
+- **Data Persistence**:
+  - Cogs with frequently updated user/runtime data should use self.data_directory from BaseCog
+  - Save files store dynamic data that changes during normal application usage
+  - Use appropriate serialization methods based on data complexity and access patterns
+  - Preferred file formats are pickle and json
+
+- **Discord Command Security**:
+  - Command permissions are handled via the PermissionManager utility
+  - Individual cogs should not have command predicates within the cogs themselves
