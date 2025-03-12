@@ -424,10 +424,10 @@ class FormHandler(commands.Cog):
         if target_forum:
             try:
                 # Create thread title for the forum post
-                thread_title = f"{user.name}'s Member Advertisement"
+                thread_title = f"{user.name} ({player_id})"
 
                 # Create an initial message for the forum thread
-                initial_message = f"This thread is for discussing {user.name}'s advertisement."
+                initial_message = f"{user.name} ({player_id})"
 
                 # Create the forum thread with both content and embed
                 thread = await target_forum.create_thread(
