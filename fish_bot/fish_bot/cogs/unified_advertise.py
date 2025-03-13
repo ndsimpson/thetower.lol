@@ -192,7 +192,7 @@ class MemberAdvertisementForm(Modal, title="Member Advertisement Form"):
         embed.set_footer(text="Use /advertise to submit your own advertisement")
 
         # Post advertisement and update cooldowns
-        thread_title = f"[Member Looking] {interaction.user.name} ({player_id})"
+        thread_title = f"[Member] {interaction.user.name} ({player_id})"
         await self.cog.post_advertisement(interaction, embed, thread_title, AdvertisementType.MEMBER)
 
 
