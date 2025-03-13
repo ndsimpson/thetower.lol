@@ -82,11 +82,11 @@ class GuildAdvertisementForm(Modal, title="Guild Advertisement Form"):
         self.cog = cog
 
     async def on_submit(self, interaction: discord.Interaction):
-        # Check if guild ID is valid (only A-F, 0-9, exactly 6 chars)
+        # Check if guild ID is valid (only A-Z, 0-9, exactly 6 chars)
         guild_id = self.guild_id.value.upper()
-        if not re.match(r'^[A-F0-9]{6}$', guild_id):
+        if not re.match(r'^[A-Z0-9]{6}$', guild_id):
             await interaction.response.send_message(
-                "Guild ID must be exactly 6 characters and only contain letters A-F and numbers 0-9.",
+                "Guild ID must be exactly 6 characters and only contain letters A-Z and numbers 0-9.",
                 ephemeral=True
             )
             return
@@ -153,11 +153,11 @@ class MemberAdvertisementForm(Modal, title="Member Advertisement Form"):
         self.cog = cog
 
     async def on_submit(self, interaction: discord.Interaction):
-        # Check if player ID is valid (only A-F, 0-9)
+        # Check if player ID is valid (only A-Z, 0-9)
         player_id = self.player_id.value.upper()
-        if not re.match(r'^[A-F0-9]+$', player_id):
+        if not re.match(r'^[A-Z0-9]+$', player_id):
             await interaction.response.send_message(
-                "Player ID can only contain letters A-F and numbers 0-9.",
+                "Player ID can only contain letters A-Z and numbers 0-9.",
                 ephemeral=True
             )
             return
