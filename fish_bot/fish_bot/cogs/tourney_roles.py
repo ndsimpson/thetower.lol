@@ -29,6 +29,15 @@ class TourneyRoles(BaseCog, name="Tournament Roles"):
         if not self.has_setting("log_batch_size"):
             self.set_setting("log_batch_size", 10)  # Send logs in batches of 10 by default
 
+        # Add immediate logging setting if not present
+        if not self.has_setting("immediate_logging"):
+            self.set_setting("immediate_logging", True)  # Enable immediate logging by default
+
+        # Initialize log buffer
+        self.log_buffer = []
+        # Maximum log buffer size in characters before forcing a flush
+        self.log_buffer_max_size = 8000
+
         # Initialize empty roles config if not present
         if not self.has_setting("roles_config"):
             self.set_setting("roles_config", {})
@@ -75,7 +84,6 @@ class TourneyRoles(BaseCog, name="Tournament Roles"):
         self.debug_logging = self.get_setting('debug_logging')
         self.pause = self.get_setting('pause')
         self.update_on_startup = self.get_setting('update_on_startup')
-
         self.logger = logging.getLogger(__name__)
 
         # Role update tracking
@@ -93,7 +101,6 @@ class TourneyRoles(BaseCog, name="Tournament Roles"):
     async def get_known_players_cog(self):
         """Get a reference to the KnownPlayers cog"""
         known_players_cog = self.bot.get_cog("Known Players")
-
         if not known_players_cog:
             self.logger.error("KnownPlayers cog not found!")
             return None
@@ -119,18 +126,15 @@ class TourneyRoles(BaseCog, name="Tournament Roles"):
         known_players_cog = await self.get_known_players_cog()
         if not known_players_cog:
             return {}
-
         return await known_players_cog.get_discord_to_player_mapping()
 
     async def schedule_periodic_updates(self):
         """Schedule periodic role updates"""
         await self.bot.wait_until_ready()
-
         while not self.bot.is_closed():
             try:
                 # Check if it's time to run an update
                 should_update = False
-
                 if not self.last_full_update:
                     # Check if update_on_startup is enabled
                     if self.get_setting("update_on_startup"):
@@ -145,14 +149,11 @@ class TourneyRoles(BaseCog, name="Tournament Roles"):
                     if time_since_update >= self.update_interval:
                         should_update = True
                         self.logger.info(f"Time since last update ({time_since_update:.1f}s) exceeds interval, running role update")
-
                 if should_update and not self.currently_updating:
                     # Run the update
                     await self.update_all_roles()
-
                 # Sleep until next check
                 await asyncio.sleep(60)  # Check every minute if update needed
-
             except Exception as e:
                 self.logger.error(f"Error in periodic role update: {e}")
                 await asyncio.sleep(self.get_setting("error_retry_delay", 300))  # Sleep on error
@@ -204,7 +205,6 @@ class TourneyRoles(BaseCog, name="Tournament Roles"):
             self.logger.info(f"Processing {len(discord_ids)} Discord users")
 
             guild = self.guild
-
             if not guild:
                 self.logger.error("Could not find guild")
                 return
@@ -219,7 +219,6 @@ class TourneyRoles(BaseCog, name="Tournament Roles"):
 
             # Initialize log message collection
             log_messages = []
-            log_batch_size = self.get_setting("log_batch_size", 10)
 
             # Process users in batches to avoid rate limits
             for i in range(0, len(discord_ids), self.process_batch_size):
@@ -236,7 +235,6 @@ class TourneyRoles(BaseCog, name="Tournament Roles"):
 
                         # Get player IDs for this user
                         player_ids = player_data.get('all_ids', [])
-
                         if not player_ids:
                             self.users_with_no_player_data += 1
                             continue
@@ -259,6 +257,7 @@ class TourneyRoles(BaseCog, name="Tournament Roles"):
                                     self.logger.warning(f"Could not find role with ID {role_id} for '{role_name}'")
 
                         # Update member's roles
+                        # The updated update_member_roles will handle adding to log buffer
                         roles_added, roles_removed, log_message = await self.update_member_roles(member, player_tournaments, role_objects)
 
                         # Handle logging
@@ -266,6 +265,7 @@ class TourneyRoles(BaseCog, name="Tournament Roles"):
                             log_messages.append(log_message)
 
                             # If we've reached batch size, send logs
+                            log_batch_size = self.get_setting("log_batch_size", 10)
                             if len(log_messages) >= log_batch_size:
                                 await self.send_role_logs_batch(log_messages)
                                 log_messages = []
@@ -290,6 +290,8 @@ class TourneyRoles(BaseCog, name="Tournament Roles"):
 
                     except Exception as e:
                         self.logger.error(f"Error processing user {discord_id}: {e}")
+                        # Log errors to Discord channel too
+                        await self.add_log_message(f"⚠️ Error processing user {discord_id}: {e}")
 
                 # Break out of batch loop if we've hit our dry run limit
                 dry_run_limit = self.dry_run_limit
@@ -304,20 +306,24 @@ class TourneyRoles(BaseCog, name="Tournament Roles"):
                 if i + self.process_batch_size < len(discord_ids):
                     await asyncio.sleep(self.process_delay)
 
-            # After processing, send any remaining logs
-            if log_messages:
-                await self.send_role_logs_batch(log_messages)
+            # After processing, flush any remaining logs
+            await self.flush_log_buffer()
 
             # Update timestamp - at the end of processing
             self.last_full_update = datetime.datetime.now(datetime.timezone.utc)
             duration = (self.last_full_update - start_time).total_seconds()
-
             if dry_run:
                 self.logger.info(f"Dry run role update completed in {duration:.1f}s (limited to {dry_run_user_count} users)")
+                await self.add_log_message(f"✅ Dry run role update completed in {duration:.1f}s (limited to {dry_run_user_count} users)")
             else:
                 self.logger.info(f"Role update completed in {duration:.1f}s")
+                await self.add_log_message(f"✅ Role update completed in {duration:.1f}s")
 
             self.logger.info(f"Stats: Processed {self.processed_users} users, {self.roles_assigned} roles assigned, {self.roles_removed} roles removed")
+            await self.add_log_message(f"📊 Stats: Processed {self.processed_users} users, {self.roles_assigned} roles assigned, {self.roles_removed} roles removed")
+
+            # Send any final log messages
+            await self.flush_log_buffer()
 
             # Mark data as modified
             self.mark_data_modified()
@@ -330,6 +336,8 @@ class TourneyRoles(BaseCog, name="Tournament Roles"):
             self.last_full_update = error_time
             if hasattr(self, 'update_progress'):
                 self.update_progress["error"] = str(e)
+            await self.add_log_message(f"❌ Error during role update: {e}")
+            await self.flush_log_buffer()  # Make sure to send any buffered logs on error
             raise
 
         finally:
@@ -357,7 +365,6 @@ class TourneyRoles(BaseCog, name="Tournament Roles"):
             "leagues": {},  # Stats by league
             "latest_tournament": {
                 "placement": None,
-                "wave": None,
                 "league": None,
                 "date": None
             },
@@ -389,15 +396,13 @@ class TourneyRoles(BaseCog, name="Tournament Roles"):
                             "avg_position": 0
                         }
 
-                    # Get league stats and update tournament counts
-                    league_result = result["leagues"][league_name]
-                    tourney_count = league_stats.get('total_tourneys', 0)
-
                     # Skip this league if no tournaments
+                    tourney_count = league_stats.get('total_tourneys', 0)
                     if tourney_count == 0:
                         continue
 
                     # Update tournament counts
+                    league_result = result["leagues"][league_name]
                     prev_count = league_result["total_tourneys"]
                     league_result["total_tourneys"] += tourney_count
                     result["total_tourneys"] += tourney_count
@@ -451,7 +456,6 @@ class TourneyRoles(BaseCog, name="Tournament Roles"):
                         }
 
                     self.logger.debug(f"Player {player_id}: {tourney_count} tournaments in {league_name}, best wave: {best_wave}")
-
             except Exception as e:
                 self.logger.error(f"Error getting stats for player {player_id}: {e}")
 
@@ -480,11 +484,12 @@ class TourneyRoles(BaseCog, name="Tournament Roles"):
         roles_config = self.get_setting("roles_config", {})
         all_managed_role_ids = [config.get('id') for config in roles_config.values()]
 
+        dry_run = self.get_setting("dry_run")
+
         # Track changes
         roles_added = 0
         roles_removed = 0
         role_changes = []  # List of role changes for logging
-        dry_run = self.get_setting("dry_run")
 
         # If player qualifies for a role
         if best_role_id:
@@ -525,6 +530,10 @@ class TourneyRoles(BaseCog, name="Tournament Roles"):
         if role_changes and not dry_run:
             log_message = f"{member.name}: {', '.join(role_changes)}"
 
+            # Add to buffer for immediate logging if enabled
+            if log_message and not dry_run:
+                await self.add_log_message(log_message)
+
         return roles_added, roles_removed, log_message
 
     def determine_best_role(self, player_tournaments):
@@ -564,9 +573,6 @@ class TourneyRoles(BaseCog, name="Tournament Roles"):
                           if config.get('method') == 'Champion'}
 
         if champion_roles:
-            if debug_logging:
-                self.logger.info(f"CHAMPION METHOD: Checking {len(champion_roles)} champion roles")
-
             # Check if multiple "Current Champion" roles are configured
             if len(champion_roles) > 1 and debug_logging:
                 self.logger.warning(f"Multiple Champion method roles detected: {', '.join(champion_roles.keys())}. Only one should be configured.")
@@ -649,9 +655,6 @@ class TourneyRoles(BaseCog, name="Tournament Roles"):
                 if league in league_placement_roles and league in player_tournaments.get("leagues", {}):
                     league_data = player_tournaments["leagues"][league]
                     best_position = league_data.get("best_position")
-
-                    if debug_logging:
-                        self.logger.info(f"Player's best position in {league}: {best_position}")
 
                     if best_position and best_position != float('inf'):
                         # Sort roles within this league by threshold (ascending)
@@ -740,6 +743,7 @@ class TourneyRoles(BaseCog, name="Tournament Roles"):
         if debug_logging:
             self.logger.info("❌ NO QUALIFYING ROLE FOUND")
             self.logger.info("==== END ROLE DETERMINATION ANALYSIS ====")
+
         return None
 
     @commands.group(name="roles", aliases=["r"], invoke_without_command=True)
@@ -791,6 +795,13 @@ class TourneyRoles(BaseCog, name="Tournament Roles"):
                 emoji = "✅" if value else "❌"
                 formatted_value = f"{emoji} {'Enabled' if value else 'Disabled'}"
                 flag_embed.add_field(name=name, value=formatted_value, inline=True)
+
+        # Add immediate logging status to embed
+        if "immediate_logging" in settings:
+            value = settings.pop("immediate_logging")
+            emoji = "✅" if value else "❌"
+            formatted_value = f"{emoji} {'Enabled' if value else 'Disabled'}"
+            flag_embed.add_field(name="Immediate Logging", value=formatted_value, inline=True)
 
         # Process threshold settings
         threshold_embed = discord.Embed(
@@ -879,7 +890,6 @@ class TourneyRoles(BaseCog, name="Tournament Roles"):
             status = "⏸️ Paused"
         elif self.get_setting("dry_run"):
             status = "🔍 Dry Run Mode"
-
         embed.add_field(name="Status", value=status, inline=False)
 
         # Add last update information
@@ -911,7 +921,6 @@ class TourneyRoles(BaseCog, name="Tournament Roles"):
         if roles_embed and roles_embed.fields:
             await ctx.send(embed=roles_embed)
 
-    # Methods for managing role settings
     @roles_group.command(name="add_role")
     async def add_role_command(self, ctx, role: discord.Role, method: str,
                                threshold: int, league: str = None):
@@ -964,8 +973,6 @@ class TourneyRoles(BaseCog, name="Tournament Roles"):
             'method': method,
             'threshold': threshold
         }
-
-        # Add league for Wave method
         if method == 'Wave':
             roles_config[role_name]['league'] = league
 
@@ -1086,7 +1093,8 @@ class TourneyRoles(BaseCog, name="Tournament Roles"):
 
     @roles_group.command(name="set")
     async def roles_set_setting_command(self, ctx, setting_name: str, value: int):
-        """Change a tournament roles setting
+        """
+        Change a tournament roles setting
 
         Args:
             setting_name: Setting to change (update_interval, role_update_cooldown, process_batch_size, process_delay, error_retry_delay, dry_run_limit)
@@ -1129,21 +1137,20 @@ class TourneyRoles(BaseCog, name="Tournament Roles"):
         if hasattr(self, setting_name):
             setattr(self, setting_name, value)
 
-        # Format confirmation message
+        # Log the change
         if setting_name in ["update_interval", "role_update_cooldown", "process_delay"]:
             hours = value // 3600
             minutes = (value % 3600) // 60
             seconds = value % 60
             time_format = f"{hours}h {minutes}m {seconds}s"
-            await ctx.send(f"✅ Set {setting_name} to {value} seconds ({time_format})")
+            self.logger.info(f"Settings changed: {setting_name} set to {value} seconds ({time_format})")
         else:
-            await ctx.send(f"✅ Set {setting_name} to {value}")
-
-        # Log the change
-        self.logger.info(f"Settings changed: {setting_name} set to {value} by {ctx.author}")
+            self.logger.info(f"Settings changed: {setting_name} set to {value}")
 
         # Mark settings as modified
         self.mark_data_modified()
+
+        await ctx.send(f"✅ Set {setting_name} to {value}")
 
     @roles_group.command(name="status")
     async def roles_status_command(self, ctx):
@@ -1162,7 +1169,6 @@ class TourneyRoles(BaseCog, name="Tournament Roles"):
             status = "⏸️ Paused"
         elif self.get_setting("dry_run"):
             status = "🔍 Dry Run Mode"
-
         embed.add_field(name="System Status", value=status, inline=False)
 
         # Add update mode info
@@ -1173,7 +1179,6 @@ class TourneyRoles(BaseCog, name="Tournament Roles"):
             mode_info.append("🔍 **Dry run mode:** Role changes will be logged but not applied")
         else:
             mode_info.append("✅ **Normal mode:** Role changes will be applied")
-
         embed.add_field(name="Update Mode", value="\n".join(mode_info), inline=False)
 
         # Check for KnownPlayers cog
@@ -1211,7 +1216,6 @@ class TourneyRoles(BaseCog, name="Tournament Roles"):
                 log_status = f"✅ Enabled - {log_channel.mention} (ID: {log_channel_id})"
             else:
                 log_status = f"⚠️ Channel not found (ID: {log_channel_id})"
-
         embed.add_field(name="Role Update Logging", value=log_status, inline=False)
 
         if log_channel_id:
@@ -1286,7 +1290,6 @@ class TourneyRoles(BaseCog, name="Tournament Roles"):
 
             # One final update after completion
             await self.update_progress_display(final=True)
-
         except Exception as e:
             self.logger.error(f"Error in progress update: {e}")
         finally:
@@ -1325,16 +1328,12 @@ class TourneyRoles(BaseCog, name="Tournament Roles"):
                 # Create completion embed
                 duration = elapsed
                 duration_str = f"{duration:.1f}"
-
                 embed = discord.Embed(
                     title="Tournament Roles Updated" + (" (DRY RUN)" if dry_run else ""),
                     description=f"Successfully updated roles in {duration_str} seconds",
                     color=discord.Color.green()
                 )
-
                 # Add rest of embed content...
-                # [Code similar to your existing completion code]
-
                 await message.edit(content=None, embed=embed)
             else:
                 # Show progress bar during update
@@ -1358,12 +1357,12 @@ class TourneyRoles(BaseCog, name="Tournament Roles"):
                         f"`{progress_bar}` \n"
                         f"⏱️ Estimated time remaining: **{eta}**"
                     )
-
                     await message.edit(content=status)
 
     @roles_group.command(name="update_user")
     async def roles_update_user_command(self, ctx, user: discord.Member = None):
-        """Update tournament roles for a specific user
+        """
+        Update tournament roles for a specific user
 
         Args:
             user: The Discord user to update roles for. If not specified, updates the command author.
@@ -1385,11 +1384,8 @@ class TourneyRoles(BaseCog, name="Tournament Roles"):
 
             # Get user's player data from the mapping
             discord_id = str(user.id)
-
-            # Get the entire player mapping and check for the user's Discord ID
             discord_mapping = await self.get_discord_to_player_mapping()
             player_data = discord_mapping.get(discord_id)
-
             if not player_data:
                 return await message.edit(content=f"❌ No player data found for {user.display_name}.")
 
@@ -1401,7 +1397,6 @@ class TourneyRoles(BaseCog, name="Tournament Roles"):
             # TODO: Implement actual role assignment logic for the single user
             # This will be filled in when you implement the full role assignment system
 
-            # For now, just acknowledge the request
             embed = discord.Embed(
                 title="User Roles Updated",
                 description=f"Processed roles for {user.display_name}",
@@ -1411,7 +1406,6 @@ class TourneyRoles(BaseCog, name="Tournament Roles"):
             # Show their player data, using the dictionary access pattern properly
             primary_id = player_data['primary_id'] if 'primary_id' in player_data else 'None'
             all_ids = player_data['all_ids'] if 'all_ids' in player_data else []
-
             id_list = f"✅ {primary_id}" if primary_id and primary_id != 'None' else "None"
             if len(all_ids) > 1:
                 other_ids = [pid for pid in all_ids if pid != primary_id]
@@ -1434,14 +1428,14 @@ class TourneyRoles(BaseCog, name="Tournament Roles"):
             )
 
             await message.edit(content=None, embed=embed)
-
         except Exception as e:
             self.logger.error(f"Error updating roles for user {user.id}: {e}")
             await message.edit(content=f"❌ Error updating roles: {str(e)}")
 
     @roles_group.command(name="toggle")
     async def roles_toggle_setting_command(self, ctx, setting_name: str):
-        """Toggle a boolean tournament roles setting on or off
+        """
+        Toggle a boolean tournament roles setting on or off
 
         Args:
             setting_name: Setting to toggle (dry_run, pause, update_on_startup, debug_logging)
@@ -1463,8 +1457,6 @@ class TourneyRoles(BaseCog, name="Tournament Roles"):
 
         # Send confirmation with emoji
         state = "enabled" if new_value else "disabled"
-
-        # Choose appropriate emoji based on setting and state
         if setting_name == "dry_run" and new_value:
             emoji = "🧪"
         elif setting_name == "pause" and new_value:
@@ -1476,7 +1468,6 @@ class TourneyRoles(BaseCog, name="Tournament Roles"):
         else:
             emoji = "✅"
 
-        # Format the setting name for display
         display_name = setting_name.replace('_', ' ').title()
         await ctx.send(f"{emoji} {display_name} is now {state}")
 
@@ -1488,7 +1479,8 @@ class TourneyRoles(BaseCog, name="Tournament Roles"):
 
     @roles_group.command(name="set_log_channel")
     async def set_log_channel_command(self, ctx, channel: discord.TextChannel = None):
-        """Set the channel for role update logs
+        """
+        Set the channel for role update logs
 
         Args:
             channel: The channel to send logs to. If none, disables logging.
@@ -1505,7 +1497,8 @@ class TourneyRoles(BaseCog, name="Tournament Roles"):
 
     @roles_group.command(name="set_log_batch_size")
     async def set_log_batch_size_command(self, ctx, size: int):
-        """Set how many role updates to process before sending a batch log
+        """
+        Set how many role updates to process before sending a batch log
 
         Args:
             size: The number of updates to batch (1-50)
@@ -1518,6 +1511,61 @@ class TourneyRoles(BaseCog, name="Tournament Roles"):
 
         # Mark settings as modified
         self.mark_data_modified()
+
+    @roles_group.command(name="toggle_immediate_logging")
+    async def toggle_immediate_logging_command(self, ctx):
+        """Toggle whether logs are sent immediately during role updates or only at the end"""
+        current_value = self.get_setting("immediate_logging", True)
+        new_value = not current_value
+        self.set_setting("immediate_logging", new_value)
+
+        if new_value:
+            await ctx.send("✅ Immediate logging enabled - logs will be sent during role updates")
+        else:
+            await ctx.send("📊 Immediate logging disabled - logs will only be sent at the end of role updates")
+
+        # Log the change
+        self.logger.info(f"Immediate logging {'enabled' if new_value else 'disabled'} by {ctx.author}")
+
+        # Mark settings as modified
+        self.mark_data_modified()
+
+    async def add_log_message(self, message):
+        """
+        Add a message to the log buffer and potentially send it.
+
+        Args:
+            message: The log message to add
+        """
+        self.log_buffer.append(message)
+
+        # Check if we should send immediately
+        if self.get_setting("immediate_logging", True):
+            # Check if we've hit batch size or buffer size limit
+            batch_size = self.get_setting("log_batch_size", 10)
+
+            # Check if we've hit batch size
+            if len(self.log_buffer) >= batch_size:
+                should_send = True
+            else:
+                # Check buffer size in characters
+                buffer_size = sum(len(msg) + 1 for msg in self.log_buffer)  # +1 for newline
+
+                # If buffer is getting large, send it
+                if buffer_size >= self.log_buffer_max_size:
+                    should_send = True
+                else:
+                    should_send = False
+
+            # Send and clear buffer if needed
+            if should_send:
+                await self.flush_log_buffer()
+
+    async def flush_log_buffer(self):
+        """Send all accumulated log messages in the buffer"""
+        if self.log_buffer:
+            await self.send_role_logs_batch(self.log_buffer)
+            self.log_buffer = []  # Clear the buffer after sending
 
     async def send_role_logs_batch(self, log_messages):
         """Send a batch of role update logs to the configured channel
@@ -1537,46 +1585,37 @@ class TourneyRoles(BaseCog, name="Tournament Roles"):
             self.logger.warning(f"Could not find log channel with ID {log_channel_id}")
             return
 
-        # Join messages with newlines, chunk if needed
-        MAX_MESSAGE_LENGTH = 1900  # Discord limit is 2000, leave some room
-
-        # Combine messages into chunks within Discord's limit
-        current_chunk = ""
-        for msg in log_messages:
-            # If adding this message would exceed limit, send current chunk and start new one
-            if len(current_chunk) + len(msg) + 1 > MAX_MESSAGE_LENGTH:
-                if current_chunk:
-                    try:
+        try:
+            # Join messages with newlines, chunk if needed
+            MAX_MESSAGE_LENGTH = 1950  # Discord limit is 2000, leave a small buffer for safety
+            current_chunk = ""
+            for msg in log_messages:
+                # If adding this message would exceed limit, send current chunk and start new one
+                if len(current_chunk) + len(msg) + 1 > MAX_MESSAGE_LENGTH:
+                    if current_chunk:
                         await channel.send(current_chunk)
-                    except Exception as e:
-                        self.logger.error(f"Error sending role log batch: {e}")
-                current_chunk = msg
-            else:
-                if current_chunk:
-                    current_chunk += "\n" + msg
-                else:
                     current_chunk = msg
+                else:
+                    if current_chunk:
+                        current_chunk += "\n" + msg
+                    else:
+                        current_chunk = msg
 
-        # Send any remaining messages
-        if current_chunk:
-            try:
+            # Send any remaining messages
+            if current_chunk:
                 await channel.send(current_chunk)
-            except Exception as e:
-                self.logger.error(f"Error sending final role log batch: {e}")
+        except Exception as e:
+            self.logger.error(f"Error sending role log batch: {e}")
 
     async def cog_initialize(self):
         """Initialize the cog - called by BaseCog during ready process"""
-        # Start the periodic update task
         self.update_task = self.bot.loop.create_task(self.schedule_periodic_updates())
         self.logger.info("Tournament roles cog initialization complete")
 
     async def cog_unload(self):
         """Clean up when cog is unloaded"""
-        # Cancel the update task
         if self.update_task:
             self.update_task.cancel()
-
-        # Call parent implementation for data saving
         await super().cog_unload()
         self.logger.info("Tournament roles cog unloaded")
 
