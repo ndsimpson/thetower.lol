@@ -201,7 +201,7 @@ class UnifiedAdvertiseCog(commands.Cog):
 
     def __init__(self, bot):
         self.bot = bot
-        self.cooldown_hours = 6  # Cooldown period in hours
+        self.cooldown_hours = 24  # Cooldown period in hours
         self.advertise_channel_id = const.guild_advertise_channel_id  # Using the guild channel for all ads
         self.mod_channel_id = const.rude_people_channel_id
 
