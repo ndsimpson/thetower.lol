@@ -7,6 +7,7 @@ import json
 import os
 import asyncio
 import pickle
+import re
 from fish_bot import const
 
 
@@ -48,9 +49,10 @@ class GuildAdvertisementForm(Modal, title="Guild Advertisement Form"):
 
     guild_id = TextInput(
         label="Guild ID",
-        placeholder="Enter your guild's ID",
+        placeholder="Enter your guild's ID (e.g. A1B2C3)",
         required=True,
-        max_length=50
+        min_length=6,
+        max_length=6
     )
 
     guild_leader = TextInput(
@@ -80,9 +82,17 @@ class GuildAdvertisementForm(Modal, title="Guild Advertisement Form"):
         self.cog = cog
 
     async def on_submit(self, interaction: discord.Interaction):
+        # Check if guild ID is valid (only A-F, 0-9, exactly 6 chars)
+        guild_id = self.guild_id.value.upper()
+        if not re.match(r'^[A-F0-9]{6}$', guild_id):
+            await interaction.response.send_message(
+                "Guild ID must be exactly 6 characters and only contain letters A-F and numbers 0-9.",
+                ephemeral=True
+            )
+            return
+
         # Check cooldowns before processing
         user_id = interaction.user.id
-        guild_id = self.guild_id.value
 
         cooldown_check = await self.cog.check_cooldowns(
             interaction,
@@ -103,13 +113,13 @@ class GuildAdvertisementForm(Modal, title="Guild Advertisement Form"):
         )
 
         embed.set_author(name=f"Guild Ad by {interaction.user.name}", icon_url=interaction.user.avatar.url if interaction.user.avatar else None)
-        embed.add_field(name="Guild ID", value=self.guild_id.value, inline=True)
+        embed.add_field(name="Guild ID", value=guild_id, inline=True)  # Display uppercase ID
         embed.add_field(name="Leader", value=self.guild_leader.value, inline=True)
         embed.add_field(name="Member Count", value=self.member_count.value, inline=True)
         embed.set_footer(text="Use /advertise to submit your own advertisement")
 
         # Post advertisement and update cooldowns
-        thread_title = f"[Guild] {self.guild_name.value} ({self.guild_id.value})"
+        thread_title = f"[Guild] {self.guild_name.value} ({guild_id})"
         await self.cog.post_advertisement(interaction, embed, thread_title, AdvertisementType.GUILD, guild_id)
 
 
@@ -143,6 +153,15 @@ class MemberAdvertisementForm(Modal, title="Member Advertisement Form"):
         self.cog = cog
 
     async def on_submit(self, interaction: discord.Interaction):
+        # Check if player ID is valid (only A-F, 0-9)
+        player_id = self.player_id.value.upper()
+        if not re.match(r'^[A-F0-9]+$', player_id):
+            await interaction.response.send_message(
+                "Player ID can only contain letters A-F and numbers 0-9.",
+                ephemeral=True
+            )
+            return
+
         # Check cooldowns before processing
         user_id = interaction.user.id
 
@@ -165,8 +184,7 @@ class MemberAdvertisementForm(Modal, title="Member Advertisement Form"):
 
         embed.set_author(name=f"Submitted by {interaction.user.name}", icon_url=interaction.user.avatar.url if interaction.user.avatar else None)
 
-        # Make the Player ID a clickable link
-        player_id = self.player_id.value
+        # Make the Player ID a clickable link (uppercase)
         url_value = f"[{player_id}](https://thetower.lol/player?player={player_id})"
         embed.add_field(name="Player ID", value=url_value, inline=True)
         embed.add_field(name="Weekly Box Count", value=self.weekly_boxes.value, inline=True)
