@@ -97,3 +97,70 @@
 - **Discord Command Security**:
   - Command permissions are handled via the PermissionManager utility
   - Individual cogs should not have command predicates within the cogs themselves
+
+
+# Standardized Settings and Info Command Patterns
+
+## Settings Command
+When implementing a `settings` command for a cog, follow these standardization patterns:
+
+### Embed Structure
+- **Title**: "{Feature Name} Settings"
+- **Description**: "Current configuration for {feature description}"
+- **Color**: `discord.Color.blue()`
+
+### Settings Organization
+Group settings into logical categories:
+1. **Time Settings**: Format as `{hours}h {minutes}m {seconds}s ({total} seconds)`
+   - Applies to intervals, durations, timeouts, etc.
+2. **Display Settings**: User-facing configuration values
+3. **Flag Settings**: Boolean settings with emoji indicators
+   - `✅ Enabled` or `❌ Disabled`
+4. **Threshold Settings**: Numerical limits or thresholds
+
+### Status Information
+- Include current operational status with appropriate emoji:
+  - `✅ Ready` - System is fully operational
+  - `⏳ Initializing` - System is loading
+  - `🔄 Processing` - System is currently performing operations
+  - `⏸️ Paused` - System is paused
+  - `🔍 Dry Run Mode` - System is in test mode
+
+### Time Representation
+For timestamps and durations:
+- Format absolute times as `YYYY-MM-DD HH:MM:SS`
+- Format relative times as contextual strings:
+  - `{n} seconds ago` (less than 1 minute)
+  - `{n} minutes ago` (less than 1 hour)
+  - `{n} hours ago` (1+ hour)
+
+## Info Command
+When implementing an `info` command for a cog:
+
+### Core Elements
+- **Title**: "{Feature Name} Information"
+- **Description**: Brief explanation of the feature's purpose
+- **Status Indicator**: Show current operational status with emoji
+- **Last Updated**: When applicable, show last refresh time with relative time
+- **Dependency Status**: If the feature relies on other cogs/services, show their status
+- **Statistics**: Include relevant statistics about the feature's data/operations
+- **Footer**: Optional usage hints or additional context
+
+### Status & Warning Cases
+- Use different embed colors to indicate status:
+  - Blue (`discord.Color.blue()`) for normal operations
+  - Orange (`discord.Color.orange()`) for warnings/initializing
+  - Green (`discord.Color.green()`) for success messages
+  - Red (`discord.Color.red()`) for errors
+
+## Helper Methods
+Consider implementing these utility methods in your cogs:
+- `format_time_value(seconds)`: Formats seconds into hours, minutes, seconds
+- `format_relative_time(timestamp)`: Shows time elapsed since a timestamp
+
+## Multiple Embeds Pattern
+For complex settings, consider using multiple embeds grouped by category:
+1. Primary embed with core settings and status
+2. Secondary embeds for detailed configuration groups
+
+Remember that consistent formatting helps users quickly locate information across different bot features.
