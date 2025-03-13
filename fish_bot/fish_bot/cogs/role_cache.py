@@ -541,6 +541,132 @@ class RoleCache(BaseCog):
 
         await ctx.send("Complete member fetch finished!")
 
+    async def refresh_user_roles(self, guild_id, user_id):
+        """Refresh roles for a specific user
+
+        Args:
+            guild_id: ID of the guild
+            user_id: ID of the user to refresh
+
+        Returns:
+            bool: True if user was found and refreshed, False otherwise
+        """
+        guild = self.bot.get_guild(guild_id)
+        if not guild:
+            self.logger.warning(f"Couldn't refresh user {user_id}: Guild {guild_id} not found")
+            return False
+
+        member = guild.get_member(user_id)
+        if not member:
+            self.logger.warning(f"Couldn't refresh user {user_id}: Member not found in guild {guild.name}")
+            return False
+
+        self.update_member_roles(member)
+        self.logger.info(f"Manually refreshed roles for {member.display_name} in {guild.name}")
+        return True
+
+    @rolecache_group.command(name="refresh")
+    async def refresh_command(self, ctx, target: discord.Member = None):
+        """Refresh role cache for a user or the entire server
+
+        Args:
+            target: Optional member to refresh. If omitted, refreshes all members in the server.
+        """
+        if not ctx.guild:
+            return await ctx.send("This command must be used in a server.")
+
+        async with ctx.typing():
+            if target:
+                # Refresh a specific user
+                self.update_member_roles(target)
+                await ctx.send(f"✅ Refreshed roles for {target.display_name}")
+            else:
+                # Refresh all users in the guild
+                message = await ctx.send(f"🔄 Refreshing roles for all members in {ctx.guild.name}...")
+
+                # Track progress
+                total_members = len(ctx.guild.members)
+                processed = 0
+                last_update = datetime.datetime.now()
+                update_interval = datetime.timedelta(seconds=2)  # Update progress every 2 seconds
+
+                for member in ctx.guild.members:
+                    self.update_member_roles(member)
+                    processed += 1
+
+                    # Update progress message periodically
+                    now = datetime.datetime.now()
+                    if now - last_update > update_interval:
+                        await message.edit(content=f"🔄 Refreshing roles: {processed}/{total_members} members processed...")
+                        last_update = now
+
+                await message.edit(content=f"✅ Refreshed roles for all {total_members} members in {ctx.guild.name}")
+
+                # Save the cache immediately after a full refresh
+                await self.save_data_if_modified(self.member_roles, self.cache_file, force=True)
+                self.logger.info(f"Manual refresh completed for {ctx.guild.name} by {ctx.author}")
+
+    @rolecache_group.command(name="lookup")
+    async def lookup_command(self, ctx, member: discord.Member):
+        """Look up cached roles for a member
+
+        Args:
+            member: The member to look up roles for
+        """
+        if not ctx.guild:
+            return await ctx.send("This command must be used in a server.")
+
+        guild_id = ctx.guild.id
+        user_id = member.id
+
+        if guild_id not in self.member_roles or user_id not in self.member_roles[guild_id]:
+            return await ctx.send(f"❌ No cached roles found for {member.display_name}")
+
+        # Get cached data
+        cache_data = self.member_roles[guild_id][user_id]
+        role_ids = cache_data["roles"]
+        updated_at = datetime.datetime.fromtimestamp(cache_data["updated_at"], tz=datetime.timezone.utc)
+
+        # Calculate how old the cache is
+        now = datetime.datetime.now(datetime.timezone.utc)
+        cache_age = now - updated_at
+
+        # Create embed
+        embed = discord.Embed(
+            title=f"Cached Roles for {member.display_name}",
+            color=discord.Color.blue()
+        )
+
+        # Get role names from IDs
+        role_names = []
+        for role_id in role_ids:
+            role = ctx.guild.get_role(role_id)
+            if role:
+                role_names.append(f"{role.name}")
+
+        # Format embed fields
+        embed.add_field(
+            name="Roles",
+            value="\n".join(role_names) if role_names else "No roles",
+            inline=False
+        )
+
+        # Add information about cache freshness
+        hours, remainder = divmod(int(cache_age.total_seconds()), 3600)
+        minutes, seconds = divmod(remainder, 60)
+        age_str = f"{hours}h {minutes}m {seconds}s ago"
+
+        embed.add_field(name="Last Updated", value=f"{updated_at.strftime('%Y-%m-%d %H:%M:%S UTC')}\n({age_str})", inline=False)
+
+        # Add indicator if cache is stale
+        if self.is_stale(guild_id, user_id):
+            embed.add_field(name="Status", value="⚠️ Stale cache", inline=False)
+            embed.color = discord.Color.orange()
+        else:
+            embed.add_field(name="Status", value="✅ Cache is fresh", inline=False)
+
+        await ctx.send(embed=embed)
+
 
 async def setup(bot):
     await bot.add_cog(RoleCache(bot))
