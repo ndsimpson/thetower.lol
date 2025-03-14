@@ -36,7 +36,7 @@
 - Use 4 spaces for indentation
 - Maximum line length: 88 characters (Black formatter compatible)
 - Use type hints for all function parameters and return values
-- Prefer f-strings over other string formatting methods
+- Prefer f-strings over other string formatting methods, but if no variable is used in the string, don't use an f-string
 - Use snake_case for variables and functions
 - Use PascalCase for classes
 - Prefer double quotes over single quotes
