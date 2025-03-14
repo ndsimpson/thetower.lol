@@ -49,22 +49,57 @@ class RoleCache(BaseCog):
         # Try to load existing cache from file
         self.load_cache_from_file()
 
-    async def cog_initialize(self):
-        """Initialize the cog - called by BaseCog during ready process"""
-        # Build the initial cache
-        await self._build_initial_cache()
+    async def cog_initialize(self) -> None:
+        """Initialize the cog - called by BaseCog during ready process.
 
-        # Start periodic refresh task
-        self.refresh_task = self.bot.loop.create_task(self.periodic_refresh())
+        This method builds the initial role cache for all guilds,
+        and starts periodic tasks for cache refresh and persistence.
+        """
+        self.logger.info("Starting RoleCache initialization...")
 
-        # Start periodic save task using BaseCog's functionality
-        self.save_task = await self.create_periodic_save_task(
-            data=self.member_roles,
-            file_path=self.cache_file,
-            save_interval=self.save_interval
-        )
+        try:
+            # Build the initial cache
+            start_time = datetime.datetime.now()
+            await self._build_initial_cache()
+            elapsed = (datetime.datetime.now() - start_time).total_seconds()
+            self.logger.info(f"Initial cache build completed in {elapsed:.2f} seconds")
 
-        self.logger.info("RoleCache initialization complete")
+            # Start periodic refresh task with error handling
+            self.refresh_task = self.bot.loop.create_task(self._safe_periodic_refresh())
+
+            # Start periodic save task using BaseCog's functionality
+            self.save_task = await self.create_periodic_save_task(
+                data=self.member_roles,
+                file_path=self.cache_file,
+                save_interval=self.save_interval
+            )
+
+            self.logger.info("✅ RoleCache initialization complete")
+        except Exception as e:
+            self.logger.error(f"❌ RoleCache initialization failed: {e}", exc_info=True)
+            # Re-raise to ensure the bot knows initialization failed
+            raise
+
+    async def _safe_periodic_refresh(self) -> None:
+        """Wrapper for periodic_refresh with proper error handling."""
+        await self.wait_until_ready()  # Wait for cog initialization to complete using BaseCog method
+
+        while not self.bot.is_closed():
+            try:
+                self.logger.debug("Starting periodic role cache refresh cycle")
+                await self.refresh_stale_roles()
+                await self.cleanup_missing_members()
+                self.logger.debug("Completed periodic role cache refresh cycle")
+            except asyncio.CancelledError:
+                # Handle task cancellation gracefully
+                self.logger.info("Role cache refresh task was cancelled")
+                break
+            except Exception as e:
+                self.logger.error(f"Error in periodic refresh: {e}", exc_info=True)
+                # Continue running despite errors
+
+            # Sleep between refresh cycles
+            await asyncio.sleep(self.refresh_interval)
 
     @property
     def cache_file(self) -> Path:
