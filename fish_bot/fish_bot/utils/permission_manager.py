@@ -373,28 +373,79 @@ class PermissionManager:
 
     @staticmethod
     async def resolve_channel_from_input(ctx, channel_input):
-        """Resolve a channel from different input types (mention, ID, or name).
+        """
+        Resolve a channel from different input types (mention, ID, or name).
 
         Args:
             ctx: The command context
             channel_input: The channel input (mention, ID, or name)
 
         Returns:
-            discord.TextChannel or None: The resolved channel, or None if not found
+            discord.abc.GuildChannel or None: The resolved channel/thread, or None if not found
         """
+        # First, try to find regular channels
         channel = None
 
-        # Check if it's a channel mention
+        # Check if it's a channel mention by checking ctx.message.channel_mentions
         if ctx.message.channel_mentions:
-            channel = ctx.message.channel_mentions[0]
-        else:
-            # Try to interpret as a channel ID
+            for mentioned_channel in ctx.message.channel_mentions:
+                # Check if the channel mention string matches our input
+                if f'<#{mentioned_channel.id}>' in channel_input:
+                    return mentioned_channel
+
+        # Try to extract ID from a channel mention string (<#123456789>)
+        if channel_input.startswith('<#') and channel_input.endswith('>'):
             try:
-                channel_id = int(channel_input)
+                channel_id = int(channel_input.strip('<#>'))
+                # Try to get the channel by ID
                 channel = ctx.guild.get_channel(channel_id)
+                if channel:
+                    return channel
+
+                # If not found as a regular channel, check if it's a thread
+                for thread in ctx.guild.threads:
+                    if thread.id == channel_id:
+                        return thread
+
+                # Try to fetch thread directly (works for both active and archived threads)
+                try:
+                    thread = await ctx.guild.fetch_channel(channel_id)
+                    if isinstance(thread, (discord.Thread, discord.ForumChannel)):
+                        return thread
+                except discord.NotFound:
+                    pass
             except (ValueError, TypeError):
-                # Try to interpret as a channel name
-                channel = discord.utils.get(ctx.guild.text_channels, name=channel_input)
+                pass
+
+        # Try to interpret as a direct channel ID
+        try:
+            channel_id = int(channel_input)
+
+            # First try to get as a regular channel
+            channel = ctx.guild.get_channel(channel_id)
+            if channel:
+                return channel
+
+            # Check for thread in active threads
+            for thread in ctx.guild.threads:
+                if thread.id == channel_id:
+                    return thread
+
+            # Try to fetch thread directly
+            try:
+                thread = await ctx.guild.fetch_channel(channel_id)
+                if isinstance(thread, (discord.Thread, discord.ForumChannel)):
+                    return thread
+            except discord.NotFound:
+                pass
+        except (ValueError, TypeError):
+            # Not an ID, try by name
+            # Check regular text channels first
+            channel = discord.utils.get(ctx.guild.text_channels, name=channel_input)
+
+            # If not found in regular channels, check active threads
+            if channel is None:
+                channel = discord.utils.get(ctx.guild.threads, name=channel_input)
 
         return channel
 
@@ -468,24 +519,31 @@ class PermissionManager:
             display_name = f"'{primary_name}'"
 
         if self.remove_command_channel(ctx.bot, primary_name, channel_id):
-            await ctx.send(f"Removed channel {channel.mention} from command {display_name} permissions")
+            await ctx.send(f"✅ Removed channel {channel.mention} from command {display_name} permissions")
             return True
         else:
-            await ctx.send(f"Failed to remove channel {channel.mention} from command {display_name} permissions")
+            await ctx.send(f"❌ Failed to remove channel {channel.mention} from command {display_name} permissions")
             return False
 
-    async def cmd_add_user(self, ctx, command, channel, user):
+    async def cmd_add_user(self, ctx, command, channel_input, user):
         """Add a user to authorized users for a command channel.
 
         Args:
             ctx: The command context
             command: The command name or alias
-            channel: The channel
+            channel_input: The channel input (mention, ID, or name)
             user: The user to add
 
         Returns:
             bool: True if successful, False otherwise
         """
+        # Resolve channel from input
+        channel = await self.resolve_channel_from_input(ctx, channel_input)
+
+        if not channel:
+            await ctx.send(f"Could not find channel '{channel_input}'. Please provide a valid channel mention, name, or ID.")
+            return False
+
         channel_id = str(channel.id)
         user_id = str(user.id)
 
@@ -501,24 +559,31 @@ class PermissionManager:
             display_name = f"'{primary_name}'"
 
         if self.add_authorized_user(ctx.bot, primary_name, channel_id, user_id):
-            await ctx.send(f"Added {user.mention} to authorized users for command {display_name} in channel {channel.mention}")
+            await ctx.send(f"✅ Added {user.mention} to authorized users for command {display_name} in channel {channel.mention}")
             return True
         else:
-            await ctx.send(f"Failed to add {user.mention} to authorized users for command {display_name} in channel {channel.mention}")
+            await ctx.send(f"❌ Failed to add {user.mention} to authorized users for command {display_name} in channel {channel.mention}")
             return False
 
-    async def cmd_remove_user(self, ctx, command, channel, user):
+    async def cmd_remove_user(self, ctx, command, channel_input, user):
         """Remove a user from authorized users for a command channel.
 
         Args:
             ctx: The command context
             command: The command name or alias
-            channel: The channel
+            channel_input: The channel input (mention, ID, or name)
             user: The user to remove
 
         Returns:
             bool: True if successful, False otherwise
         """
+        # Resolve channel from input
+        channel = await self.resolve_channel_from_input(ctx, channel_input)
+
+        if not channel:
+            await ctx.send(f"Could not find channel '{channel_input}'. Please provide a valid channel mention, name, or ID.")
+            return False
+
         channel_id = str(channel.id)
         user_id = str(user.id)
 
@@ -534,10 +599,10 @@ class PermissionManager:
             display_name = f"'{primary_name}'"
 
         if self.remove_authorized_user(ctx.bot, primary_name, channel_id, user_id):
-            await ctx.send(f"Removed {user.mention} from authorized users for command {display_name} in channel {channel.mention}")
+            await ctx.send(f"✅ Removed {user.mention} from authorized users for command {display_name} in channel {channel.mention}")
             return True
         else:
-            await ctx.send(f"Failed to remove {user.mention} from authorized users for command {display_name} in channel {channel.mention}")
+            await ctx.send(f"❌ Failed to remove {user.mention} from authorized users for command {display_name} in channel {channel.mention}")
             return False
 
     async def show_permissions_overview(self, ctx: Context) -> None:
