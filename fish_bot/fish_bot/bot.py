@@ -748,5 +748,37 @@ async def config_error_channel(ctx, channel: discord.TextChannel = None):
         await ctx.invoke(bot.get_command('set_error_log_channel'), channel=channel)
 
 
+@bot.command()
+async def toggle_auto_reload(ctx):
+    """Toggle whether cogs are automatically reloaded when their source files change."""
+    await bot.cog_manager.toggle_auto_reload_with_ctx(ctx)
+
+
+@bot.command()
+async def toggle_cog_auto_reload(ctx, cog_name: str):
+    """Toggle auto-reload for a specific cog.
+
+    Args:
+        cog_name: The name of the cog to toggle auto-reload for
+
+    Examples:
+        $toggle_cog_auto_reload music
+        $toggle_cog_auto_reload utils
+    """
+    await bot.cog_manager.toggle_cog_auto_reload_with_ctx(ctx, cog_name)
+
+
+@bot.command(name="auto_reload_settings")
+async def auto_reload_settings(ctx):
+    """Display the current auto-reload configuration and status."""
+    await bot.cog_manager.auto_reload_settings(ctx)
+
+
+@bot.event
+async def on_close():
+    """Clean up resources when the bot is shutting down."""
+    # Stop the file system observer
+    bot.cog_manager.stop_observer()
+
 # Start the bot
 bot.run(getenv("DISCORD_TOKEN"), log_level=logging.INFO)
