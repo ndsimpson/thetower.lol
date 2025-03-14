@@ -59,13 +59,14 @@ class BattleConditions(BaseCog, name="Battle Conditions"):
             "Silver": self.config.get_thread_id("battleconditions", "silver")
         }
 
-    async def cog_initialize(self):
+    async def cog_initialize(self) -> None:
         """Initialize the cog - called by BaseCog during ready process"""
-        # Start the scheduler
+        # Wait until the cog is ready before starting the scheduler
+        await self.wait_until_ready()
         self.scheduled_bc_messages.start()
         self.logger.info("Battle conditions initialization complete")
 
-    async def cog_unload(self):
+    async def cog_unload(self) -> None:
         """Clean up when cog is unloaded"""
         self.scheduled_bc_messages.cancel()
         # Call parent implementation for data saving
@@ -73,13 +74,13 @@ class BattleConditions(BaseCog, name="Battle Conditions"):
         self.logger.info("Battle conditions cog unloaded")
 
     async def get_battle_conditions(self, league: str) -> List[str]:
-        """Get battle conditions for a league
+        """Get battle conditions for a league.
 
         Args:
-            league: The league to get battle conditions for
+            league: The league to get battle conditions for.
 
         Returns:
-            List of battle condition strings
+            List of battle condition strings.
         """
         tourney_id, _, _ = TournamentPredictor.get_tournament_info()
 
@@ -167,62 +168,115 @@ class BattleConditions(BaseCog, name="Battle Conditions"):
         tourney_id, tourney_date, days_until = TournamentPredictor.get_tournament_info()
 
         embed = discord.Embed(
-            title="Battle Conditions System Info",
+            title="Battle Conditions Information",
+            description="System that predicts and posts tournament battle conditions.",
             color=discord.Color.blue()
         )
 
         # System status (paused or active)
         global_paused = self.get_setting("paused")
-        status = "🛑 **PAUSED**" if global_paused else "✅ **ACTIVE**"
-        embed.add_field(name="System Status", value=status, inline=False)
+        status_emoji = "⏸️ Paused" if global_paused else "✅ Ready"
+        embed.add_field(name="Status", value=status_emoji, inline=True)
 
         # Tournament info
-        embed.add_field(name="Next Tournament", value=f"{tourney_date}", inline=False)
+        embed.add_field(
+            name="Next Tournament",
+            value=f"{tourney_date} ({days_until} days away)",
+            inline=True
+        )
 
-        # Default notification settings
+        # Last updated
+        now = datetime.datetime.utcnow()
+        embed.add_field(
+            name="Last Updated",
+            value=f"{now.strftime('%Y-%m-%d %H:%M:%S')} UTC",
+            inline=True
+        )
+
+        # Statistics - how many schedules and threads are configured
+        thread_schedules = self.get_setting("thread_schedules", [])
+        active_schedules = sum(1 for s in thread_schedules if not s.get("paused", False))
+        embed.add_field(
+            name="Statistics",
+            value=f"📊 {active_schedules}/{len(thread_schedules)} active schedules",
+            inline=False
+        )
+
+        # Dependency status
+        embed.add_field(
+            name="Dependencies",
+            value="🔮 Tournament Predictor: Connected",
+            inline=False
+        )
+
+        # Add footer with usage hint
+        embed.set_footer(text="Use 'bc settings' to view configuration details")
+
+        await ctx.send(embed=embed)
+
+    @bc_group.command(name="settings")
+    async def bc_settings_command(self, ctx):
+        """Display battle conditions system settings"""
+        embed = discord.Embed(
+            title="Battle Conditions Settings",
+            description="Current configuration for battle conditions system",
+            color=discord.Color.blue()
+        )
+
+        # Time Settings
         hour = self.get_setting("notification_hour")
         minute = self.get_setting("notification_minute")
         days_before = self.get_setting("days_before_notification")
         time_str = f"{hour:02d}:{minute:02d} UTC"
 
-        embed.add_field(name="Default Notification Time", value=time_str, inline=True)
-        embed.add_field(name="Default Days Before", value=str(days_before), inline=True)
+        embed.add_field(
+            name="🕒 Time Settings",
+            value=f"Default Notification Time: {time_str}\n"
+            f"Days Before Tournament: {days_before}",
+            inline=False
+        )
 
-        # Enabled leagues
+        # Display Settings
         enabled_leagues = self.get_setting("enabled_leagues")
-        embed.add_field(name="Enabled Leagues", value=", ".join(enabled_leagues), inline=False)
+        embed.add_field(
+            name="🏆 Display Settings",
+            value=f"Enabled Leagues: {', '.join(enabled_leagues)}",
+            inline=False
+        )
 
-        # Thread schedules
+        # Flag Settings
+        global_paused = self.get_setting("paused")
+        paused_str = "❌ Disabled" if global_paused else "✅ Enabled"
+        embed.add_field(
+            name="🚩 Flag Settings",
+            value=f"Announcements: {paused_str}",
+            inline=False
+        )
+
+        # Thread schedules - summary
         thread_schedules = self.get_setting("thread_schedules", [])
-        schedule_info = ""
+        if thread_schedules:
+            active_count = sum(1 for s in thread_schedules if not s.get("paused", False))
+            paused_count = len(thread_schedules) - active_count
 
-        if not thread_schedules:
-            schedule_info = "No schedules configured. Use the `schedule_add` command to set up."
+            schedule_summary = (
+                f"📑 Total Schedules: {len(thread_schedules)}\n"
+                f"✅ Active: {active_count}\n"
+                f"⏸️ Paused: {paused_count}\n\n"
+                f"Use `bc schedule_list` for detailed schedule information."
+            )
         else:
-            for i, schedule in enumerate(thread_schedules, 1):
-                thread_id = schedule.get("thread_id")
-                leagues = schedule.get("leagues", [])
-                hour = schedule.get("hour", self.default_hour)
-                minute = schedule.get("minute", self.default_minute)
-                days_before = schedule.get("days_before", self.default_days_before)
-                paused = schedule.get("paused", False)
+            schedule_summary = "No schedules configured. Use `bc schedule_add` to set up."
 
-                channel = self.bot.get_channel(int(thread_id)) if thread_id else None
+        embed.add_field(
+            name="📆 Schedule Settings",
+            value=schedule_summary,
+            inline=False
+        )
 
-                status = "✅" if channel and not paused else "❌"
-                if channel and paused:
-                    status = "🛑"
-
-                channel_str = channel.mention if channel else f"Not found (ID: {thread_id})"
-                leagues_str = ", ".join(leagues) if leagues else "None"
-                time_str = f"{hour:02d}:{minute:02d} UTC"
-                paused_str = " (PAUSED)" if paused else ""
-
-                schedule_info += f"{status} **Schedule #{i}{paused_str}**: {channel_str}\n"
-                schedule_info += f"└─ Leagues: {leagues_str}\n"
-                schedule_info += f"└─ Time: {time_str}, {days_before} days before tournament\n\n"
-
-        embed.add_field(name="Thread Schedules", value=schedule_info, inline=False)
+        # Format timestamp for footer
+        current_time = datetime.datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S UTC')
+        embed.set_footer(text=f"Last Updated: {current_time}")
 
         await ctx.send(embed=embed)
 
@@ -499,46 +553,186 @@ class BattleConditions(BaseCog, name="Battle Conditions"):
                 await ctx.send("❌ Invalid format for leagues. Use comma-separated list.")
 
     @bc_group.command(name="pause")
-    @commands.has_permissions(administrator=True)
-    async def bc_pause_command(self, ctx, index: Optional[int] = None):
-        """Pause battle conditions announcements
+    async def bc_pause_command(self, ctx, paused: Optional[bool] = None):
+        """Pause or unpause battle conditions announcements.
 
         Args:
-            index: Optional schedule index to pause (from `bc schedule_list`).
-                   If not provided, all announcements will be paused.
+            paused: Set to True to pause, False to unpause, or leave empty to toggle.
         """
-        if index is None:
-            # Pause all announcements
-            self.set_setting("paused", True)
-            self.mark_data_modified()
-            await ctx.send("✅ All battle conditions announcements paused")
+        current_state = self.get_setting("paused", False)
+
+        # If no argument is provided, toggle the current state
+        if paused is None:
+            paused = not current_state
+
+        # Update the setting
+        self.set_setting("paused", paused)
+        self.mark_data_modified()
+
+        # Send confirmation message
+        if paused:
+            await ctx.send("System is now ⏸️ Paused")
         else:
-            # Pause a specific schedule
+            await ctx.send("System is now ✅ Running")
+
+        # Add hint about schedule-specific pausing
+        await ctx.send("*Tip: Use `bc schedule_pause <index>` to pause individual schedules*")
+
+    @bc_group.command(name="toggle")
+    async def bc_toggle_command(self, ctx, setting_name: str, value: Optional[bool] = None,
+                                schedule_index: Optional[int] = None):
+        """Toggle a boolean setting for battle conditions.
+
+        Args:
+            setting_name: The name of the setting to toggle.
+            value: Optional explicit value (True/False). If not provided, will toggle current value.
+            schedule_index: Optional schedule index to toggle a schedule-specific setting.
+        """
+        # Handle schedule-specific toggles
+        if setting_name == "paused" and schedule_index is not None:
             schedules = self.get_setting("thread_schedules", [])
 
             if not schedules:
                 return await ctx.send("No battle conditions schedules configured")
 
-            if index < 1 or index > len(schedules):
+            if schedule_index < 1 or schedule_index > len(schedules):
                 return await ctx.send(f"❌ Invalid index. Must be between 1 and {len(schedules)}")
 
+            # Get the schedule and current pause state
+            schedule = schedules[schedule_index - 1]
+            current_value = schedule.get("paused", False)
+
+            # If no value is provided, toggle the current value
+            if value is None:
+                new_value = not current_value
+            else:
+                new_value = value
+
             # Update the schedule
-            schedule = schedules[index - 1]
+            schedule["paused"] = new_value
+            schedules[schedule_index - 1] = schedule
+            self.set_setting("thread_schedules", schedules)
+
+            # Get channel info for feedback
             thread_id = schedule.get("thread_id")
             channel = self.bot.get_channel(int(thread_id)) if thread_id else None
             channel_str = channel.mention if channel else f"(ID: {thread_id})"
 
-            schedule["paused"] = True
-            schedules[index - 1] = schedule
-            self.set_setting("thread_schedules", schedules)
+            # Send confirmation message
+            status = "⏸️ Paused" if new_value else "✅ Enabled"
+            await ctx.send(f"Schedule #{schedule_index} ({channel_str}) is now {status}")
+
             self.mark_data_modified()
+            return
 
-            await ctx.send(f"✅ Paused battle conditions announcements for schedule #{index} ({channel_str})")
+        # Handle global settings
+        valid_settings = ["paused"]
 
+        if setting_name not in valid_settings:
+            return await ctx.send(f"❌ Invalid setting. Valid toggle settings: {', '.join(valid_settings)}")
+
+        current_value = self.get_setting(setting_name, False)
+
+        # If no value is provided, toggle the current value
+        if value is None:
+            new_value = not current_value
+        else:
+            new_value = value
+
+        # Update the setting
+        self.set_setting(setting_name, new_value)
+        self.mark_data_modified()
+
+        # Get a human-readable name for the setting
+        setting_display_name = setting_name.replace("_", " ").title()
+
+        # Send confirmation message
+        status = "✅ Enabled" if new_value else "❌ Disabled"
+        await ctx.send(f"Setting `{setting_display_name}` is now {status}")
+
+        # If toggling pause, also provide the operational status message
+        if setting_name == "paused":
+            status_msg = "⏸️ Paused" if new_value else "✅ Running"
+            await ctx.send(f"System is now {status_msg}")
+
+    @bc_group.command(name="schedule_pause")
+    async def bc_schedule_pause_command(self, ctx, index: int):
+        """Pause a specific battle conditions schedule.
+
+        Args:
+            index: The schedule index (from `bc schedule_list`) to pause.
+        """
+        schedules = self.get_setting("thread_schedules", [])
+
+        if not schedules:
+            return await ctx.send("No battle conditions schedules configured")
+
+        if index < 1 or index > len(schedules):
+            return await ctx.send(f"❌ Invalid index. Must be between 1 and {len(schedules)}")
+
+        # Get the schedule
+        schedule = schedules[index - 1]
+        thread_id = schedule.get("thread_id")
+
+        # Check if already paused
+        if schedule.get("paused", False):
+            channel = self.bot.get_channel(int(thread_id)) if thread_id else None
+            channel_str = channel.mention if channel else f"(ID: {thread_id})"
+            return await ctx.send(f"Schedule #{index} ({channel_str}) is already paused")
+
+        # Update the schedule
+        schedule["paused"] = True
+        schedules[index - 1] = schedule
+        self.set_setting("thread_schedules", schedules)
+        self.mark_data_modified()
+
+        # Get channel for feedback
+        channel = self.bot.get_channel(int(thread_id)) if thread_id else None
+        channel_str = channel.mention if channel else f"(ID: {thread_id})"
+
+        await ctx.send(f"✅ Paused schedule #{index} ({channel_str})")
+
+    @bc_group.command(name="schedule_resume")
+    async def bc_schedule_resume_command(self, ctx, index: int):
+        """Resume a specific battle conditions schedule.
+
+        Args:
+            index: The schedule index (from `bc schedule_list`) to resume.
+        """
+        schedules = self.get_setting("thread_schedules", [])
+
+        if not schedules:
+            return await ctx.send("No battle conditions schedules configured")
+
+        if index < 1 or index > len(schedules):
+            return await ctx.send(f"❌ Invalid index. Must be between 1 and {len(schedules)}")
+
+        # Get the schedule
+        schedule = schedules[index - 1]
+        thread_id = schedule.get("thread_id")
+
+        # Check if already running
+        if not schedule.get("paused", False):
+            channel = self.bot.get_channel(int(thread_id)) if thread_id else None
+            channel_str = channel.mention if channel else f"(ID: {thread_id})"
+            return await ctx.send(f"Schedule #{index} ({channel_str}) is already running")
+
+        # Update the schedule
+        schedule["paused"] = False
+        schedules[index - 1] = schedule
+        self.set_setting("thread_schedules", schedules)
+        self.mark_data_modified()
+
+        # Get channel for feedback
+        channel = self.bot.get_channel(int(thread_id)) if thread_id else None
+        channel_str = channel.mention if channel else f"(ID: {thread_id})"
+
+        await ctx.send(f"✅ Resumed schedule #{index} ({channel_str})")
+
+    # Replace the existing resume command with a more comprehensive one
     @bc_group.command(name="resume")
-    @commands.has_permissions(administrator=True)
     async def bc_resume_command(self, ctx, index: Optional[int] = None):
-        """Resume battle conditions announcements
+        """Resume battle conditions announcements.
 
         Args:
             index: Optional schedule index to resume (from `bc schedule_list`).
@@ -549,28 +743,12 @@ class BattleConditions(BaseCog, name="Battle Conditions"):
             self.set_setting("paused", False)
             self.mark_data_modified()
             await ctx.send("✅ All battle conditions announcements resumed")
+
+            # Add hint about schedule-specific resuming
+            await ctx.send("*Note: This does not resume individually paused schedules. Use `bc schedule_resume <index>` for those.*")
         else:
-            # Resume a specific schedule
-            schedules = self.get_setting("thread_schedules", [])
-
-            if not schedules:
-                return await ctx.send("No battle conditions schedules configured")
-
-            if index < 1 or index > len(schedules):
-                return await ctx.send(f"❌ Invalid index. Must be between 1 and {len(schedules)}")
-
-            # Update the schedule
-            schedule = schedules[index - 1]
-            thread_id = schedule.get("thread_id")
-            channel = self.bot.get_channel(int(thread_id)) if thread_id else None
-            channel_str = channel.mention if channel else f"(ID: {thread_id})"
-
-            schedule["paused"] = False
-            schedules[index - 1] = schedule
-            self.set_setting("thread_schedules", schedules)
-            self.mark_data_modified()
-
-            await ctx.send(f"✅ Resumed battle conditions announcements for schedule #{index} ({channel_str})")
+            # Use the dedicated schedule_resume command
+            await self.bc_schedule_resume_command(ctx, index)
 
     @bc_group.command(name="trigger")
     @commands.has_permissions(administrator=True)
@@ -779,22 +957,11 @@ class BattleConditions(BaseCog, name="Battle Conditions"):
                     try:
                         # Get battle conditions and send message
                         battleconditions = await self.get_battle_conditions(league)
-
-                        embed = discord.Embed(
-                            title=f"{league} League Battle Conditions",
-                            description=f"Tournament on {tourney_date}",
-                            color=discord.Color.gold()
-                        )
-
-                        bc_text = "\n".join([f"• {bc}" for bc in battleconditions])
-                        embed.add_field(name="Predicted Battle Conditions", value=bc_text, inline=False)
-
-                        await channel.send(embed=embed)
-                        sent_something = True
-                        self.logger.info(f"Sent battle conditions for {league} league to channel {channel.name}")
-
+                        success = await self.send_battle_conditions_embed(channel, league, tourney_date, battleconditions)
+                        if success:
+                            sent_something = True
                     except Exception as e:
-                        self.logger.error(f"Error sending battle conditions for {league} league to channel {channel.name}: {e}")
+                        self.logger.error(f"Error processing battle conditions for {league} league: {e}")
 
                 # Log if we didn't send anything for this schedule
                 if not sent_something:
@@ -802,6 +969,76 @@ class BattleConditions(BaseCog, name="Battle Conditions"):
 
         except Exception as e:
             self.logger.error(f"Error in scheduled battle conditions task: {e}")
+
+    async def send_battle_conditions_embed(self, channel, league, tourney_date, battleconditions):
+        """Helper method to create and send battle conditions embeds
+
+        Args:
+            channel: Channel to send the embed to
+            league: League name for the battle conditions
+            tourney_date: Tournament date string
+            battleconditions: List of battle condition strings
+
+        Returns:
+            bool: Whether the message was sent successfully
+        """
+        try:
+            embed = discord.Embed(
+                title=f"{league} League Battle Conditions",
+                description=f"Tournament on {tourney_date}",
+                color=discord.Color.gold()
+            )
+
+            bc_text = "\n".join([f"• {bc}" for bc in battleconditions])
+            embed.add_field(name="Predicted Battle Conditions", value=bc_text, inline=False)
+
+            await channel.send(embed=embed)
+            self.logger.info(f"Sent battle conditions for {league} league to channel {channel.name}")
+            return True
+        except Exception as e:
+            self.logger.error(f"Error sending battle conditions for {league} league: {e}")
+            return False
+
+    def format_time_value(self, seconds):
+        """Format seconds into a standardized time string
+
+        Args:
+            seconds: Number of seconds
+
+        Returns:
+            str: Formatted string like "1h 30m 45s (5445 seconds)"
+        """
+        hours, remainder = divmod(seconds, 3600)
+        minutes, seconds = divmod(remainder, 60)
+
+        if hours > 0:
+            return f"{hours}h {minutes}m {seconds}s ({seconds} seconds)"
+        elif minutes > 0:
+            return f"{minutes}m {seconds}s ({seconds} seconds)"
+        else:
+            return f"{seconds}s"
+
+    def format_relative_time(self, timestamp):
+        """Format a timestamp as a relative time string
+
+        Args:
+            timestamp: Datetime object
+
+        Returns:
+            str: Human readable relative time
+        """
+        now = datetime.datetime.utcnow()
+        diff = now - timestamp
+
+        seconds = diff.total_seconds()
+        if seconds < 60:
+            return f"{int(seconds)} seconds ago"
+        elif seconds < 3600:
+            return f"{int(seconds // 60)} minutes ago"
+        elif seconds < 86400:
+            return f"{int(seconds // 3600)} hours ago"
+        else:
+            return f"{int(seconds // 86400)} days ago"
 
     @scheduled_bc_messages.before_loop
     async def before_scheduled_bc_messages(self):
