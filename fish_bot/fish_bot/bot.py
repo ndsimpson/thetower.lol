@@ -1,7 +1,6 @@
 # Standard library imports
 import logging
 from os import environ, getenv
-from pathlib import Path
 
 # Third-party imports
 import django
@@ -11,7 +10,7 @@ from discord.ext.commands import Context
 
 # Local imports
 from fish_bot.exceptions import UserUnauthorized, ChannelUnauthorized
-from fish_bot.utils import BaseFileMonitor, ConfigManager, CogAutoReload, CogManager, MemoryUtils
+from fish_bot.utils import BaseFileMonitor, ConfigManager, CogManager, MemoryUtils
 from fish_bot.utils.permission_manager import PermissionManager
 
 # Set up logging
@@ -44,9 +43,8 @@ class DiscordBot(commands.Bot, BaseFileMonitor):
         self.logger.info(f"Logged in as {self.user} (ID: {self.user.id})")
         self.logger.info("------")
 
-        # Setup file monitoring
-        cogs_path = Path(__file__).parent.resolve() / "cogs"
-        self.start_monitoring(cogs_path, CogAutoReload(self), recursive=False)
+        # Setup file monitoring through CogManager instead of directly
+        self.cog_manager.start_observer()
 
         # Add global command check
         self.add_check(self.global_command_check)
