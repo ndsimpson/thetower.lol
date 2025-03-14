@@ -9,7 +9,9 @@
 - [Development Workflow](#development-workflow)
 - [Discord Bot Patterns](#discord-bot-patterns)
   - [Command Security](#command-security)
+  - [Standard Cog Commands](#standard-cog-commands)
   - [Settings Commands](#settings-commands)
+  - [Status Commands](#status-commands)
   - [Info Commands](#info-commands)
   - [Time & Toggle Patterns](#time--toggle-patterns)
 - [Project-Specific Guidelines](#project-specific-guidelines)
@@ -129,6 +131,21 @@ class MyCog(BaseCog):
         await ctx.send("Command executed!")
 ```
 
+### Standard Cog Commands
+Each cog should implement the following standard commands:
+
+1. **Settings Command**: Displays all configurable settings for the cog
+   - Command name: `settings`
+   - Shows current configuration with formatting based on setting type
+   - Allows administrators to view how the cog is configured
+
+2. **Status Command**: Shows operational status of the cog
+   - Command name: `status`
+   - Displays current state, dependencies, and relevant metrics
+   - Provides administrators with immediate insight into cog functionality
+
+These standard commands ensure consistent user experience and simplify administration across all cogs.
+
 ### Settings Commands
 When implementing a `settings` command for a cog, follow these standardization patterns:
 
@@ -146,18 +163,100 @@ Group settings into logical categories:
    - `✅ Enabled` or `❌ Disabled`
 4. **Threshold Settings**: Numerical limits or thresholds
 
-#### Status Information
-- Include current operational status with appropriate emoji:
-  - `✅ Ready` - System is fully operational
-  - `⏳ Initializing` - System is loading
-  - `🔄 Processing` - System is currently performing operations
-  - `⏸️ Paused` - System is paused
-  - `🔍 Dry Run Mode` - System is in test mode
-
 #### Multiple Embeds Pattern
 For complex settings, consider using multiple embeds grouped by category:
 1. Primary embed with core settings and status
 2. Secondary embeds for detailed configuration groups
+
+### Status Commands
+All cogs should implement a `status` command that provides at-a-glance operational information:
+
+#### Embed Structure
+- **Title**: "{Feature Name} Status"
+- **Description**: Brief summary of operational state
+- **Color**: Varies based on status (blue for normal, orange for warnings, red for errors)
+
+#### Key Elements to Include
+1. **Operational State**: Current running state with appropriate emoji
+   - `✅ Operational` - All systems functioning normally
+   - `⚠️ Degraded` - Functioning with limitations or warnings
+   - `❌ Error` - Not functioning properly
+   - `⏸️ Paused` - Temporarily suspended
+
+2. **Dependencies**:
+   - List required services/cogs with their availability status
+   - Format: `{dependency_name}: ✅ Available` or `{dependency_name}: ❌ Unavailable`
+
+3. **Active Processes**:
+   - Show currently running operations: `🔄 Process X running (started HH:MM:SS ago)`
+   - Show queued operations: `⏳ N operations in queue`
+
+4. **Resource Usage** (when applicable):
+   - Memory usage
+   - API call counts/limits
+   - Cache status
+
+5. **Last Activity**:
+   - When was the last operation completed
+   - Format with relative time: `Last operation: 5 minutes ago`
+
+#### Example Implementation
+```python
+@commands.command(name="status")
+async def show_status(self, ctx):
+    """Display current operational status of this feature."""
+    
+    # Determine overall status
+    if self.paused:
+        status_emoji = "⏸️"
+        status_text = "Paused"
+        embed_color = discord.Color.orange()
+    elif self._has_errors:
+        status_emoji = "❌"
+        status_text = "Error"
+        embed_color = discord.Color.red()
+    else:
+        status_emoji = "✅"
+        status_text = "Operational"
+        embed_color = discord.Color.blue()
+    
+    # Create status embed
+    embed = discord.Embed(
+        title="Feature Name Status",
+        description=f"Current status: {status_emoji} {status_text}",
+        color=embed_color
+    )
+    
+    # Add dependency information
+    dependencies = []
+    if hasattr(self.bot, "required_cog"):
+        dependencies.append(f"Required Cog: {'✅ Available' if self.bot.get_cog('RequiredCog') else '❌ Unavailable'}")
+    
+    if dependencies:
+        embed.add_field(name="Dependencies", value="\n".join(dependencies), inline=False)
+    
+    # Add process information
+    if self._active_process:
+        embed.add_field(
+            name="Active Processes",
+            value=f"🔄 {self._active_process} (started {self._format_relative_time(self._process_start_time)} ago)",
+            inline=False
+        )
+    
+    # Add statistics
+    if hasattr(self, '_operation_count'):
+        embed.add_field(name="Statistics", value=f"Operations completed: {self._operation_count}", inline=False)
+    
+    # Add last activity
+    if self._last_operation_time:
+        embed.add_field(
+            name="Last Activity",
+            value=f"Last operation: {self._format_relative_time(self._last_operation_time)} ago",
+            inline=False
+        )
+    
+    await ctx.send(embed=embed)
+```
 
 ### Info Commands
 When implementing an `info` command for a cog:
