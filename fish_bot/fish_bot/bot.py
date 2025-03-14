@@ -71,7 +71,7 @@ class DiscordBot(commands.Bot, BaseFileMonitor):
     async def on_command_error(self, context: Context, error) -> None:
         if isinstance(error, commands.NotOwner):
             embed = discord.Embed(
-                description="You are not the owner of the bot!", color=0xE02B2B
+                description="You are not the owner of the bot!", color=discord.Color.red()
             )
             await context.send(embed=embed)
             if context.guild:
@@ -87,19 +87,19 @@ class DiscordBot(commands.Bot, BaseFileMonitor):
                 description="You are missing the permission(s) `"
                 + ", ".join(error.missing_permissions)
                 + "` to execute this command!",
-                color=0xE02B2B,
+                color=discord.Color.red(),
             )
             await context.send(embed=embed)
         elif isinstance(error, UserUnauthorized):
             embed = discord.Embed(
                 description="You are not allowed to execute this command!",
-                color=0xE02B2B,
+                color=discord.Color.red(),
             )
             await context.send(embed=embed)
         elif isinstance(error, ChannelUnauthorized):
             embed = discord.Embed(
                 description="This channel isn't allowed to run this command!",
-                color=0xE02B2B,
+                color=discord.Color.red(),
             )
             await context.send(embed=embed)
 
@@ -204,15 +204,42 @@ class DiscordBot(commands.Bot, BaseFileMonitor):
                 description="I am missing the permission(s) `"
                 + ", ".join(error.missing_permissions)
                 + "` to fully perform this command!",
-                color=0xE02B2B,
+                color=discord.Color.red(),
             )
             await context.send(embed=embed)
         elif isinstance(error, commands.MissingRequiredArgument):
+            # Get command signature and clean it up for display
+            signature = context.command.signature
+
+            # Create a more informative error message with command usage
+            command_name = context.command.qualified_name
+            prefix = context.prefix
+            usage = f"{prefix}{command_name} {signature}"
+
+            # Highlight the missing parameter in the error description
+            param_name = error.param.name
+            error_message = f"The argument `{param_name}` is required but was not provided."
+
             embed = discord.Embed(
-                title="Error!",
-                description=str(error).capitalize(),
-                color=0xE02B2B,
+                title="Missing Required Argument",
+                description=f"{error_message}\n\n**Usage:**\n`{usage}`",
+                color=discord.Color.red()
             )
+
+            # If there's a command help text, include it
+            if context.command.help:
+                # Extract the first paragraph of help (stops at first double newline)
+                help_text = context.command.help.split('\n\n')[0].strip()
+                embed.add_field(name="Help", value=help_text, inline=False)
+
+            # Add examples if they exist in the help text
+            if context.command.help and "Examples:" in context.command.help:
+                examples_section = context.command.help.split("Examples:")[1].strip()
+                # Get only the example section, stopping at the next major section if it exists
+                if "\n\n" in examples_section:
+                    examples_section = examples_section.split("\n\n")[0].strip()
+                embed.add_field(name="Examples", value=examples_section, inline=False)
+
             await context.send(embed=embed)
         else:
             raise error
