@@ -55,6 +55,29 @@ class PermissionManager:
         """Reload permissions from the configuration."""
         self.permissions = self._load_permissions()
 
+    def _get_primary_command_name(self, ctx: Context, command_name: str = None) -> str:
+        """
+        Get the primary name of a command, resolving from alias if needed.
+
+        Args:
+            ctx: The command context
+            command_name: Optional command name override (defaults to ctx.command.name)
+
+        Returns:
+            The primary command name
+        """
+        if command_name is None:
+            cmd = ctx.command
+        else:
+            cmd = ctx.bot.get_command(command_name)
+
+        # If command can't be found, return the original name
+        if not cmd:
+            return command_name if command_name else ctx.command.name
+
+        # Return the primary command name
+        return cmd.name
+
     async def check_command_permissions(self, ctx: Context, command_name: str = None) -> bool:
         """
         Check if a command can be executed in the current context.
@@ -73,8 +96,11 @@ class PermissionManager:
         if not command_name:
             command_name = ctx.command.name
 
+        # Resolve to primary command name
+        primary_name = self._get_primary_command_name(ctx, command_name)
+
         # Always allow the help command
-        if command_name == 'help':
+        if primary_name == 'help':
             return True
 
         # Always allow DMs from bot owner
@@ -90,14 +116,14 @@ class PermissionManager:
             if not channel_config.get("public", False):
                 if str(ctx.author.id) not in channel_config.get("authorized_users", []):
                     logger.warning(
-                        f"Command '{command_name}' blocked - unauthorized user in wildcard channel. "
+                        f"Command '{primary_name}' blocked - unauthorized user in wildcard channel. "
                         f"User: {ctx.author} (ID: {ctx.author.id})"
                     )
                     raise UserUnauthorized(ctx.author)
             return True
 
         # Get command-specific permissions
-        command_config = self.permissions["commands"].get(command_name, {})
+        command_config = self.permissions["commands"].get(primary_name, {})
         channel_config = command_config.get("channels", {}).get(str(ctx.channel.id))
 
         # Check for wildcard channel permission
@@ -111,7 +137,7 @@ class PermissionManager:
         # Check channel permissions
         if not channel_config:
             logger.warning(
-                f"Command '{command_name}' blocked - unauthorized channel. "
+                f"Command '{primary_name}' blocked - unauthorized channel. "
                 f"Channel: {ctx.channel} (ID: {ctx.channel.id})"
             )
             raise ChannelUnauthorized(ctx.channel)
@@ -120,21 +146,36 @@ class PermissionManager:
         if not channel_config.get("public", False):
             if str(ctx.author.id) not in channel_config.get("authorized_users", []):
                 logger.warning(
-                    f"Command '{command_name}' blocked - unauthorized user. "
+                    f"Command '{primary_name}' blocked - unauthorized user. "
                     f"User: {ctx.author} (ID: {ctx.author.id})"
                 )
                 raise UserUnauthorized(ctx.author)
 
         return True
 
+    def _resolve_command_name(self, bot, command_name: str) -> str:
+        """
+        Resolve a command name to its primary name, handling aliases.
+
+        Args:
+            bot: The bot instance
+            command_name: The command name or alias
+
+        Returns:
+            The primary name of the command
+        """
+        cmd = bot.get_command(command_name)
+        return cmd.name if cmd else command_name
+
     def add_command_channel(
-        self, command: str, channel_id: str, public: bool = False, authorized_users: List[str] = None
+        self, bot, command: str, channel_id: str, public: bool = False, authorized_users: List[str] = None
     ) -> bool:
         """
         Add a channel to command permissions.
 
         Args:
-            command: The command name
+            bot: The bot instance
+            command: The command name or alias
             channel_id: The channel ID
             public: Whether the command is public in this channel
             authorized_users: List of authorized user IDs if not public
@@ -142,55 +183,63 @@ class PermissionManager:
         Returns:
             True if successful, False otherwise
         """
-        return self.config.add_command_channel(command, channel_id, public, authorized_users)
+        primary_name = self._resolve_command_name(bot, command)
+        return self.config.add_command_channel(primary_name, channel_id, public, authorized_users)
 
-    def remove_command_channel(self, command: str, channel_id: str) -> bool:
+    def remove_command_channel(self, bot, command: str, channel_id: str) -> bool:
         """
         Remove a channel from command permissions.
 
         Args:
-            command: The command name
+            bot: The bot instance
+            command: The command name or alias
             channel_id: The channel ID
 
         Returns:
             True if successful, False otherwise
         """
-        return self.config.remove_command_channel(command, channel_id)
+        primary_name = self._resolve_command_name(bot, command)
+        return self.config.remove_command_channel(primary_name, channel_id)
 
-    def add_authorized_user(self, command: str, channel_id: str, user_id: str) -> bool:
+    def add_authorized_user(self, bot, command: str, channel_id: str, user_id: str) -> bool:
         """
         Add an authorized user to a command channel.
 
         Args:
-            command: The command name
+            bot: The bot instance
+            command: The command name or alias
             channel_id: The channel ID
             user_id: The user ID
 
         Returns:
             True if successful, False otherwise
         """
-        return self.config.add_authorized_user(command, channel_id, user_id)
+        primary_name = self._resolve_command_name(bot, command)
+        return self.config.add_authorized_user(primary_name, channel_id, user_id)
 
-    def remove_authorized_user(self, command: str, channel_id: str, user_id: str) -> bool:
+    def remove_authorized_user(self, bot, command: str, channel_id: str, user_id: str) -> bool:
         """
         Remove an authorized user from a command channel.
 
         Args:
-            command: The command name
+            bot: The bot instance
+            command: The command name or alias
             channel_id: The channel ID
             user_id: The user ID
 
         Returns:
             True if successful, False otherwise
         """
-        return self.config.remove_authorized_user(command, channel_id, user_id)
+        primary_name = self._resolve_command_name(bot, command)
+        return self.config.remove_authorized_user(primary_name, channel_id, user_id)
 
-    def set_channel_public(self, command: str, channel_id: str, public: bool = True) -> bool:
+    def set_channel_public(self, bot, command: str, channel_id: str, public: bool = True) -> bool:
         """
         Set whether a command is public in a channel.
 
         Args:
-            command: The command name
+            bot: The bot instance
+            command: The command name or alias
             channel_id: The channel ID
             public: Whether the command is public
 
@@ -198,13 +247,14 @@ class PermissionManager:
             True if successful, False otherwise
         """
         try:
+            primary_name = self._resolve_command_name(bot, command)
             permissions = self.config.get("command_permissions", {"commands": {}})
 
             # Initialize commands dict if it doesn't exist
             commands = permissions.setdefault("commands", {})
 
             # Initialize command config if it doesn't exist
-            command_config = commands.setdefault(command, {})
+            command_config = commands.setdefault(primary_name, {})
 
             # Initialize channels dict if it doesn't exist
             channels = command_config.setdefault("channels", {})
@@ -226,29 +276,41 @@ class PermissionManager:
             logger.error(f"Failed to set channel public flag: {e}")
             return False
 
-    def get_command_permissions(self, command: str) -> Dict[str, Any]:
+    def get_command_permissions(self, command: str, bot=None) -> Dict[str, Any]:
         """
         Get permissions for a specific command.
 
         Args:
-            command: The command name
+            command: The command name or alias
+            bot: Optional bot instance to resolve aliases
 
         Returns:
             Dict containing the command permissions
         """
-        return self.permissions.get("commands", {}).get(command, {})
+        if bot:
+            primary_name = self._resolve_command_name(bot, command)
+        else:
+            primary_name = command
 
-    def get_authorized_channels(self, command: str) -> List[str]:
+        return self.permissions.get("commands", {}).get(primary_name, {})
+
+    def get_authorized_channels(self, command: str, bot=None) -> List[str]:
         """
         Get all channels authorized for a command.
 
         Args:
-            command: The command name
+            command: The command name or alias
+            bot: Optional bot instance to resolve aliases
 
         Returns:
             List of channel IDs authorized for the command
         """
-        command_config = self.get_command_permissions(command)
+        if bot:
+            primary_name = self._resolve_command_name(bot, command)
+        else:
+            primary_name = command
+
+        command_config = self.get_command_permissions(primary_name)
         channels = command_config.get("channels", {})
 
         # Also check the wildcard command
@@ -257,35 +319,47 @@ class PermissionManager:
         # Combine both sets of channels
         return list(set(channels.keys()).union(wildcard_channels.keys()))
 
-    def get_authorized_users(self, command: str, channel_id: str) -> List[str]:
+    def get_authorized_users(self, command: str, channel_id: str, bot=None) -> List[str]:
         """
         Get all users authorized for a command in a channel.
 
         Args:
-            command: The command name
+            command: The command name or alias
             channel_id: The channel ID
+            bot: Optional bot instance to resolve aliases
 
         Returns:
             List of user IDs authorized for the command in the channel
         """
-        command_config = self.get_command_permissions(command)
+        if bot:
+            primary_name = self._resolve_command_name(bot, command)
+        else:
+            primary_name = command
+
+        command_config = self.get_command_permissions(primary_name)
         channel_config = command_config.get("channels", {}).get(channel_id, {})
 
         return channel_config.get("authorized_users", [])
 
-    def is_command_public(self, command: str, channel_id: str) -> bool:
+    def is_command_public(self, command: str, channel_id: str, bot=None) -> bool:
         """
         Check if a command is public in a channel.
 
         Args:
-            command: The command name
+            command: The command name or alias
             channel_id: The channel ID
+            bot: Optional bot instance to resolve aliases
 
         Returns:
             True if the command is public, False otherwise
         """
+        if bot:
+            primary_name = self._resolve_command_name(bot, command)
+        else:
+            primary_name = command
+
         # Check specific command channel
-        command_config = self.get_command_permissions(command)
+        command_config = self.get_command_permissions(primary_name)
         channel_config = command_config.get("channels", {}).get(channel_id, {})
 
         if channel_config.get("public", False):
@@ -329,7 +403,7 @@ class PermissionManager:
 
         Args:
             ctx: The command context
-            command: The command name
+            command: The command name or alias
             channel_input: The channel input
             public: Whether the command should be public in this channel
 
@@ -344,12 +418,23 @@ class PermissionManager:
 
         channel_id = str(channel.id)
 
-        if self.add_command_channel(command, channel_id, public):
+        # Resolve to primary command name
+        cmd_obj = ctx.bot.get_command(command)
+        if cmd_obj:
+            primary_name = cmd_obj.name
+            display_name = f"'{primary_name}'"
+            if cmd_obj.aliases:
+                display_name += f" (alias of {command})" if command != primary_name else ""
+        else:
+            primary_name = command
+            display_name = f"'{primary_name}'"
+
+        if self.add_command_channel(ctx.bot, primary_name, channel_id, public):
             status = "public" if public else "non-public"
-            await ctx.send(f"✅ Added channel {channel.mention} to command '{command}' permissions ({status})")
+            await ctx.send(f"✅ Added channel {channel.mention} to command {display_name} permissions ({status})")
             return True
         else:
-            await ctx.send(f"❌ Failed to add channel {channel.mention} to command '{command}' permissions")
+            await ctx.send(f"❌ Failed to add channel {channel.mention} to command {display_name} permissions")
             return False
 
     async def cmd_remove_channel(self, ctx, command, channel_input):
@@ -357,7 +442,7 @@ class PermissionManager:
 
         Args:
             ctx: The command context
-            command: The command name
+            command: The command name or alias
             channel_input: The channel input
 
         Returns:
@@ -371,11 +456,22 @@ class PermissionManager:
 
         channel_id = str(channel.id)
 
-        if self.remove_command_channel(command, channel_id):
-            await ctx.send(f"Removed channel {channel.mention} from command '{command}' permissions")
+        # Resolve to primary command name
+        cmd_obj = ctx.bot.get_command(command)
+        if cmd_obj:
+            primary_name = cmd_obj.name
+            display_name = f"'{primary_name}'"
+            if cmd_obj.aliases:
+                display_name += f" (alias of {command})" if command != primary_name else ""
+        else:
+            primary_name = command
+            display_name = f"'{primary_name}'"
+
+        if self.remove_command_channel(ctx.bot, primary_name, channel_id):
+            await ctx.send(f"Removed channel {channel.mention} from command {display_name} permissions")
             return True
         else:
-            await ctx.send(f"Failed to remove channel {channel.mention} from command '{command}' permissions")
+            await ctx.send(f"Failed to remove channel {channel.mention} from command {display_name} permissions")
             return False
 
     async def cmd_add_user(self, ctx, command, channel, user):
@@ -383,7 +479,7 @@ class PermissionManager:
 
         Args:
             ctx: The command context
-            command: The command name
+            command: The command name or alias
             channel: The channel
             user: The user to add
 
@@ -393,11 +489,22 @@ class PermissionManager:
         channel_id = str(channel.id)
         user_id = str(user.id)
 
-        if self.add_authorized_user(command, channel_id, user_id):
-            await ctx.send(f"Added {user.mention} to authorized users for command '{command}' in channel {channel.mention}")
+        # Resolve to primary command name
+        cmd_obj = ctx.bot.get_command(command)
+        if cmd_obj:
+            primary_name = cmd_obj.name
+            display_name = f"'{primary_name}'"
+            if cmd_obj.aliases:
+                display_name += f" (alias of {command})" if command != primary_name else ""
+        else:
+            primary_name = command
+            display_name = f"'{primary_name}'"
+
+        if self.add_authorized_user(ctx.bot, primary_name, channel_id, user_id):
+            await ctx.send(f"Added {user.mention} to authorized users for command {display_name} in channel {channel.mention}")
             return True
         else:
-            await ctx.send(f"Failed to add {user.mention} to authorized users for command '{command}' in channel {channel.mention}")
+            await ctx.send(f"Failed to add {user.mention} to authorized users for command {display_name} in channel {channel.mention}")
             return False
 
     async def cmd_remove_user(self, ctx, command, channel, user):
@@ -405,7 +512,7 @@ class PermissionManager:
 
         Args:
             ctx: The command context
-            command: The command name
+            command: The command name or alias
             channel: The channel
             user: The user to remove
 
@@ -415,11 +522,22 @@ class PermissionManager:
         channel_id = str(channel.id)
         user_id = str(user.id)
 
-        if self.remove_authorized_user(command, channel_id, user_id):
-            await ctx.send(f"Removed {user.mention} from authorized users for command '{command}' in channel {channel.mention}")
+        # Resolve to primary command name
+        cmd_obj = ctx.bot.get_command(command)
+        if cmd_obj:
+            primary_name = cmd_obj.name
+            display_name = f"'{primary_name}'"
+            if cmd_obj.aliases:
+                display_name += f" (alias of {command})" if command != primary_name else ""
+        else:
+            primary_name = command
+            display_name = f"'{primary_name}'"
+
+        if self.remove_authorized_user(ctx.bot, primary_name, channel_id, user_id):
+            await ctx.send(f"Removed {user.mention} from authorized users for command {display_name} in channel {channel.mention}")
             return True
         else:
-            await ctx.send(f"Failed to remove {user.mention} from authorized users for command '{command}' in channel {channel.mention}")
+            await ctx.send(f"Failed to remove {user.mention} from authorized users for command {display_name} in channel {channel.mention}")
             return False
 
     async def show_permissions_overview(self, ctx: Context) -> None:
@@ -467,6 +585,20 @@ class PermissionManager:
 
         await ctx.send(embed=embed)
 
+    def _get_command_aliases(self, bot, command_name: str) -> List[str]:
+        """
+        Get all aliases for a command.
+
+        Args:
+            bot: The bot instance
+            command_name: The command name
+
+        Returns:
+            List of command aliases
+        """
+        cmd = bot.get_command(command_name)
+        return cmd.aliases if cmd and hasattr(cmd, 'aliases') else []
+
     async def show_permissions(self, ctx: Context, command_name: Optional[str] = None) -> None:
         """
         Display permissions for a specific command or all commands.
@@ -479,20 +611,36 @@ class PermissionManager:
         commands_dict = self.permissions.get("commands", {})
 
         if command_name:
+            # Resolve to primary command name if it's an alias
+            cmd = bot.get_command(command_name)
+            if cmd:
+                primary_name = cmd.name
+                aliases = cmd.aliases if hasattr(cmd, 'aliases') else []
+            else:
+                primary_name = command_name
+                aliases = []
+
             # Show permissions for a specific command
-            if command_name not in commands_dict and command_name != "*":
-                return await ctx.send(f"No permissions set for command `{command_name}`")
+            if primary_name not in commands_dict and primary_name != "*":
+                return await ctx.send(f"No permissions set for command `{primary_name}`")
 
             embed = discord.Embed(
-                title=f"Permissions for `{command_name}`",
+                title=f"Permissions for `{primary_name}`",
                 color=discord.Color.blue()
             )
 
-            command_config = commands_dict.get(command_name, {})
+            # Add aliases information if any exist
+            if aliases:
+                embed.description = f"**Aliases**: {', '.join([f'`{alias}`' for alias in aliases])}"
+
+            command_config = commands_dict.get(primary_name, {})
             channels = command_config.get("channels", {})
 
             if not channels:
-                embed.description = "No channels configured for this command"
+                if not embed.description:
+                    embed.description = "No channels configured for this command"
+                else:
+                    embed.description += "\n\nNo channels configured for this command"
             else:
                 for channel_id, channel_config in channels.items():
                     if channel_id == "*":
@@ -540,6 +688,12 @@ class PermissionManager:
                 embed.description = "No command permissions configured"
             else:
                 for cmd_name, cmd_config in commands_dict.items():
+                    # Get command aliases if any
+                    cmd = bot.get_command(cmd_name)
+                    aliases_text = ""
+                    if cmd and hasattr(cmd, 'aliases') and cmd.aliases:
+                        aliases_text = f" (aliases: {', '.join([f'`{a}`' for a in cmd.aliases])})"
+
                     channels = cmd_config.get("channels", {})
                     channel_list = []
 
@@ -556,7 +710,7 @@ class PermissionManager:
 
                     if channel_list:
                         embed.add_field(
-                            name=f"Command: {cmd_name}",
+                            name=f"Command: `{cmd_name}`{aliases_text}",
                             value="\n".join(channel_list[:5]) + (
                                 f"\n...and {len(channel_list) - 5} more channels" if len(channel_list) > 5 else ""
                             ),
