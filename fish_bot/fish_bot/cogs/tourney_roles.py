@@ -149,9 +149,32 @@ class TourneyRoles(BaseCog, name="Tournament Roles"):
                     if time_since_update >= self.update_interval:
                         should_update = True
                         self.logger.info(f"Time since last update ({time_since_update:.1f}s) exceeds interval, running role update")
+
                 if should_update and not self.currently_updating:
-                    # Run the update
-                    await self.update_all_roles()
+                    # For automatic updates, create a message in the log channel
+                    log_channel_id = self.get_setting("log_channel_id")
+                    if log_channel_id:
+                        try:
+                            channel = self.bot.get_channel(int(log_channel_id))
+                            if channel:
+                                # Get dry run status
+                                dry_run = self.get_setting("dry_run")
+                                initial_message = "🔍 Starting automatic role update in DRY RUN mode..." if dry_run else "🔄 Starting automatic role update..."
+                                message = await channel.send(f"{initial_message} This may take a while.")
+
+                                # Run the update with progress tracking
+                                await self.start_update_with_progress(message, manual_update=False)
+                            else:
+                                # No valid channel, run update without progress message
+                                self.logger.warning("Log channel not found for automatic update progress message")
+                                await self.update_all_roles()
+                        except Exception as e:
+                            self.logger.error(f"Error creating progress message for automatic update: {e}")
+                            await self.update_all_roles()  # Still run the update
+                    else:
+                        # No log channel configured, run without progress message
+                        await self.update_all_roles()
+
                 # Sleep until next check
                 await asyncio.sleep(60)  # Check every minute if update needed
             except Exception as e:
@@ -257,7 +280,8 @@ class TourneyRoles(BaseCog, name="Tournament Roles"):
                                     self.logger.warning(f"Could not find role with ID {role_id} for '{role_name}'")
 
                         # Update member's roles
-                        # The updated update_member_roles will handle adding to log buffer
+                        # Get the log message but DON'T add it to buffer here
+                        # It will be added to log_messages and sent in batches
                         roles_added, roles_removed, log_message = await self.update_member_roles(member, player_tournaments, role_objects)
 
                         # Handle logging
@@ -306,7 +330,13 @@ class TourneyRoles(BaseCog, name="Tournament Roles"):
                 if i + self.process_batch_size < len(discord_ids):
                     await asyncio.sleep(self.process_delay)
 
-            # After processing, flush any remaining logs
+            # After processing, send any remaining logs
+            if log_messages:
+                await self.send_role_logs_batch(log_messages)
+                log_messages = []
+
+            # After processing, flush any remaining logs that might be in the buffer
+            # (though there shouldn't be any if we're not adding directly to buffer)
             await self.flush_log_buffer()
 
             # Update timestamp - at the end of processing
@@ -527,12 +557,8 @@ class TourneyRoles(BaseCog, name="Tournament Roles"):
 
         # Generate log message if there were changes
         log_message = None
-        if role_changes and not dry_run:
+        if role_changes:
             log_message = f"{member.name}: {', '.join(role_changes)}"
-
-            # Add to buffer for immediate logging if enabled
-            if log_message and not dry_run:
-                await self.add_log_message(log_message)
 
         return roles_added, roles_removed, log_message
 
@@ -1245,12 +1271,28 @@ class TourneyRoles(BaseCog, name="Tournament Roles"):
         initial_message = "🔍 Starting role update in DRY RUN mode..." if dry_run else "🔄 Starting role update..."
         message = await ctx.send(f"{initial_message} This may take a while.")
 
+        # Start the update with the message for progress tracking
+        await self.start_update_with_progress(message, manual_update=True)
+
+        # Let the command finish - updates will continue in background
+        return await ctx.send("Role update started in the background. Progress will be updated in the original message.")
+
+    async def start_update_with_progress(self, message, manual_update=False):
+        """Start a role update with progress tracking
+
+        Args:
+            message: The Discord message to update with progress
+            manual_update: Whether this is a manual update (True) or automatic (False)
+        """
         # Store start time with timezone awareness
         start_time = datetime.datetime.now(datetime.timezone.utc)
 
         # Get total number of users to process
         discord_mapping = await self.get_discord_to_player_mapping()
         total_users = len(discord_mapping)
+
+        # Get dry run status
+        dry_run = self.get_setting("dry_run")
 
         # Create shared progress data
         progress_data = {
@@ -1261,7 +1303,8 @@ class TourneyRoles(BaseCog, name="Tournament Roles"):
             "dry_run": dry_run,
             "last_percentage": -1,
             "completed": False,
-            "error": None
+            "error": None,
+            "manual_update": manual_update
         }
 
         # Store progress data where update task can access it
@@ -1272,9 +1315,6 @@ class TourneyRoles(BaseCog, name="Tournament Roles"):
 
         # Create separate task to update the progress message
         self.progress_task = asyncio.create_task(self.update_progress_message())
-
-        # Let the command finish - updates will continue in background
-        return await ctx.send("Role update started in the background. Progress will be updated in the original message.")
 
     async def update_progress_message(self):
         """Background task that updates the progress message"""
@@ -1309,6 +1349,7 @@ class TourneyRoles(BaseCog, name="Tournament Roles"):
         start_time = data["start_time"]
         dry_run = data["dry_run"]
         error = data["error"]
+        manual_update = data.get("manual_update", True)  # Default to True for backwards compatibility
 
         # Calculate percentage
         current_percentage = int((processed / total) * 100) if total > 0 else 0
@@ -1328,12 +1369,28 @@ class TourneyRoles(BaseCog, name="Tournament Roles"):
                 # Create completion embed
                 duration = elapsed
                 duration_str = f"{duration:.1f}"
+                update_type = "Manual" if manual_update else "Automatic"
                 embed = discord.Embed(
-                    title="Tournament Roles Updated" + (" (DRY RUN)" if dry_run else ""),
+                    title=f"{update_type} Tournament Roles Updated" + (" (DRY RUN)" if dry_run else ""),
                     description=f"Successfully updated roles in {duration_str} seconds",
                     color=discord.Color.green()
                 )
-                # Add rest of embed content...
+
+                # Add stats
+                embed.add_field(
+                    name="Statistics",
+                    value=(
+                        f"**Users Processed:** {self.processed_users}\n"
+                        f"**Roles Assigned:** {self.roles_assigned}\n"
+                        f"**Roles Removed:** {self.roles_removed}\n"
+                        f"**No Player Data:** {self.users_with_no_player_data}"
+                    ),
+                    inline=False
+                )
+
+                # Add timestamp
+                embed.set_footer(text=f"Completed at {datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}")
+
                 await message.edit(content=None, embed=embed)
             else:
                 # Show progress bar during update
@@ -1351,8 +1408,9 @@ class TourneyRoles(BaseCog, name="Tournament Roles"):
                         eta = f"{eta_seconds / 3600:.1f} hours"
 
                     progress_bar = "█" * (current_percentage // 5) + "░" * ((100 - current_percentage) // 5)
+                    update_type = "Manual" if manual_update else "Automatic"
                     status = (
-                        f"{'🔍 DRY RUN: ' if dry_run else ''}Processing roles: **{processed}/{total}** users "
+                        f"{update_type} {'🔍 DRY RUN: ' if dry_run else ''}Processing roles: **{processed}/{total}** users "
                         f"(**{current_percentage}%**)\n"
                         f"`{progress_bar}` \n"
                         f"⏱️ Estimated time remaining: **{eta}**"
