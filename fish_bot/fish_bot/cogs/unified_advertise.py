@@ -193,7 +193,7 @@ class MemberAdvertisementForm(Modal, title="Member Advertisement Form"):
 
         # Post advertisement and update cooldowns
         thread_title = f"[Member] {interaction.user.name} ({player_id})"
-        await self.cog.post_advertisement(interaction, embed, thread_title, AdvertisementType.MEMBER)
+        await self.cog.post_advertisement(interaction, embed, thread_title, AdvertisementType.MEMBER, None)  # Fix the syntax error
 
 
 class UnifiedAdvertiseCog(commands.Cog):
@@ -221,17 +221,48 @@ class UnifiedAdvertiseCog(commands.Cog):
         self.pending_deletions = self._load_pending_deletions()
 
         # Start tasks
-        self.bot.loop.create_task(self._resume_deletion_tasks())
+        self.check_deletions.start()
         self.weekly_cleanup.start()
 
     def cog_unload(self):
         """Called when the cog is unloaded."""
         self.weekly_cleanup.cancel()
+        self.check_deletions.cancel()
 
     @tasks.loop(hours=168)  # 168 hours = 1 week
     async def weekly_cleanup(self):
         """Weekly task to clean up expired cooldowns."""
         await self._cleanup_cooldowns()
+
+    @tasks.loop(minutes=1)  # Check for threads to delete every minute (changed from 5 minutes)
+    async def check_deletions(self):
+        """Check for threads that need to be deleted."""
+        current_time = datetime.datetime.now()
+        threads_to_delete = []
+
+        for thread_id, deletion_time in self.pending_deletions:
+            if current_time >= deletion_time:
+                threads_to_delete.append(thread_id)
+
+        # Delete threads that have reached their time
+        for thread_id in threads_to_delete:
+            try:
+                thread = await self.bot.fetch_channel(thread_id)
+                await thread.delete()
+                print(f"Deleted advertisement thread {thread_id} (scheduled for {deletion_time})")
+            except (discord.NotFound, discord.HTTPException) as e:
+                print(f"Error deleting thread {thread_id}: {e}")
+
+            # Remove from pending deletions
+            self.pending_deletions = [(t_id, t_time) for t_id, t_time in self.pending_deletions if t_id != thread_id]
+
+        if threads_to_delete:
+            self._save_pending_deletions()
+
+    @check_deletions.before_loop
+    async def before_check_deletions(self):
+        """Wait until the bot is ready before starting the deletion check task."""
+        await self.bot.wait_until_ready()
 
     @weekly_cleanup.before_loop
     async def before_weekly_cleanup(self):
@@ -312,57 +343,12 @@ class UnifiedAdvertiseCog(commands.Cog):
             print(f"Error saving pending deletions: {e}")
 
     async def _resume_deletion_tasks(self):
-        """Resume deletion tasks for threads that were scheduled before restart."""
+        """Check for threads that were scheduled for deletion before restart."""
         await self.bot.wait_until_ready()
 
-        current_time = datetime.datetime.now()
-        new_pending = []
-
-        for item in self.pending_deletions:
-            # Forum posts are stored with 2 elements (thread_id, deletion_time)
-            is_forum_thread = len(item) == 2
-
-            if is_forum_thread:
-                thread_id, deletion_time = item
-
-                if current_time >= deletion_time:
-                    # Thread should already be deleted
-                    try:
-                        thread = await self.bot.fetch_channel(thread_id)
-                        await thread.delete()
-                        print(f"Deleted advertisement thread {thread_id} after restart")
-                    except (discord.NotFound, discord.HTTPException):
-                        # Thread already deleted or not found
-                        pass
-                else:
-                    # Schedule this thread for deletion
-                    delay = (deletion_time - current_time).total_seconds()
-                    self.bot.loop.create_task(self._delete_thread_after_delay(thread_id, delay))
-                    new_pending.append(item)
-            else:
-                # Handle old format for backward compatibility
-                # We can just ignore old format items as they use different files
-                pass
-
-        self.pending_deletions = new_pending
-        self._save_pending_deletions()
-
-    async def _delete_thread_after_delay(self, thread_id, delay):
-        """Delete a thread after a specified delay in seconds."""
-        await asyncio.sleep(delay)
-        try:
-            thread = await self.bot.fetch_channel(thread_id)
-            await thread.delete()
-            print(f"Deleted advertisement thread {thread_id} after {delay / 3600:.1f} hours")
-
-            # Remove from pending deletions
-            self.pending_deletions = [item for item in self.pending_deletions if item[0] != thread_id]
-            self._save_pending_deletions()
-        except (discord.NotFound, discord.HTTPException) as e:
-            print(f"Error deleting thread {thread_id}: {e}")
-            # Still remove from pending deletions if the thread is gone
-            self.pending_deletions = [item for item in self.pending_deletions if item[0] != thread_id]
-            self._save_pending_deletions()
+        # No need to create separate tasks or do anything here
+        # The check_deletions task will automatically handle all pending deletions
+        print(f"Resumed tracking {len(self.pending_deletions)} pending thread deletions")
 
     async def check_cooldowns(self, interaction, user_id, guild_id=None, ad_type=None):
         """Check if user or guild is on cooldown and handle the response."""
@@ -492,11 +478,6 @@ class UnifiedAdvertiseCog(commands.Cog):
             self.pending_deletions.append((thread.id, deletion_time))
             self._save_pending_deletions()
 
-            # Create task to delete the thread after delay
-            self.bot.loop.create_task(
-                self._delete_thread_after_delay(thread.id, self.cooldown_hours * 3600)
-            )
-
         except Exception as e:
             print(f"Error in post_advertisement: {e}")
             if interaction.response.is_done():
@@ -509,6 +490,222 @@ class UnifiedAdvertiseCog(commands.Cog):
                     "There was an error posting your advertisement. Please contact a moderator.",
                     ephemeral=True
                 )
+
+    # Add new owner-only DM commands
+    @commands.command(name="owner_delete_post")
+    async def owner_delete_post(self, ctx, message_url: str):
+        """Delete a post based on message URL and remove it from pending deletions.
+
+        Only works for the bot owner in DMs.
+        """
+        # Check if command is used by bot owner in DMs
+        if not await self._check_owner_dm(ctx):
+            return
+
+        try:
+            # Extract channel and message IDs from URL
+            # Example URL: https://discord.com/channels/guild_id/channel_id/message_id
+            parts = message_url.split('/')
+            if len(parts) < 7:
+                await ctx.send("Invalid message URL format. Expected: https://discord.com/channels/guild_id/channel_id/message_id")
+                return
+
+            channel_id = int(parts[-2])
+
+            # Try to fetch the channel (should be a thread)
+            try:
+                thread = await self.bot.fetch_channel(channel_id)
+
+                # Delete the thread
+                await thread.delete()
+
+                # Remove from pending deletions
+                updated_list = []
+                deleted = False
+
+                for thread_id, deletion_time in self.pending_deletions:
+                    if thread_id == channel_id:
+                        deleted = True
+                    else:
+                        updated_list.append((thread_id, deletion_time))
+
+                if deleted:
+                    self.pending_deletions = updated_list
+                    self._save_pending_deletions()
+                    await ctx.send("Successfully deleted thread and removed from pending deletions.")
+                else:
+                    await ctx.send("Successfully deleted thread, but it wasn't in the pending deletions list.")
+
+            except discord.NotFound:
+                await ctx.send("Thread not found. It might have been already deleted.")
+            except discord.Forbidden:
+                await ctx.send("I don't have permission to delete that thread.")
+            except Exception as e:
+                await ctx.send(f"Error deleting thread: {str(e)}")
+
+        except Exception as e:
+            await ctx.send(f"Error processing command: {str(e)}")
+
+    @commands.command(name="owner_reset_timeout")
+    async def owner_reset_timeout(self, ctx, timeout_type: str, identifier: str):
+        """Reset a timeout for a user or guild.
+
+        timeout_type: 'user' or 'guild'
+        identifier: Discord user ID or Guild ID
+        Only works for the bot owner in DMs.
+        """
+        # Check if command is used by bot owner in DMs
+        if not await self._check_owner_dm(ctx):
+            return
+
+        try:
+            timeout_type = timeout_type.lower()
+
+            if timeout_type not in ['user', 'guild']:
+                await ctx.send("Invalid timeout type. Use 'user' or 'guild'.")
+                return
+
+            # Map timeout type to the cooldowns dictionary key
+            cooldown_key = 'users' if timeout_type == 'user' else 'guilds'
+
+            # Check if the identifier exists in the cooldowns
+            if identifier in self.cooldowns[cooldown_key]:
+                # Remove the timeout
+                del self.cooldowns[cooldown_key][identifier]
+                self._save_cooldowns()
+                await ctx.send(f"Successfully reset {timeout_type} timeout for {identifier}.")
+            else:
+                await ctx.send(f"No timeout found for {timeout_type} {identifier}.")
+
+        except Exception as e:
+            await ctx.send(f"Error processing command: {str(e)}")
+
+    @commands.command(name="owner_list_timeouts")
+    async def owner_list_timeouts(self, ctx, timeout_type: str = None):
+        """List all active timeouts.
+
+        timeout_type: Optional 'user' or 'guild' to filter results
+        Only works for the bot owner in DMs.
+        """
+        # Check if command is used by bot owner in DMs
+        if not await self._check_owner_dm(ctx):
+            return
+
+        try:
+            now = datetime.datetime.now()
+            sections = []
+
+            # Determine which sections to show
+            if timeout_type:
+                timeout_type = timeout_type.lower()
+                if timeout_type not in ['user', 'guild']:
+                    await ctx.send("Invalid timeout type. Use 'user', 'guild' or omit for all.")
+                    return
+
+                if timeout_type == 'user':
+                    sections = ['users']
+                else:
+                    sections = ['guilds']
+            else:
+                # Show all sections if no type specified
+                sections = ['users', 'guilds']
+
+            # Build the message
+            result = []
+
+            for section in sections:
+                if not self.cooldowns[section]:
+                    result.append(f"No active {section} timeouts.")
+                    continue
+
+                result.append(f"**{section.capitalize()} Timeouts:**")
+
+                for item_id, timestamp in self.cooldowns[section].items():
+                    timestamp_dt = datetime.datetime.fromisoformat(timestamp)
+                    elapsed = now - timestamp_dt
+                    hours_left = self.cooldown_hours - (elapsed.total_seconds() / 3600)
+
+                    if hours_left > 0:
+                        result.append(f"- ID: `{item_id}`, Time left: {hours_left:.1f} hours")
+                    else:
+                        result.append(f"- ID: `{item_id}`, **EXPIRED** ({abs(hours_left):.1f} hours ago)")
+
+                result.append("")  # Add a blank line between sections
+
+            # Send the message
+            if result:
+                await ctx.send("\n".join(result))
+            else:
+                await ctx.send("No active timeouts found.")
+
+        except Exception as e:
+            await ctx.send(f"Error processing command: {str(e)}")
+
+    @commands.command(name="owner_list_pending")
+    async def owner_list_pending(self, ctx):
+        """List all pending deletions.
+
+        Only works for the bot owner in DMs.
+        """
+        # Check if command is used by bot owner in DMs
+        if not await self._check_owner_dm(ctx):
+            return
+
+        try:
+            now = datetime.datetime.now()
+
+            if not self.pending_deletions:
+                await ctx.send("No pending thread deletions.")
+                return
+
+            result = ["**Pending Thread Deletions:**"]
+
+            for thread_id, deletion_time in self.pending_deletions:
+                time_left = deletion_time - now
+                hours_left = time_left.total_seconds() / 3600
+
+                thread_url = f"https://discord.com/channels/{const.guild_id}/{thread_id}"
+
+                if hours_left > 0:
+                    result.append(f"- Thread ID: `{thread_id}`, Time left: {hours_left:.1f} hours\n  URL: {thread_url}")
+                else:
+                    result.append(f"- Thread ID: `{thread_id}`, **OVERDUE** by {abs(hours_left):.1f} hours\n  URL: {thread_url}")
+
+            # Send the message(s) - discord has a 2000 char limit
+            messages = []
+            current_msg = ""
+
+            for line in result:
+                if len(current_msg) + len(line) + 1 > 1990:  # Leave some buffer
+                    messages.append(current_msg)
+                    current_msg = line
+                else:
+                    if current_msg:
+                        current_msg += "\n" + line
+                    else:
+                        current_msg = line
+
+            if current_msg:
+                messages.append(current_msg)
+
+            for msg in messages:
+                await ctx.send(msg)
+
+        except Exception as e:
+            await ctx.send(f"Error processing command: {str(e)}")
+
+    async def _check_owner_dm(self, ctx):
+        """Check if the command is being used by the bot owner in DMs."""
+        # Check if command is in DMs
+        if not isinstance(ctx.channel, discord.DMChannel):
+            return False
+
+        # Check if user is bot owner
+        if ctx.author.id != self.bot.owner_id:
+            await ctx.send("This command is only available to the bot owner.")
+            return False
+
+        return True
 
     @app_commands.command(name="advertise", description="Create a guild or member advertisement")
     async def advertise_slash(self, interaction: discord.Interaction):
