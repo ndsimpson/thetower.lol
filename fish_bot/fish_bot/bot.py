@@ -82,6 +82,40 @@ class DiscordBot(commands.Bot, BaseFileMonitor):
                 self.logger.warning(
                     f"{context.author} (ID: {context.author.id}) tried to execute an owner only command in the bot's DMs, but the user is not an owner of the bot."
                 )
+        elif isinstance(error, commands.CommandNotFound):
+            # Log the unknown command attempt
+            command_name = context.message.content.split()[0][len(context.prefix):] if context.message.content.startswith(context.prefix) else "Unknown"
+            self.logger.info(f"Unknown command '{command_name}' attempted by {context.author} (ID: {context.author.id})")
+
+            # Check if we should log to a Discord channel
+            error_channel_id = self.config.get("error_log_channel", None)
+            if error_channel_id:
+                try:
+                    channel = self.get_channel(int(error_channel_id))
+                    if channel:
+                        # Create informative embed for the error log channel
+                        embed = discord.Embed(
+                            title="Command Not Found",
+                            description="Unknown command attempted",
+                            color=discord.Color.orange(),
+                            timestamp=context.message.created_at
+                        )
+
+                        # Add details about the command attempt
+                        embed.add_field(name="Attempted Command", value=f"`{context.message.content}`", inline=False)
+                        embed.add_field(name="User", value=f"{context.author.mention} ({context.author})", inline=True)
+                        embed.add_field(name="User ID", value=f"`{context.author.id}`", inline=True)
+
+                        # Add location details
+                        if context.guild:
+                            embed.add_field(name="Server", value=context.guild.name, inline=True)
+                            embed.add_field(name="Channel", value=f"{context.channel.mention}", inline=True)
+                        else:
+                            embed.add_field(name="Location", value="Direct Message", inline=True)
+
+                        await channel.send(embed=embed)
+                except Exception as e:
+                    self.logger.error(f"Failed to log CommandNotFound to Discord channel: {e}")
         elif isinstance(error, commands.MissingPermissions):
             embed = discord.Embed(
                 description="You are missing the permission(s) `"
@@ -560,6 +594,158 @@ async def permission_reload(ctx):
     """Reload permissions from configuration file"""
     bot.permission_manager.reload_permissions()
     await ctx.send("✅ Permission settings reloaded from configuration")
+
+
+@bot.command()
+async def set_error_log_channel(ctx, channel: discord.TextChannel = None):
+    """Set the channel for logging command errors.
+
+    Parameters:
+    -----------
+    channel: The Discord channel to use for error logging. If omitted, disables error logging.
+
+    Examples:
+    ---------
+    $set_error_log_channel #bot-errors
+    $set_error_log_channel  (disables error logging)
+    """
+    if channel:
+        bot.config.config["error_log_channel"] = str(channel.id)
+        bot.config.save_config()
+        await ctx.send(f"✅ Command error logging set to {channel.mention}")
+    else:
+        if "error_log_channel" in bot.config.config:
+            del bot.config.config["error_log_channel"]
+            bot.config.save_config()
+        await ctx.send("❌ Command error logging disabled")
+
+
+@bot.command()
+async def settings(ctx):
+    """Display all bot-level settings and configuration."""
+    # Create the main settings embed following standardized embed structure
+    embed = discord.Embed(
+        title="Bot Settings",
+        description="Current configuration for bot system",
+        color=discord.Color.blue()
+    )
+
+    # Get basic bot configuration
+    prefix = bot.config.get('prefix', '$')
+    error_channel_id = bot.config.get("error_log_channel", None)
+    error_channel = bot.get_channel(int(error_channel_id)) if error_channel_id else None
+
+    # General settings section
+    general_settings = [
+        f"**Prefix**: `{prefix}`",
+        f"**Error Log Channel**: {error_channel.mention if error_channel else '❌ Disabled'}"
+    ]
+    embed.add_field(name="General Settings", value="\n".join(general_settings), inline=False)
+
+    # Cog management settings
+    load_all_cogs = bot.config.get("load_all_cogs", False)
+    enabled_cogs_count = len(bot.config.get("enabled_cogs", []))
+    disabled_cogs_count = len(bot.config.get("disabled_cogs", []))
+
+    cog_settings = [
+        f"**Load All Cogs**: {'✅ Enabled' if load_all_cogs else '❌ Disabled'}",
+        f"**Enabled Cogs**: {enabled_cogs_count}",
+        f"**Disabled Cogs**: {disabled_cogs_count}",
+        f"**Active Cogs**: {len(bot.cogs)}"
+    ]
+    embed.add_field(name="Cog Management", value="\n".join(cog_settings), inline=False)
+
+    # Discord intents
+    intents = [
+        f"**Message Content**: {'✅ Enabled' if bot.intents.message_content else '❌ Disabled'}",
+        f"**Members**: {'✅ Enabled' if bot.intents.members else '❌ Disabled'}",
+        f"**Presences**: {'✅ Enabled' if bot.intents.presences else '❌ Disabled'}"
+    ]
+    embed.add_field(name="Discord Intents", value="\n".join(intents), inline=False)
+
+    # Bot status
+    uptime = discord.utils.utcnow() - bot.user.created_at
+    days, remainder = divmod(int(uptime.total_seconds()), 86400)
+    hours, remainder = divmod(remainder, 3600)
+    minutes, seconds = divmod(remainder, 60)
+
+    uptime_str = f"{days}d {hours}h {minutes}m {seconds}s"
+
+    status_emoji = "✅" if bot.is_ready() else "⏳"
+
+    status_info = [
+        f"**Status**: {status_emoji} {'Connected' if bot.is_ready() else 'Connecting'}",
+        f"**Uptime**: {uptime_str}",
+        f"**Latency**: {round(bot.latency * 1000)}ms",
+        f"**Servers**: {len(bot.guilds)}"
+    ]
+    embed.add_field(name="Bot Status", value="\n".join(status_info), inline=False)
+
+    # Footer with version info
+    embed.set_footer(text=f"User ID: {bot.user.id} | Use {prefix}help to see available commands")
+
+    await ctx.send(embed=embed)
+
+
+@bot.group(name="config", invoke_without_command=True)
+async def config_group(ctx):
+    """Commands for managing bot configuration"""
+    if ctx.invoked_subcommand is None:
+        await ctx.invoke(bot.get_command('settings'))
+
+
+@config_group.command(name="prefix")
+async def config_prefix(ctx, new_prefix: str = None):
+    """View or change the bot command prefix.
+
+    Parameters:
+    -----------
+    new_prefix: The new prefix to use. If omitted, shows current prefix.
+
+    Examples:
+    ---------
+    $config prefix !
+    $config prefix
+    """
+    if new_prefix is None:
+        current_prefix = bot.config.get('prefix', '$')
+        await ctx.send(f"Current command prefix: `{current_prefix}`")
+    else:
+        # Ensure prefix isn't too long
+        if len(new_prefix) > 5:
+            return await ctx.send("❌ Prefix must be 5 characters or less")
+
+        bot.config.config['prefix'] = new_prefix
+        bot.config.save_config()
+        bot.command_prefix = new_prefix
+        await ctx.send(f"✅ Command prefix changed to: `{new_prefix}`")
+
+
+@config_group.command(name="error_channel")
+async def config_error_channel(ctx, channel: discord.TextChannel = None):
+    """Set or view the channel for logging command errors.
+
+    Parameters:
+    -----------
+    channel: The channel to use. If omitted, shows current channel.
+
+    Examples:
+    ---------
+    $config error_channel #bot-errors
+    $config error_channel
+    """
+    if channel is None:
+        error_channel_id = bot.config.get("error_log_channel", None)
+        if error_channel_id:
+            channel = bot.get_channel(int(error_channel_id))
+            if channel:
+                await ctx.send(f"Command errors are being logged to {channel.mention}")
+            else:
+                await ctx.send(f"Error logging is set to channel ID `{error_channel_id}` but I can't find that channel")
+        else:
+            await ctx.send("Command error logging is disabled")
+    else:
+        await ctx.invoke(bot.get_command('set_error_log_channel'), channel=channel)
 
 
 # Start the bot
