@@ -2,7 +2,7 @@ import logging
 import asyncio
 import discord
 from discord.ext import commands
-from typing import List, Dict
+from typing import List, Dict, Optional, Any, Set
 from asgiref.sync import sync_to_async
 import datetime
 from pathlib import Path
@@ -39,20 +39,20 @@ class KnownPlayers(BaseCog, name="Known Players"):
             self.set_setting("info_max_results", 3)  # Show up to 3 results when multiple matches found
 
         # Configure instance variables from settings
-        self.results_per_page = self.get_setting('results_per_page')
-        self.cache_refresh_interval = self.get_setting('cache_refresh_interval')
-        self.cache_save_interval = self.get_setting('cache_save_interval')
-        self.info_max_results = self.get_setting('info_max_results')
+        self.results_per_page: int = self.get_setting('results_per_page')
+        self.cache_refresh_interval: int = self.get_setting('cache_refresh_interval')
+        self.cache_save_interval: int = self.get_setting('cache_save_interval')
+        self.info_max_results: int = self.get_setting('info_max_results')
 
-        self.logger = logging.getLogger(__name__)
+        self.logger: logging.Logger = logging.getLogger(__name__)
 
         # Cache for player data
-        self.player_cache = {}
-        self.player_details_cache = {}  # Store serializable player details
-        self.last_cache_update = None
-        self.cached_player_ids = {}  # Map player IDs to their KnownPlayer PKs for quick lookup
+        self.player_cache: Dict[str, KnownPlayer] = {}
+        self.player_details_cache: Dict[str, Dict[str, Any]] = {}  # Store serializable player details
+        self.last_cache_update: Optional[datetime.datetime] = None
+        self.cached_player_ids: Dict[str, int] = {}  # Map player IDs to their KnownPlayer PKs for quick lookup
 
-        self._save_task = None
+        self._save_task: Optional[asyncio.Task] = None
 
     @property
     def cache_file(self) -> Path:
@@ -60,7 +60,7 @@ class KnownPlayers(BaseCog, name="Known Players"):
         cache_filename = self.get_setting('cache_filename')
         return self.data_directory / cache_filename
 
-    async def save_cache(self):
+    async def save_cache(self) -> bool:
         """Save the cache to disk"""
         if not self.last_cache_update:
             return False
@@ -114,10 +114,10 @@ class KnownPlayers(BaseCog, name="Known Players"):
             self.logger.error(f"Error loading player cache: {e}")
             return False
 
-    async def rebuild_object_cache_for_keys(self, keys):
+    async def rebuild_object_cache_for_keys(self, keys: Set[str]) -> None:
         """Rebuild Django objects in cache for specific keys"""
         # Build a set of player PKs we need to fetch
-        needed_pks = set()
+        needed_pks: Set[int] = set()
         for key in keys:
             if key in self.player_details_cache:
                 needed_pks.add(self.player_details_cache[key]['pk'])
@@ -129,14 +129,14 @@ class KnownPlayers(BaseCog, name="Known Players"):
         players = await sync_to_async(list)(KnownPlayer.objects.filter(pk__in=needed_pks))
 
         # Create a lookup by PK
-        player_lookup = {player.pk: player for player in players}
+        player_lookup: Dict[int, KnownPlayer] = {player.pk: player for player in players}
 
         # Update the object cache
         for key in keys:
             if key in self.player_details_cache and self.player_details_cache[key]['pk'] in player_lookup:
                 self.player_cache[key] = player_lookup[self.player_details_cache[key]['pk']]
 
-    async def refresh_cache(self, force=False):
+    async def refresh_cache(self, force: bool = False) -> None:
         """Refresh the player cache"""
         # If not forced, try loading from disk first
         if not force and not self.last_cache_update:
@@ -216,13 +216,13 @@ class KnownPlayers(BaseCog, name="Known Players"):
         if search_term in self.player_details_cache:
             # Make sure we have the Django object
             if search_term not in self.player_cache:
-                await self.rebuild_object_cache_for_keys([search_term])
+                await self.rebuild_object_cache_for_keys({search_term})
 
             if search_term in self.player_cache:
                 return [self.player_cache[search_term]]
 
         # If not in cache, do a database search
-        results = []
+        results: List[KnownPlayer] = []
 
         # Search by name (case insensitive)
         name_results = await sync_to_async(list)(
@@ -244,7 +244,7 @@ class KnownPlayers(BaseCog, name="Known Players"):
 
         return results
 
-    async def get_player_details(self, player: KnownPlayer) -> Dict:
+    async def get_player_details(self, player: KnownPlayer) -> Dict[str, Any]:
         """Get detailed information about a player"""
         # Fetch player IDs
         player_ids = await sync_to_async(list)(player.ids.all())
@@ -262,65 +262,65 @@ class KnownPlayers(BaseCog, name="Known Players"):
             'ids_count': len(player_ids)
         }
 
-    async def get_player_by_player_id(self, player_id):
+    async def get_player_by_player_id(self, player_id: str) -> Optional[KnownPlayer]:
         """Get a player by their Tower player id"""
         await self.wait_until_ready()
         if player_id in self.player_details_cache:
             if player_id not in self.player_cache:
-                await self.rebuild_object_cache_for_keys([player_id])
+                await self.rebuild_object_cache_for_keys({player_id})
             return self.player_cache.get(player_id)
         return None
 
-    async def get_player_by_discord_id(self, discord_id):
+    async def get_player_by_discord_id(self, discord_id: str) -> Optional[KnownPlayer]:
         """Get a player by their Discord ID"""
         await self.wait_until_ready()
         if discord_id in self.player_details_cache:
             if discord_id not in self.player_cache:
-                await self.rebuild_object_cache_for_keys([discord_id])
+                await self.rebuild_object_cache_for_keys({discord_id})
             return self.player_cache.get(discord_id)
         return None
 
-    async def get_player_by_name(self, name):
+    async def get_player_by_name(self, name: str) -> Optional[KnownPlayer]:
         """Get a player by their name (case insensitive)"""
         name = name.lower().strip()
         await self.wait_until_ready()
         if name in self.player_details_cache:
             if name not in self.player_cache:
-                await self.rebuild_object_cache_for_keys([name])
+                await self.rebuild_object_cache_for_keys({name})
             return self.player_cache.get(name)
         return None
 
-    async def get_player_by_any(self, identifier):
+    async def get_player_by_any(self, identifier: str) -> Optional[KnownPlayer]:
         """Get a player by any identifier (name, Discord ID, or player ID)"""
         await self.wait_until_ready()
 
         # Try direct lookup first
         if identifier in self.player_details_cache:
             if identifier not in self.player_cache:
-                await self.rebuild_object_cache_for_keys([identifier])
+                await self.rebuild_object_cache_for_keys({identifier})
             return self.player_cache.get(identifier)
 
         # Try case-insensitive name lookup
         lower_id = identifier.lower().strip()
         if lower_id != identifier and lower_id in self.player_details_cache:
             if lower_id not in self.player_cache:
-                await self.rebuild_object_cache_for_keys([lower_id])
+                await self.rebuild_object_cache_for_keys({lower_id})
             return self.player_cache.get(lower_id)
 
         return None
 
-    async def get_all_discord_ids(self):
+    async def get_all_discord_ids(self) -> List[str]:
         """Get all unique Discord IDs from the player cache"""
         await self.wait_until_ready()
 
-        discord_ids = set()
+        discord_ids: Set[str] = set()
         for details in self.player_details_cache.values():
             if details.get('discord_id'):
                 discord_ids.add(details['discord_id'])
 
         return list(discord_ids)
 
-    async def get_discord_to_player_mapping(self):
+    async def get_discord_to_player_mapping(self) -> Dict[str, Dict[str, Any]]:
         """
         Get mapping of Discord IDs to player information
 
@@ -331,10 +331,10 @@ class KnownPlayers(BaseCog, name="Known Players"):
         await self.wait_until_ready()
 
         # Create a mapping of Discord IDs to player details
-        discord_mapping = {}
+        discord_mapping: Dict[str, Dict[str, Any]] = {}
 
         # First collect all players with their PKs
-        player_details_by_pk = {}
+        player_details_by_pk: Dict[int, Dict[str, Any]] = {}
         for details in self.player_details_cache.values():
             if 'pk' in details:
                 player_details_by_pk[details['pk']] = details
@@ -358,13 +358,13 @@ class KnownPlayers(BaseCog, name="Known Players"):
         return discord_mapping
 
     @commands.group(name="player", aliases=["p"], invoke_without_command=True)
-    async def player_group(self, ctx):
+    async def player_group(self, ctx: commands.Context) -> None:
         """Commands for player management and lookup"""
         if ctx.invoked_subcommand is None:
             await ctx.send_help(ctx.command)
 
     @player_group.command(name="settings")
-    async def player_settings_command(self, ctx):
+    async def player_settings_command(self, ctx: commands.Context) -> None:
         """Display current player lookup settings"""
         settings = self.get_all_settings()
 
@@ -396,7 +396,7 @@ class KnownPlayers(BaseCog, name="Known Players"):
         await ctx.send(embed=embed)
 
     @player_group.command(name="set")
-    async def player_set_setting_command(self, ctx, setting_name: str, value: int):
+    async def player_set_setting_command(self, ctx: commands.Context, setting_name: str, value: int) -> None:
         """Change a player lookup setting
 
         Args:
@@ -456,7 +456,7 @@ class KnownPlayers(BaseCog, name="Known Players"):
         self.mark_data_modified()
 
     @player_group.command(name="search")
-    async def player_search(self, ctx, *, search_term: str):
+    async def player_search(self, ctx: commands.Context, *, search_term: str) -> None:
         """
         Search for players by name, ID, or Discord info
 
@@ -525,7 +525,7 @@ class KnownPlayers(BaseCog, name="Known Players"):
         await ctx.send(embed=embed)
 
     @player_group.command(name="info")
-    async def player_info(self, ctx, *, identifier: str):
+    async def player_info(self, ctx: commands.Context, *, identifier: str) -> None:
         """
         Get detailed information about a specific player
 
@@ -545,7 +545,7 @@ class KnownPlayers(BaseCog, name="Known Players"):
             if identifier.lower() in self.player_details_cache:
                 # Ensure we have the Django object
                 if identifier.lower() not in self.player_cache:
-                    await self.rebuild_object_cache_for_keys([identifier.lower()])
+                    await self.rebuild_object_cache_for_keys({identifier.lower()})
 
                 if identifier.lower() in self.player_cache:
                     player = self.player_cache[identifier.lower()]
@@ -652,7 +652,7 @@ class KnownPlayers(BaseCog, name="Known Players"):
         await ctx.send(embed=embed)
 
     @player_group.command(name="refresh")
-    async def player_refresh_command(self, ctx):
+    async def player_refresh_command(self, ctx: commands.Context) -> None:
         """Force refresh player cache"""
         try:
             message = await ctx.send("🔄 Refreshing player cache... This may take a while.")
@@ -683,7 +683,7 @@ class KnownPlayers(BaseCog, name="Known Players"):
             await ctx.send(f"❌ Error refreshing player cache: {str(e)}")
 
     @player_group.command(name="cache")
-    async def player_cache_command(self, ctx):
+    async def player_cache_command(self, ctx: commands.Context) -> None:
         """Show cache status information"""
         if not self.last_cache_update:
             return await ctx.send("Player cache has not been initialized yet.")
@@ -735,12 +735,12 @@ class KnownPlayers(BaseCog, name="Known Players"):
 
         await ctx.send(embed=embed)
 
-    def create_periodic_save_task(self, save_interval=None):
+    def create_periodic_save_task(self, save_interval: Optional[int] = None) -> asyncio.Task:
         """Create a task that periodically saves the cache"""
         if save_interval is None:
             save_interval = self.cache_save_interval
 
-        async def periodic_save():
+        async def periodic_save() -> None:
             await self.bot.wait_until_ready()
             await self.wait_until_ready()  # Wait until initial cache is built
             self.logger.info(f"Starting periodic cache save task (every {save_interval}s)")
@@ -754,7 +754,7 @@ class KnownPlayers(BaseCog, name="Known Players"):
         task = self.bot.loop.create_task(periodic_save())
         return task
 
-    async def cog_initialize(self):
+    async def cog_initialize(self) -> None:
         """Setup tasks when cog is loaded"""
         # Try to load cache from disk first
         await self.load_cache()
@@ -766,7 +766,7 @@ class KnownPlayers(BaseCog, name="Known Players"):
         # Setup periodic saving
         self._save_task = self.create_periodic_save_task()
 
-    async def cog_unload(self):
+    async def cog_unload(self) -> None:
         """Clean up when cog is unloaded"""
         # Cancel the periodic save task
         if self._save_task:
