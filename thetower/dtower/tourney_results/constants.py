@@ -302,4 +302,12 @@ all_relics = {
     122: ("Light Speedometer", "122-light_speedometer.png", "", "", "700", "Medals", ""),
     123: ("UFO Beam", "123-ufo_beam.png", "", "", "350", "Medals", ""),
     124: ("Alien Egg", "124-alien_egg.png", "", "", "700", "Medals", ""),
+    125: ("Unknown", "125-unknown.png", "", "", "350", "Medals", ""),
+    126: ("Unknown", "126-unknown.png", "", "", "700", "Medals", ""),
+    127: ("Unknown", "127-unknown.png", "", "", "350", "Medals", ""),
+    128: ("Unknown", "128-unknown.png", "", "", "700", "Medals", ""),
+    129: ("Unknown", "129-unknown.png", "", "", "350", "Medals", ""),
+    130: ("Unknown", "130-unknown.png", "", "", "700", "Medals", ""),
+    131: ("Unknown", "131-unknown.png", "", "", "350", "Medals", ""),
+    132: ("Unknown", "132-unknown.png", "", "", "700", "Medals", ""),
 }

@@ -321,9 +321,14 @@ def draw_info_tab(info_tab, user, player_id, player_df, hidden_features):
         extension = "png"
 
     avatar_string = f"<img src='./app/static/Tower_Skins/{avatar}.{extension}' width=100>" if avatar > 0 else ""
-    title = f"title='{all_relics[relic][0]}, {all_relics[relic][2]} {all_relics[relic][3]}'" if relic in all_relics else ""
 
-    relic_url = f"<img src='./app/static/Tower_Relics/{all_relics[relic][1]}' width=100, {title}>" if relic >= 0 else ""
+    # Check if the relic exists in all_relics dictionary to avoid KeyError
+    if relic in all_relics:
+        title = f"title='{all_relics[relic][0]}, {all_relics[relic][2]} {all_relics[relic][3]}'"
+        relic_url = f"<img src='./app/static/Tower_Relics/{all_relics[relic][1]}' width=100, {title}>" if relic >= 0 else ""
+    else:
+        # Handle missing relic gracefully
+        relic_url = ""
 
     tourney_join = "✅" if check_all_live_entry(player_df.iloc[0].id) else "⛔"
 
@@ -361,7 +366,7 @@ def write_for_each_patch(patch_tab, player_df):
                 "max_position": max_pos,
                 "tourney_name": max_pos_data["name"],
                 "date": max_pos_data.date,
-                # "max_position_color": max_pos_data.position_role_color,
+                # "max_position_color": max_pos_data.position_role.color,
                 "battle_conditions": ", ".join(max_pos_data.bcs.values_list("shortcut", flat=True)),
             }
         )
