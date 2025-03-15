@@ -8,7 +8,11 @@ import os
 import asyncio
 import pickle
 import re
+import logging
 from fish_bot import const
+
+# Set up logger
+logger = logging.getLogger('fish_bot.cogs.unified_advertise')
 
 
 class AdvertisementType:
@@ -156,6 +160,8 @@ class MemberAdvertisementForm(Modal, title="Member Advertisement Form"):
         # Check if player ID is valid (only A-Z, 0-9)
         player_id = self.player_id.value.upper()
         if not re.match(r'^[A-Z0-9]+$', player_id):
+            error_msg = f"Invalid player ID format: {player_id}"
+            logger.warning(f"User {interaction.user.id} provided invalid player ID format: {player_id}")
             await interaction.response.send_message(
                 "Player ID can only contain letters A-Z and numbers 0-9.",
                 ephemeral=True
@@ -224,6 +230,8 @@ class UnifiedAdvertiseCog(commands.Cog):
         self.check_deletions.start()
         self.weekly_cleanup.start()
 
+        logger.info("UnifiedAdvertiseCog initialized")
+
     def cog_unload(self):
         """Called when the cog is unloaded."""
         self.weekly_cleanup.cancel()
@@ -249,8 +257,10 @@ class UnifiedAdvertiseCog(commands.Cog):
             try:
                 thread = await self.bot.fetch_channel(thread_id)
                 await thread.delete()
+                logger.info(f"Deleted advertisement thread {thread_id} (scheduled for {deletion_time})")
                 print(f"Deleted advertisement thread {thread_id} (scheduled for {deletion_time})")
             except (discord.NotFound, discord.HTTPException) as e:
+                logger.error(f"Error deleting thread {thread_id}: {e}")
                 print(f"Error deleting thread {thread_id}: {e}")
 
             # Remove from pending deletions
@@ -280,26 +290,31 @@ class UnifiedAdvertiseCog(commands.Cog):
 
     async def _cleanup_cooldowns(self):
         """Remove expired cooldowns from the cooldowns dictionary."""
-        current_time = datetime.datetime.now()
-        sections = ['users', 'guilds']
-        expired_count = 0
+        try:
+            current_time = datetime.datetime.now()
+            sections = ['users', 'guilds']
+            expired_count = 0
 
-        for section in sections:
-            expired_items = []
+            for section in sections:
+                expired_items = []
 
-            for item_id, timestamp in list(self.cooldowns[section].items()):
-                timestamp_dt = datetime.datetime.fromisoformat(timestamp)
-                elapsed = current_time - timestamp_dt
-                if elapsed.total_seconds() > self.cooldown_hours * 3600:
-                    expired_items.append(item_id)
+                for item_id, timestamp in list(self.cooldowns[section].items()):
+                    timestamp_dt = datetime.datetime.fromisoformat(timestamp)
+                    elapsed = current_time - timestamp_dt
+                    if elapsed.total_seconds() > self.cooldown_hours * 3600:
+                        expired_items.append(item_id)
 
-            for item_id in expired_items:
-                del self.cooldowns[section][item_id]
-                expired_count += 1
+                for item_id in expired_items:
+                    del self.cooldowns[section][item_id]
+                    expired_count += 1
 
-        if expired_count > 0:
-            self._save_cooldowns()
-            print(f"Weekly cleanup: Removed {expired_count} expired cooldowns")
+            if expired_count > 0:
+                self._save_cooldowns()
+                logger.info(f"Weekly cleanup: Removed {expired_count} expired cooldowns")
+                print(f"Weekly cleanup: Removed {expired_count} expired cooldowns")
+        except Exception as e:
+            logger.error(f"Error during cooldown cleanup: {e}")
+            print(f"Error during cooldown cleanup: {e}")
 
     def _load_cooldowns(self):
         """Load cooldowns from file."""
@@ -308,6 +323,7 @@ class UnifiedAdvertiseCog(commands.Cog):
                 with open(self.cooldown_file, 'r') as f:
                     return json.load(f)
         except Exception as e:
+            logger.error(f"Error loading cooldowns: {e}")
             print(f"Error loading cooldowns: {e}")
 
         # Default structure if file doesn't exist
@@ -322,6 +338,7 @@ class UnifiedAdvertiseCog(commands.Cog):
             with open(self.cooldown_file, 'w') as f:
                 json.dump(self.cooldowns, f)
         except Exception as e:
+            logger.error(f"Error saving cooldowns: {e}")
             print(f"Error saving cooldowns: {e}")
 
     def _load_pending_deletions(self):
@@ -331,6 +348,7 @@ class UnifiedAdvertiseCog(commands.Cog):
                 with open(self.pending_deletions_file, 'rb') as f:
                     return pickle.load(f)
         except Exception as e:
+            logger.error(f"Error loading pending deletions: {e}")
             print(f"Error loading pending deletions: {e}")
         return []
 
@@ -340,6 +358,7 @@ class UnifiedAdvertiseCog(commands.Cog):
             with open(self.pending_deletions_file, 'wb') as f:
                 pickle.dump(self.pending_deletions, f)
         except Exception as e:
+            logger.error(f"Error saving pending deletions: {e}")
             print(f"Error saving pending deletions: {e}")
 
     async def _resume_deletion_tasks(self):
@@ -348,6 +367,7 @@ class UnifiedAdvertiseCog(commands.Cog):
 
         # No need to create separate tasks or do anything here
         # The check_deletions task will automatically handle all pending deletions
+        logger.info(f"Resumed tracking {len(self.pending_deletions)} pending thread deletions")
         print(f"Resumed tracking {len(self.pending_deletions)} pending thread deletions")
 
     async def check_cooldowns(self, interaction, user_id, guild_id=None, ad_type=None):
@@ -410,8 +430,9 @@ class UnifiedAdvertiseCog(commands.Cog):
             channel = self.bot.get_channel(self.advertise_channel_id)
 
             if not channel:
+                logger.error(f"Advertisement channel not found: {self.advertise_channel_id}")
                 await interaction.response.send_message(
-                    "There was an error posting your advertisement. Please contact a moderator.",
+                    "There was an error posting your advertisement. Please contact @thedisasterfish.",
                     ephemeral=True
                 )
                 return
@@ -426,6 +447,7 @@ class UnifiedAdvertiseCog(commands.Cog):
                             applied_tags.append(tag)
                             break
                 except Exception as e:
+                    logger.error(f"Error finding guild tag: {e}")
                     print(f"Error finding guild tag: {e}")
 
             elif ad_type == AdvertisementType.MEMBER and self.member_tag_id:
@@ -436,6 +458,7 @@ class UnifiedAdvertiseCog(commands.Cog):
                             applied_tags.append(tag)
                             break
                 except Exception as e:
+                    logger.error(f"Error finding member tag: {e}")
                     print(f"Error finding member tag: {e}")
 
             # Create the forum thread with tags
@@ -448,6 +471,7 @@ class UnifiedAdvertiseCog(commands.Cog):
             )
 
             thread = thread_with_message.thread
+            logger.info(f"Created new advertisement thread: {thread.id} for user {interaction.user.id} (type: {ad_type})")
 
             # Confirm to the user
             if interaction.response.is_done():
@@ -477,17 +501,19 @@ class UnifiedAdvertiseCog(commands.Cog):
             deletion_time = datetime.datetime.now() + datetime.timedelta(hours=self.cooldown_hours)
             self.pending_deletions.append((thread.id, deletion_time))
             self._save_pending_deletions()
+            logger.info(f"Scheduled thread {thread.id} for deletion at {deletion_time}")
 
         except Exception as e:
+            logger.error(f"Error in post_advertisement: {e}", exc_info=True)
             print(f"Error in post_advertisement: {e}")
             if interaction.response.is_done():
                 await interaction.followup.send(
-                    "There was an error posting your advertisement. Please contact a moderator.",
+                    "There was an error posting your advertisement. Please contact @thedisasterfish.",
                     ephemeral=True
                 )
             else:
                 await interaction.response.send_message(
-                    "There was an error posting your advertisement. Please contact a moderator.",
+                    "There was an error posting your advertisement. Please contact @thedisasterfish.",
                     ephemeral=True
                 )
 
@@ -532,18 +558,24 @@ class UnifiedAdvertiseCog(commands.Cog):
                 if deleted:
                     self.pending_deletions = updated_list
                     self._save_pending_deletions()
+                    logger.info(f"Owner manually deleted thread {channel_id} and removed from pending deletions")
                     await ctx.send("Successfully deleted thread and removed from pending deletions.")
                 else:
+                    logger.info(f"Owner manually deleted thread {channel_id} (not in pending deletions)")
                     await ctx.send("Successfully deleted thread, but it wasn't in the pending deletions list.")
 
             except discord.NotFound:
+                logger.warning(f"Owner tried to delete non-existent thread {channel_id}")
                 await ctx.send("Thread not found. It might have been already deleted.")
             except discord.Forbidden:
+                logger.error(f"No permission to delete thread {channel_id}")
                 await ctx.send("I don't have permission to delete that thread.")
             except Exception as e:
+                logger.error(f"Error deleting thread {channel_id}: {str(e)}")
                 await ctx.send(f"Error deleting thread: {str(e)}")
 
         except Exception as e:
+            logger.error(f"Error processing owner_delete_post command: {str(e)}")
             await ctx.send(f"Error processing command: {str(e)}")
 
     @commands.command(name="owner_reset_timeout")
@@ -698,10 +730,12 @@ class UnifiedAdvertiseCog(commands.Cog):
         """Check if the command is being used by the bot owner in DMs."""
         # Check if command is in DMs
         if not isinstance(ctx.channel, discord.DMChannel):
+            logger.warning(f"Non-DM attempt to use owner command from {ctx.author.id}")
             return False
 
         # Check if user is bot owner
         if ctx.author.id != self.bot.owner_id:
+            logger.warning(f"Non-owner {ctx.author.id} attempted to use owner command")
             await ctx.send("This command is only available to the bot owner.")
             return False
 
@@ -730,4 +764,5 @@ async def setup(bot) -> None:
         bot.tree.copy_global_to(guild=guild)
         await bot.tree.sync(guild=guild)
     except Exception as e:
+        logger.error(f"Error syncing app commands: {e}")
         print(f"Error syncing app commands: {e}")
