@@ -46,14 +46,45 @@ class ConfigManager(BaseFileMonitor):
             raise
 
     def save_config(self) -> None:
-        """Save configuration to JSON file."""
+        """Save configuration to JSON file with alphabetically sorted cogs."""
         try:
+            # Sort enabled_cogs and disabled_cogs lists if they exist
+            if "enabled_cogs" in self.config:
+                self.config["enabled_cogs"] = sorted(self.config["enabled_cogs"])
+
+            if "disabled_cogs" in self.config:
+                self.config["disabled_cogs"] = sorted(self.config["disabled_cogs"])
+
+            # Sort cog settings alphabetically if they exist
+            if "cogs" in self.config:
+                for guild_id, guild_cogs in self.config["cogs"].items():
+                    self.config["cogs"][guild_id] = self._sort_dict_keys(guild_cogs)
+
             with open(self.config_path, 'w') as f:
                 json.dump(self.config, f, indent=4)
             logger.info("Configuration saved successfully")
         except Exception as e:
             logger.error(f"Failed to save config: {e}")
             raise
+
+    def _sort_dict_keys(self, d: Dict) -> Dict:
+        """Sort dictionary keys alphabetically and recursively sort nested dictionaries.
+
+        Args:
+            d: Dictionary to sort
+
+        Returns:
+            New dictionary with sorted keys
+        """
+        result = {}
+        # Sort the keys alphabetically and create a new dictionary
+        for key in sorted(d.keys()):
+            # If value is a dictionary, sort it recursively
+            if isinstance(d[key], dict):
+                result[key] = self._sort_dict_keys(d[key])
+            else:
+                result[key] = d[key]
+        return result
 
     def add_command_channel(self, command: str, channel_id: str, public: bool = True) -> bool:
         """Add a channel to command permissions."""
@@ -228,6 +259,10 @@ class ConfigManager(BaseFileMonitor):
 
         cog_settings = self.config.setdefault("cogs", {}).setdefault(str(guild_id), {}).setdefault(cog_name, {})
         cog_settings[setting_name] = value
+
+        # Sort the cog settings for this guild
+        self.config["cogs"][str(guild_id)] = self._sort_dict_keys(self.config["cogs"][str(guild_id)])
+
         self.save_config()
         logger.info(f"Set {cog_name} setting '{setting_name}' for guild {guild_id}")
 
@@ -244,6 +279,10 @@ class ConfigManager(BaseFileMonitor):
 
         cog_settings = self.config.setdefault("cogs", {}).setdefault(str(guild_id), {}).setdefault(cog_name, {})
         cog_settings.update(settings)
+
+        # Sort the cog settings for this guild
+        self.config["cogs"][str(guild_id)] = self._sort_dict_keys(self.config["cogs"][str(guild_id)])
+
         self.save_config()
         logger.info(f"Updated multiple settings for {cog_name} in guild {guild_id}")
 

@@ -279,6 +279,47 @@ data_manager = DataManager()
 # Helper functions
 
 
+def sort_dictionary(d):
+    """Sort a dictionary by keys alphabetically.
+
+    Works recursively on nested dictionaries.
+
+    Args:
+        d: Dictionary to sort
+
+    Returns:
+        OrderedDict with alphabetically sorted keys
+    """
+    from collections import OrderedDict
+
+    # Handle non-dict types
+    if not isinstance(d, dict):
+        return d
+
+    # Create a new OrderedDict with sorted keys
+    result = OrderedDict()
+    for key in sorted(d.keys()):
+        # Recursively sort any nested dictionaries
+        result[key] = sort_dictionary(d[key]) if isinstance(d[key], dict) else d[key]
+
+    return result
+
+
+def sort_list_alphabetically(lst):
+    """Sort a list alphabetically.
+
+    Args:
+        lst: List to sort
+
+    Returns:
+        Alphabetically sorted list
+    """
+    if not isinstance(lst, list):
+        return lst
+
+    return sorted(lst)
+
+
 def mark_modified():
     """Mark the global data manager as modified."""
     data_manager.mark_modified()
