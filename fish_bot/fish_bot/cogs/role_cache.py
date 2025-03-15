@@ -560,9 +560,9 @@ class RoleCache(BaseCog):
         """Log when receiving member chunks from Discord"""
         self.logger.debug(f"Received member chunk from Discord: {len(members)} members for {guild.name}")
 
-    # Add command to force refresh using fetch_members
-    @commands.command(name="forcefetch")
-    async def force_fetch_command(self, ctx):
+    # Add force_fetch command as part of the rolecache group
+    @rolecache_group.command(name="forcefetch")
+    async def force_fetch(self, ctx):
         """Force a complete refresh using fetch_members"""
         await ctx.send("Starting complete member fetch for all guilds...")
 
