@@ -124,7 +124,7 @@ class GuildAdvertisementForm(Modal, title="Guild Advertisement Form"):
 
         # Post advertisement and update cooldowns
         thread_title = f"[Guild] {self.guild_name.value} ({guild_id})"
-        await self.cog.post_advertisement(interaction, embed, thread_title, AdvertisementType.GUILD, guild_id)
+        await self.cog.post_advertisement(interaction, embed, thread_title, AdvertisementType.GUILD, None)
 
 
 class MemberAdvertisementForm(Modal, title="Member Advertisement Form"):
@@ -160,7 +160,6 @@ class MemberAdvertisementForm(Modal, title="Member Advertisement Form"):
         # Check if player ID is valid (only A-Z, 0-9)
         player_id = self.player_id.value.upper()
         if not re.match(r'^[A-Z0-9]+$', player_id):
-            error_msg = f"Invalid player ID format: {player_id}"
             logger.warning(f"User {interaction.user.id} provided invalid player ID format: {player_id}")
             await interaction.response.send_message(
                 "Player ID can only contain letters A-Z and numbers 0-9.",
@@ -199,7 +198,7 @@ class MemberAdvertisementForm(Modal, title="Member Advertisement Form"):
 
         # Post advertisement and update cooldowns
         thread_title = f"[Member] {interaction.user.name} ({player_id})"
-        await self.cog.post_advertisement(interaction, embed, thread_title, AdvertisementType.MEMBER, None)  # Fix the syntax error
+        await self.cog.post_advertisement(interaction, embed, thread_title, AdvertisementType.MEMBER, None)
 
 
 class UnifiedAdvertiseCog(commands.Cog):
