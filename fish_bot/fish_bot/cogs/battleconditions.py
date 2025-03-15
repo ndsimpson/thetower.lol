@@ -52,9 +52,9 @@ class BattleConditions(BaseCog, name="Battle Conditions"):
             self.set_setting("paused", False)
 
         # Load settings into instance variables for convenience
-        self.default_hour = self.get_setting("notification_hour")
-        self.default_minute = self.get_setting("notification_minute")
-        self.default_days_before = self.get_setting("days_before_notification")
+        self.notification_hour = self.get_setting("notification_hour")
+        self.notification_minute = self.get_setting("notification_minute")
+        self.days_before_notification = self.get_setting("days_before_notification")
         self.enabled_leagues = self.get_setting("enabled_leagues")
         self.paused = self.get_setting("paused")
 
@@ -67,16 +67,39 @@ class BattleConditions(BaseCog, name="Battle Conditions"):
             "Silver": self.config.get_thread_id("battleconditions", "silver")
         }
 
+    # Helper properties for settings to match project standards
+    @property
+    def default_hour(self) -> int:
+        """Get the default notification hour."""
+        return self.get_setting("notification_hour")
+
+    @property
+    def default_minute(self) -> int:
+        """Get the default notification minute."""
+        return self.get_setting("notification_minute")
+
+    @property
+    def default_days_before(self) -> int:
+        """Get the default days before notification."""
+        return self.get_setting("days_before_notification")
+
     async def cog_initialize(self) -> None:
-        """Initialize the cog - called by BaseCog during ready process"""
-        # Wait until the cog is ready before starting the scheduler
-        await self.wait_until_ready()
+        """Initialize the cog - called by BaseCog during ready process."""
+        self.logger.info("Initializing Battle Conditions module...")
+
+        # Start the scheduled task for BC announcements
         self.scheduled_bc_messages.start()
+
+        # Update status variables
+        self._last_operation_time = datetime.datetime.utcnow()
         self.logger.info("Battle conditions initialization complete")
 
     async def cog_unload(self) -> None:
-        """Clean up when cog is unloaded"""
-        self.scheduled_bc_messages.cancel()
+        """Clean up when cog is unloaded."""
+        # Cancel any scheduled tasks
+        if hasattr(self, 'scheduled_bc_messages'):
+            self.scheduled_bc_messages.cancel()
+
         # Call parent implementation for data saving
         await super().cog_unload()
         self.logger.info("Battle conditions cog unloaded")
@@ -1016,7 +1039,7 @@ class BattleConditions(BaseCog, name="Battle Conditions"):
             return False
 
     def format_time_value(self, seconds):
-        """Format seconds into a standardized time string
+        """Format seconds into a standardized time string.
 
         Args:
             seconds: Number of seconds
