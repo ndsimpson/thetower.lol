@@ -20,35 +20,43 @@ class BattleConditions(BaseCog, name="Battle Conditions"):
 
     def __init__(self, bot):
         super().__init__(bot)
-        self.bot = bot
         self.logger = logging.getLogger(__name__)
 
-        # Add default settings if they don't exist
+        # Tracking variables for status reporting
+        self._last_operation_time = None
+        self._operation_count = 0
+        self._has_errors = False
+        self._active_process = None
+        self._process_start_time = None
+
+        # Initialize settings with clear comments for default values
         if not self.has_setting("notification_hour"):
-            self.set_setting("notification_hour", 0)  # Default to midnight
+            self.set_setting("notification_hour", 0)  # Default to midnight UTC
 
         if not self.has_setting("notification_minute"):
-            self.set_setting("notification_minute", 0)
+            self.set_setting("notification_minute", 0)  # Default to start of hour
 
         if not self.has_setting("days_before_notification"):
-            self.set_setting("days_before_notification", 1)  # Default to 1 day before tourney
+            self.set_setting("days_before_notification", 1)  # Default to 1 day before tournament
 
         if not self.has_setting("enabled_leagues"):
-            self.set_setting("enabled_leagues", ["Legends", "Champion", "Platinum", "Gold", "Silver"])
+            # Include all standard leagues by default
+            self.set_setting("enabled_leagues", ["Legend", "Champion", "Platinum", "Gold", "Silver"])
 
         if not self.has_setting("thread_schedules"):
-            # Default empty schedules
+            # Start with empty schedules configuration
             self.set_setting("thread_schedules", [])
 
         if not self.has_setting("paused"):
-            # By default, announcements are not paused
+            # By default, the system is operational (not paused)
             self.set_setting("paused", False)
 
-        # Configure default timing from settings (for new schedules)
+        # Load settings into instance variables for convenience
         self.default_hour = self.get_setting("notification_hour")
         self.default_minute = self.get_setting("notification_minute")
         self.default_days_before = self.get_setting("days_before_notification")
         self.enabled_leagues = self.get_setting("enabled_leagues")
+        self.paused = self.get_setting("paused")
 
         # Thread IDs for each league
         self.league_threads = {
@@ -216,7 +224,7 @@ class BattleConditions(BaseCog, name="Battle Conditions"):
 
     @bc_group.command(name="settings")
     async def bc_settings_command(self, ctx):
-        """Display battle conditions system settings"""
+        """Display current configuration for the Battle Conditions system."""
         embed = discord.Embed(
             title="Battle Conditions Settings",
             description="Current configuration for battle conditions system",
@@ -900,6 +908,9 @@ class BattleConditions(BaseCog, name="Battle Conditions"):
             return
 
         try:
+            self._active_process = "Battle Conditions Check"
+            self._process_start_time = datetime.datetime.utcnow()
+
             # Get tournament information
             tourney_id, tourney_date, days_until = TournamentPredictor.get_tournament_info()
             now = datetime.datetime.utcnow()
@@ -967,8 +978,13 @@ class BattleConditions(BaseCog, name="Battle Conditions"):
                 if not sent_something:
                     self.logger.warning(f"No battle conditions sent for schedule in channel {channel.name}")
 
+            self._last_operation_time = datetime.datetime.utcnow()
+            self._operation_count += 1
+            self._active_process = None
         except Exception as e:
             self.logger.error(f"Error in scheduled battle conditions task: {e}")
+            self._has_errors = True
+            self._active_process = None
 
     async def send_battle_conditions_embed(self, channel, league, tourney_date, battleconditions):
         """Helper method to create and send battle conditions embeds
@@ -1009,14 +1025,16 @@ class BattleConditions(BaseCog, name="Battle Conditions"):
             str: Formatted string like "1h 30m 45s (5445 seconds)"
         """
         hours, remainder = divmod(seconds, 3600)
-        minutes, seconds = divmod(remainder, 60)
+        minutes, remaining_seconds = divmod(remainder, 60)
 
+        parts = []
         if hours > 0:
-            return f"{hours}h {minutes}m {seconds}s ({seconds} seconds)"
-        elif minutes > 0:
-            return f"{minutes}m {seconds}s ({seconds} seconds)"
-        else:
-            return f"{seconds}s"
+            parts.append(f"{hours}h")
+        if minutes > 0 or hours > 0:
+            parts.append(f"{minutes}m")
+        parts.append(f"{remaining_seconds}s")
+
+        return f"{' '.join(parts)} ({seconds} seconds)"
 
     def format_relative_time(self, timestamp):
         """Format a timestamp as a relative time string
@@ -1044,6 +1062,129 @@ class BattleConditions(BaseCog, name="Battle Conditions"):
     async def before_scheduled_bc_messages(self):
         """Set up the task before it starts"""
         self.logger.info("Starting battle conditions scheduler with 1-minute interval")
+
+    @bc_group.command(name="status")
+    async def show_status(self, ctx):
+        """Display current operational status of the Battle Conditions system."""
+
+        # Determine overall status
+        if self.paused:
+            status_emoji = "⏸️"
+            status_text = "Paused"
+            embed_color = discord.Color.orange()
+        elif self._has_errors:
+            status_emoji = "❌"
+            status_text = "Error"
+            embed_color = discord.Color.red()
+        else:
+            status_emoji = "✅"
+            status_text = "Operational"
+            embed_color = discord.Color.blue()
+
+        # Get tournament info for context
+        try:
+            tourney_id, tourney_date, days_until = TournamentPredictor.get_tournament_info()
+            tournament_info = f"Next tournament: {tourney_date} ({days_until} days away)"
+        except Exception as e:
+            self.logger.error(f"Error getting tournament info: {e}")
+            tournament_info = "Error fetching tournament info"
+            self._has_errors = True
+
+        # Create status embed
+        embed = discord.Embed(
+            title="Battle Conditions Status",
+            description=f"Current status: {status_emoji} {status_text}\n{tournament_info}",
+            color=embed_color
+        )
+
+        # Add dependency information
+        dependencies = [
+            f"Tournament Predictor: {'✅ Available' if not self._has_errors else '❌ Error'}"
+        ]
+        embed.add_field(name="Dependencies", value="\n".join(dependencies), inline=False)
+
+        # Add process information
+        if self._active_process:
+            embed.add_field(
+                name="Active Processes",
+                value=f"🔄 {self._active_process} (started {self.format_relative_time(self._process_start_time)} ago)",
+                inline=False
+            )
+
+        # Add statistics
+        thread_schedules = self.get_setting("thread_schedules", [])
+        active_schedules = sum(1 for s in thread_schedules if not s.get("paused", False))
+
+        stats = [
+            f"Operations completed: {self._operation_count}",
+            f"Active schedules: {active_schedules}/{len(thread_schedules)}",
+            f"Enabled leagues: {len(self.enabled_leagues)}/{5}"
+        ]
+        embed.add_field(name="Statistics", value="\n".join(stats), inline=False)
+
+        # Add last activity
+        if self._last_operation_time:
+            embed.add_field(
+                name="Last Activity",
+                value=f"Last operation: {self.format_relative_time(self._last_operation_time)} ago",
+                inline=False
+            )
+
+        await ctx.send(embed=embed)
+
+    @bc_group.command(name="help")
+    async def bc_help_command(self, ctx):
+        """Show help information for Battle Conditions commands."""
+        embed = discord.Embed(
+            title="Battle Conditions Help",
+            description="Commands to manage and view tournament battle conditions.",
+            color=discord.Color.blue()
+        )
+
+        # Core commands
+        embed.add_field(
+            name="Core Commands",
+            value=(
+                "`bc get [league]` - Get battle conditions for a league\n"
+                "`bc tourney` - Show next tournament date\n"
+                "`bc info` - Show system information\n"
+                "`bc status` - Show operational status\n"
+                "`bc settings` - Show configuration settings"
+            ),
+            inline=False
+        )
+
+        # Schedule management
+        embed.add_field(
+            name="Schedule Management",
+            value=(
+                "`bc schedule_add <channel> [hour] [minute] [days_before] [leagues...]` - Add new schedule\n"
+                "`bc schedule_list` - List all schedules\n"
+                "`bc schedule_remove <index>` - Remove a schedule\n"
+                "`bc schedule_edit <index> <setting> <value>` - Edit schedule settings\n"
+                "`bc schedule_pause <index>` - Pause specific schedule\n"
+                "`bc schedule_resume <index>` - Resume specific schedule"
+            ),
+            inline=False
+        )
+
+        # System control
+        embed.add_field(
+            name="System Control",
+            value=(
+                "`bc pause` - Pause all announcements\n"
+                "`bc resume` - Resume all announcements\n"
+                "`bc toggle <setting> [value]` - Toggle a setting\n"
+                "`bc set <setting> <value>` - Set a configuration value\n"
+                "`bc schedules_reload` - Reload schedules from config file"
+            ),
+            inline=False
+        )
+
+        # Add footer with example
+        embed.set_footer(text="Example: bc get Legend")
+
+        await ctx.send(embed=embed)
 
 
 async def setup(bot) -> None:
