@@ -14,6 +14,7 @@
   - [Status Commands](#status-commands)
   - [Info Commands](#info-commands)
   - [Time & Toggle Patterns](#time--toggle-patterns)
+  - [Cog Initialization & Ready State Pattern](#cog-initialization--ready-state-pattern)
 - [Project-Specific Guidelines](#project-specific-guidelines)
 - [Shorthand Prompts](#shorthand-prompts)
 - [Quick Reference](#quick-reference)
@@ -205,7 +206,7 @@ All cogs should implement a `status` command that provides at-a-glance operation
 @commands.command(name="status")
 async def show_status(self, ctx):
     """Display current operational status of this feature."""
-    
+
     # Determine overall status
     if self.paused:
         status_emoji = "⏸️"
@@ -219,22 +220,22 @@ async def show_status(self, ctx):
         status_emoji = "✅"
         status_text = "Operational"
         embed_color = discord.Color.blue()
-    
+
     # Create status embed
     embed = discord.Embed(
         title="Feature Name Status",
         description=f"Current status: {status_emoji} {status_text}",
         color=embed_color
     )
-    
+
     # Add dependency information
     dependencies = []
     if hasattr(self.bot, "required_cog"):
         dependencies.append(f"Required Cog: {'✅ Available' if self.bot.get_cog('RequiredCog') else '❌ Unavailable'}")
-    
+
     if dependencies:
         embed.add_field(name="Dependencies", value="\n".join(dependencies), inline=False)
-    
+
     # Add process information
     if self._active_process:
         embed.add_field(
@@ -242,11 +243,11 @@ async def show_status(self, ctx):
             value=f"🔄 {self._active_process} (started {self._format_relative_time(self._process_start_time)} ago)",
             inline=False
         )
-    
+
     # Add statistics
     if hasattr(self, '_operation_count'):
         embed.add_field(name="Statistics", value=f"Operations completed: {self._operation_count}", inline=False)
-    
+
     # Add last activity
     if self._last_operation_time:
         embed.add_field(
@@ -254,7 +255,7 @@ async def show_status(self, ctx):
             value=f"Last operation: {self._format_relative_time(self._last_operation_time)} ago",
             inline=False
         )
-    
+
     await ctx.send(embed=embed)
 ```
 
@@ -302,6 +303,61 @@ For timestamps and durations:
 Consider implementing these utility methods in your cogs:
 - `format_time_value(seconds)`: Formats seconds into hours, minutes, seconds
 - `format_relative_time(timestamp)`: Shows time elapsed since a timestamp
+
+### Cog Initialization & Ready State Pattern
+
+### Cog Lifecycle Management
+- All cogs must inherit from `BaseCog` to leverage consistent initialization
+- Don't emit custom events for cog ready state; use the built-in ready state tracking system
+- The `BaseCog` class provides a complete ready state tracking system using `asyncio.Event`
+
+### Ready State Pattern
+The `BaseCog` class implements a standardized ready state tracking system:
+
+1. **State Tracking Attributes**
+   - `_ready`: asyncio.Event that signals when the cog is fully initialized
+   - `_ready_task`: Task that handles initialization sequence
+   - `_ready_timeout`: Maximum time to wait for initialization (default 60 seconds)
+
+2. **Initialization Flow**
+   - When bot emits `on_ready`, the base cog creates an initialization task
+   - Initialization calls `cog_initialize()` if implemented by the cog
+   - After successful initialization, the `_ready` event is set
+
+3. **Ready State Methods**
+   - `wait_until_ready()`: Async method to wait for cog initialization
+   - `is_ready`: Property that returns whether the cog is ready
+   - `set_ready_timeout()`: Method to customize the timeout duration
+
+### Implementation Pattern
+For cogs that need custom initialization:
+
+```python
+from fish_bot.basecog import BaseCog
+
+class MyCog(BaseCog):
+    def __init__(self, bot):
+        super().__init__(bot)
+        self.my_data = None  # Will be populated during initialization
+
+    async def cog_initialize(self):
+        """Initialize cog-specific resources after bot is ready."""
+        # Perform async initialization tasks here
+        self.my_data = await self.load_data("my_data_file.json", default={})
+
+        # Optional: set up periodic tasks
+        self.bot.loop.create_task(self.periodic_maintenance())
+
+    async def my_command(self, ctx):
+        """A command that requires cog to be fully initialized."""
+        # Wait for initialization before proceeding
+        if not await self.wait_until_ready():
+            await ctx.send("⏳ Still initializing, please try again later.")
+            return
+
+        # Now safe to use initialized resources
+        await ctx.send(f"Data loaded: {len(self.my_data)} items")
+```
 
 ---
 
