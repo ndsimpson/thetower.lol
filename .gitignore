@@ -1,3 +1,4 @@
+# Project-specific
 SECRET_KEY
 dtower.egg-info
 components.egg-info
@@ -18,3 +19,17 @@ secrets
 /.vscode
 .aider*
 .env
+
+# Python bytecode files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Custom bytecode cache location
+.cache/bytecode/
+
+# Virtual Environment
+.venv/
+env/
+venv/
+ENV/
