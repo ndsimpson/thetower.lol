@@ -1,35 +1,35 @@
-# Standard library imports
-import os
-
 # Third-party imports
-import django
 from discord.ext import commands
 from asgiref.sync import sync_to_async
 
-from dtower.tourney_results.models import TourneyResult, BattleCondition
+from dtower.tourney_results.models import TourneyResult
 from dtower.tourney_results.tourney_utils import get_summary
 
-from fish_bot.settings import prefix
-from fish_bot.util import is_allowed_channel, UserUnauthorized, ChannelUnauthorized
-from fish_bot import const
-
-from discord.ext import commands
-
-# Django setup
-os.environ.setdefault("DJANGO_SETTINGS_MODULE", "dtower.thetower.settings")
-django.setup()
+from fish_bot.util import send_paginated_message
+from fish_bot.basecog import BaseCog
 
 
-class TourneyManagement(commands.Cog):
-    """Tournament management commands and functionality"""
+class TourneyManagement(BaseCog, name="Tourney Management"):
+    """Commands for managing tournament data and results.
+
+    Provides functionality to view, publish, and manage tournament summaries.
+    Allows staff to control which tournaments are publicly visible.
+    """
 
     def __init__(self, bot):
-        self.bot = bot
+        super().__init__(bot)
 
     @commands.group(name="tourney", invoke_without_command=True)
-    @is_allowed_channel(const.website_channel_id, const.helpers_channel_id, const.testing_channel_id)
     async def tourney(self, ctx):
-        """Command group for managing tournament data"""
+        """Tournament management commands.
+
+        Available subcommands:
+        - viewpending: View tournaments waiting for publication
+        - view: View details of a specific tournament
+        - publish: Make tournaments publicly visible
+        - viewsummary: Display a tournament's summary
+        - gensummary: Generate a new tournament summary
+        """
         if ctx.invoked_subcommand is None:
             # List all available subcommands
             commands_list = [command.name for command in self.tourney.commands]
@@ -117,25 +117,13 @@ class TourneyManagement(commands.Cog):
             if not tournament.summary:
                 raise AttributeError
 
-            # Split long summaries into chunks of 1900 characters (leaving room for code block formatting)
-            chunk_size = 1900
-            summary_chunks = [tournament.summary[i:i + chunk_size]
-                              for i in range(0, len(tournament.summary), chunk_size)]
-
-            # Send header message
-            await ctx.send(f"__**Summary for Tournament #{id}**__ ({len(summary_chunks)} parts)")
-
-            # Send each chunk as a separate message
-            for i, chunk in enumerate(summary_chunks, 1):
-                if len(summary_chunks) > 1:
-                    await ctx.send(f"```Part {i}/{len(summary_chunks)}:\n{chunk}\n```")
-                else:
-                    await ctx.send(f"```\n{chunk}\n```")
+            header = f"__**Summary for Tournament #{id}**__"
+            await send_paginated_message(ctx, tournament.summary, header=header)
 
         except TourneyResult.DoesNotExist:
             await ctx.send(f"Error: Tournament #{id} not found!")
         except AttributeError:
-            await ctx.send(f"No summary available for Tournament #{id}. Generate one using `{prefix}tourney gensummary {id}`")
+            await ctx.send(f"No summary available for Tournament #{id}. Generate one using `{self.config.get('prefix', '')}tourney gensummary {id}`")
         except Exception as e:
             await ctx.send(f"Error displaying summary: {str(e)}")
             self.bot.logger.error(f"Summary display error: {e}", exc_info=True)
@@ -156,17 +144,7 @@ class TourneyManagement(commands.Cog):
             await sync_to_async(tournament.save)()
 
             await ctx.send(f"Summary generated for Tournament #{id}!")
-
-            # Split long summaries into chunks of 1900 characters (leaving room for code block formatting)
-            chunk_size = 1900
-            summary_chunks = [summary[i:i + chunk_size] for i in range(0, len(summary), chunk_size)]
-
-            # Send each chunk as a separate message
-            for i, chunk in enumerate(summary_chunks, 1):
-                if len(summary_chunks) > 1:
-                    await ctx.send(f"```Part {i}/{len(summary_chunks)}:\n{chunk}\n```")
-                else:
-                    await ctx.send(f"```\n{chunk}\n```")
+            await send_paginated_message(ctx, summary)
 
         except TourneyResult.DoesNotExist:
             await ctx.send(f"Error: Tournament #{id} not found!")

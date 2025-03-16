@@ -29,11 +29,6 @@ class MyCog(BaseCog,
         super().__init__(bot)
         self.logger.info("Initializing MyCog")
 
-        # Initialize core instance variables
-        self._has_errors = False
-        self._last_operation = None
-        self._operation_count = 0
-
         # Define settings with descriptions
         settings_config = {
             "max_items": (10, "Maximum items to display"),
@@ -45,7 +40,7 @@ class MyCog(BaseCog,
         # Initialize settings
         for name, (value, description) in settings_config.items():
             if not self.has_setting(name):
-                self.set_setting(name, value, description=description)
+                self.set_setting(name, value)
 
         # Load settings into instance variables
         self._load_settings()

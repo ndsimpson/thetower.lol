@@ -27,7 +27,9 @@ discord.py==2.4.0
 
 # fish bot
 discord.py==2.4.0
-# easyocr==1.7.2
+easyocr==1.7.2
+pympler==0.9
+psutil==5.9.0
 
 # testing
 pytest==8.3.4
