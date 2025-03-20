@@ -292,19 +292,32 @@ def filter_lower_leagues(df):
 
 
 def draw_info_tab(info_tab, user, player_id, player_df, hidden_features):
-    url_tab, comp_tab = info_tab.columns([1, 1])
+    # Create a container for all link-related content
+    link_container = info_tab.container()
+
+    # Generate URLs
     player_url = f"https://{BASE_URL}/player?" + urlencode({"player": player_id}, doseq=True)
-    url_tab.markdown("[Player Profile 🔗](%s)" % player_url)
-    url_tab.code(player_url)
     bracket_url = f"https://{BASE_URL}/livebracketview?" + urlencode({"player_id": player_id}, doseq=True)
-    comp_tab.markdown("[Player Bracket 🔗](%s)" % bracket_url)
-    comp_tab.code(bracket_url)
-    # url = f"https://{BASE_URL}/Player?" + urlencode({"compare": user}, doseq=True)
-    # comp_tab.write(f"<a href='{url}'>🔗 Compare with...</a>", unsafe_allow_html=True)
+    comparison_url = f"https://{BASE_URL}/comparison?bracket_player={player_id}"
+
+    # Create three columns for the links
+    link1_col, link2_col, link3_col = link_container.columns(3)
+
+    # Display links in columns (side by side)
+    link1_col.write(f'<a href="{player_url}">🔗 Player Profile</a>', unsafe_allow_html=True)
+    link2_col.write(f'<a href="{bracket_url}">🔗 Live Bracket View</a>', unsafe_allow_html=True)
+    link3_col.write(f'<a href="{comparison_url}">🔗 Live Bracket Player Comparison</a>', unsafe_allow_html=True)
+
+    # Show the raw URLs for copying in an expander
+    with st.expander("Copy URLs"):
+        st.code(player_url, language="text")
+        st.code(bracket_url, language="text")
+        st.code(comparison_url, language="text")
+
+    # Continue with the rest of the info tab content
     handle_sus_or_banned_ids(info_tab, player_id)
 
     real_name = player_df.iloc[0].real_name
-    # current_role_color = player_df.iloc[0].name_role.color
 
     if hidden_features:
         info_tab.write(
