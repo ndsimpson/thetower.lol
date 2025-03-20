@@ -150,8 +150,22 @@ def live_bracket():
 
     st.write(table_styling, unsafe_allow_html=True)
 
-    st.write(f'<a href="{url}">See comparison</a>', unsafe_allow_html=True)
-    st.code(url)
+    # Create a container for comparison links
+    comparison_container = st.container()
+
+    with comparison_container:
+        st.write(f'<a href="{url}">See comparison (old way)</a>', unsafe_allow_html=True)
+
+        # Add the new bracket comparison link using any player ID from the bracket
+        if player_ids:
+            bracket_url = f"https://{BASE_URL}/comparison?bracket_player={player_ids[0]}"
+            st.write(f'<a href="{bracket_url}">See comparison (new way)</a>', unsafe_allow_html=True)
+
+    # Show the raw URL for copying
+    with st.expander("Copy URL"):
+        st.code(url)
+        if player_ids:
+            st.code(f"https://{BASE_URL}/comparison?bracket_player={player_ids[0]}")
 
 
 live_bracket()

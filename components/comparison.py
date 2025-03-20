@@ -23,12 +23,28 @@ from dtower.tourney_results.data import get_details, get_patches, get_sus_ids
 from dtower.tourney_results.formatting import BASE_URL, make_player_url
 from dtower.tourney_results.models import PatchNew as Patch
 from dtower.tourney_results.models import TourneyResult, TourneyRow
+from dtower.tourney_results.tourney_utils import get_live_df
 
 sus_ids = get_sus_ids()
 hidden_features = os.environ.get("HIDDEN_FEATURES")
 
 
 def compute_comparison(player_id=None, canvas=st):
+    # Check if there's a bracket_player query param to load a full bracket for comparison
+    bracket_player_id = st.query_params.get("bracket_player")
+
+    if bracket_player_id:
+        # Find the player's current bracket and get all players in it
+        bracket_players = get_bracket_players(bracket_player_id)
+        if bracket_players:
+            # Set these players as the comparison targets
+            st.session_state.options.compare_players = bracket_players
+            st.session_state.display_comparison = True
+
+            # Store a note that we're viewing a bracket comparison
+            st.session_state.bracket_comparison = True
+            st.session_state.bracket_player_id = bracket_player_id
+
     with st.sidebar:
         show_legend = st.checkbox("Show legend", key="show_legend", value=True)
 
@@ -74,6 +90,10 @@ def compute_comparison(player_id=None, canvas=st):
         users = st.session_state.options.compare_players or st.session_state.comparison
 
     if not player_id:
+        # Show a message if we're in bracket comparison mode
+        if st.session_state.get("bracket_comparison"):
+            canvas.info(f"Showing comparison for all players in the same live bracket as player ID: {st.session_state.bracket_player_id}")
+
         search_for_new = canvas.button("Search for another player?", on_click=search_for_new)
 
         canvas.code(f"https://{BASE_URL}/comparison?" + urlencode({"compare": users}, doseq=True))
@@ -216,6 +236,42 @@ def compute_comparison(player_id=None, canvas=st):
             data = {real_name: list(df.id.unique()) for real_name, df in pd_datas.groupby("real_name")}
             canvas.write("Player ids used:")
             canvas.json(data)
+
+
+def get_bracket_players(player_id: str) -> list[str]:
+    """
+    Get all players in the same bracket as the provided player ID.
+
+    Args:
+        player_id: The player ID to find bracket members for
+
+    Returns:
+        List of player IDs in the same bracket, or empty list if not found
+    """
+    try:
+        # Get live data for all available leagues
+        for league in leagues:
+            df = get_live_df(league, True)
+
+            # Find if player is in this dataframe
+            player_df = df[df.player_id == player_id]
+
+            if not player_df.empty:
+                # Get the bracket ID for this player
+                bracket_id = player_df.bracket.iloc[0]
+
+                # Get all players in the same bracket
+                bracket_df = df[df.bracket == bracket_id]
+
+                # Return unique player IDs in this bracket
+                return sorted(bracket_df.player_id.unique())
+
+        # Player not found in any bracket
+        return []
+
+    except Exception as e:
+        st.error(f"Error finding bracket players: {str(e)}")
+        return []
 
 
 def filter_plot_datas(datas, patch, filter_bcs):
