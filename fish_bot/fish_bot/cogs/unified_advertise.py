@@ -549,12 +549,17 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
     @discord.app_commands.command(name="advertise", description="Create a new advertisement")
     async def advertise_slash(self, interaction: discord.Interaction) -> None:
         """Slash command for creating an advertisement."""
-        # Check permissions first
-        if not await self.interaction_check(interaction):
-            return
-
         if not await self.wait_until_ready():
             await interaction.response.send_message("⏳ System is still initializing, please try again later.", ephemeral=True)
+            return
+
+        # Check if system is paused
+        if self.is_paused:
+            await interaction.response.send_message("⏸️ The advertisement system is currently paused. Please try again later.", ephemeral=True)
+            return
+
+        # Check permissions
+        if not await self.interaction_check(interaction):
             return
 
         # Create the selection view
@@ -572,6 +577,15 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
         """Slash command to delete your own advertisement early."""
         if not await self.wait_until_ready():
             await interaction.response.send_message("⏳ System is still initializing, please try again later.", ephemeral=True)
+            return
+
+        # Check if system is paused
+        if self.is_paused:
+            await interaction.response.send_message("⏸️ The advertisement system is currently paused. Please try again later.", ephemeral=True)
+            return
+
+        # Check permissions
+        if not await self.interaction_check(interaction):
             return
 
         # Find user's active advertisements
@@ -635,6 +649,15 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
         """Slash command to toggle notification settings for your advertisement."""
         if not await self.wait_until_ready():
             await interaction.response.send_message("⏳ System is still initializing, please try again later.", ephemeral=True)
+            return
+
+        # Check if system is paused
+        if self.is_paused:
+            await interaction.response.send_message("⏸️ The advertisement system is currently paused. Please try again later.", ephemeral=True)
+            return
+
+        # Check permissions
+        if not await self.interaction_check(interaction):
             return
 
         # Find user's active advertisements
@@ -832,7 +855,10 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
 
         try:
             now = datetime.datetime.now()
-            sections = timeout_type.lower() in ['user', 'guild'] and [f"{timeout_type}s"] or ['users', 'guilds']
+            if timeout_type and timeout_type.lower() in ['user', 'guild']:
+                sections = [f"{timeout_type.lower()}s"]
+            else:
+                sections = ['users', 'guilds']
             messages = []
             current_msg = []
 
@@ -1156,7 +1182,7 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
                     expired_count += 1
 
             if expired_count > 0:
-                self._save_cooldowns()
+                await self._save_cooldowns()
                 self.logger.info(f"Weekly cleanup: Removed {expired_count} expired cooldowns")
                 self._last_operation_time = datetime.datetime.now()
         except Exception as e:
@@ -1385,12 +1411,12 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
                 if guild_id:
                     self.cooldowns['guilds'][str(guild_id)] = current_time
 
-                self._save_cooldowns()
+                await self._save_cooldowns()
 
                 # Schedule thread for deletion with author ID and notification preference
                 deletion_time = datetime.datetime.now() + datetime.timedelta(hours=self.cooldown_hours)
                 self.pending_deletions.append((thread.id, deletion_time, interaction.user.id, notify))
-                self._save_pending_deletions()
+                await self._save_pending_deletions()
                 self.logger.info(f"Scheduled thread {thread.id} for deletion at {deletion_time} "
                                  f"with notify={notify}, author={interaction.user.id}")
 
