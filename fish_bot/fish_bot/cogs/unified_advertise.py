@@ -306,7 +306,7 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
         # Initialize settings
         for name, (value, description) in settings_config.items():
             if not self.has_setting(name):
-                self.set_setting(name, value)
+                self.set_setting(name, value, description=description)
 
         # Initialize empty data structures (will be populated in cog_initialize)
         self.cooldowns = {'users': {}, 'guilds': {}}
@@ -506,7 +506,7 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
         await ctx.send(embed=embed)
 
     @unifiedadvertise_group.command(name="set")
-    async def set_setting(self, ctx: commands.Context, setting_name: str, value: str) -> None:
+    async def set_setting_command(self, ctx: commands.Context, setting_name: str, value: str) -> None:
         """Change a cog setting.
 
         Args:
@@ -536,7 +536,7 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
                 return await ctx.send(f"❌ Invalid value format for {setting_name}")
 
             # Update the setting
-            await self.set_setting(setting_name, value)
+            self.set_setting(setting_name, value)
 
             # Reload settings into instance variables
             self._load_settings()
