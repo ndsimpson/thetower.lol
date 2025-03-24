@@ -5,7 +5,6 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Dict, Any, Union, Callable, Optional
 import datetime
-from datetime import timezone
 
 # Third-party imports
 import discord
@@ -54,23 +53,8 @@ class BaseCog(commands.Cog):
         self._operation_count = 0  # Track the number of operations
         self._is_paused = False  # Track if the cog is paused
 
-        # Initialize cog-specific logger with UTC timestamps
+        # Just get the logger, inheriting parent configuration
         self._logger = logging.getLogger(f"fish_bot.{self.__class__.__name__}")
-        formatter = logging.Formatter(
-            '%(asctime)s UTC [%(name)s] %(levelname)s: %(message)s',
-            datefmt='%Y-%m-%d %H:%M:%S'
-        )
-        formatter.converter = lambda *args: datetime.datetime.now(timezone.utc).timetuple()
-
-        # Apply formatter to existing handlers
-        for handler in self._logger.handlers:
-            handler.setFormatter(formatter)
-
-        # If no handlers exist, add a stream handler
-        if not self._logger.handlers:
-            handler = logging.StreamHandler()
-            handler.setFormatter(formatter)
-            self._logger.addHandler(handler)
 
         # Data management components
         self._data_manager = DataManager()

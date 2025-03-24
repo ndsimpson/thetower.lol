@@ -1,6 +1,8 @@
 # Standard library imports
 import logging
 from os import environ, getenv
+import datetime
+from datetime import timezone
 
 # Third-party imports
 import django
@@ -48,6 +50,20 @@ class DiscordBot(commands.Bot, BaseFileMonitor):
 
         # Store command types configuration
         self.command_types = self.config.get("command_types", {})
+
+        # Set up logging with UTC timestamps
+        formatter = logging.Formatter(
+            '%(asctime)s UTC [%(name)s] %(levelname)s: %(message)s',
+            datefmt='%Y-%m-%d %H:%M:%S'
+        )
+        formatter.converter = lambda *args: datetime.datetime.now(timezone.utc).timetuple()
+
+        # Configure the root logger
+        root_logger = logging.getLogger('fish_bot')
+        if not root_logger.handlers:
+            handler = logging.StreamHandler()
+            handler.setFormatter(formatter)
+            root_logger.addHandler(handler)
 
     async def setup_hook(self) -> None:
         """This will just be executed when the bot starts the first time."""
