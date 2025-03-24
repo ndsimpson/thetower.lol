@@ -292,7 +292,7 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
         self.logger.info("Initializing UnifiedAdvertise")
 
         # Define settings with descriptions
-        settings_config = {
+        self.settings_config = {
             "cooldown_hours": (24, "Default cooldown period in hours"),
             "advertise_channel_id": (None, "Forum channel for advertisements"),
             "mod_channel_id": (None, "Channel for moderator notifications"),
@@ -302,14 +302,6 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
             "cooldown_filename": ("advertisement_cooldowns.json", "Filename for cooldown data"),
             "pending_deletions_filename": ("advertisement_pending_deletions.pkl", "Filename for pending deletions")
         }
-
-        # Initialize settings using BaseCog method
-        for name, (value, description) in settings_config.items():
-            if not self.has_setting(name):
-                self.set_setting(name, value)
-
-        # Load settings into instance variables
-        self._load_settings()
 
         # Initialize empty data structures (will be populated in cog_initialize)
         self.cooldowns = {'users': {}, 'guilds': {}}
@@ -339,6 +331,10 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
         try:
             async with self.task_tracker.task_context("Initialization"):
                 await super().cog_initialize()
+
+                for name, (value, description) in self.settings_config.items():
+                    if not self.has_setting(name):
+                        await self.set_setting(name, value)
 
                 # Load data
                 self.cooldowns = await self._load_cooldowns()
