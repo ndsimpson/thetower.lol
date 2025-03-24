@@ -227,7 +227,7 @@ class MemberAdvertisementForm(Modal, title="Member Advertisement Form"):
             return
 
         # Process notification preference
-        notify = self.notify_on_expire.values[0] == "yes"
+        notify = self.notify
 
         # Check cooldowns before processing
         user_id = interaction.user.id
