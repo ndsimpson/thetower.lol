@@ -206,11 +206,13 @@ class PermissionManager:
         # Handle wildcard channel case
         if channel_input == '*':
             channel_id = '*'
+            channel_display = "all channels"
         else:
             # Try to resolve channel from input
             try:
                 channel = await commands.TextChannelConverter().convert(ctx, channel_input)
                 channel_id = str(channel.id)
+                channel_display = channel.mention
             except commands.ChannelNotFound:
                 return False, f"Could not find channel/thread: {channel_input}"
 
@@ -227,9 +229,9 @@ class PermissionManager:
 
         if self.add_command_channel(ctx.bot, primary_name, channel_id, public):
             status = "public" if public else "non-public"
-            return True, f"✅ Added channel {channel.mention} to command {display_name} permissions ({status})"
+            return True, f"✅ Added channel {channel_display} to command {display_name} permissions ({status})"
         else:
-            await ctx.send(f"❌ Failed to add channel {channel.mention} to command {display_name} permissions")
+            await ctx.send(f"❌ Failed to add channel {channel_display} to command {display_name} permissions")
             return False, "Failed to add channel permissions"
 
     def remove_command_channel(self, bot, command: str, channel_id: str) -> bool:
