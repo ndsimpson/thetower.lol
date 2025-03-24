@@ -190,7 +190,6 @@ class MemberAdvertisementForm(Modal, title="Member Advertisement Form"):
             cog: The UnifiedAdvertise cog instance
         """
         super().__init__(timeout=180)  # 3 minute timeout
-        self.logger.info("Initializing UnifiedAdvertise")
         self.cog = cog
         self.notify = True
 
