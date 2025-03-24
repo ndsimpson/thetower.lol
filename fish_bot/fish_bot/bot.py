@@ -80,7 +80,7 @@ class DiscordBot(commands.Bot, BaseFileMonitor):
         self.command_type_manager = CommandTypeManager(self)
 
         # Auto-sync slash commands if enabled
-        if self.config.get("auto_sync_commands", False):
+        if self.config.get("auto_sync_commands", True):
             self.logger.info("Auto-syncing commands with Discord...")
             try:
                 await self.tree.sync()
