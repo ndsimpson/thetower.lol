@@ -34,18 +34,15 @@ class AdTypeSelection(View):
 
     @discord.ui.button(label="Guild Advertisement", style=discord.ButtonStyle.primary, emoji="🏰")
     async def guild_button(self, interaction: discord.Interaction, button: Button) -> None:
-        await interaction.response.send_modal(GuildAdvertisementForm(self.cog))
+        form = GuildAdvertisementForm(self.cog)
+        view = NotificationView(form)
+        await interaction.response.send_message("Please select your notification preference:", view=view, ephemeral=True)
 
     @discord.ui.button(label="Member Advertisement", style=discord.ButtonStyle.success, emoji="👤")
     async def member_button(self, interaction: discord.Interaction, button: Button) -> None:
-        try:
-            await interaction.response.send_modal(MemberAdvertisementForm(self.cog))
-        except Exception as e:
-            self.cog.logger.error(f"Error showing member advertisement form: {e}")
-            await interaction.response.send_message(
-                "There was an error showing the advertisement form. Please try again later.",
-                ephemeral=True
-            )
+        form = MemberAdvertisementForm(self.cog)
+        view = NotificationView(form)  # Reuse the same NotificationView
+        await interaction.response.send_message("Please select your notification preference:", view=view, ephemeral=True)
 
     async def on_timeout(self) -> None:
         # Disable all buttons when the view times out
@@ -70,6 +67,7 @@ class GuildAdvertisementForm(Modal, title="Guild Advertisement Form"):
         """
         super().__init__(timeout=180)  # 3 minute timeout
         self.cog = cog
+        self.notify = True
 
     guild_name = TextInput(
         label="Guild Name",
@@ -108,18 +106,6 @@ class GuildAdvertisementForm(Modal, title="Guild Advertisement Form"):
         style=discord.TextStyle.paragraph
     )
 
-    # Remove the notify_on_expire TextInput and replace with Select
-    notify_on_expire = Select(
-        placeholder="Would you like to be notified when your ad expires?",
-        options=[
-            discord.SelectOption(label="Yes", value="yes", emoji="✉️"),
-            discord.SelectOption(label="No", value="no", emoji="🔕")
-        ],
-        min_values=1,
-        max_values=1,
-        custom_id="notify_select"  # Add custom ID for component handling
-    )
-
     async def on_submit(self, interaction: discord.Interaction) -> None:
         # Check if guild ID is valid (only A-Z, 0-9, exactly 6 chars)
         guild_id = self.guild_id.value.upper()
@@ -131,7 +117,7 @@ class GuildAdvertisementForm(Modal, title="Guild Advertisement Form"):
             return
 
         # Process notification preference
-        notify = self.notify_on_expire.values[0] == "yes"
+        notify = self.notify
 
         # Check cooldowns before processing
         user_id = interaction.user.id
@@ -175,6 +161,25 @@ class GuildAdvertisementForm(Modal, title="Guild Advertisement Form"):
             pass
 
 
+class NotificationView(View):
+    def __init__(self, form: GuildAdvertisementForm):
+        super().__init__(timeout=180)
+        self.form = form
+
+    @discord.ui.select(
+        placeholder="Would you like to be notified when your ad expires?",
+        options=[
+            discord.SelectOption(label="Yes", value="yes", emoji="✉️"),
+            discord.SelectOption(label="No", value="no", emoji="🔕")
+        ],
+        min_values=1,
+        max_values=1
+    )
+    async def notify_select(self, interaction: discord.Interaction, select: discord.ui.Select):
+        self.form.notify = select.values[0] == "yes"
+        await interaction.response.send_modal(self.form)
+
+
 class MemberAdvertisementForm(Modal, title="Member Advertisement Form"):
     """Modal form for collecting member advertisement information."""
 
@@ -187,6 +192,7 @@ class MemberAdvertisementForm(Modal, title="Member Advertisement Form"):
         super().__init__(timeout=180)  # 3 minute timeout
         self.logger.info("Initializing UnifiedAdvertise")
         self.cog = cog
+        self.notify = True
 
     player_id = TextInput(
         label="Player ID",
@@ -208,18 +214,6 @@ class MemberAdvertisementForm(Modal, title="Member Advertisement Form"):
         required=True,
         max_length=1000,
         style=discord.TextStyle.paragraph
-    )
-
-    # Remove the notify_on_expire TextInput and replace with Select
-    notify_on_expire = Select(
-        placeholder="Would you like to be notified when your ad expires?",
-        options=[
-            discord.SelectOption(label="Yes", value="yes", emoji="✉️"),
-            discord.SelectOption(label="No", value="no", emoji="🔕")
-        ],
-        min_values=1,
-        max_values=1,
-        custom_id="notify_select"  # Add custom ID for component handling
     )
 
     async def on_submit(self, interaction: discord.Interaction) -> None:
