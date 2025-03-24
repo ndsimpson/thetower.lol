@@ -1316,8 +1316,10 @@ async def setup(bot: commands.Bot) -> None:
             guild = discord.Object(id=cog.guild_id)
             bot.tree.copy_global_to(guild=guild)
             await bot.tree.sync(guild=guild)
+            cog.logger.info(f"Synced commands to guild {cog.guild_id}")
         else:
-            cog.logger.warning("Guild ID not configured, skipping slash command sync")
+            cog.logger.warning("Guild ID not configured, using global sync")
+            await bot.tree.sync()
     except Exception as e:
         if cog:
             cog.logger.error(f"Error syncing app commands: {e}")
