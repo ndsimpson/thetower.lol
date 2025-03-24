@@ -1095,11 +1095,18 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
             # Convert timestamps to datetime if needed
             converted_data = []
             for entry in data:
-                if len(entry) == 4:  # Current format
+                if len(entry) == 4:  # Current format (thread_id, time, author_id, notify)
                     thread_id, del_time, author_id, notify = entry
                     if isinstance(del_time, str):
                         del_time = datetime.datetime.fromisoformat(del_time)
                     converted_data.append((int(thread_id), del_time, int(author_id), bool(notify)))
+                elif len(entry) == 2:  # Old format (thread_id, time)
+                    thread_id, del_time = entry
+                    if isinstance(del_time, str):
+                        del_time = datetime.datetime.fromisoformat(del_time)
+                    # Add default values for author_id (None) and notify (False)
+                    converted_data.append((int(thread_id), del_time, 0, False))
+                    self.logger.info(f"Migrated old deletion entry format for thread {thread_id}")
                 else:
                     self.logger.warning(f"Invalid deletion entry format: {entry}")
                     continue
