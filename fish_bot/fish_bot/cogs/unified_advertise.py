@@ -607,7 +607,7 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
                                                        for t_id, t_time, t_author, t_notify
                                                        in self.view.cog.pending_deletions
                                                        if t_id != thread_id]
-                    self.view.cog._save_pending_deletions()
+                    await self.view.cog._save_pending_deletions()
 
                     await select_interaction.response.send_message("Advertisement deleted successfully.", ephemeral=True)
                 except Exception as e:
