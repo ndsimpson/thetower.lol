@@ -830,60 +830,51 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
 
         Args:
             timeout_type: Optional 'user' or 'guild' to filter results
-
-        Only works for the bot owner in DMs.
         """
-        # Check if command is used by the bot owner in DMs
         if not await self._check_owner_dm(ctx):
             return
 
         try:
             now = datetime.datetime.now()
-            sections = []
-
-            # Determine which sections to show
-            if timeout_type:
-                timeout_type = timeout_type.lower()
-                if timeout_type not in ['user', 'guild']:
-                    await ctx.send("Invalid timeout type. Use 'user', 'guild' or omit for all.")
-                    return
-
-                if timeout_type == 'user':
-                    sections = ['users']
-                else:
-                    sections = ['guilds']
-            else:
-                # Show all sections if no type specified
-                sections = ['users', 'guilds']
-
-            # Build the message
-            result = []
+            sections = timeout_type.lower() in ['user', 'guild'] and [f"{timeout_type}s"] or ['users', 'guilds']
+            messages = []
+            current_msg = []
 
             for section in sections:
                 if not self.cooldowns[section]:
-                    result.append(f"No active {section} timeouts.")
+                    current_msg.append(f"No active {section} timeouts.")
                     continue
 
-                result.append(f"**{section.capitalize()} Timeouts:**")
+                current_msg.append(f"**{section.capitalize()} Timeouts:**")
 
                 for item_id, timestamp in list(self.cooldowns[section].items()):
                     timestamp_dt = datetime.datetime.fromisoformat(timestamp)
                     elapsed = now - timestamp_dt
                     hours_left = self.cooldown_hours - (elapsed.total_seconds() / 3600)
 
-                    if hours_left > 0:
-                        result.append(f"- ID: `{item_id}`, Time left: {hours_left:.1f} hours")
+                    line = (f"- ID: `{item_id}`, " +
+                            (f"Time left: {hours_left:.1f} hours" if hours_left > 0
+                            else f"**⚠️ EXPIRED** ({abs(hours_left):.1f} hours ago)"))
+
+                    # Check if adding this line would exceed Discord's limit
+                    if sum(len(x) for x in current_msg) + len(line) > 1900:
+                        messages.append("\n".join(current_msg))
+                        current_msg = [line]
                     else:
-                        # Updated to use consistent emoji
-                        result.append(f"- ID: `{item_id}`, **⚠️ EXPIRED** ({abs(hours_left):.1f} hours ago)")
+                        current_msg.append(line)
 
-                result.append("")  # Add a blank line between sections
+                current_msg.append("")  # Add separator between sections
 
-            # Send the message
-            if result:
-                await ctx.send("\n".join(result))
-            else:
+            # Add any remaining content
+            if current_msg:
+                messages.append("\n".join(current_msg))
+
+            # Send messages
+            if not messages:
                 await ctx.send("No active timeouts found.")
+            else:
+                for msg in messages:
+                    await ctx.send(msg)
 
         except Exception as e:
             self.logger.error(f"Error in owner_list_timeouts: {e}", exc_info=True)
@@ -945,6 +936,100 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
 
         except Exception as e:
             self.logger.error(f"Error in owner_list_pending: {e}", exc_info=True)
+            await ctx.send(f"Error processing command: {str(e)}")
+
+    @flexible_command(name="owner_delete_all_ads")
+    async def owner_delete_all_ads(self, ctx: commands.Context, confirm: str = None) -> None:
+        """Delete all active advertisements and clear pending deletions.
+
+        Args:
+            confirm: Type 'confirm' to execute the deletion
+
+        Only works for the bot owner in DMs.
+        """
+        if not await self._check_owner_dm(ctx):
+            return
+
+        if not confirm or confirm.lower() != 'confirm':
+            await ctx.send("⚠️ This will delete ALL active advertisements and clear the pending deletions list.\n"
+                           "To confirm, use: `owner_delete_all_ads confirm`")
+            return
+
+        try:
+            deleted_count = 0
+            errors_count = 0
+
+            # Process each pending deletion
+            for thread_id, _, author_id, notify in self.pending_deletions:
+                try:
+                    thread = await self.bot.fetch_channel(thread_id)
+                    if thread:
+                        await thread.delete()
+                        deleted_count += 1
+
+                        # Try to notify the author if notifications were enabled
+                        if notify and author_id:
+                            try:
+                                user = await self.bot.fetch_user(author_id)
+                                if user:
+                                    await user.send("Your advertisement has been removed by a moderator.")
+                            except Exception as e:
+                                self.logger.warning(f"Failed to send notification to user {author_id}: {e}")
+                except discord.NotFound:
+                    # Thread already deleted
+                    deleted_count += 1
+                except Exception as e:
+                    self.logger.error(f"Error deleting thread {thread_id}: {e}")
+                    errors_count += 1
+
+            # Clear the pending deletions list
+            old_count = len(self.pending_deletions)
+            self.pending_deletions = []
+            await self._save_pending_deletions()
+
+            # Send summary
+            await ctx.send(f"Operation complete:\n"
+                           f"• Processed {old_count} pending deletions\n"
+                           f"• Successfully deleted: {deleted_count} threads\n"
+                           f"• Errors encountered: {errors_count}\n"
+                           f"• Pending deletions list cleared")
+
+        except Exception as e:
+            self.logger.error(f"Error in owner_delete_all_ads: {e}", exc_info=True)
+            await ctx.send(f"Error processing command: {str(e)}")
+
+    @flexible_command(name="owner_clear_all_timeouts")
+    async def owner_clear_all_timeouts(self, ctx: commands.Context, confirm: str = None) -> None:
+        """Clear all advertisement timeouts.
+
+        Args:
+            confirm: Type 'confirm' to execute the clearing
+
+        Only works for the bot owner in DMs.
+        """
+        if not await self._check_owner_dm(ctx):
+            return
+
+        if not confirm or confirm.lower() != 'confirm':
+            await ctx.send("⚠️ This will clear ALL advertisement cooldowns for both users and guilds.\n"
+                           "To confirm, use: `owner_clear_all_timeouts confirm`")
+            return
+
+        try:
+            # Store counts for reporting
+            user_count = len(self.cooldowns['users'])
+            guild_count = len(self.cooldowns['guilds'])
+
+            # Clear both cooldown dictionaries
+            self.cooldowns = {'users': {}, 'guilds': {}}
+            await self._save_cooldowns()
+
+            await ctx.send(f"Successfully cleared all timeouts:\n"
+                           f"• Users cleared: {user_count}\n"
+                           f"• Guilds cleared: {guild_count}")
+
+        except Exception as e:
+            self.logger.error(f"Error in owner_clear_all_timeouts: {e}", exc_info=True)
             await ctx.send(f"Error processing command: {str(e)}")
 
     async def _check_owner_dm(self, ctx: commands.Context) -> bool:
