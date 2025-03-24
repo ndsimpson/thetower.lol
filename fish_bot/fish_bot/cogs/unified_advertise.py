@@ -526,7 +526,7 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
                 return await ctx.send(f"❌ Invalid value format for {setting_name}")
 
             # Update the setting
-            self.set_setting(setting_name, value)
+            await self.set_setting(setting_name, value)
 
             # Reload settings into instance variables
             self._load_settings()
