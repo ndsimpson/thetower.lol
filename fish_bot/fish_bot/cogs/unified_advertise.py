@@ -577,12 +577,14 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
         # Find user's active advertisements
         user_threads = []
         for thread_id, deletion_time, author_id, notify in self.pending_deletions:
-            try:
-                thread = await self.bot.fetch_channel(thread_id)
-                if thread and thread.owner_id == interaction.user.id:
-                    user_threads.append((thread_id, thread.name))
-            except Exception:
-                continue
+            # Changed: Check author_id instead of thread.owner_id
+            if author_id == interaction.user.id:
+                try:
+                    thread = await self.bot.fetch_channel(thread_id)
+                    if thread:
+                        user_threads.append((thread_id, thread.name))
+                except Exception:
+                    continue
 
         if not user_threads:
             await interaction.response.send_message("You don't have any active advertisements.", ephemeral=True)
