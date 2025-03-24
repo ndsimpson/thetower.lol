@@ -47,13 +47,18 @@ class CommandTypeManager:
 
         return True
 
-    async def sync_commands(self):
-        """Sync slash commands with Discord."""
+    async def sync_commands(self, guild=None):
+        """Sync commands with Discord.
+
+        Args:
+            guild: Optional guild to sync to. If None, syncs globally.
+        """
         try:
-            # This syncs globally - can take up to an hour to propagate
-            synced = await self.bot.tree.sync()
-            self.logger.info(f"Synced {len(synced)} command(s) with Discord")
+            if guild:
+                synced = await self.bot.tree.sync(guild=guild)
+            else:
+                synced = await self.bot.tree.sync()
             return len(synced)
         except Exception as e:
-            self.logger.error(f"Error syncing commands: {e}")
-            return None
+            self.bot.logger.error(f"Error syncing commands: {e}", exc_info=True)
+            raise

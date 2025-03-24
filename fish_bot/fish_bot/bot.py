@@ -1183,11 +1183,33 @@ async def command_type_sync(ctx):
     await ctx.send("🔄 Syncing commands with Discord...")
 
     try:
-        # This syncs globally - can take up to an hour to propagate
-        synced = await bot.tree.sync()
+        # Get registered commands
+        commands = []
+        for command in bot.walk_commands():
+            # Skip commands that shouldn't be slash commands
+            command_type = bot.command_type_manager.get_command_type(command.qualified_name)
+            if command_type in ['slash', 'both']:
+                # Convert command to slash command format
+                slash_command = {
+                    'name': command.name,
+                    'description': command.help or 'No description available',
+                    'options': []  # Add parameter handling if needed
+                }
+                commands.append(slash_command)
+
+        # Sync with Discord
+        if ctx.guild:
+            # Sync to specific guild
+            synced = await bot.tree.sync(guild=ctx.guild)
+        else:
+            # Global sync
+            synced = await bot.tree.sync()
+
         await ctx.send(f"✅ Synced {len(synced)} command(s) with Discord")
+
     except Exception as e:
-        await ctx.send(f"❌ Error syncing commands: {e}")
+        await ctx.send(f"❌ Error syncing commands: {str(e)}")
+        bot.logger.error(f"Command sync error: {e}", exc_info=True)
 
 
 @bot.event
