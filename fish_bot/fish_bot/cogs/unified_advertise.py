@@ -834,7 +834,7 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
             if identifier in self.cooldowns[cooldown_key]:
                 # Remove the timeout
                 del self.cooldowns[cooldown_key][identifier]
-                self._save_cooldowns()
+                await self._save_cooldowns()
                 await ctx.send(f"Successfully reset {timeout_type} timeout for {identifier}.")
             else:
                 await ctx.send(f"No timeout found for {timeout_type} {identifier}.")
