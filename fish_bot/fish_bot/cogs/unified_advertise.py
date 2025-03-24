@@ -303,13 +303,10 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
             "pending_deletions_filename": ("advertisement_pending_deletions.pkl", "Filename for pending deletions")
         }
 
-        # Initialize settings using BaseCog method
+        # Initialize settings
         for name, (value, description) in settings_config.items():
             if not self.has_setting(name):
                 self.set_setting(name, value)
-
-        # Load settings into instance variables
-        self._load_settings()
 
         # Initialize empty data structures (will be populated in cog_initialize)
         self.cooldowns = {'users': {}, 'guilds': {}}
@@ -337,23 +334,36 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
         self.logger.info("Initializing Advertisement module...")
 
         try:
-            async with self.task_tracker.task_context("Initialization"):
+            async with self.task_tracker.task_context("Initialization") as tracker:
+                # Initialize parent
+                self.logger.debug("Initializing parent cog")
                 await super().cog_initialize()
 
-                # Load data
+                # 1. Load settings
+                self.logger.debug("Loading settings")
+                tracker.update_status("Loading settings")
+                self._load_settings()
+
+                # 2. Load data
+                self.logger.debug("Loading cached data")
+                tracker.update_status("Loading data")
                 self.cooldowns = await self._load_cooldowns()
                 self.pending_deletions = await self._load_pending_deletions()
 
-                # Start the scheduled tasks
-                self.check_deletions.start()
-                self.weekly_cleanup.start()
+                # 3. Start scheduled tasks
+                self.logger.debug("Starting scheduled tasks")
+                tracker.update_status("Starting tasks")
+                if not self.check_deletions.is_running():
+                    self.check_deletions.start()
+                if not self.weekly_cleanup.is_running():
+                    self.weekly_cleanup.start()
 
-                # Update status variables
+                # 4. Update status variables
                 self._last_operation_time = datetime.datetime.utcnow()
+                self._operation_count = 0
 
-                # Set ready state
+                # 5. Mark as ready
                 self.set_ready(True)
-
                 self.logger.info("Advertisement initialization complete")
 
         except Exception as e:
@@ -526,7 +536,7 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
                 return await ctx.send(f"❌ Invalid value format for {setting_name}")
 
             # Update the setting
-            self.set_setting(setting_name, value)
+            await self.set_setting(setting_name, value)
 
             # Reload settings into instance variables
             self._load_settings()
