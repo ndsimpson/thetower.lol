@@ -977,41 +977,49 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
 
         async with self.task_tracker.task_context("Advertisement Deletion Check"):
             current_time = datetime.datetime.now()
-            threads_to_delete = []
+            to_remove = []  # Track entries to remove
 
             for thread_id, deletion_time, author_id, notify in self.pending_deletions:
                 if current_time >= deletion_time:
-                    threads_to_delete.append((thread_id, author_id, notify))
+                    try:
+                        # Try to get the thread
+                        thread = await self.bot.fetch_channel(thread_id)
 
-            # Delete threads that have reached their time
-            for thread_id, author_id, notify in threads_to_delete:
-                try:
-                    # Send notification if requested
-                    if notify and author_id:
-                        try:
-                            user = await self.bot.fetch_user(author_id)
-                            if user:
-                                thread = await self.bot.fetch_channel(thread_id)
-                                await user.send(f"Your advertisement in {thread.name} has expired and been removed.")
-                        except Exception as e:
-                            self.logger.error(f"Failed to send notification to user {author_id}: {e}")
+                        # Send notification if requested
+                        if notify and author_id:
+                            try:
+                                user = await self.bot.fetch_user(author_id)
+                                if user:
+                                    await user.send(f"Your advertisement in {thread.name} has expired and been removed.")
+                            except Exception as e:
+                                self.logger.warning(f"Failed to send notification to user {author_id}: {e}")
 
-                    thread = await self.bot.fetch_channel(thread_id)
-                    await thread.delete()
-                    self.logger.info(f"Deleted advertisement thread {thread_id} (scheduled for {deletion_time})")
-                    self._operation_count += 1
+                        # Delete the thread
+                        await thread.delete()
+                        self.logger.info(f"Deleted advertisement thread {thread_id}")
+                        self._operation_count += 1
+
+                    except discord.NotFound:
+                        # Thread already deleted or doesn't exist
+                        self.logger.info(f"Thread {thread_id} no longer exists, removing from tracking")
+
+                    except Exception as e:
+                        self.logger.error(f"Error processing thread {thread_id}: {e}")
+                        self._has_errors = True
+                        # Don't remove from list if there's an unexpected error
+                        continue
+
+                    # Mark for removal if deleted or not found
+                    to_remove.append(thread_id)
                     self._last_operation_time = datetime.datetime.now()
-                except (discord.NotFound, discord.HTTPException) as e:
-                    self.logger.error(f"Error deleting thread {thread_id}: {e}")
-                    self._has_errors = True
 
-                # Remove from pending deletions
-                self.pending_deletions = [(t_id, t_time, t_author, t_notify)
-                                          for t_id, t_time, t_author, t_notify in self.pending_deletions
-                                          if t_id != thread_id]
-
-            if threads_to_delete:
-                self._save_pending_deletions()
+            # Remove processed entries
+            if to_remove:
+                self.pending_deletions = [
+                    entry for entry in self.pending_deletions
+                    if entry[0] not in to_remove
+                ]
+                await self._save_pending_deletions()
 
     @check_deletions.before_loop
     async def before_check_deletions(self) -> None:
