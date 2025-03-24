@@ -509,7 +509,8 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
                 "advertise_channel_id": ("Forum channel for advertisements", int),
                 "mod_channel_id": ("Channel for moderator notifications", int),
                 "guild_tag_id": ("Tag ID for guild advertisements", int),
-                "member_tag_id": ("Tag ID for member advertisements", int)
+                "member_tag_id": ("Tag ID for member advertisements", int),
+                "guild_id": ("Guild ID for slash command registration", int)
             }
 
             if setting_name not in valid_settings:
