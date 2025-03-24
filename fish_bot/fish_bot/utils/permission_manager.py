@@ -203,13 +203,16 @@ class PermissionManager:
         Returns:
             tuple[bool, str]: (success, message)
         """
-        channel = await self.resolve_channel_from_input(ctx, channel_input)
-
-        if not channel:
-            await ctx.send(f"Could not find channel '{channel_input}'. Please provide a valid channel mention, name, or ID.")
-            return False
-
-        channel_id = str(channel.id)
+        # Handle wildcard channel case
+        if channel_input == '*':
+            channel_id = '*'
+        else:
+            # Try to resolve channel from input
+            try:
+                channel = await commands.TextChannelConverter().convert(ctx, channel_input)
+                channel_id = str(channel.id)
+            except commands.ChannelNotFound:
+                return False, f"Could not find channel/thread: {channel_input}"
 
         # Resolve to primary command name
         cmd_obj = ctx.bot.get_command(command)
