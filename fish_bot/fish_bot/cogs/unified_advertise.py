@@ -306,7 +306,7 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
         # Initialize settings
         for name, (value, description) in settings_config.items():
             if not self.has_setting(name):
-                self.set_setting(name, value, description=description)
+                self.set_setting(name, value)
 
         # Initialize empty data structures (will be populated in cog_initialize)
         self.cooldowns = {'users': {}, 'guilds': {}}
@@ -552,7 +552,7 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
     # Advertisement Commands
     # ====================
 
-    @flexible_command(name="advertise", command_type="slash")
+    @discord.app_commands.command(name="advertise", description="Create a new advertisement")
     async def advertise_slash(self, interaction: discord.Interaction) -> None:
         """Slash command for creating an advertisement."""
         # Check permissions first
@@ -573,7 +573,7 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
             ephemeral=True
         )
 
-    @flexible_command(name="advertisedelete", command_type="slash")
+    @discord.app_commands.command(name="advertisedelete", description="Delete your active advertisement")
     async def delete_ad_slash(self, interaction: discord.Interaction) -> None:
         """Slash command to delete your own advertisement early."""
         if not await self.wait_until_ready():
@@ -634,7 +634,7 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
                                                 view=DeleteView(self),
                                                 ephemeral=True)
 
-    @flexible_command(name="advertisenotify", command_type="slash")
+    @discord.app_commands.command(name="advertisenotify", description="Toggle notification settings for your advertisement")
     async def notify_ad_slash(self, interaction: discord.Interaction) -> None:
         """Slash command to toggle notification settings for your advertisement."""
         if not await self.wait_until_ready():
@@ -1337,16 +1337,19 @@ async def setup(bot: commands.Bot) -> None:
 
     # Sync the slash commands
     try:
-        cog = bot.get_cog("UnifiedAdvertise")
-        if cog and cog.guild_id:
+        cog = bot.get_cog("Unified Advertise")
+        bot.logger.debug("Waiting for UnifiedAdvertise cog to be ready")
+        await cog.wait_until_ready()
+        bot.logger.debug("UnifiedAdvertise Cog is ready")
+        if cog.guild_id:
             guild = discord.Object(id=cog.guild_id)
             bot.tree.copy_global_to(guild=guild)
             await bot.tree.sync(guild=guild)
-            cog.logger.info(f"Synced commands to guild {cog.guild_id}")
+            bot.logger.info(f"Synced commands to guild {cog.guild_id}")
         else:
-            cog.logger.warning("Guild ID not configured, using global sync")
+            bot.logger.warning("Guild ID not configured, using global sync")
             await bot.tree.sync()
     except Exception as e:
         if cog:
-            cog.logger.error(f"Error syncing app commands: {e}")
+            bot.logger.error(f"Error syncing app commands: {e}")
         print(f"Error syncing app commands: {e}")
