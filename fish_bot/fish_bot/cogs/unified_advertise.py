@@ -371,12 +371,12 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
 
         # Force save any modified data
         if self.is_data_modified():
-            self._save_cooldowns()
-            self._save_pending_deletions()
+            await self._save_cooldowns()
+            await self._save_pending_deletions()
 
         # Clear tasks by invalidating the tracker
-        if hasattr(self, 'task_tracker'):
-            self.task_tracker.invalidate()
+        if hasattr(self.task_tracker, 'clear_error_state'):
+            self.task_tracker.clear_error_state()
 
         # Call parent implementation
         await super().cog_unload()
