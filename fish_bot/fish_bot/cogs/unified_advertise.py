@@ -619,7 +619,7 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
             async def callback(self, select_interaction: discord.Interaction):
                 thread_id = int(self.values[0])
                 try:
-                    thread = await self.bot.fetch_channel(thread_id)
+                    thread = await self.view.cog.bot.fetch_channel(thread_id)
                     await thread.delete()
 
                     # Update tracking with new tuple structure
