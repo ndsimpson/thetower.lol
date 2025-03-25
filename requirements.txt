@@ -22,11 +22,11 @@ pretty-html-table==0.9.16
 anthropic==0.41.0
 
 # discord bot
-discord.py==2.4.0
+# discord.py==2.4.0
 # easyocr==1.7.2
 
 # fish bot
-discord.py==2.4.0
+discord.py==2.5.2
 easyocr==1.7.2
 pympler==0.9
 psutil==5.9.0
