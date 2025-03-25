@@ -404,7 +404,7 @@ class BattleConditions(BaseCog, name="Battle Conditions"):
             minute: Minute to post - defaults to global setting
             days_before: Days before tournament to post - defaults to global setting
             leagues: One or more leagues to post (Legend, Champion, etc)
-        """
+"""
         # Handle different input types for channel/thread
         destination = None
 
@@ -412,41 +412,70 @@ class BattleConditions(BaseCog, name="Battle Conditions"):
         if len(ctx.message.channel_mentions) > 0:
             destination = ctx.message.channel_mentions[0]
         else:
-            # Try to interpret as an ID (removing mention formatting if present)
+            # Try to interpret as an ID (handling both raw IDs and mentions)
             try:
-                destination_id = int(destination_input.strip('<#>'))
-                # Try to find as channel first
+                # Clean the input and extract ID
+                cleaned_input = destination_input.strip('<#>')
+                destination_id = int(cleaned_input)
+
+                # Try different methods to get the channel/thread
+                # 1. Try direct channel lookup first
                 destination = ctx.guild.get_channel(destination_id)
+
                 if not destination:
-                    # Try to find as thread
+                    # 2. Try to find thread in accessible channels
                     for channel in ctx.guild.text_channels:
-                        thread = discord.utils.get(channel.threads, id=destination_id)
-                        if thread:
-                            destination = thread
-                            break
-                    if not destination:
-                        # Try to fetch thread (in case it's archived)
                         try:
-                            destination = await ctx.guild.fetch_thread(destination_id)
-                        except discord.NotFound:
-                            pass
-            except (ValueError, TypeError):
+                            # Look through active threads
+                            thread = discord.utils.get(channel.threads, id=destination_id)
+                            if thread:
+                                destination = thread
+                                break
+
+                            # Try to get archived threads if we have permissions
+                            if channel.permissions_for(ctx.guild.me).read_messages:
+                                async for archived_thread in channel.archived_threads():
+                                    if archived_thread.id == destination_id:
+                                        destination = archived_thread
+                                        break
+                                if destination:
+                                    break
+                        except discord.Forbidden:
+                            continue
+
+            except ValueError:
                 # Try to interpret as a name
-                destination = discord.utils.get(ctx.guild.text_channels, name=destination_input)
+                cleaned_name = destination_input.strip()
+                # Try to find channel by name
+                destination = discord.utils.get(ctx.guild.text_channels, name=cleaned_name)
+
                 if not destination:
-                    # Try to find thread by name
-                    all_threads = []
+                    # Try to find thread by name (case insensitive)
                     for channel in ctx.guild.text_channels:
-                        threads = [t for t in channel.threads if t.name == destination_input]
-                        all_threads.extend(threads)
-                    if all_threads:
-                        destination = all_threads[0]
+                        try:
+                            # Check active threads
+                            threads = [t for t in channel.threads
+                                       if t.name.lower() == cleaned_name.lower()]
+                            if threads:
+                                destination = threads[0]
+                                break
+
+                            # Check archived threads if we have permissions
+                            if channel.permissions_for(ctx.guild.me).read_messages:
+                                async for archived_thread in channel.archived_threads():
+                                    if archived_thread.name.lower() == cleaned_name.lower():
+                                        destination = archived_thread
+                                        break
+                                if destination:
+                                    break
+                        except discord.Forbidden:
+                            continue
 
         # If we couldn't find a channel or thread, inform the user
         if not destination:
             return await ctx.send(
                 f"❌ Could not find channel or thread '{destination_input}'. "
-                "Please provide a valid channel/thread mention, name, or ID."
+                "Please provide a valid channel/thread mention, name, or ID that the bot can access."
             )
 
         # Use default values if not specified
