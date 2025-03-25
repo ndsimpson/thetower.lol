@@ -33,7 +33,7 @@ def compute_counts():
     }
 
     # Create columns for controls
-    range_col, bc_col, slid_col, _ = st.columns([1, 1, 2, 2])
+    range_col, bc_col, slid_col, transpose_col = st.columns([1, 1, 2, 2])
 
     selected_range = range_col.selectbox(
         "Range",
@@ -41,14 +41,21 @@ def compute_counts():
         help="Select the range of positions to display"
     )
 
+    # Add checkbox in transpose_col
+    untranspose = transpose_col.checkbox("Show dates as rows", value=False,
+                                         help="Switch between dates as columns or rows")
+
+    # Only show BC selector when untransposed
+    bc_display = "Hide"
+    if untranspose:
+        bc_display = bc_col.selectbox(
+            "Battle Conditions",
+            ["Hide", "Short", "Full"],
+            help="How to display battle conditions"
+        )
+
     counts_for = cutoff_ranges[selected_range]["counts"]
     limit = cutoff_ranges[selected_range]["limit"]
-
-    bc_display = bc_col.selectbox(
-        "Battle Conditions",
-        ["Hide", "Short", "Full"],
-        help="How to display battle conditions"
-    )
 
     champ_results = TourneyResult.objects.filter(league=league, public=True).order_by("-date")
 
@@ -86,7 +93,43 @@ def compute_counts():
         results.append(result)
 
     to_be_displayed = pd.DataFrame(results).sort_values("date", ascending=False).reset_index(drop=True)
-    st.dataframe(to_be_displayed, use_container_width=True, height=row_height, hide_index=True)
+
+    if untranspose:
+        # Display without transposing
+        st.dataframe(to_be_displayed, use_container_width=True, height=row_height, hide_index=True)
+    else:
+        # Existing transposed view
+        date_col = to_be_displayed['date']
+
+        # Create visible headers and tooltips separately
+        visible_headers = [str(date) for date in date_col]
+        tooltips = []
+        for idx, date in enumerate(date_col):
+            bcs = champ_results[idx].conditions.all()
+            bc_text = "\n\n".join([bc.name for bc in bcs]) if bcs else ""
+            tooltip = f"{bc_text}" if bc_text else str(date)
+            tooltips.append(tooltip)
+
+        # Rest of transposed view logic
+        if 'bcs' in to_be_displayed.columns:
+            bcs_col = to_be_displayed['bcs']
+            transposed = to_be_displayed.drop(['date', 'bcs'], axis=1).T
+            transposed.insert(0, 'Battle Conditions', bcs_col)
+        else:
+            transposed = to_be_displayed.drop('date', axis=1).T
+
+        # Set column names to just dates, with tooltips for hover
+        transposed.columns = pd.Index(visible_headers, name=None)
+        st.dataframe(
+            transposed,
+            use_container_width=True,
+            height=row_height,
+            hide_index=False,
+            column_config={
+                header: {"help": tooltip}
+                for header, tooltip in zip(visible_headers, tooltips)
+            }
+        )
 
 
 compute_counts()
