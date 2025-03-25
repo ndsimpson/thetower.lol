@@ -68,6 +68,7 @@ class GuildAdvertisementForm(Modal, title="Guild Advertisement Form"):
         super().__init__(timeout=180)  # 3 minute timeout
         self.cog = cog
         self.notify = True
+        self.interaction = None  # Store interaction object
 
     guild_name = TextInput(
         label="Guild Name",
@@ -107,6 +108,7 @@ class GuildAdvertisementForm(Modal, title="Guild Advertisement Form"):
     )
 
     async def on_submit(self, interaction: discord.Interaction) -> None:
+        self.interaction = interaction  # Store interaction when form is submitted
         # Check if guild ID is valid (only A-Z, 0-9, exactly 6 chars)
         guild_id = self.guild_id.value.upper()
         if not re.match(r'^[A-Z0-9]{6}$', guild_id):
@@ -153,10 +155,11 @@ class GuildAdvertisementForm(Modal, title="Guild Advertisement Form"):
     async def on_timeout(self) -> None:
         """Handle form timeout."""
         try:
-            await self.interaction.response.send_message(
-                "The form timed out. Please try submitting your advertisement again.",
-                ephemeral=True
-            )
+            if self.interaction:  # Only try to send message if we have an interaction
+                await self.interaction.response.send_message(
+                    "The form timed out. Please try submitting your advertisement again.",
+                    ephemeral=True
+                )
         except (discord.NotFound, discord.HTTPException):
             pass
 
@@ -192,6 +195,7 @@ class MemberAdvertisementForm(Modal, title="Member Advertisement Form"):
         super().__init__(timeout=180)  # 3 minute timeout
         self.cog = cog
         self.notify = True
+        self.interaction = None  # Store interaction object
 
     player_id = TextInput(
         label="Player ID",
@@ -216,6 +220,7 @@ class MemberAdvertisementForm(Modal, title="Member Advertisement Form"):
     )
 
     async def on_submit(self, interaction: discord.Interaction) -> None:
+        self.interaction = interaction  # Store interaction when form is submitted
         # Check if player ID is valid (only A-Z, 0-9)
         player_id = self.player_id.value.upper()
         if not re.match(r'^[A-Z0-9]+$', player_id):
@@ -265,10 +270,11 @@ class MemberAdvertisementForm(Modal, title="Member Advertisement Form"):
     async def on_timeout(self) -> None:
         """Handle form timeout."""
         try:
-            await self.interaction.response.send_message(
-                "The form timed out. Please try submitting your advertisement again.",
-                ephemeral=True
-            )
+            if self.interaction:  # Only try to send message if we have an interaction
+                await self.interaction.response.send_message(
+                    "The form timed out. Please try submitting your advertisement again.",
+                    ephemeral=True
+                )
         except (discord.NotFound, discord.HTTPException):
             pass
 
