@@ -11,16 +11,44 @@ def compute_counts():
     league = get_league_selection(options)
 
     st.header(f"Wave cutoff required for top X in {league}")
-    counts_for = [1, 10, 25, 50, 100, 200]
-    limit = 300
 
-    check_col, slid_col, _ = st.columns([1, 1, 4])
+    # Define cutoff ranges
+    cutoff_ranges = {
+        # "Top 200": {
+        #     "counts": [1, 10, 25, 50, 100, 200],
+        #     "limit": 300
+        # },
+        "Top 1000": {
+            "counts": [1, 10, 25, 50, 100, 200, 400, 600, 800, 1000],
+            "limit": 1100
+        },
+        "Top 2500": {
+            "counts": [1, 100, 250, 500, 750, 1000, 1500, 2000, 2500],
+            "limit": 2600
+        },
+        "Top 5000": {
+            "counts": [1, 100, 500, 1000, 2000, 2500, 3000, 4000, 5000],
+            "limit": 5100
+        }
+    }
 
-    show_all = check_col.checkbox("Show all results")
+    # Create columns for controls
+    range_col, bc_col, slid_col, _ = st.columns([1, 1, 2, 2])
 
-    if show_all:
-        counts_for += [300, 400, 500, 600, 700, 800, 900, 1000, 1500, 2000]
-        limit = 2100
+    selected_range = range_col.selectbox(
+        "Range",
+        options=list(cutoff_ranges.keys()),
+        help="Select the range of positions to display"
+    )
+
+    counts_for = cutoff_ranges[selected_range]["counts"]
+    limit = cutoff_ranges[selected_range]["limit"]
+
+    bc_display = bc_col.selectbox(
+        "Battle Conditions",
+        ["Hide", "Short", "Full"],
+        help="How to display battle conditions"
+    )
 
     champ_results = TourneyResult.objects.filter(league=league, public=True).order_by("-date")
 
@@ -43,11 +71,18 @@ def compute_counts():
 
     for tourney in champ_results:
         waves = [row["wave"] for row in rows if row["result_id"] == tourney.id]
-        result = {
-            "date": tourney.date,
-            "bcs": "/".join([bc.name for bc in tourney.conditions.all()]),
-        }
-        result |= {f"Top {count_for}": waves[count_for - 1] if count_for <= len(waves) else 0 for count_for in counts_for}
+        result = {"date": tourney.date}
+
+        # Handle BC display based on selection
+        if bc_display != "Hide":
+            bcs = tourney.conditions.all()
+            if bc_display == "Short":
+                result["bcs"] = "/".join([bc.shortcut for bc in bcs])
+            else:  # "Full"
+                result["bcs"] = "/".join([bc.name for bc in bcs])
+
+        result |= {f"Top {count_for}": waves[count_for - 1] if count_for <= len(waves) else 0
+                   for count_for in counts_for}
         results.append(result)
 
     to_be_displayed = pd.DataFrame(results).sort_values("date", ascending=False).reset_index(drop=True)
