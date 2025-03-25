@@ -59,7 +59,7 @@ def compute_counts():
 
     champ_results = TourneyResult.objects.filter(league=league, public=True).order_by("-date")
 
-    per_page = 22
+    per_page = 10
     pages = len(champ_results) // per_page
 
     if pages == 1:
