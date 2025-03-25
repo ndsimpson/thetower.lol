@@ -6,7 +6,7 @@ from typing import Optional
 
 import streamlit as st
 
-from components.util import get_league_filter, get_options
+from components.util import get_options, get_league_selection
 
 from dtower.tourney_results.constants import (
     Graph,
@@ -14,7 +14,6 @@ from dtower.tourney_results.constants import (
     all_relics,
     how_many_results_hidden_site,
     how_many_results_public_site,
-    leagues,
     sus_person,
 )
 from dtower.tourney_results.data import get_results_for_patch, get_sus_ids, get_tourneys
@@ -231,9 +230,7 @@ class Results:
 def compute_results(options: Options):
     print("results")
     options = get_options(links=False)
-    with st.sidebar:
-        league_index = get_league_filter(options.current_league)
-        league = st.radio("League", leagues, league_index)
+    league = get_league_selection(options)
 
     Results(options, league=league).compute_results()
 

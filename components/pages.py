@@ -74,10 +74,6 @@ deprecated_pages = [
     st.Page("fallen_defenders.py", title="Fallen defenders", icon="🪦", url_path="fallen"),
 ]
 
-# if hidden_features:
-#     test_pages = [
-#         st.Page("live/live_score.py", title="Live Scores", icon="⏱️", url_path="live"),
-#     ]
 
 page_dict = {}
 page_dict["Overview"] = overview_pages
@@ -85,8 +81,7 @@ page_dict["Live Standings"] = live_pages
 page_dict["Individual Data"] = individual_pages
 page_dict["League Data"] = league_pages
 page_dict["Deprecated"] = deprecated_pages
-# if hidden_features:
-#     page_dict["Test Pages"] = test_pages
+
 
 pg = st.navigation(page_dict)
 

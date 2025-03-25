@@ -2,9 +2,9 @@ import pandas as pd
 import plotly.express as px
 import streamlit as st
 
-from components.util import get_league_filter, get_options
+from components.util import get_league_selection, get_options
 
-from dtower.tourney_results.constants import champ, how_many_results_public_site, leagues
+from dtower.tourney_results.constants import champ, how_many_results_public_site
 from dtower.tourney_results.data import get_tourneys
 from dtower.tourney_results.models import TourneyResult
 from dtower.tourney_results.tourney_utils import get_live_df
@@ -19,9 +19,7 @@ def live_score():
     st.markdown("# Live Scoring")
     print("livescore")
     options = get_options(links=False)
-    with st.sidebar:
-        league_index = get_league_filter(options.current_league)
-        league = st.radio("League", leagues, league_index)
+    league = get_league_selection(options)
 
     with st.sidebar:
         # Check if mobile view

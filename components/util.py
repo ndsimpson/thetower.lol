@@ -53,6 +53,26 @@ def get_league_filter(league=None):
     return index
 
 
+def get_league_selection(options=None):
+    """Get or set the league selection from session state"""
+    if options is None:
+        options = get_options(links=False)
+
+    # Initialize league in session state if not present
+    if "selected_league" not in st.session_state:
+        league_index = get_league_filter(options.current_league)
+        st.session_state.selected_league = leagues[league_index]
+
+    with st.sidebar:
+        # Use the session state value as the default
+        league_index = leagues.index(st.session_state.selected_league)
+        league = st.radio("League", leagues, league_index)
+        # Update session state when changed
+        st.session_state.selected_league = league
+
+    return league
+
+
 def gantt(df):
     def get_borders(dates: list[datetime.date]) -> list[tuple[datetime.date, datetime.date]]:
         """Get start and finish of each interval. Assuming dates are sorted and tourneys are max 4 days apart."""
