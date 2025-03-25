@@ -391,7 +391,7 @@ class BattleConditions(BaseCog, name="Battle Conditions"):
             await ctx.send("Value must be a number")
 
     @battleconditions_group.command(name="schedule_add")
-    async def bc_schedule_add_command(self, ctx, channel_input,
+    async def bc_schedule_add_command(self, ctx, destination_input,
                                       hour: Optional[int] = None,
                                       minute: Optional[int] = None,
                                       days_before: Optional[int] = None,
@@ -399,30 +399,55 @@ class BattleConditions(BaseCog, name="Battle Conditions"):
         """Add a new schedule for battle conditions
 
         Args:
-            channel_input: The channel to post battle conditions to (mention, name, or ID)
+            destination_input: The channel/thread to post battle conditions to (mention, name, or ID)
             hour: Hour to post (24-hour format, UTC) - defaults to global setting
             minute: Minute to post - defaults to global setting
             days_before: Days before tournament to post - defaults to global setting
             leagues: One or more leagues to post (Legend, Champion, etc)
         """
-        # Handle different channel input types
-        channel = None
+        # Handle different input types for channel/thread
+        destination = None
 
-        # Check if it's a channel mention
+        # First try to get from channel mentions
         if len(ctx.message.channel_mentions) > 0:
-            channel = ctx.message.channel_mentions[0]
+            destination = ctx.message.channel_mentions[0]
         else:
-            # Try to interpret as a channel ID
+            # Try to interpret as an ID (removing mention formatting if present)
             try:
-                channel_id = int(channel_input)
-                channel = ctx.guild.get_channel(channel_id)
+                destination_id = int(destination_input.strip('<#>'))
+                # Try to find as channel first
+                destination = ctx.guild.get_channel(destination_id)
+                if not destination:
+                    # Try to find as thread
+                    for channel in ctx.guild.text_channels:
+                        thread = discord.utils.get(channel.threads, id=destination_id)
+                        if thread:
+                            destination = thread
+                            break
+                    if not destination:
+                        # Try to fetch thread (in case it's archived)
+                        try:
+                            destination = await ctx.guild.fetch_thread(destination_id)
+                        except discord.NotFound:
+                            pass
             except (ValueError, TypeError):
-                # Try to interpret as a channel name
-                channel = discord.utils.get(ctx.guild.text_channels, name=channel_input)
+                # Try to interpret as a name
+                destination = discord.utils.get(ctx.guild.text_channels, name=destination_input)
+                if not destination:
+                    # Try to find thread by name
+                    all_threads = []
+                    for channel in ctx.guild.text_channels:
+                        threads = [t for t in channel.threads if t.name == destination_input]
+                        all_threads.extend(threads)
+                    if all_threads:
+                        destination = all_threads[0]
 
-        # If we couldn't find a channel, inform the user
-        if not channel:
-            return await ctx.send(f"❌ Could not find channel '{channel_input}'. Please provide a valid channel mention, name, or ID.")
+        # If we couldn't find a channel or thread, inform the user
+        if not destination:
+            return await ctx.send(
+                f"❌ Could not find channel or thread '{destination_input}'. "
+                "Please provide a valid channel/thread mention, name, or ID."
+            )
 
         # Use default values if not specified
         if hour is None:
@@ -456,7 +481,8 @@ class BattleConditions(BaseCog, name="Battle Conditions"):
         # Get current schedules and add the new one
         schedules = self.get_setting("thread_schedules", [])
         schedules.append({
-            "thread_id": channel.id,
+            "thread_id": destination.id,
+            "thread_type": "thread" if isinstance(destination, discord.Thread) else "channel",
             "leagues": leagues,
             "hour": hour,
             "minute": minute,
@@ -469,9 +495,10 @@ class BattleConditions(BaseCog, name="Battle Conditions"):
 
         # Format time for feedback message
         time_str = f"{hour:02d}:{minute:02d} UTC"
+        destination_type = "thread" if isinstance(destination, discord.Thread) else "channel"
 
         await ctx.send(
-            f"✅ Added schedule for {channel.mention}:\n"
+            f"✅ Added schedule for {destination.mention} ({destination_type}):\n"
             f"- Leagues: {', '.join(leagues)}\n"
             f"- Time: {time_str}\n"
             f"- Days before tournament: {days_before}"
