@@ -8,6 +8,7 @@ import plotly.express as px
 import streamlit as st
 
 from components.search import compute_search
+from components.util import get_league_selection
 from dtower.sus.models import KnownPlayer, PlayerId
 from dtower.tourney_results.constants import (
     Graph,
@@ -342,15 +343,7 @@ def get_patch_df(df, player_df, patch):
 
 
 def filter_league(datas):
-    all_leagues = {league for datum, _ in datas for league in datum.league.unique()}
-    ordered_all_leagues = [league for league in leagues if league in all_leagues]
-
-    if len(ordered_all_leagues) > 1:
-        with st.sidebar:
-            league = st.radio("League", ordered_all_leagues)
-    else:
-        league = ordered_all_leagues.pop()
-
+    league = get_league_selection()
     return [(sdf[sdf.league == league], name) for sdf, name in datas]
 
 
