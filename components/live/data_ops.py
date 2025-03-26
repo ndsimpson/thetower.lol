@@ -1,6 +1,7 @@
+from functools import wraps
+
 import pandas as pd
 import streamlit as st
-from functools import wraps
 
 from dtower.tourney_results.tourney_utils import get_live_df, get_shun_ids
 
@@ -281,3 +282,8 @@ def initialize_bracket_state(bracket_order):
 def update_bracket_index(new_index, max_index):
     """Update bracket navigation index with bounds checking"""
     st.session_state.current_bracket_idx = max(0, min(new_index, max_index))
+
+
+def clear_cache():
+    """Clear all cached data in Streamlit"""
+    st.cache_data.clear()

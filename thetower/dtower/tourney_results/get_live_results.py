@@ -1,25 +1,22 @@
 #!/tourney/tourney_venv/bin/python
 import datetime
+import io
+import logging
 import os
 import time
 
+import pandas as pd
+import requests
 import schedule
 
-import requests
+from components.live.data_ops import clear_cache
+from dtower.tourney_results.constants import leagues
 
 weekdays_sat = [5, 6, 0, 1]
 weekdays_wed = [2, 3, 4]
 
 wednesday = 2
 saturday = 5
-
-
-import io
-import logging
-
-import pandas as pd
-
-from dtower.tourney_results.constants import leagues
 
 logging.basicConfig(level=logging.INFO)
 
@@ -83,6 +80,12 @@ def execute(league):
 
     df.to_csv(file_path, index=False)
     logging.info(f"Successfully stored file {file_path}")
+
+    try:
+        clear_cache()
+        logging.info("Successfully cleared Streamlit cache")
+    except Exception as e:
+        logging.warning(f"Failed to clear Streamlit cache: {e}")
 
     return True
 
