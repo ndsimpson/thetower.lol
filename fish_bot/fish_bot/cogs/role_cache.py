@@ -169,8 +169,8 @@ class RoleCache(BaseCog,
     async def periodic_refresh(self):
         """Periodically refresh stale roles and clean up missing members."""
         try:
-            # Skip if disabled or paused
-            if not self.is_enabled() or self.is_paused():
+            # Skip if paused
+            if not self.is_paused():
                 return
 
             async with self.task_tracker.task_context("Cache Refresh", "Starting refresh cycle") as tracker:
