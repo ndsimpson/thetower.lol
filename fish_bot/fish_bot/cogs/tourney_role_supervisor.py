@@ -330,14 +330,16 @@ class TourneyRoleSupervisor(BaseCog,
         while not self.bot.is_closed():
             try:
                 if not self.processing:
-                    await asyncio.sleep(self.get_setting("process_interval"))
+                    # Add default value of 5 seconds if setting is missing
+                    interval = self.get_setting("process_interval", 5)
+                    await asyncio.sleep(interval)
                     continue
 
                 # Get next item from queue
                 try:
                     item = await asyncio.wait_for(
                         self.update_queue.get(),
-                        timeout=self.get_setting("process_interval")
+                        timeout=self.get_setting("process_interval", 5)
                     )
                 except asyncio.TimeoutError:
                     continue
