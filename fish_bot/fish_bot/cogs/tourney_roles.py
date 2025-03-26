@@ -16,8 +16,25 @@ class TourneyRoles(BaseCog, name="Tournament Roles"):
     """
 
     def __init__(self, bot):
-        super().__init__(bot)  # Initialize the BaseCog
+        super().__init__(bot)
         self.logger.info("Initializing TourneyRoles")
+
+        # Initialize core instance variables with descriptions
+        self.member_roles = {}  # {guild_id: {user_id: roles}}
+        self.processed_users = 0
+        self.roles_assigned = 0
+        self.roles_removed = 0
+        self.users_with_no_player_data = 0
+
+        # Status tracking variables
+        self.last_full_update = None
+        self.currently_updating = False
+        self.update_task = None
+        self.startup_message_shown = False
+
+        # Initialize log buffer
+        self.log_buffer = []
+        self.log_buffer_max_size = 8000  # Characters before forcing flush
 
         # Define settings with descriptions
         settings_config = {
@@ -58,29 +75,13 @@ class TourneyRoles(BaseCog, name="Tournament Roles"):
             "roles_cache_filename": ("tourney_roles.json", "Filename for cached role data")
         }
 
-        # Initialize settings without descriptions
-        for name, (default, _) in settings_config.items():
+        # Initialize settings
+        for name, (value, description) in settings_config.items():
             if not self.has_setting(name):
-                self.set_setting(name, default)
+                self.set_setting(name, value, description=description)
 
-        # Initialize instance variables from settings
+        # Initialize settings into instance variables
         self._load_settings()
-
-        # Initialize log buffer
-        self.log_buffer = []
-        self.log_buffer_max_size = 8000  # Characters before forcing flush
-
-        # Role update tracking
-        self.last_full_update = None
-        self.currently_updating = False
-        self.update_task = None
-        self.startup_message_shown = False
-
-        # Stats tracking
-        self.processed_users = 0
-        self.roles_assigned = 0
-        self.roles_removed = 0
-        self.users_with_no_player_data = 0
 
     def _load_settings(self) -> None:
         """Load settings into instance variables."""
@@ -1982,18 +1983,41 @@ class TourneyRoles(BaseCog, name="Tournament Roles"):
         except Exception as e:
             self.logger.error(f"Error sending role log batch: {e}")
 
-    async def cog_initialize(self):
-        """Initialize the cog - called by BaseCog during ready process"""
+    async def cog_initialize(self) -> None:
+        """Initialize the TourneyRoles cog."""
+        self.logger.info("Initializing TourneyRoles cog")
         try:
-            # Load saved data first
-            await self.load_data()
+            self.logger.info("Starting TourneyRoles initialization")
 
-            # Start the update task
-            self.update_task = self.bot.loop.create_task(self.schedule_periodic_updates())
-            self.logger.info("Tournament roles cog initialization complete")
+            async with self.task_tracker.task_context("Initialization") as tracker:
+                # Initialize parent
+                self.logger.debug("Initializing parent cog")
+                await super().cog_initialize()
+
+                # 1. Verify settings
+                self.logger.debug("Loading settings")
+                tracker.update_status("Verifying settings")
+                self._load_settings()
+
+                # 2. Load saved data
+                self.logger.debug("Loading saved data")
+                tracker.update_status("Loading saved data")
+                if await self.load_data():
+                    self.logger.info("Loaded saved tournament role data")
+                else:
+                    self.logger.info("No saved tournament role data found, using defaults")
+
+                # 3. Start the update task
+                self.logger.debug("Starting update task")
+                tracker.update_status("Starting update task")
+                self.update_task = self.bot.loop.create_task(self.schedule_periodic_updates())
+
+                # 4. Mark as ready and complete initialization
+                self.set_ready(True)
+                self.logger.info("TourneyRoles initialization complete")
 
         except Exception as e:
-            self.logger.error(f"Error during tournament roles initialization: {e}", exc_info=True)
+            self.logger.error(f"Error during TourneyRoles initialization: {e}", exc_info=True)
             self._has_errors = True
             raise
 
