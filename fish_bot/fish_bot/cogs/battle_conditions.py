@@ -47,9 +47,6 @@ class BattleConditions(BaseCog, name="Battle Conditions"):
         # Load settings into instance variables
         self._load_settings()
 
-        # Add standard pause commands to command group
-        self.create_pause_commands(self.battleconditions_group)
-
         # Initialize thread mappings
         self._init_thread_mappings()
 

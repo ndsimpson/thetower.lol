@@ -311,9 +311,6 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
         self.cooldowns = {'users': {}, 'guilds': {}}
         self.pending_deletions = []
 
-        # Add standard pause commands to the unifiedadvertise group
-        self.create_pause_commands(self.unifiedadvertise_group)
-
         # Store a reference to this cog
         self.bot.unified_advertise = self
 
