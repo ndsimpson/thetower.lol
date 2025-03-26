@@ -54,10 +54,6 @@ class RoleCache(BaseCog,
         # Load settings into instance variables
         self._load_settings()
 
-        # Add operational state tracking
-        self._enabled = True
-        self._paused = False
-
     def _load_settings(self) -> None:
         """Load settings into instance variables."""
         self.refresh_interval = self.get_setting('refresh_interval')
@@ -134,6 +130,9 @@ class RoleCache(BaseCog,
                 self.logger.debug("Initializing parent cog")
                 await super().cog_initialize()
 
+                # 0. Create inherited commands
+                self.create_pause_commands(self.rolecache_group)
+
                 # 1. Verify settings
                 self.logger.debug("Loading settings")
                 tracker.update_status("Verifying settings")
@@ -171,7 +170,7 @@ class RoleCache(BaseCog,
         """Periodically refresh stale roles and clean up missing members."""
         try:
             # Skip if disabled or paused
-            if not self._enabled or self._paused:
+            if not self.is_enabled() or self.is_paused():
                 return
 
             async with self.task_tracker.task_context("Cache Refresh", "Starting refresh cycle") as tracker:
@@ -660,20 +659,6 @@ class RoleCache(BaseCog,
         self.add_task_status_fields(embed)
 
         await ctx.send(embed=embed)
-
-    @rolecache_group.command(name="toggle")
-    async def toggle_command(self, ctx):
-        """Toggle the role cache system on/off."""
-        self._enabled = not self._enabled
-        state = "enabled" if self._enabled else "disabled"
-        await ctx.send(f"Role cache system is now {state}")
-
-    @rolecache_group.command(name="pause")
-    async def pause_command(self, ctx):
-        """Pause/unpause role cache updates."""
-        self._paused = not self._paused
-        state = "paused" if self._paused else "resumed"
-        await ctx.send(f"Role cache updates are now {state}")
 
     @rolecache_group.command(name="reload")
     async def reload_command(self, ctx, target: Optional[discord.Member] = None):

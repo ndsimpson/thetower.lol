@@ -338,6 +338,9 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
                 self.logger.debug("Initializing parent cog")
                 await super().cog_initialize()
 
+                # 0. Create inherited commands
+                self.create_pause_commands(self.unifiedadvertise_group)
+
                 # 1. Load settings
                 self.logger.debug("Loading settings")
                 tracker.update_status("Loading settings")

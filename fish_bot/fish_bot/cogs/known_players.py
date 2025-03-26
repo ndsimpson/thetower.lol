@@ -1157,6 +1157,9 @@ class KnownPlayers(BaseCog,
                 self.logger.debug("Initializing parent cog")
                 await super().cog_initialize()
 
+                # 0. Create inherited commands
+                self.create_pause_commands(self.knownplayers_group)
+
                 # 1. Verify settings
                 self.logger.debug("Loading settings")
                 tracker.update_status("Verifying settings")
