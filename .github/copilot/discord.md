@@ -53,7 +53,7 @@ class MyCog(BaseCog,
         # Initialize settings
         for name, (value, description) in settings_config.items():
             if not self.has_setting(name):
-                self.set_setting(name, value, description=description)
+                self.set_setting(name, value, description)
 
         # Load settings into instance variables
         self._load_settings()
