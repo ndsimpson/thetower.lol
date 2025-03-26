@@ -5,8 +5,11 @@ import streamlit as st
 
 from dtower.tourney_results.tourney_utils import get_live_df, get_shun_ids
 
+# Cache configuration
+CACHE_TTL_SECONDS = 3600  # 60 minutes cache duration
 
-@st.cache_data(ttl=300)
+
+@st.cache_data(ttl=CACHE_TTL_SECONDS)
 def get_live_data(league: str, shun: bool = False) -> pd.DataFrame:
     """
     Get and cache live tournament data.
@@ -21,7 +24,7 @@ def get_live_data(league: str, shun: bool = False) -> pd.DataFrame:
     return get_live_df(league, shun)
 
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=CACHE_TTL_SECONDS)
 def get_processed_data(league: str, shun: bool = False):
     """
     Get processed tournament data with common transformations.
@@ -53,7 +56,7 @@ def get_processed_data(league: str, shun: bool = False):
     return df, tdf, ldf, first_moment, last_moment
 
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=CACHE_TTL_SECONDS)
 def get_bracket_data(df: pd.DataFrame):
     """
     Process bracket-specific data.
@@ -108,7 +111,7 @@ def process_display_names(df: pd.DataFrame) -> pd.DataFrame:
     return result
 
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=CACHE_TTL_SECONDS)
 def get_placement_analysis_data(league: str):
     """
     Get processed data specifically for placement analysis.
@@ -259,7 +262,7 @@ def require_tournament_data(func):
     return wrapper
 
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=CACHE_TTL_SECONDS)
 def get_cached_plot_data(df):
     """Process dataframe for plotting, with better error handling."""
     plot_data = df.copy()
