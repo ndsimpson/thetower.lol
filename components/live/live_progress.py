@@ -2,56 +2,46 @@ import pandas as pd
 import plotly.express as px
 import streamlit as st
 
-from components.util import get_league_filter, get_options
-
-from dtower.tourney_results.constants import champ, leagues
+from components.live.ui_components import setup_common_ui
+from components.live.data_ops import (
+    get_processed_data,
+    process_display_names,
+    require_tournament_data
+)
+from dtower.tourney_results.constants import champ
 from dtower.tourney_results.data import get_tourneys
 from dtower.tourney_results.models import TourneyResult
-from dtower.tourney_results.tourney_utils import get_live_df
 
 
-@st.cache_data(ttl=300)
-def get_data(league: str, shun: bool = False):
-    return get_live_df(league, shun)
-
-
+@require_tournament_data
 def live_progress():
     st.markdown("# Live Progress")
-    print("liveprogress")
-    options = get_options(links=False)
-    with st.sidebar:
-        league_index = get_league_filter(options.current_league)
-        league = st.radio("League", leagues, league_index)
 
-    with st.sidebar:
-        # Check if mobile view
-        is_mobile = st.session_state.get("mobile_view", False)
-        st.checkbox("Mobile view", value=is_mobile, key="mobile_view")
+    # Use common UI setup
+    options, league, is_mobile = setup_common_ui()
 
-    try:
-        df = get_data(league)
-    except (IndexError, ValueError):
-        st.info("No current data, wait until the tourney day")
-        return
+    # Get processed data
+    df, tdf, ldf, first_moment, last_moment = get_processed_data(league)
 
-    # Get data
-    group_by_id = df.groupby("player_id")
-    top_25 = group_by_id.wave.max().sort_values(ascending=False).index[:25]
-    tdf = df[df.player_id.isin(top_25)]
+    # Process display names for better visualization
+    tdf = process_display_names(tdf)
 
-    first_moment = tdf.datetime.iloc[-1]
-    last_moment = tdf.datetime.iloc[0]
-    ldf = df[df.datetime == last_moment]
-    ldf.index = ldf.index + 1
-
-    tdf["datetime"] = pd.to_datetime(tdf["datetime"])
-    fig = px.line(tdf, x="datetime", y="wave", color="real_name", title="Top 25 Players: live score", markers=True, line_shape="linear")
+    # Create top 25 progress plot
+    fig = px.line(
+        tdf,
+        x="datetime",
+        y="wave",
+        color="display_name",
+        title="Top 25 Players: live score",
+        markers=True,
+        line_shape="linear"
+    )
 
     fig.update_traces(mode="lines+markers")
     fig.update_layout(
         xaxis_title="Time",
         yaxis_title="Wave",
-        legend_title="real_name",
+        legend_title="Player Name",
         hovermode="closest",
         height=500,
         margin=dict(l=20, r=20, t=40, b=20),
@@ -66,7 +56,7 @@ def live_progress():
     tourney = qs[0]
     pdf = get_tourneys([tourney])
 
-    # Fill up progress
+    # Fill up progress calculation
     fill_ups = []
     for dt, sdf in df.groupby("datetime"):
         joined_ids = set(sdf.player_id.unique())
@@ -75,8 +65,16 @@ def live_progress():
         fillup = sum([player_id in joined_ids for player_id in pdf.id])
         fill_ups.append((time, fillup))
 
+    # Create fill up progress plot
     fill_ups = pd.DataFrame(sorted(fill_ups), columns=["time", "fillup"])
-    fig = px.line(fill_ups, x="time", y="fillup", title="Fill up progress", markers=True, line_shape="linear")
+    fig = px.line(
+        fill_ups,
+        x="time",
+        y="fillup",
+        title="Fill up progress",
+        markers=True,
+        line_shape="linear"
+    )
     fig.update_traces(mode="lines+markers", fill="tozeroy")
     fig.update_layout(
         xaxis_title="Time [h]",

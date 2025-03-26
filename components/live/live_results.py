@@ -1,48 +1,24 @@
-import pandas as pd
 import streamlit as st
 
-from components.util import get_league_filter, get_options
-
-from dtower.tourney_results.constants import champ, how_many_results_public_site, leagues
+from components.live.ui_components import setup_common_ui
+from components.live.data_ops import (
+    get_processed_data,
+    require_tournament_data
+)
+from dtower.tourney_results.constants import champ, how_many_results_public_site
 from dtower.tourney_results.data import get_tourneys
 from dtower.tourney_results.models import TourneyResult
-from dtower.tourney_results.tourney_utils import get_live_df
 
 
-@st.cache_data(ttl=300)
-def get_data(league: str, shun: bool = False):
-    return get_live_df(league, shun)
-
-
+@require_tournament_data
 def live_results():
     st.markdown("# Live Results")
-    print("liveresults")
-    options = get_options(links=False)
-    with st.sidebar:
-        league_index = get_league_filter(options.current_league)
-        league = st.radio("League", leagues, league_index)
 
-    with st.sidebar:
-        # Check if mobile view
-        is_mobile = st.session_state.get("mobile_view", False)
-        st.checkbox("Mobile view", value=is_mobile, key="mobile_view")
+    # Use common UI setup
+    options, league, is_mobile = setup_common_ui()
 
-    try:
-        df = get_data(league)
-    except (IndexError, ValueError):
-        st.info("No current data, wait until the tourney day")
-        return
-
-    # Get data
-    group_by_id = df.groupby("player_id")
-    top_25 = group_by_id.wave.max().sort_values(ascending=False).index[:25]
-    tdf = df[df.player_id.isin(top_25)]
-
-    last_moment = tdf.datetime.iloc[0]
-    ldf = df[df.datetime == last_moment]
-    ldf.index = ldf.index + 1
-
-    tdf["datetime"] = pd.to_datetime(tdf["datetime"])
+    # Get processed data
+    df, tdf, ldf, _, _ = get_processed_data(league)
 
     # Get reference data for joined calculation
     qs = TourneyResult.objects.filter(league=league, public=True).order_by("-date")
@@ -55,7 +31,11 @@ def live_results():
 
     with cols[0]:
         st.write("Current result (ordered)")
-        st.dataframe(ldf[["name", "real_name", "wave"]][:how_many_results_public_site], height=700, width=400)
+        st.dataframe(
+            ldf[["name", "real_name", "wave"]][:how_many_results_public_site],
+            height=700,
+            width=400
+        )
 
     canvas = cols[0] if is_mobile else cols[1]
 
@@ -68,9 +48,18 @@ def live_results():
     joined_sum = sum(pdf["joined"][:topx])
     joined_tot = len(pdf["joined"][:topx])
 
-    color = "green" if joined_sum / joined_tot >= 0.7 else "orange" if joined_sum / joined_tot >= 0.5 else "red"
-    canvas.write(f"Has top {topx} joined already? <font color='{color}'>{joined_sum}</font>/{topx}", unsafe_allow_html=True)
-    canvas.dataframe(pdf[["real_name", "wave_last", "joined"]][:topx], height=600, width=400)
+    color = ("green" if joined_sum / joined_tot >= 0.7
+             else "orange" if joined_sum / joined_tot >= 0.5
+             else "red")
+    canvas.write(
+        f"Has top {topx} joined already? <font color='{color}'>{joined_sum}</font>/{topx}",
+        unsafe_allow_html=True
+    )
+    canvas.dataframe(
+        pdf[["real_name", "wave_last", "joined"]][:topx],
+        height=600,
+        width=400
+    )
 
 
 live_results()
