@@ -625,95 +625,102 @@ class TourneyRoles(BaseCog, name="Tournament Roles"):
         Returns:
             tuple: (roles_added, roles_removed, log_message or None)
         """
-        # Check if verified role is required
-        verified_role_id = self.get_setting("verified_role_id")
-        if verified_role_id:
-            verified_role = member.guild.get_role(int(verified_role_id))
-            if not verified_role:
-                self.logger.warning(f"Verified role with ID {verified_role_id} not found in guild")
-            elif verified_role not in member.roles:
-                # Remove all tournament roles if user isn't verified
-                roles_config = self.get_setting("roles_config", {})
-                all_managed_role_ids = [config.get("id") for config in roles_config.values()]
+        try:
+            # Dispatch start event
+            self.bot.dispatch('bot_role_update_start', member.id)
 
-                dry_run = self.get_setting("dry_run")
-                roles_removed = 0
-                role_changes = []
+            # Check if verified role is required
+            verified_role_id = self.get_setting("verified_role_id")
+            if verified_role_id:
+                verified_role = member.guild.get_role(int(verified_role_id))
+                if not verified_role:
+                    self.logger.warning(f"Verified role with ID {verified_role_id} not found in guild")
+                elif verified_role not in member.roles:
+                    # Remove all tournament roles if user isn't verified
+                    roles_config = self.get_setting("roles_config", {})
+                    all_managed_role_ids = [config.get("id") for config in roles_config.values()]
 
-                for role in member.roles:
-                    if str(role.id) in all_managed_role_ids:
-                        try:
-                            if not dry_run:
-                                await member.remove_roles(role, reason="User not verified for tournament roles")
-                            roles_removed += 1
-                            self.roles_removed += 1
-                            role_changes.append(f"-{role.name}")
-                            log_msg = f"{'Would remove' if dry_run else 'Removed'} {role.name} role from {member.name} ({member.id}) - not verified"
-                            self.logger.info(log_msg)
-                        except Exception as e:
-                            self.logger.error(f"Error removing role {role.name} from {member.name}: {e}")
+                    dry_run = self.get_setting("dry_run")
+                    roles_removed = 0
+                    role_changes = []
 
-                # Return early if roles were removed
-                if role_changes:
-                    log_message = f"{member.name}: {', '.join(role_changes)} (not verified)"
-                    return 0, roles_removed, log_message
-                return 0, 0, None
+                    for role in member.roles:
+                        if str(role.id) in all_managed_role_ids:
+                            try:
+                                if not dry_run:
+                                    await member.remove_roles(role, reason="User not verified for tournament roles")
+                                roles_removed += 1
+                                self.roles_removed += 1
+                                role_changes.append(f"-{role.name}")
+                                log_msg = f"{'Would remove' if dry_run else 'Removed'} {role.name} role from {member.name} ({member.id}) - not verified"
+                                self.logger.info(log_msg)
+                            except Exception as e:
+                                self.logger.error(f"Error removing role {role.name} from {member.name}: {e}")
 
-        # Continue with normal role assignment
-        # Determine the best role for this player
-        best_role_id = self.determine_best_role(player_tournaments)
+                    # Return early if roles were removed
+                    if role_changes:
+                        log_message = f"{member.name}: {', '.join(role_changes)} (not verified)"
+                        return 0, roles_removed, log_message
+                    return 0, 0, None
 
-        # Get all managed role IDs for comparison
-        roles_config = self.get_setting("roles_config", {})
-        all_managed_role_ids = [config.get("id") for config in roles_config.values()]
+            # Continue with normal role assignment
+            # Determine the best role for this player
+            best_role_id = self.determine_best_role(player_tournaments)
 
-        dry_run = self.get_setting("dry_run")
+            # Get all managed role IDs for comparison
+            roles_config = self.get_setting("roles_config", {})
+            all_managed_role_ids = [config.get("id") for config in roles_config.values()]
 
-        # Track changes
-        roles_added = 0
-        roles_removed = 0
-        role_changes = []  # List of role changes for logging
+            dry_run = self.get_setting("dry_run")
 
-        # If player qualifies for a role
-        if best_role_id:
-            best_role = member.guild.get_role(int(best_role_id))
-            if not best_role:
-                self.logger.warning(f"Role with ID {best_role_id} not found in guild")
-                return roles_added, roles_removed, None
+            # Track changes
+            roles_added = 0
+            roles_removed = 0
+            role_changes = []  # List of role changes for logging
 
-            # Add the role if they don't have it
-            if best_role not in member.roles:
-                try:
-                    if not dry_run:
-                        await member.add_roles(best_role, reason="Tournament participation role update")
-                    roles_added += 1
-                    self.roles_assigned += 1
-                    role_changes.append(f"+{best_role.name}")
-                    log_msg = f"{'Would add' if dry_run else 'Added'} {best_role.name} role to {member.name} ({member.id})"
-                    self.logger.info(log_msg)
-                except Exception as e:
-                    self.logger.error(f"Error adding role {best_role.name} to {member.name}: {e}")
+            # If player qualifies for a role
+            if best_role_id:
+                best_role = member.guild.get_role(int(best_role_id))
+                if not best_role:
+                    self.logger.warning(f"Role with ID {best_role_id} not found in guild")
+                    return roles_added, roles_removed, None
 
-        # Remove any other tournament roles they shouldn't have
-        for role in member.roles:
-            if str(role.id) in all_managed_role_ids and (not best_role_id or str(role.id) != best_role_id):
-                try:
-                    if not dry_run:
-                        await member.remove_roles(role, reason="Tournament participation role update")
-                    roles_removed += 1
-                    self.roles_removed += 1
-                    role_changes.append(f"-{role.name}")
-                    log_msg = f"{'Would remove' if dry_run else 'Removed'} {role.name} role from {member.name} ({member.id})"
-                    self.logger.info(log_msg)
-                except Exception as e:
-                    self.logger.error(f"Error removing role {role.name} from {member.name}: {e}")
+                # Add the role if they don't have it
+                if best_role not in member.roles:
+                    try:
+                        if not dry_run:
+                            await member.add_roles(best_role, reason="Tournament participation role update")
+                        roles_added += 1
+                        self.roles_assigned += 1
+                        role_changes.append(f"+{best_role.name}")
+                        log_msg = f"{'Would add' if dry_run else 'Added'} {best_role.name} role to {member.name} ({member.id})"
+                        self.logger.info(log_msg)
+                    except Exception as e:
+                        self.logger.error(f"Error adding role {best_role.name} to {member.name}: {e}")
 
-        # Generate log message if there were changes
-        log_message = None
-        if role_changes:
-            log_message = f"{member.name}: {', '.join(role_changes)}"
+            # Remove any other tournament roles they shouldn't have
+            for role in member.roles:
+                if str(role.id) in all_managed_role_ids and (not best_role_id or str(role.id) != best_role_id):
+                    try:
+                        if not dry_run:
+                            await member.remove_roles(role, reason="Tournament participation role update")
+                        roles_removed += 1
+                        self.roles_removed += 1
+                        role_changes.append(f"-{role.name}")
+                        log_msg = f"{'Would remove' if dry_run else 'Removed'} {role.name} role from {member.name} ({member.id})"
+                        self.logger.info(log_msg)
+                    except Exception as e:
+                        self.logger.error(f"Error removing role {role.name} from {member.name}: {e}")
 
-        return roles_added, roles_removed, log_message
+            # Generate log message if there were changes
+            log_message = None
+            if role_changes:
+                log_message = f"{member.name}: {', '.join(role_changes)}"
+
+            return roles_added, roles_removed, log_message
+
+        finally:
+            self.bot.dispatch('bot_role_update_end', member.id)
 
     def determine_best_role(self, player_tournaments):
         """
