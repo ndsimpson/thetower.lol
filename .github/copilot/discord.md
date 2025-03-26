@@ -29,18 +29,31 @@ class MyCog(BaseCog,
         super().__init__(bot)
         self.logger.info("Initializing MyCog")
 
+        # Initialize core instance variables with descriptions
+        self._active_process = None
+        self._process_start_time = None
+        self._operation_count = 0
+        self._last_operation = None
+
         # Define settings with descriptions
         settings_config = {
+            # Core Settings
             "max_items": (10, "Maximum items to display"),
             "update_interval": (300, "Update interval in seconds"),
+
+            # Feature Settings
             "feature_enabled": (True, "Enable special feature"),
-            "cache_lifetime": (3600, "How long to keep cache (seconds)")
+            "cache_lifetime": (3600, "How long to keep cache (seconds)"),
+
+            # Processing Settings
+            "batch_size": (50, "Number of items to process in each batch"),
+            "process_delay": (5, "Seconds between processing batches")
         }
 
         # Initialize settings
         for name, (value, description) in settings_config.items():
             if not self.has_setting(name):
-                self.set_setting(name, value)
+                self.set_setting(name, value, description=description)
 
         # Load settings into instance variables
         self._load_settings()
@@ -49,27 +62,52 @@ class MyCog(BaseCog,
         """Initialize the cog."""
         self.logger.info("Initializing cog")
         try:
-            async with self.task_tracker.task_context("Initialization"):
+            self.logger.info("Starting MyCog initialization")
+
+            async with self.task_tracker.task_context("Initialization") as tracker:
+                # Initialize parent
+                self.logger.debug("Initializing parent cog")
                 await super().cog_initialize()
-                self.task_tracker.update_task_status("Initialization", "Loading Settings")
+
+                # 1. Verify settings
+                self.logger.debug("Loading settings")
+                tracker.update_status("Verifying settings")
                 self._load_settings()
+
+                # 2. Create inherited commands
+                self.create_pause_commands(self.mycog_group)
+
+                # 3. Load any saved data
+                self.logger.debug("Loading saved data")
+                tracker.update_status("Loading data")
+                if await self.load_data():
+                    self.logger.info("Loaded saved data")
+                else:
+                    self.logger.info("No saved data found, using defaults")
+
+                # 4. Start any background tasks
+                self.logger.debug("Starting background tasks")
+                tracker.update_status("Starting tasks")
+
+                # 5. Mark as ready and complete initialization
                 self.set_ready(True)
-                self.logger.info("Cog initialization complete")
+                self.logger.info("MyCog initialization complete")
+
         except Exception as e:
+            self.logger.error(f"Error during MyCog initialization: {e}", exc_info=True)
             self._has_errors = True
-            self.logger.error(f"Initialization failed: {e}", exc_info=True)
             raise
 
     async def cog_unload(self) -> None:
         """Clean up when cog is unloaded."""
         try:
-            # Cancel scheduled tasks
-            if hasattr(self, 'check_deletions'):
-                self.check_deletions.cancel()
+            # Cancel any scheduled tasks
+            if hasattr(self, 'background_task'):
+                self.background_task.cancel()
 
             # Force save any modified data
             if self.is_data_modified():
-                await self._save_pending_deletions()
+                await self.save_data()
 
             # Clear tasks by invalidating the tracker
             if hasattr(self, 'task_tracker'):
@@ -77,9 +115,9 @@ class MyCog(BaseCog,
 
             # Call parent implementation
             await super().cog_unload()
-            
+
             self.logger.info("MyCog unloaded successfully")
-            
+
         except Exception as e:
             self.logger.error(f"Error during cog unload: {e}", exc_info=True)
 
@@ -206,6 +244,9 @@ class MyCog(BaseCog,
         self.max_items = self.get_setting("max_items")
         self.update_interval = self.get_setting("update_interval")
         self.feature_enabled = self.get_setting("feature_enabled")
+        self.cache_lifetime = self.get_setting("cache_lifetime")
+        self.batch_size = self.get_setting("batch_size")
+        self.process_delay = self.get_setting("process_delay")
 
 # ====================
 # Cog Setup
@@ -230,9 +271,6 @@ The BaseCog provides standardized pause functionality that can be added to any c
 class MyCog(BaseCog):
     def __init__(self, bot):
         super().__init__(bot)
-
-        # Add standard pause commands to group
-        self.create_pause_commands(self.mycog_group)
 
     async def my_operation(self):
         # Check pause state before operations
