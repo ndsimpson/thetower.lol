@@ -47,7 +47,7 @@ class TourneyRoleSupervisor(BaseCog,
         # Initialize settings
         for name, (value, description) in settings_config.items():
             if not self.has_setting(name):
-                self.set_setting(name, value, description=description)
+                self.set_setting(name, value, description)
 
         # Track bot role updates
         self.bot_role_updates = set()  # Set of member IDs currently being updated by bot
