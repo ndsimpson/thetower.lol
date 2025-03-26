@@ -47,9 +47,6 @@ class BattleConditions(BaseCog, name="Battle Conditions"):
         # Load settings into instance variables
         self._load_settings()
 
-        # Initialize thread mappings
-        self._init_thread_mappings()
-
     async def cog_initialize(self) -> None:
         """Initialize the cog - called by BaseCog during ready process."""
         self.logger.info("Initializing Battle Conditions module")
@@ -74,6 +71,8 @@ class BattleConditions(BaseCog, name="Battle Conditions"):
 
                 # 4. Initialize state
                 self._last_operation_time = datetime.datetime.utcnow()
+                # Initialize thread mappings
+                await self._init_thread_mappings()
 
                 # 5. Mark as ready
                 self.set_ready(True)
