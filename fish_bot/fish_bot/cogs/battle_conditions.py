@@ -17,31 +17,96 @@ class BattleConditions(BaseCog, name="Battle Conditions"):
     - Automatically announce battle conditions
     """
 
+    # === Core Methods ===
     def __init__(self, bot: commands.Bot) -> None:
         super().__init__(bot)
         self.logger.info("Initializing BattleConditions")
 
         # Define settings with descriptions
         settings_config = {
+            # Time Settings
             "notification_hour": (0, "Hour to send notifications (UTC)"),
             "notification_minute": (0, "Minute to send notifications (UTC)"),
             "days_before_notification": (1, "Days before tournament to notify"),
-            "enabled_leagues": (["Legend", "Champion", "Platinum", "Gold", "Silver"], "Leagues to track"),
+
+            # Display Settings
+            "enabled_leagues": (
+                ["Legend", "Champion", "Platinum", "Gold", "Silver"],
+                "Leagues to track"
+            ),
+
+            # Schedule Settings
             "thread_schedules": ([], "Battle conditions announcement schedules")
         }
 
         # Initialize all settings
         for name, (value, description) in settings_config.items():
             if not self.has_setting(name):
-                self.set_setting(name, value)
+                self.set_setting(name, value, description=description)
 
         # Load settings into instance variables
         self._load_settings()
 
-        # Add standard pause commands to the battleconditions group
+        # Add standard pause commands to command group
         self.create_pause_commands(self.battleconditions_group)
 
-        # Thread IDs for each league
+        # Initialize thread mappings
+        self._init_thread_mappings()
+
+    async def cog_initialize(self) -> None:
+        """Initialize the cog - called by BaseCog during ready process."""
+        self.logger.info("Initializing Battle Conditions module")
+        try:
+            async with self.task_tracker.task_context("Initialization") as tracker:
+                # Initialize parent
+                self.logger.debug("Initializing parent cog")
+                await super().cog_initialize()
+
+                # 1. Verify settings
+                self.logger.debug("Loading settings")
+                tracker.update_status("Verifying settings")
+                self._load_settings()
+
+                # 2. Create inherited commands
+                self.create_pause_commands(self.battleconditions_group)
+
+                # 3. Start scheduled task
+                self.logger.debug("Starting scheduled task")
+                tracker.update_status("Starting tasks")
+                self.scheduled_bc_messages.start()
+
+                # 4. Initialize state
+                self._last_operation_time = datetime.datetime.utcnow()
+
+                # 5. Mark as ready
+                self.set_ready(True)
+                self.logger.info("Battle conditions initialization complete")
+
+        except Exception as e:
+            self.logger.error(f"Error during Battle Conditions initialization: {e}", exc_info=True)
+            self._has_errors = True
+            raise
+
+    async def cog_unload(self) -> None:
+        """Clean up when cog is unloaded."""
+        # Cancel any scheduled tasks
+        if hasattr(self, 'scheduled_bc_messages'):
+            self.scheduled_bc_messages.cancel()
+
+        # Call parent implementation for data saving
+        await super().cog_unload()
+        self.logger.info("Battle conditions cog unloaded")
+
+    # === Settings Management ===
+    def _load_settings(self) -> None:
+        """Load settings into instance variables."""
+        self.notification_hour = self.get_setting("notification_hour")
+        self.notification_minute = self.get_setting("notification_minute")
+        self.days_before_notification = self.get_setting("days_before_notification")
+        self.enabled_leagues = self.get_setting("enabled_leagues")
+
+    async def _init_thread_mappings(self):
+        """Initialize thread ID mappings."""
         self.league_threads = {
             "Legend": self.config.get_thread_id("battleconditions", "legend"),
             "Champion": self.config.get_thread_id("battleconditions", "champion"),
@@ -50,14 +115,6 @@ class BattleConditions(BaseCog, name="Battle Conditions"):
             "Silver": self.config.get_thread_id("battleconditions", "silver")
         }
 
-    def _load_settings(self) -> None:
-        """Load settings into instance variables."""
-        self.notification_hour = self.get_setting("notification_hour")
-        self.notification_minute = self.get_setting("notification_minute")
-        self.days_before_notification = self.get_setting("days_before_notification")
-        self.enabled_leagues = self.get_setting("enabled_leagues")
-
-    # Helper properties for settings to match project standards
     @property
     def default_hour(self) -> int:
         """Get the default notification hour."""
@@ -73,49 +130,7 @@ class BattleConditions(BaseCog, name="Battle Conditions"):
         """Get the default days before notification."""
         return self.get_setting("days_before_notification")
 
-    async def cog_initialize(self) -> None:
-        """Initialize the cog - called by BaseCog during ready process."""
-        self.logger.info("Initializing Battle Conditions module...")
-
-        # Start the scheduled task for BC announcements
-        self.scheduled_bc_messages.start()
-
-        # Update status variables
-        self._last_operation_time = datetime.datetime.utcnow()
-
-        # Set ready state
-        self.set_ready(True)
-
-        self.logger.info("Battle conditions initialization complete")
-
-    async def cog_unload(self) -> None:
-        """Clean up when cog is unloaded."""
-        # Cancel any scheduled tasks
-        if hasattr(self, 'scheduled_bc_messages'):
-            self.scheduled_bc_messages.cancel()
-
-        # Call parent implementation for data saving
-        await super().cog_unload()
-        self.logger.info("Battle conditions cog unloaded")
-
-    async def get_battle_conditions(self, league: str) -> List[str]:
-        """Get battle conditions for a league.
-
-        Args:
-            league: The league to get battle conditions for.
-
-        Returns:
-            List of battle condition strings.
-        """
-        tourney_id, _, _ = TournamentPredictor.get_tournament_info()
-
-        try:
-            self.logger.info(f"Fetching battle conditions for {league}")
-            return predict_future_tournament(tourney_id, league)
-        except Exception as e:
-            self.logger.error(f"Error fetching battle conditions for {league}: {e}")
-            return ["Error fetching battle conditions"]
-
+    # === Command Groups ===
     @commands.group(name="battleconditions", aliases=["bc"], invoke_without_command=True)
     async def battleconditions_group(self, ctx):
         """Battle conditions commands.
@@ -157,9 +172,6 @@ class BattleConditions(BaseCog, name="Battle Conditions"):
             # Add BC list
             bc_text = "\n".join([f"• {bc}" for bc in battleconditions])
             embed.add_field(name="Predicted Battle Conditions", value=bc_text, inline=False)
-
-            # Add footer to explain predictions
-            # embed.set_footer(text="Predictions based on historical data and may change")
 
         try:
             # Try to delete the command message if we have permissions
@@ -878,131 +890,6 @@ class BattleConditions(BaseCog, name="Battle Conditions"):
             self.logger.error(f"Error reloading battle conditions schedules: {e}")
             await ctx.send(f"❌ Error reloading schedules: {str(e)}")
 
-    @tasks.loop(minutes=1)  # Check every 1 minute
-    async def scheduled_bc_messages(self):
-        """Check all schedules and send battle condition messages as needed"""
-        await self.bot.wait_until_ready()
-        await self.wait_until_ready()
-
-        # Check global pause setting
-        if self.is_paused:
-            self.logger.debug("Battle conditions announcements are globally paused")
-            return
-
-        async with self.task_tracker.task_context("Battle Conditions Check"):
-            try:
-                self._active_process = "Battle Conditions Check"
-                self._process_start_time = datetime.datetime.utcnow()
-
-                # Get tournament information
-                tourney_id, tourney_date, days_until = TournamentPredictor.get_tournament_info()
-                now = datetime.datetime.utcnow()
-                current_hour = now.hour
-                current_minute = now.minute
-
-                # Get thread schedules from settings
-                thread_schedules = self.get_setting("thread_schedules", [])
-                enabled_leagues = self.get_setting("enabled_leagues")
-
-                # Process each schedule
-                for schedule in thread_schedules:
-                    thread_id = schedule.get("thread_id")
-                    leagues = schedule.get("leagues", [])
-
-                    # Check if this specific schedule is paused
-                    if schedule.get("paused", False):
-                        self.logger.debug(f"Schedule for thread {thread_id} is paused - skipping")
-                        continue
-
-                    # Get schedule timing
-                    hour = schedule.get("hour", self.default_hour)
-                    minute = schedule.get("minute", self.default_minute)
-                    days_before = schedule.get("days_before", self.default_days_before)
-
-                    # Skip if this is not the right day before tournament
-                    if days_until != days_before:
-                        continue
-
-                    # Skip if this is not the right time (with some margin for the 1-minute check)
-                    time_match = (
-                        current_hour == hour and
-                        (current_minute >= minute and current_minute < minute + 1)
-                    )
-                    if not time_match:
-                        continue
-
-                    # We've matched both day and time - process this schedule
-                    self.logger.info(f"Processing schedule for thread {thread_id}, {days_before} days before tournament")
-
-                    channel = self.bot.get_channel(int(thread_id))
-                    if not channel:
-                        self.logger.warning(f"Could not find channel with ID {thread_id}")
-                        continue
-
-                    # Track if we've sent anything to this channel
-                    sent_something = False
-
-                    # Send each league's battle conditions
-                    for league in leagues:
-                        # Skip leagues that aren't enabled
-                        if league not in enabled_leagues:
-                            continue
-
-                        try:
-                            # Get battle conditions and send message
-                            battleconditions = await self.get_battle_conditions(league)
-                            success = await self.send_battle_conditions_embed(channel, league, tourney_date, battleconditions)
-                            if success:
-                                sent_something = True
-                        except Exception as e:
-                            self.logger.error(f"Error processing battle conditions for {league} league: {e}")
-
-                    # Log if we didn't send anything for this schedule
-                    if not sent_something:
-                        self.logger.warning(f"No battle conditions sent for schedule in channel {channel.name}")
-
-                self._last_operation_time = datetime.datetime.utcnow()
-                self._operation_count += 1
-                self._active_process = None
-            except Exception as e:
-                self.logger.error(f"Error in scheduled battle conditions task: {e}")
-                self._has_errors = True
-                self._active_process = None
-
-    async def send_battle_conditions_embed(self, channel, league, tourney_date, battleconditions):
-        """Helper method to create and send battle conditions embeds
-
-        Args:
-            channel: Channel to send the embed to
-            league: League name for the battle conditions
-            tourney_date: Tournament date string
-            battleconditions: List of battle condition strings
-
-        Returns:
-            bool: Whether the message was sent successfully
-        """
-        try:
-            embed = discord.Embed(
-                title=f"{league} League Battle Conditions",
-                description=f"Tournament on {tourney_date}",
-                color=discord.Color.gold()
-            )
-
-            bc_text = "\n".join([f"• {bc}" for bc in battleconditions])
-            embed.add_field(name="Predicted Battle Conditions", value=bc_text, inline=False)
-
-            await channel.send(embed=embed)
-            self.logger.info(f"Sent battle conditions for {league} league to channel {channel.name}")
-            return True
-        except Exception as e:
-            self.logger.error(f"Error sending battle conditions for {league} league: {e}")
-            return False
-
-    @scheduled_bc_messages.before_loop
-    async def before_scheduled_bc_messages(self):
-        """Set up the task before it starts"""
-        self.logger.info("Starting battle conditions scheduler with 1-minute interval")
-
     @battleconditions_group.command(name="status")
     async def show_status(self, ctx):
         """Display current operational status of the Battle Conditions system."""
@@ -1154,6 +1041,151 @@ class BattleConditions(BaseCog, name="Battle Conditions"):
                     self.logger.error(f"Error refreshing data: {e}")
                     await ctx.send("❌ Error refreshing battle conditions data")
                     self._has_errors = True
+
+    # === Helper Methods ===
+    async def get_battle_conditions(self, league: str) -> List[str]:
+        """Get battle conditions for a league.
+
+        Args:
+            league: The league to get battle conditions for.
+
+        Returns:
+            List of battle condition strings.
+        """
+        tourney_id, _, _ = TournamentPredictor.get_tournament_info()
+
+        try:
+            self.logger.info(f"Fetching battle conditions for {league}")
+            return predict_future_tournament(tourney_id, league)
+        except Exception as e:
+            self.logger.error(f"Error fetching battle conditions for {league}: {e}")
+            return ["Error fetching battle conditions"]
+
+    async def send_battle_conditions_embed(self, channel, league, tourney_date, battleconditions):
+        """Helper method to create and send battle conditions embeds
+
+        Args:
+            channel: Channel to send the embed to
+            league: League name for the battle conditions
+            tourney_date: Tournament date string
+            battleconditions: List of battle condition strings
+
+        Returns:
+            bool: Whether the message was sent successfully
+        """
+        try:
+            embed = discord.Embed(
+                title=f"{league} League Battle Conditions",
+                description=f"Tournament on {tourney_date}",
+                color=discord.Color.gold()
+            )
+
+            bc_text = "\n".join([f"• {bc}" for bc in battleconditions])
+            embed.add_field(name="Predicted Battle Conditions", value=bc_text, inline=False)
+
+            await channel.send(embed=embed)
+            self.logger.info(f"Sent battle conditions for {league} league to channel {channel.name}")
+            return True
+        except Exception as e:
+            self.logger.error(f"Error sending battle conditions for {league} league: {e}")
+            return False
+
+    # === Task Methods ===
+    @tasks.loop(minutes=1)  # Check every 1 minute
+    async def scheduled_bc_messages(self):
+        """Check all schedules and send battle condition messages as needed"""
+        await self.bot.wait_until_ready()
+        await self.wait_until_ready()
+
+        # Check global pause setting
+        if self.is_paused:
+            self.logger.debug("Battle conditions announcements are globally paused")
+            return
+
+        async with self.task_tracker.task_context("Battle Conditions Check"):
+            try:
+                self._active_process = "Battle Conditions Check"
+                self._process_start_time = datetime.datetime.utcnow()
+
+                # Get tournament information
+                tourney_id, tourney_date, days_until = TournamentPredictor.get_tournament_info()
+                now = datetime.datetime.utcnow()
+                current_hour = now.hour
+                current_minute = now.minute
+
+                # Get thread schedules from settings
+                thread_schedules = self.get_setting("thread_schedules", [])
+                enabled_leagues = self.get_setting("enabled_leagues")
+
+                # Process each schedule
+                for schedule in thread_schedules:
+                    thread_id = schedule.get("thread_id")
+                    leagues = schedule.get("leagues", [])
+
+                    # Check if this specific schedule is paused
+                    if schedule.get("paused", False):
+                        self.logger.debug(f"Schedule for thread {thread_id} is paused - skipping")
+                        continue
+
+                    # Get schedule timing
+                    hour = schedule.get("hour", self.default_hour)
+                    minute = schedule.get("minute", self.default_minute)
+                    days_before = schedule.get("days_before", self.default_days_before)
+
+                    # Skip if this is not the right day before tournament
+                    if days_until != days_before:
+                        continue
+
+                    # Skip if this is not the right time (with some margin for the 1-minute check)
+                    time_match = (
+                        current_hour == hour and
+                        (current_minute >= minute and current_minute < minute + 1)
+                    )
+                    if not time_match:
+                        continue
+
+                    # We've matched both day and time - process this schedule
+                    self.logger.info(f"Processing schedule for thread {thread_id}, {days_before} days before tournament")
+
+                    channel = self.bot.get_channel(int(thread_id))
+                    if not channel:
+                        self.logger.warning(f"Could not find channel with ID {thread_id}")
+                        continue
+
+                    # Track if we've sent anything to this channel
+                    sent_something = False
+
+                    # Send each league's battle conditions
+                    for league in leagues:
+                        # Skip leagues that aren't enabled
+                        if league not in enabled_leagues:
+                            continue
+
+                        try:
+                            # Get battle conditions and send message
+                            battleconditions = await self.get_battle_conditions(league)
+                            success = await self.send_battle_conditions_embed(channel, league, tourney_date, battleconditions)
+                            if success:
+                                sent_something = True
+                        except Exception as e:
+                            self.logger.error(f"Error processing battle conditions for {league} league: {e}")
+
+                    # Log if we didn't send anything for this schedule
+                    if not sent_something:
+                        self.logger.warning(f"No battle conditions sent for schedule in channel {channel.name}")
+
+                self._last_operation_time = datetime.datetime.utcnow()
+                self._operation_count += 1
+                self._active_process = None
+            except Exception as e:
+                self.logger.error(f"Error in scheduled battle conditions task: {e}")
+                self._has_errors = True
+                self._active_process = None
+
+    @scheduled_bc_messages.before_loop
+    async def before_scheduled_bc_messages(self):
+        """Set up the task before it starts"""
+        self.logger.info("Starting battle conditions scheduler with 1-minute interval")
 
 
 async def setup(bot) -> None:
