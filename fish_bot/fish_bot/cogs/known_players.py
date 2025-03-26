@@ -1218,14 +1218,14 @@ class KnownPlayers(BaseCog,
         self.logger.info("Known Players cog unloaded")
 
     @knownplayers_group.command(
-        name="toggle",
+        name="toggle_setting",
         description="Toggle a player lookup boolean setting"
     )
     @app_commands.describe(
         setting_name="Name of the setting to toggle",
         value="Optional boolean value to set explicitly"
     )
-    async def player_toggle(self, ctx: commands.Context, setting_name: str, value: Optional[bool] = None) -> None:
+    async def player_toggle_setting(self, ctx: commands.Context, setting_name: str, value: Optional[bool] = None) -> None:
         """Toggle a player lookup boolean setting.
 
         Args:
