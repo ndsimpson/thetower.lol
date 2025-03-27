@@ -50,10 +50,9 @@ def live_score():
         results_df.drop(["Creation Time", "Position"], axis=1),
         hide_index=True,
         column_config={
-            "Would Place": st.column_config.Column(
+            "Would Place": st.column_config.TextColumn(
                 "Would Place",
-                help="Player placement in bracket",
-                sortable=True
+                help="Player placement in bracket"
             )
         }
     )
