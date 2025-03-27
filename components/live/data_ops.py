@@ -6,7 +6,7 @@ import streamlit as st
 from dtower.tourney_results.tourney_utils import get_live_df, get_shun_ids
 
 # Cache configuration
-CACHE_TTL_SECONDS = 3600  # 60 minutes cache duration
+CACHE_TTL_SECONDS = 300  # 5 minutes cache duration
 
 
 @st.cache_data(ttl=CACHE_TTL_SECONDS)
