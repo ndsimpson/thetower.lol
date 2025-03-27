@@ -39,11 +39,24 @@ def live_score():
     # Process results for display
     results_df = pd.DataFrame(results)
     results_df["Creation Time"] = results_df["Bracket"].map(bracket_creation_times)
+    # Add numeric position column for sorting
+    results_df["Position"] = results_df["Would Place"].str.split("/").str[0].astype(int)
+    # Sort by creation time initially
     results_df = results_df.sort_values("Creation Time")
-    results_df = results_df.drop("Creation Time", axis=1)
 
     st.write(f"Analysis for wave {wave_to_analyze} (ordered by bracket creation time):")
-    st.dataframe(results_df, hide_index=True)
+    # Display dataframe with custom sorting
+    st.dataframe(
+        results_df.drop(["Creation Time", "Position"], axis=1),
+        hide_index=True,
+        column_config={
+            "Would Place": st.column_config.Column(
+                "Would Place",
+                help="Player placement in bracket",
+                sortable=True
+            )
+        }
+    )
 
     # Calculate player's actual position
     player_bracket = df[df["real_name"] == selected_player]["bracket"].iloc[0]
