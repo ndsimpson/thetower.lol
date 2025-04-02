@@ -2,6 +2,7 @@ from urllib.parse import urlencode
 import pandas as pd
 import plotly.express as px
 import streamlit as st
+import html
 
 from components.live.ui_components import setup_common_ui
 from components.live.data_ops import (
@@ -121,10 +122,18 @@ def live_bracket():
     ldf.index = pd.RangeIndex(start=1, stop=len(ldf) + 1)
     ldf = process_display_names(ldf)
 
+    # Escape HTML special characters in name columns
+    ldf['name'] = ldf['name'].apply(html.escape)
+    ldf['real_name'] = ldf['real_name'].apply(html.escape)
+
     # Use loc for safer column selection
     display_df = ldf.loc[:, ["player_id", "name", "real_name", "wave", "datetime"]]
+
+    # Create table HTML with escaped values
     st.write(
-        display_df.style.format(make_player_url, subset=["player_id"])
+        display_df.style
+        .format(make_player_url, subset=["player_id"])
+        .format(lambda x: html.escape(str(x)) if pd.notnull(x) else '', subset=["name", "real_name"])
         .to_html(escape=False),
         unsafe_allow_html=True
     )
