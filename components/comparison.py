@@ -8,7 +8,7 @@ import plotly.express as px
 import streamlit as st
 
 from components.search import compute_search
-from components.util import get_league_selection
+from components.util import get_league_selection, escape_df_html
 from dtower.sus.models import KnownPlayer, PlayerId
 from dtower.tourney_results.constants import (
     Graph,
@@ -149,6 +149,9 @@ def compute_comparison(player_id=None, canvas=st):
     )
     summary.set_index(keys="Name")
 
+    # Escape any user-provided text in DataFrames
+    summary = escape_df_html(summary, ['Name'])
+
     if player_id:
         how_many_slider = canvas.slider(
             "Narrow results to only your direct competitors?",
@@ -166,6 +169,9 @@ def compute_comparison(player_id=None, canvas=st):
 
     pd_datas = pd.concat([data for data, _ in datas])
     pd_datas["bcs"] = pd_datas.bcs.map(lambda bc_qs: " / ".join([bc.shortcut for bc in bc_qs]))
+
+    # Escape any user-provided text in DataFrames
+    pd_datas = escape_df_html(pd_datas, ['real_name', 'tourney_name'])
 
     if player_id:
         pd_datas = pd_datas[pd_datas.id.isin(narrowed_ids)]

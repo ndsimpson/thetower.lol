@@ -1,4 +1,5 @@
 import datetime
+import html
 
 import pandas as pd
 import plotly.express as px
@@ -14,6 +15,23 @@ def links_toggle():
         links = st.checkbox("Links to users? (will make dataframe ugly)", value=False)
 
     return links
+
+
+def escape_df_html(df: pd.DataFrame, escape_columns: list[str]) -> pd.DataFrame:
+    """Escape HTML special characters in specified DataFrame columns.
+    
+    Args:
+        df: DataFrame to process
+        escape_columns: List of column names that need HTML escaping
+        
+    Returns:
+        DataFrame with HTML-escaped values in specified columns
+    """
+    result = df.copy()
+    for col in escape_columns:
+        if col in result.columns:
+            result[col] = result[col].apply(lambda x: html.escape(str(x)) if pd.notnull(x) else '')
+    return result
 
 
 def get_options(links=None):

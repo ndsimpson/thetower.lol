@@ -8,6 +8,7 @@ import streamlit as st
 from dtower.tourney_results.constants import champ, legend
 from dtower.tourney_results.data import get_patches, get_tourneys
 from dtower.tourney_results.models import TourneyResult
+from components.util import escape_df_html
 
 patches = sorted([patch for patch in get_patches() if patch.version_minor], key=lambda patch: patch.start_date, reverse=True)
 
@@ -33,6 +34,9 @@ def compute_winners():
     ldf = ldf[ldf.patch.isin(patches_legend)]
 
     df = pd.concat([cdf, ldf])
+    
+    # Escape HTML in name columns early in the pipeline
+    df = escape_df_html(df, ['real_name', 'tourney_name'])
 
     how_col, hole_col = st.columns([1, 1])
 

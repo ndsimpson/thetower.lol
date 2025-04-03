@@ -12,7 +12,7 @@ from natsort import natsorted
 from plotly.subplots import make_subplots
 
 from components.search import compute_search
-from components.util import get_options
+from components.util import get_options, escape_df_html
 from dtower.sus.models import PlayerId
 from dtower.tourney_results.constants import (
     Graph,
@@ -198,6 +198,9 @@ def compute_player_lookup():
     player_df = player_df.sort_values("date", ascending=False)
     user = player_df["real_name"][0]
 
+    # Apply HTML escaping before styling or displaying
+    player_df = escape_df_html(player_df, ['real_name', 'tourney_name'])
+
     draw_info_tab(info_tab, user, player_id, player_df, hidden_features)
 
     patches_options = sorted([patch for patch in get_patches() if patch.version_minor], key=lambda patch: patch.start_date, reverse=True)
@@ -317,7 +320,8 @@ def draw_info_tab(info_tab, user, player_id, player_df, hidden_features):
     # Continue with the rest of the info tab content
     handle_sus_or_banned_ids(info_tab, player_id)
 
-    real_name = player_df.iloc[0].real_name
+    # Escape real_name when used directly in HTML
+    real_name = escape(player_df.iloc[0].real_name)
 
     if hidden_features:
         info_tab.write(

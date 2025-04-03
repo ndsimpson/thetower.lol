@@ -14,6 +14,7 @@ from components.live.data_ops import (
     initialize_bracket_state,
     update_bracket_index
 )
+from components.util import escape_df_html
 from dtower.tourney_results.formatting import BASE_URL, make_player_url
 
 
@@ -122,9 +123,8 @@ def live_bracket():
     ldf.index = pd.RangeIndex(start=1, stop=len(ldf) + 1)
     ldf = process_display_names(ldf)
 
-    # Escape HTML special characters in name columns
-    ldf['name'] = ldf['name'].apply(html.escape)
-    ldf['real_name'] = ldf['real_name'].apply(html.escape)
+    # Use the utility function to escape HTML in name columns
+    ldf = escape_df_html(ldf, ['name', 'real_name'])
 
     # Use loc for safer column selection
     display_df = ldf.loc[:, ["player_id", "name", "real_name", "wave", "datetime"]]
@@ -133,7 +133,6 @@ def live_bracket():
     st.write(
         display_df.style
         .format(make_player_url, subset=["player_id"])
-        .format(lambda x: html.escape(str(x)) if pd.notnull(x) else '', subset=["name", "real_name"])
         .to_html(escape=False),
         unsafe_allow_html=True
     )

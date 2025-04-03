@@ -20,6 +20,7 @@ from dtower.tourney_results.data import get_results_for_patch, get_sus_ids, get_
 from dtower.tourney_results.formatting import am_i_sus, color_position__top, make_player_url, strike
 from dtower.tourney_results.models import PatchNew as Patch
 from dtower.tourney_results.models import TourneyResult
+from dtower.tourney_results.utils import escape_df_html
 
 
 class Results:
@@ -89,6 +90,9 @@ class Results:
             to_be_displayed = self.df
 
         to_be_displayed = to_be_displayed.reset_index(drop=True)
+
+        # Early escape/sanitize names to prevent XSS
+        to_be_displayed = escape_df_html(to_be_displayed, ['real_name', 'tourney_name'])
 
         if current_page == 1:
             for position, medal in zip([1, 2, 3], [" 🥇", " 🥈", " 🥉"]):

@@ -1,3 +1,4 @@
+import pandas as pd
 import streamlit as st
 
 from components.live.ui_components import setup_common_ui
@@ -5,6 +6,7 @@ from components.live.data_ops import (
     get_processed_data,
     require_tournament_data
 )
+from components.util import escape_df_html
 from dtower.tourney_results.constants import champ, how_many_results_public_site
 from dtower.tourney_results.data import get_tourneys
 from dtower.tourney_results.models import TourneyResult
@@ -28,6 +30,10 @@ def live_results():
     pdf = get_tourneys([tourney])
 
     cols = st.columns([3, 2] if not is_mobile else [1])
+
+    # Escape HTML in name columns
+    ldf = escape_df_html(ldf, ['name', 'real_name'])
+    pdf = escape_df_html(pdf, ['real_name'])
 
     with cols[0]:
         st.write("Current result (ordered)")
