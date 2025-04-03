@@ -6,7 +6,7 @@ from typing import Optional
 
 import streamlit as st
 
-from components.util import get_options, get_league_selection
+from components.util import get_options, get_league_selection, escape_df_html
 
 from dtower.tourney_results.constants import (
     Graph,
@@ -20,7 +20,6 @@ from dtower.tourney_results.data import get_results_for_patch, get_sus_ids, get_
 from dtower.tourney_results.formatting import am_i_sus, color_position__top, make_player_url, strike
 from dtower.tourney_results.models import PatchNew as Patch
 from dtower.tourney_results.models import TourneyResult
-from dtower.tourney_results.utils import escape_df_html
 
 
 class Results:
