@@ -1,6 +1,7 @@
 #!/tourney/tourney_venv/bin/python
 import os
 import datetime
+import threading
 
 import schedule
 
@@ -19,11 +20,17 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from dtower.tourney_results.constants import leagues
 from dtower.tourney_results.get_results import get_file_name, get_last_date
 from dtower.tourney_results.models import TourneyResult, BattleCondition
-from dtower.tourney_results.tourney_utils import create_tourney_rows
+from dtower.tourney_results.tourney_utils import create_tourney_rows, get_summary
 from towerbcs.towerbcs import predict_future_tournament, TournamentPredictor
 
 
 logging.basicConfig(level=logging.INFO)
+
+
+def update_summary(result):
+    summary = get_summary(result.date)
+    result.overview = summary
+    result.save()
 
 
 def execute():
@@ -74,6 +81,12 @@ def execute():
         condition_ids = BattleCondition.objects.filter(name__in=conditions).values_list('id', flat=True)
         result.conditions.set(condition_ids)
         create_tourney_rows(result)
+        
+        # Generate summary for Legends league results
+        if league == "Legends":
+            logging.info("Generating summary for Legends league results")
+            thread = threading.Thread(target=update_summary, args=(result,))
+            thread.start()
 
 
 if __name__ == "__main__":
