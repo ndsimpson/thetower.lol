@@ -76,12 +76,13 @@ def execute():
             league=league,
             defaults=dict(
                 result_file=csv_file,
+                public=True,  # Make results public by default
             ),
         )
         condition_ids = BattleCondition.objects.filter(name__in=conditions).values_list('id', flat=True)
         result.conditions.set(condition_ids)
         create_tourney_rows(result)
-        
+
         # Generate summary for Legends league results
         if league == "Legends":
             logging.info("Generating summary for Legends league results")
