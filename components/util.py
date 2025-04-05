@@ -71,12 +71,20 @@ def get_league_filter(league=None):
     return index
 
 
+def league_changed():
+    """Callback for when league selection changes"""
+    st.session_state.selected_league = st.session_state.league_selector
+
+
 def get_league_selection(options=None, patch=None):
     """Get or set the league selection from session state
 
     Args:
         options: Options object containing settings
         patch: Optional patch object to enforce historical league selection
+
+    Returns:
+        str: Selected league name
     """
     if options is None:
         options = get_options(links=False)
@@ -89,7 +97,13 @@ def get_league_selection(options=None, patch=None):
     with st.sidebar:
         # Use the session state value as the default
         league_index = leagues.index(st.session_state.selected_league)
-        league = st.radio("League", leagues, league_index)
+        league = st.radio(
+            "League",
+            leagues,
+            league_index,
+            key="league_selector",
+            on_change=league_changed
+        )
 
         # Force Champion league for historical patches if Legend is selected
         if (patch and league == "Legend" and
@@ -98,11 +112,9 @@ def get_league_selection(options=None, patch=None):
                 patch.version_minor < 25):
             league = "Champion"
             st.info("Using Champion league for historical patch (Legend not available)")
+            st.session_state.selected_league = league
 
-        # Update session state when changed
-        st.session_state.selected_league = league
-
-    return league
+    return st.session_state.selected_league
 
 
 def gantt(df):
