@@ -71,8 +71,13 @@ def get_league_filter(league=None):
     return index
 
 
-def get_league_selection(options=None):
-    """Get or set the league selection from session state"""
+def get_league_selection(options=None, patch=None):
+    """Get or set the league selection from session state
+
+    Args:
+        options: Options object containing settings
+        patch: Optional patch object to enforce historical league selection
+    """
     if options is None:
         options = get_options(links=False)
 
@@ -85,6 +90,15 @@ def get_league_selection(options=None):
         # Use the session state value as the default
         league_index = leagues.index(st.session_state.selected_league)
         league = st.radio("League", leagues, league_index)
+
+        # Force Champion league for historical patches if Legend is selected
+        if (patch and league == "Legend" and
+            hasattr(patch, 'version_minor') and
+            isinstance(patch.version_minor, (int, float)) and
+                patch.version_minor < 25):
+            league = "Champion"
+            st.info("Using Champion league for historical patch (Legend not available)")
+
         # Update session state when changed
         st.session_state.selected_league = league
 

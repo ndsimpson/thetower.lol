@@ -44,15 +44,15 @@ class Results:
         # st.write(funny_styling, unsafe_allow_html=True)
 
     def top_of_results(self) -> str:
-        # patch_col, tourney_col, self.results_col, self.results_col_page, debug_col = st.columns([1.0, 2, 1, 1.2, 1])
         patch_col, tourney_col, self.results_col, self.results_col_page = st.columns([1.0, 2, 1, 1.2])
 
+        # Store selected patch in session state for league selection
         patch = patch_col.selectbox("Patch:", Patch.objects.all().order_by("-start_date"), index=0)
+        st.session_state.selected_patch = patch
 
         possible_results = get_results_for_patch(patch, league=self.league)
         self.dates = possible_results.values_list("date", flat=True)
         bcs = [res.conditions.all() for res in possible_results]
-        # self.show_hist = debug_col.checkbox("Hist data", value=False)
 
         date_to_bc = dict(zip(self.dates, bcs))
         tourneys = sorted(self.dates, reverse=True)
@@ -233,7 +233,14 @@ class Results:
 def compute_results(options: Options):
     print("results")
     options = get_options(links=False)
-    league = get_league_selection(options)
+
+    # Get currently selected patch from session state or default to latest
+    patch = None
+    if 'selected_patch' in st.session_state:
+        patch = st.session_state.selected_patch
+
+    # Use patch-aware league selection
+    league = get_league_selection(options, patch=patch)
 
     Results(options, league=league).compute_results()
 

@@ -349,8 +349,23 @@ def get_patch_df(df, player_df, patch):
 
 
 def filter_league(datas):
-    league = get_league_selection()
-    return [(sdf[sdf.league == league], name) for sdf, name in datas]
+    # Get current patch from first dataset if available
+    patch = None
+    if datas and len(datas) > 0 and not datas[0][0].empty and 'patch' in datas[0][0].columns:
+        try:
+            patch = datas[0][0]['patch'].iloc[0]
+        except Exception as e:
+            st.write(f"🔍 Debug: Error getting patch: {str(e)}")
+
+    # Use patch-aware league selection
+    league = get_league_selection(patch=patch)
+    filtered_datas = [(sdf[sdf.league == league], name) for sdf, name in datas]
+
+    # Log if no data remains after filtering
+    if not filtered_datas:
+        st.warning(f"No data found for league: {league}")
+
+    return filtered_datas
 
 
 def filter_lower_leagues(rows):

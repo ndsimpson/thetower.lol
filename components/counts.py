@@ -8,7 +8,13 @@ from dtower.tourney_results.models import TourneyResult, TourneyRow
 
 def compute_counts():
     options = get_options(links=False)
-    league = get_league_selection(options)
+
+    # Get latest tournament result to check patch
+    latest_result = TourneyResult.objects.filter(public=True).order_by('-date').first()
+    patch = latest_result.patch if latest_result else None
+
+    # Use patch-aware league selection
+    league = get_league_selection(options, patch=patch)
 
     st.header(f"Wave cutoff required for top X in {league}")
 
