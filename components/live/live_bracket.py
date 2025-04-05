@@ -2,7 +2,6 @@ from urllib.parse import urlencode
 import pandas as pd
 import plotly.express as px
 import streamlit as st
-import html
 
 from components.live.ui_components import setup_common_ui
 from components.live.data_ops import (
@@ -14,7 +13,6 @@ from components.live.data_ops import (
     initialize_bracket_state,
     update_bracket_index
 )
-from components.util import escape_df_html
 from dtower.tourney_results.formatting import BASE_URL, make_player_url
 
 
@@ -123,13 +121,10 @@ def live_bracket():
     ldf.index = pd.RangeIndex(start=1, stop=len(ldf) + 1)
     ldf = process_display_names(ldf)
 
-    # Use the utility function to escape HTML in name columns
-    ldf = escape_df_html(ldf, ['name', 'real_name'])
-
     # Use loc for safer column selection
     display_df = ldf.loc[:, ["player_id", "name", "real_name", "wave", "datetime"]]
 
-    # Create table HTML with escaped values
+    # Create table HTML
     st.write(
         display_df.style
         .format(make_player_url, subset=["player_id"])
