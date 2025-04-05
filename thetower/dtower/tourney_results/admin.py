@@ -19,6 +19,7 @@ from dtower.tourney_results.models import (
     Role,
     TourneyResult,
     TourneyRow,
+    RainPeriod,
 )
 
 BASE_ADMIN_URL = os.getenv("BASE_ADMIN_URL")
@@ -292,3 +293,21 @@ class InjectionAdmin(SimpleHistoryAdmin):
 class PromptTemplateAdmin(SimpleHistoryAdmin):
     list_display = ("text",)
     search_fields = ("text",)
+
+
+@admin.register(RainPeriod)
+class RainPeriodAdmin(SimpleHistoryAdmin):
+    list_display = (
+        "emoji",
+        "start_date",
+        "end_date",
+        "enabled",
+        "description",
+    )
+
+    search_fields = (
+        "emoji",
+        "description",
+    )
+
+    list_filter = ["enabled", "start_date", "end_date"]

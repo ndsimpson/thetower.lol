@@ -1,6 +1,8 @@
 from colorfield.fields import ColorField
 from django.db import models
 from simple_history.models import HistoricalRecords
+from django.core.cache import cache
+from django.utils import timezone
 
 from dtower.sus.models import KnownPlayer
 from dtower.tourney_results.constants import leagues_choices, wave_border_choices
@@ -212,3 +214,44 @@ class Injection(models.Model):
 class PromptTemplate(models.Model):
     text = models.TextField(null=False, blank=False, help_text="Prompt injection for AI summary")
     history = HistoricalRecords()
+
+
+class RainPeriod(models.Model):
+    emoji = models.CharField(max_length=8, null=False, blank=False, help_text="The emoji to display during the rain effect")
+    start_date = models.DateField(null=False, blank=False, help_text="Start date of the rain effect")
+    end_date = models.DateField(null=False, blank=False, help_text="End date of the rain effect")
+    enabled = models.BooleanField(default=True, help_text="Whether this rain period is currently enabled")
+    description = models.CharField(max_length=100, null=True, blank=True, help_text="Optional description of this rain period")
+
+    history = HistoricalRecords()
+
+    @classmethod
+    def get_active_period(cls) -> "RainPeriod | None":
+        """Get the currently active rain period, with caching of period data but not active status."""
+        cache_key = "rain_periods"
+        cached_periods = cache.get(cache_key)
+        today = timezone.now().date()
+
+        if cached_periods is None:
+            # Cache all enabled periods
+            cached_periods = list(cls.objects.filter(enabled=True))
+            # Cache for 24 hours since cache is invalidated on any changes anyway
+            cache.set(cache_key, cached_periods, timeout=86400)  # 24 hours = 86400 seconds
+
+        # Check which period is active right now - don't cache this result
+        for period in cached_periods:
+            if period.start_date <= today <= period.end_date:
+                return period
+
+        return None
+
+    def save(self, *args, **kwargs):
+        """Override save to invalidate cache when a rain period is modified."""
+        cache.delete("rain_periods")
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f"{self.emoji} ({self.start_date} - {self.end_date})"
+
+    class Meta:
+        ordering = ["-start_date"]

@@ -1,6 +1,5 @@
 # Standard library imports
 import os
-from datetime import date
 
 # Third-party imports
 import django
@@ -12,6 +11,7 @@ django.setup()
 
 # Local imports
 from dtower.tourney_results.constants import Graph, Options
+from dtower.tourney_results.models import RainPeriod
 from components.util import makeitrain
 
 hidden_features = os.environ.get("HIDDEN_FEATURES")
@@ -87,32 +87,17 @@ pg = st.navigation(page_dict)
 
 st.logo("components/static/TT.png", size="large", icon_image="components/static/TTIcon.png")
 
-# Define the rain periods
-rain_periods = [
-    ("❄️", date(2025, 1, 1), date(2025, 1, 26)),
-    ("💘", date(2025, 2, 13), date(2025, 2, 15)),
-    ("🍀", date(2025, 3, 16), date(2025, 3, 18)),
-    ("💧", date(2025, 4, 3), date(2025, 4, 5))
-]
+# Only show toggle and make it rain if there are active rain periods
+active_period = RainPeriod.get_active_period()
 
-# Check if current date is within any rain period
-current_date = date.today()
-active_rain_period = None
-for emoji, start_date, end_date in rain_periods:
-    if start_date <= current_date <= end_date:
-        active_rain_period = (emoji, start_date, end_date)
-        break
-
-# Only show toggle and make it rain if we're in a rain period
-if active_rain_period:
+if active_period:
     with st.sidebar:
         if "rain" not in st.session_state:
             st.session_state.rain = True
         rainenabled = st.toggle("Make it rain?", key="rain")
 
     if rainenabled:
-        makeitrain(*active_rain_period)
-
+        makeitrain()
 
 st.html("""
 <style>
@@ -121,6 +106,5 @@ st.html("""
     }
 </style>
 """)
-
 
 pg.run()

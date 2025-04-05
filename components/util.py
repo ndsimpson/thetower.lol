@@ -19,11 +19,11 @@ def links_toggle():
 
 def escape_df_html(df: pd.DataFrame, escape_columns: list[str]) -> pd.DataFrame:
     """Escape HTML special characters in specified DataFrame columns.
-    
+
     Args:
         df: DataFrame to process
         escape_columns: List of column names that need HTML escaping
-        
+
     Returns:
         DataFrame with HTML-escaped values in specified columns
     """
@@ -152,11 +152,32 @@ def deprecated():
     st.info("This page is now deprecated and won't be updated past the end of Champ era. If you use or like this page, please let the site admins know on discord.")
 
 
-def makeitrain(icon: str, after: datetime.date, before: datetime.date):
-    today = datetime.date.today()
-    if today >= after and today <= before:
+def makeitrain(icon: str | None = None, after: datetime.date | None = None, before: datetime.date | None = None):
+    """
+    Make it rain with emojis based on active rain periods from the database.
+    If specific parameters are provided, they override the database entries.
+    """
+    from django.utils import timezone
+    today = timezone.now().date()
+
+    if icon and after and before:
+        # Use provided parameters
+        if today >= after and today <= before:
+            rain(
+                emoji=icon,
+                font_size=27,
+                falling_speed=20,
+                animation_length="infinite",
+            )
+        return
+
+    # Use cached lookup for active period
+    from dtower.tourney_results.models import RainPeriod
+    active_period = RainPeriod.get_active_period()
+
+    if active_period:
         rain(
-            emoji=icon,
+            emoji=active_period.emoji,
             font_size=27,
             falling_speed=20,
             animation_length="infinite",
