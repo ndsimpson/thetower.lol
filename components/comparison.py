@@ -167,11 +167,13 @@ def compute_comparison(player_id=None, canvas=st):
     for data, _ in datas:
         data["real_name"] = data["real_name"].mode().iloc[0]
 
-    pd_datas = pd.concat([data for data, _ in datas])
-    pd_datas["bcs"] = pd_datas.bcs.map(lambda bc_qs: " / ".join([bc.shortcut for bc in bc_qs]))
+    try:
+        pd_datas = pd.concat([data for data, _ in datas])
+    except ValueError:
+        canvas.warning("No data available for selected options.")
+        return
 
-    # Escape any user-provided text in DataFrames
-    pd_datas = escape_df_html(pd_datas, ['real_name', 'tourney_name'])
+    pd_datas["bcs"] = pd_datas.bcs.map(lambda bc_qs: " / ".join([bc.shortcut for bc in bc_qs]))
 
     if player_id:
         pd_datas = pd_datas[pd_datas.id.isin(narrowed_ids)]
