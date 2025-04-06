@@ -4,6 +4,7 @@ import streamlit as st
 from components.util import get_league_selection, get_options
 
 from dtower.tourney_results.models import TourneyResult, TourneyRow
+from dtower.tourney_results.data import date_to_patch
 
 
 def compute_counts():
@@ -11,7 +12,7 @@ def compute_counts():
 
     # Get latest tournament result to check patch
     latest_result = TourneyResult.objects.filter(public=True).order_by('-date').first()
-    patch = latest_result.patch if latest_result else None
+    patch = date_to_patch(latest_result.date) if latest_result else None
 
     # Use patch-aware league selection
     league = get_league_selection(options, patch=patch)
