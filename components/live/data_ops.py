@@ -3,7 +3,7 @@ from functools import wraps
 import pandas as pd
 import streamlit as st
 
-from dtower.tourney_results.tourney_utils import get_live_df, get_shun_ids
+from dtower.tourney_results.tourney_utils import get_live_df, get_shun_ids, get_full_brackets
 
 # Cache configuration
 CACHE_TTL_SECONDS = 300  # 5 minutes cache duration
@@ -69,13 +69,7 @@ def get_bracket_data(df: pd.DataFrame):
         - bracket_order: List of brackets ordered by creation time
         - fullish_brackets: List of brackets with >= 28 players
     """
-    df["datetime"] = pd.to_datetime(df["datetime"])
-    bracket_order = df.groupby("bracket")["datetime"].min().sort_values().index.tolist()
-
-    bracket_counts = dict(df.groupby("bracket").player_id.unique().map(lambda player_ids: len(player_ids)))
-    fullish_brackets = [bracket for bracket, count in bracket_counts.items() if count >= 28]
-
-    return bracket_order, fullish_brackets
+    return get_full_brackets(df)
 
 
 def process_display_names(df: pd.DataFrame) -> pd.DataFrame:
@@ -127,9 +121,8 @@ def get_placement_analysis_data(league: str):
     """
     df = get_live_data(league, True)
 
-    # Filter for fullish brackets
-    bracket_counts = dict(df.groupby("bracket").player_id.unique().map(lambda player_ids: len(player_ids)))
-    fullish_brackets = [bracket for bracket, count in bracket_counts.items() if count >= 28]
+    # Use the shared bracket filtering logic
+    _, fullish_brackets = get_full_brackets(df)
     df = df[df.bracket.isin(fullish_brackets)]
 
     # Cast real_name to string

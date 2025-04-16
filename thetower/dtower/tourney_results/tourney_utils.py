@@ -31,7 +31,6 @@ from dtower.tourney_results.models import (
     TourneyResult,
     TourneyRow,
 )
-from components.live.data_ops import get_live_data
 
 # Initialize logging
 logging.basicConfig(level=logging.INFO)
@@ -319,6 +318,26 @@ def get_live_df(league: str, shun: bool = False) -> pd.DataFrame:
     return df
 
 
+def get_full_brackets(df: pd.DataFrame) -> tuple[list[str], list[str]]:
+    """Get bracket information from tournament data.
+
+    Args:
+        df: DataFrame containing tournament data
+
+    Returns:
+        Tuple containing:
+        - bracket_order: List of brackets ordered by creation time
+        - fullish_brackets: List of brackets with >= 28 players
+    """
+    df["datetime"] = pd.to_datetime(df["datetime"])
+    bracket_order = df.groupby("bracket")["datetime"].min().sort_values().index.tolist()
+
+    bracket_counts = dict(df.groupby("bracket").player_id.unique().map(lambda player_ids: len(player_ids)))
+    fullish_brackets = [bracket for bracket, count in bracket_counts.items() if count >= 28]
+
+    return bracket_order, fullish_brackets
+
+
 def check_live_entry(league: str, player_id: str) -> bool:
     """Check if player has entered live tournament.
 
@@ -333,16 +352,15 @@ def check_live_entry(league: str, player_id: str) -> bool:
     logging.info(f"Checking live entry for player {player_id} in {league} league")
 
     try:
-        # Use the cached version of get_live_df through data_ops
-        df = get_live_data(league, True)
+        # Get raw data first
+        df = get_live_df(league, True)
 
-        # Calculate bracket statistics and filter
-        bracket_counts = dict(df.groupby("bracket").player_id.unique().map(lambda player_ids: len(player_ids)))
-        fullish_brackets = [bracket for bracket, count in bracket_counts.items() if count >= 28]
-        df = df[df.bracket.isin(fullish_brackets)]  # no sniping
+        # Use our local bracket filtering
+        _, fullish_brackets = get_full_brackets(df)
 
         # Check if player is in any full bracket
-        player_found = player_id in df.player_id.values
+        filtered_df = df[df.bracket.isin(fullish_brackets)]
+        player_found = player_id in filtered_df.player_id.values
 
         t1_stop = perf_counter()
         logging.debug(f"check_live_entry({league}, {player_id}) took {t1_stop - t1_start:.3f} seconds")
