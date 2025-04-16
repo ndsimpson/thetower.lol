@@ -14,15 +14,28 @@ from components.live.data_ops import (
     update_bracket_index
 )
 from dtower.tourney_results.formatting import BASE_URL, make_player_url
+from dtower.tourney_results.data import get_player_id_lookup
 
 
 @require_tournament_data
 def live_bracket():
     st.markdown("# Live Bracket View")
+
     options, league, is_mobile = setup_common_ui()
 
     # Get live data and process brackets
-    df = get_live_data(league, True)
+    try:
+        df = get_live_data(league, True)
+    except (IndexError, ValueError):
+        if options.current_player_id:
+            # Get player's known name
+            lookup = get_player_id_lookup()
+            known_name = lookup.get(options.current_player_id, options.current_player_id)
+            st.error(f"{known_name} ({options.current_player_id}) hasn't participated in this tournament.")
+        else:
+            st.error("No tournament data available.")
+        return
+
     bracket_order, fullish_brackets = get_bracket_data(df)
     df = df[df.bracket.isin(fullish_brackets)].copy()  # no sniping
 
@@ -79,7 +92,13 @@ def live_bracket():
         )
         st.session_state.current_bracket_idx = bracket_idx
     except ValueError as e:
-        st.error(f"Selection not found: {str(e)}")
+        if selected_player_id:
+            # Get player's known name
+            lookup = get_player_id_lookup()
+            known_name = lookup.get(selected_player_id, selected_player_id)
+            st.error(f"{known_name} (#{selected_player_id}) hasn't participated in this tournament.")
+        else:
+            st.error(str(e))
         return
 
     # Create a copy of the DataFrame to avoid SettingWithCopyWarning
