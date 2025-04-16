@@ -250,8 +250,11 @@ def compute_player_lookup():
     player_df["battle"] = [" / ".join([bc.shortcut for bc in bcs]) for bcs in player_df.bcs]
 
     def dataframe_styler(player_df):
+        df_copy = player_df.copy()
+        # Convert patch objects to strings
+        df_copy['patch'] = df_copy['patch'].apply(str)
         return (
-            player_df[["name", "wave", "#", "date", "patch", "battle"] + additional_column]
+            df_copy[["name", "wave", "#", "date", "patch", "battle"] + additional_column]
             .style.apply(
                 lambda row: [
                     None,
@@ -366,24 +369,25 @@ def write_for_each_patch(patch_tab, player_df):
         max_pos = patch_df["#"].min()
         max_pos_data = patch_df[patch_df["#"] == max_pos].iloc[0]
 
+        # Convert patch to string using its __str__ method
+        patch_str = str(patch)
+
         wave_data.append(
             {
-                "patch": f"0.{patch.version_minor}.{patch.version_patch}",
+                "patch": patch_str,
                 "max_wave": max_wave,
                 "tourney_name": max_wave_data["name"],
                 "date": max_wave_data.date,
-                # "patch_role_color": max_wave_data.name_role.color,
                 "battle_conditions": ", ".join(max_wave_data.bcs.values_list("shortcut", flat=True)),
             }
         )
 
         position_data.append(
             {
-                "patch": f"0.{patch.version_minor}.{patch.version_patch}",
+                "patch": patch_str,
                 "max_position": max_pos,
                 "tourney_name": max_pos_data["name"],
                 "date": max_pos_data.date,
-                # "max_position_color": max_pos_data.position_role.color,
                 "battle_conditions": ", ".join(max_pos_data.bcs.values_list("shortcut", flat=True)),
             }
         )
@@ -398,7 +402,6 @@ def write_for_each_patch(patch_tab, player_df):
         lambda row: [
             None,
             None,
-            # f"color: {wave_df[wave_df.patch == row.patch].patch_role_color.iloc[0]}",
             None,
             None,
             None,
@@ -409,7 +412,6 @@ def write_for_each_patch(patch_tab, player_df):
     position_tbdf = position_df[["patch", "max_position", "tourney_name", "date", "battle_conditions"]].style.apply(
         lambda row: [
             None,
-            # f"color: {position_df[position_df.patch == row.patch].max_position_color.iloc[0]}",
             None,
             None,
             None,
