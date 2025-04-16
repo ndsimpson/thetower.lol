@@ -26,6 +26,9 @@ def live_bracket():
     # Get live data and process brackets
     try:
         df = get_live_data(league, True)
+        bracket_order, fullish_brackets = get_bracket_data(df)
+        df = df[df.bracket.isin(fullish_brackets)].copy()  # no sniping
+
     except (IndexError, ValueError):
         if options.current_player_id:
             # Get player's known name

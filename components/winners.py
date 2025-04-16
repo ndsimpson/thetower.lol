@@ -34,7 +34,7 @@ def compute_winners():
     ldf = ldf[ldf.patch.isin(patches_legend)]
 
     df = pd.concat([cdf, ldf])
-    
+
     # Escape HTML in name columns early in the pipeline
     df = escape_df_html(df, ['real_name', 'tourney_name'])
 

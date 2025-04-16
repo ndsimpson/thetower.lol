@@ -77,7 +77,7 @@ def get_stones(player_id):
 
     response = requests.post("https://sb-user-id-service.xsolla.com/api/v1/user-id", headers=headers, json=json_data)
 
-    print(response.json())
+    # print(response.json())
 
     token = response.json()["token"]
 
@@ -105,7 +105,7 @@ def get_stones(player_id):
         params=params,
         headers=headers,
     )
-    print(response.json())
+    # print(response.json())
 
     return response.json(), token
 

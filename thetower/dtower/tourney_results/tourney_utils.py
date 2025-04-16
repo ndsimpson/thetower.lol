@@ -31,6 +31,7 @@ from dtower.tourney_results.models import (
     TourneyResult,
     TourneyRow,
 )
+from components.live.data_ops import get_live_data
 
 # Initialize logging
 logging.basicConfig(level=logging.INFO)
@@ -329,31 +330,25 @@ def check_live_entry(league: str, player_id: str) -> bool:
         True if player has entered, False otherwise
     """
     t1_start = perf_counter()
-    home = Path(os.getenv("HOME"))
-    live_path = home / "tourney" / "results_cache" / f"{league}_live"
+    logging.info(f"Checking live entry for player {player_id} in {league} league")
 
-    last_file = sorted(live_path.glob("*.csv"))[-1]
+    try:
+        # Use the cached version of get_live_df through data_ops
+        df = get_live_data(league, True)
 
-    if (datetime.datetime.now() - get_time(last_file)) > datetime.timedelta(hours=42.5):
-        return False
+        # Calculate bracket statistics and filter
+        bracket_counts = dict(df.groupby("bracket").player_id.unique().map(lambda player_ids: len(player_ids)))
+        fullish_brackets = [bracket for bracket, count in bracket_counts.items() if count >= 28]
+        df = df[df.bracket.isin(fullish_brackets)]  # no sniping
 
-    data = pd.read_csv(last_file, usecols=["player_id", "bracket"])
+        # Check if player is in any full bracket
+        player_found = player_id in df.player_id.values
 
-    if data.empty:
-        return
-
-    bracket_counts = dict(data.groupby("bracket").player_id.unique().map(lambda player_ids: len(player_ids)))
-    fullish_brackets = [bracket for bracket, count in bracket_counts.items() if count >= 28]
-
-    df = data[data.bracket.isin(fullish_brackets)]  # no sniping
-
-    if player_id in df.values:
         t1_stop = perf_counter()
-        logging.debug(f"check_live_entry({league}, {player_id}) took {t1_stop - t1_start}")
-        return True
-    else:
-        t1_stop = perf_counter()
-        logging.debug(f"check_live_entry({league}, {player_id}) took {t1_stop - t1_start}")
+        logging.debug(f"check_live_entry({league}, {player_id}) took {t1_stop - t1_start:.3f} seconds")
+        return player_found
+
+    except (IndexError, ValueError):
         return False
 
 
