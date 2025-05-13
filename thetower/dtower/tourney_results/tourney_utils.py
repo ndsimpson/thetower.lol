@@ -279,7 +279,7 @@ def get_live_df(league: str, shun: bool = False) -> pd.DataFrame:
         ValueError: If no current tournament data is available
     """
     t1_start = perf_counter()
-    home = Path(os.getenv("HOME"))
+    home = Path(os.getenv("HOME", os.getcwd()))
     live_path = home / "tourney" / "results_cache" / f"{league}_live"
 
     all_files = sorted(live_path.glob("*.csv"))
