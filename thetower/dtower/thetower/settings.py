@@ -44,9 +44,11 @@ DATABASES = {
 
 
 # SECURITY WARNING: keep the secret key used in production secret!
-with open("SECRET_KEY", "r") as infile:
-    SECRET_KEY = infile.read()
-
+try:
+    with open("SECRET_KEY", "r") as infile:
+        SECRET_KEY = infile.read()
+except:
+    SECRET_KEY = 'DEBUG'
 
 ALLOWED_HOSTS = [
     "localhost",
