@@ -19,3 +19,5 @@
 
 - `db.sqlite3` goes to `thetower/dtower`
 - `uploads` csv folder goes to `thetower/dtower`
+
+- use `pip-upgrade requirements.txt` to keep dependendies up to date.
