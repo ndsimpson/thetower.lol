@@ -3,8 +3,13 @@
 from datetime import timedelta
 import pandas as pd
 import streamlit as st
+import logging
+from time import perf_counter
 from dtower.tourney_results.constants import leagues
 from towerbcs.towerbcs import predict_future_tournament, TournamentPredictor
+
+logging.info("Starting battle conditions analysis")
+t2_start = perf_counter()
 
 tourney_id, tourney_date, days_until = TournamentPredictor.get_tournament_info()
 
@@ -23,3 +28,7 @@ st.dataframe(
     ).transpose().fillna(''),
     use_container_width=True
 )
+
+# Log execution time at the end of the file
+t2_stop = perf_counter()
+logging.info(f"Full battle conditions analysis took {t2_stop - t2_start}")

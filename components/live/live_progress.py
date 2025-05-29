@@ -1,6 +1,8 @@
 import pandas as pd
 import plotly.express as px
 import streamlit as st
+import logging
+from time import perf_counter
 
 from components.live.ui_components import setup_common_ui
 from components.live.data_ops import (
@@ -16,6 +18,8 @@ from dtower.tourney_results.models import TourneyResult
 @require_tournament_data
 def live_progress():
     st.markdown("# Live Progress")
+    logging.info("Starting live progress")
+    t2_start = perf_counter()
 
     # Use common UI setup
     options, league, is_mobile = setup_common_ui()
@@ -85,6 +89,10 @@ def live_progress():
     )
     fig.add_hline(y=2500, line_dash="dot", line_color="green")
     st.plotly_chart(fig, use_container_width=True)
+
+    # Log execution time
+    t2_stop = perf_counter()
+    logging.info(f"Full live_progress for {league} took {t2_stop - t2_start}")
 
 
 live_progress()

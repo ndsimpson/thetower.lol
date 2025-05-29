@@ -1,4 +1,6 @@
 import streamlit as st
+import logging
+from time import perf_counter
 
 from components.live.ui_components import setup_common_ui
 from components.live.data_ops import (
@@ -13,6 +15,8 @@ from dtower.tourney_results.models import TourneyResult
 @require_tournament_data
 def live_results():
     st.markdown("# Live Results")
+    logging.info("Starting live results")
+    t2_start = perf_counter()
 
     # Use common UI setup
     options, league, is_mobile = setup_common_ui()
@@ -60,6 +64,10 @@ def live_results():
         height=600,
         width=400
     )
+
+    # Log execution time
+    t2_stop = perf_counter()
+    logging.info(f"Full live_results for {league} took {t2_stop - t2_start}")
 
 
 live_results()

@@ -1,6 +1,8 @@
 import pandas as pd
 import plotly.express as px
 import streamlit as st
+import logging
+from time import perf_counter
 
 from components.live.ui_components import setup_common_ui
 from components.live.data_ops import (
@@ -14,6 +16,9 @@ from components.live.data_ops import (
 @require_tournament_data
 def bracket_analysis():
     st.markdown("# Live Bracket Analysis")
+    logging.info("Starting live bracket analysis")
+    t2_start = perf_counter()
+
     options, league, is_mobile = setup_common_ui()
 
     # Get processed data
@@ -86,6 +91,10 @@ def bracket_analysis():
         st.dataframe(
             ldf[ldf.bracket == bracket_stats['lowest_median']][["real_name", "wave", "datetime"]]
         )
+
+    # Log execution time
+    t2_stop = perf_counter()
+    logging.info(f"Full live_bracket_analysis for {league} took {t2_stop - t2_start}")
 
 
 bracket_analysis()

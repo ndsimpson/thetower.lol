@@ -2,6 +2,8 @@ from urllib.parse import urlencode
 import pandas as pd
 import plotly.express as px
 import streamlit as st
+import logging
+from time import perf_counter
 
 from components.live.ui_components import setup_common_ui
 from components.live.data_ops import (
@@ -19,8 +21,11 @@ from dtower.tourney_results.data import get_player_id_lookup
 
 @require_tournament_data
 def live_bracket():
-    st.markdown("# Live Bracket View")
+    st.markdown("# Live Bracket")
+    logging.info("Starting live bracket")
+    t2_start = perf_counter()
 
+    # Use common UI setup
     options, league, is_mobile = setup_common_ui()
 
     # Get live data and process brackets
@@ -173,6 +178,10 @@ def live_bracket():
         st.code(url)
         if player_ids:
             st.code(f"https://{BASE_URL}/comparison?bracket_player={player_ids[0]}")
+
+    # Log execution time
+    t2_stop = perf_counter()
+    logging.info(f"Full live_bracket for {league} took {t2_stop - t2_start}")
 
 
 live_bracket()
