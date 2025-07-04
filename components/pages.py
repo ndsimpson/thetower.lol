@@ -84,11 +84,13 @@ page_dict["Deprecated"] = deprecated_pages
 
 
 pg = st.navigation(page_dict)
+try:
+    st.logo("components/static/TT.png", size="large", icon_image="components/static/TTIcon.png")
 
-st.logo("components/static/TT.png", size="large", icon_image="components/static/TTIcon.png")
-
-# Only show toggle and make it rain if there are active rain periods
-active_period = RainPeriod.get_active_period()
+    # Only show toggle and make it rain if there are active rain periods
+    active_period = RainPeriod.get_active_period()
+except:
+    active_period = False
 
 if active_period:
     with st.sidebar:

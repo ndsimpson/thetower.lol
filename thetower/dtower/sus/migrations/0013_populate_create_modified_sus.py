@@ -4,6 +4,7 @@ from django.db import migrations
 def upgrade(apps, schema_editor):
     from dtower.sus.models import SusPerson
 
+    # TODO: This loads before the column is put in place, need to figure out why, comment out the for loop to run migrate.py
     for sus in SusPerson.objects.all():
         history = sus.history.all()
         created = [hist for hist in history if hist.history_type == "+"]
