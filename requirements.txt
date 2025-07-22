@@ -18,6 +18,7 @@ django-simple-history==3.10.1
 djangorestframework==3.16.0
 whitenoise==6.9.0
 django-colorfield==0.14.0
+django-axes==8.0.0
 pretty-html-table==0.9.16
 anthropic==0.58.2
 pyarrow==21.0.0

@@ -11,6 +11,7 @@ https://docs.djangoproject.com/en/4.2/ref/settings/
 """
 
 from pathlib import Path
+import sys
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -84,6 +85,7 @@ INSTALLED_APPS = [
     "dtower.tourney_results",
     "colorfield",
     "simple_history",
+    "axes",
 ]
 
 MIDDLEWARE = [
@@ -93,6 +95,7 @@ MIDDLEWARE = [
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
+    "axes.middleware.AxesMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
@@ -175,3 +178,27 @@ LOGGING = {
         },
     },
 }
+
+
+# Django Axes Configuration for Login Tracking
+AUTHENTICATION_BACKENDS = [
+    # AxesStandaloneBackend should be the first backend in the AUTHENTICATION_BACKENDS list.
+    'axes.backends.AxesStandaloneBackend',
+
+    # Django ModelBackend is the default authentication backend.
+    'django.contrib.auth.backends.ModelBackend',
+]
+
+# Axes settings for django-axes 8.0.0+
+AXES_FAILURE_LIMIT = 5  # Number of failed login attempts before lockout
+AXES_COOLOFF_TIME = 1  # Time in hours to wait after lockout
+AXES_LOCKOUT_CALLABLE = None  # Use default lockout behavior
+AXES_LOCK_OUT_AT_FAILURE = True  # Lock out after failure limit
+AXES_VERBOSE = True  # Verbose logging
+AXES_RESET_ON_SUCCESS = True  # Reset failure count on successful login
+AXES_LOCKOUT_TEMPLATE = None  # Use default lockout template
+AXES_ENABLE_ADMIN = True  # Enable admin interface for axes
+
+# Modern django-axes configuration
+AXES_HANDLER = 'axes.handlers.database.AxesDatabaseHandler'  # Use database handler
+AXES_LOCKOUT_PARAMETERS = ['ip_address', 'username']  # Lock by combination of IP and username
