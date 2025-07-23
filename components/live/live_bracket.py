@@ -50,7 +50,7 @@ def live_bracket():
     name_col, id_col = st.columns(2)
 
     # Initialize bracket navigation
-    bracket_idx = initialize_bracket_state(bracket_order)
+    bracket_idx = initialize_bracket_state(bracket_order, league)
     selected_real_name = None
     selected_player_id = None
     selected_bracket = None
@@ -61,8 +61,16 @@ def live_bracket():
     elif options.current_player_id:
         selected_player_id = options.current_player_id
     else:
-        selected_real_name = name_col.selectbox("Bracket of...", [""] + sorted(df.real_name.unique()))
-        selected_player_id = id_col.selectbox("...or by player id", [""] + sorted(df.player_id.unique()))
+        selected_real_name = name_col.selectbox(
+            "Bracket of...",
+            [""] + sorted(df.real_name.unique()),
+            key=f"player_name_selector_{league}"
+        )
+        selected_player_id = id_col.selectbox(
+            "...or by player id",
+            [""] + sorted(df.player_id.unique()),
+            key=f"player_id_selector_{league}"
+        )
 
         if not selected_real_name and not selected_player_id:
             # Add navigation buttons
@@ -70,25 +78,27 @@ def live_bracket():
 
             with prev_col:
                 if st.button("← Previous Bracket", key=f"prev_{league}"):
-                    update_bracket_index(bracket_idx - 1, len(bracket_order) - 1)
+                    update_bracket_index(bracket_idx - 1, len(bracket_order) - 1, league)
 
             with curr_col:
                 selected_bracket_direct = st.selectbox(
                     "Select Bracket",
                     bracket_order,
-                    index=st.session_state.current_bracket_idx
+                    index=st.session_state[f"current_bracket_idx_{league}"],
+                    key=f"bracket_selector_{league}"
                 )
-                if selected_bracket_direct != bracket_order[st.session_state.current_bracket_idx]:
+                if selected_bracket_direct != bracket_order[st.session_state[f"current_bracket_idx_{league}"]]:
                     update_bracket_index(
                         bracket_order.index(selected_bracket_direct),
-                        len(bracket_order) - 1
+                        len(bracket_order) - 1,
+                        league
                     )
 
             with next_col:
                 if st.button("Next Bracket →", key=f"next_{league}"):
-                    update_bracket_index(bracket_idx + 1, len(bracket_order) - 1)
+                    update_bracket_index(bracket_idx + 1, len(bracket_order) - 1, league)
 
-            selected_bracket = bracket_order[st.session_state.current_bracket_idx]
+            selected_bracket = bracket_order[st.session_state[f"current_bracket_idx_{league}"]]
 
     if not any([selected_real_name, selected_player_id, selected_bracket]):
         return
@@ -98,7 +108,7 @@ def live_bracket():
         bracket_id, tdf, selected_real_name, bracket_idx = process_bracket_selection(
             df, selected_real_name, selected_player_id, selected_bracket, bracket_order
         )
-        st.session_state.current_bracket_idx = bracket_idx
+        st.session_state[f"current_bracket_idx_{league}"] = bracket_idx
     except ValueError as e:
         if selected_player_id:
             # Get player's known name

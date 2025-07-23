@@ -1,5 +1,5 @@
 # for the main streamlit app
-streamlit==1.44.1
+streamlit==1.47.0
 streamlit-extras==0.6.0
 requests==2.32.4
 pandas==2.3.1

@@ -25,7 +25,11 @@ def live_score():
     df, latest_time, bracket_creation_times = get_placement_analysis_data(league)
 
     # Player selection
-    selected_player = st.selectbox("Select player", [""] + sorted(df["real_name"].unique()))
+    selected_player = st.selectbox(
+        "Select player",
+        [""] + sorted(df["real_name"].unique()),
+        key=f"player_selector_{league}"
+    )
     if not selected_player:
         return
 

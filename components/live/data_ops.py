@@ -289,17 +289,19 @@ def get_cached_plot_data(df):
     return plot_data
 
 
-def initialize_bracket_state(bracket_order):
+def initialize_bracket_state(bracket_order, league):
     """Initialize or update bracket navigation state"""
-    if "current_bracket_idx" not in st.session_state:
-        st.session_state.current_bracket_idx = 0
+    bracket_key = f"current_bracket_idx_{league}"
+    if bracket_key not in st.session_state:
+        st.session_state[bracket_key] = 0
 
-    return st.session_state.current_bracket_idx
+    return st.session_state[bracket_key]
 
 
-def update_bracket_index(new_index, max_index):
+def update_bracket_index(new_index, max_index, league):
     """Update bracket navigation index with bounds checking"""
-    st.session_state.current_bracket_idx = max(0, min(new_index, max_index))
+    bracket_key = f"current_bracket_idx_{league}"
+    st.session_state[bracket_key] = max(0, min(new_index, max_index))
 
 
 def clear_cache():

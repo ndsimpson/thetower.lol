@@ -174,7 +174,11 @@ def live_score():
     with view_tabs[3]:
         # Get all unique real names for the selector
         all_players = sorted(df["real_name"].unique())
-        selected_player = st.selectbox("Select player", all_players)
+        selected_player = st.selectbox(
+            "Select player",
+            all_players,
+            key=f"player_selector_{league}"
+        )
 
         if not selected_player:
             return
