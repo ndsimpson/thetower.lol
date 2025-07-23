@@ -11,7 +11,6 @@ https://docs.djangoproject.com/en/4.2/ref/settings/
 """
 
 from pathlib import Path
-import sys
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -202,3 +201,11 @@ AXES_ENABLE_ADMIN = True  # Enable admin interface for axes
 # Modern django-axes configuration
 AXES_HANDLER = 'axes.handlers.database.AxesDatabaseHandler'  # Use database handler
 AXES_LOCKOUT_PARAMETERS = ['ip_address', 'username']  # Lock by combination of IP and username
+
+# IP Address Detection for Proxies (nginx only for now)
+AXES_PROXY_COUNT = 1  # Just nginx for now, will adjust based on observed behavior
+AXES_META_PRECEDENCE_ORDER = [
+    'HTTP_X_FORWARDED_FOR',   # Standard forwarded header
+    'HTTP_X_REAL_IP',         # nginx real_ip module header
+    'REMOTE_ADDR',            # Fallback to direct connection
+]
