@@ -202,10 +202,11 @@ AXES_ENABLE_ADMIN = True  # Enable admin interface for axes
 AXES_HANDLER = 'axes.handlers.database.AxesDatabaseHandler'  # Use database handler
 AXES_LOCKOUT_PARAMETERS = ['ip_address', 'username']  # Lock by combination of IP and username
 
-# IP Address Detection for Proxies (nginx only for now)
-AXES_PROXY_COUNT = 1  # Just nginx for now, will adjust based on observed behavior
+# IP Address Detection for Proxies (CloudFlare + nginx configuration)
+AXES_PROXY_COUNT = 2  # CloudFlare + nginx = 2 proxies
 AXES_META_PRECEDENCE_ORDER = [
-    'HTTP_X_FORWARDED_FOR',   # Standard forwarded header
+    'HTTP_CF_CONNECTING_IP',  # CloudFlare's real IP header (most reliable)
+    'HTTP_X_FORWARDED_FOR',   # Standard forwarded header (may contain proxy chain)
     'HTTP_X_REAL_IP',         # nginx real_ip module header
     'REMOTE_ADDR',            # Fallback to direct connection
 ]
