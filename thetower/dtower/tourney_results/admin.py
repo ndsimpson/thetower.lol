@@ -62,9 +62,9 @@ def restart_admin_site(modeladmin, request, queryset):
     subprocess.call("systemctl restart tower-admin_site", shell=True)
 
 
-@admin.action(description="Restart discord bot")
+@admin.action(description="Restart fish bot")
 def restart_discord_bot(modeladmin, request, queryset):
-    subprocess.call("systemctl restart discord_bot", shell=True)
+    subprocess.call("systemctl restart fish_bot", shell=True)
 
 
 @admin.action(description="Restart verification bot")
