@@ -89,7 +89,16 @@ class ValidationCog(commands.Cog):
                     result = await sync_to_async(self._create_or_update_player, thread_sensitive=True)(
                         discord_id, message.author.name, message.content.upper()
                     )
-                    # Optionally, add role assignment logic here
+
+                    # Assign verified role
+                    verified_role_id = self.config.get_role_id("verified") if self.config else None
+                    if verified_role_id:
+                        guild = message.guild
+                        member = message.author
+                        role = guild.get_role(verified_role_id)
+                        if role and role not in member.roles:
+                            await member.add_roles(role)
+
                     await message.add_reaction("✅")
                 except Exception as db_exc:
                     await message.add_reaction("❌")
