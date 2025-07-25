@@ -34,15 +34,31 @@ class AdTypeSelection(View):
 
     @discord.ui.button(label="Guild Advertisement", style=discord.ButtonStyle.primary, emoji="🏰")
     async def guild_button(self, interaction: discord.Interaction, button: Button) -> None:
+        # Defer the response early to prevent timeouts
+        if not interaction.response.is_done():
+            await interaction.response.defer(ephemeral=True)
+        
         form = GuildAdvertisementForm(self.cog)
         view = NotificationView(form)
-        await interaction.response.send_message("Please select your notification preference:", view=view, ephemeral=True)
+        
+        if interaction.response.is_done():
+            await interaction.followup.send("Please select your notification preference:", view=view, ephemeral=True)
+        else:
+            await interaction.response.send_message("Please select your notification preference:", view=view, ephemeral=True)
 
     @discord.ui.button(label="Member Advertisement", style=discord.ButtonStyle.success, emoji="👤")
     async def member_button(self, interaction: discord.Interaction, button: Button) -> None:
+        # Defer the response early to prevent timeouts
+        if not interaction.response.is_done():
+            await interaction.response.defer(ephemeral=True)
+        
         form = MemberAdvertisementForm(self.cog)
         view = NotificationView(form)  # Reuse the same NotificationView
-        await interaction.response.send_message("Please select your notification preference:", view=view, ephemeral=True)
+        
+        if interaction.response.is_done():
+            await interaction.followup.send("Please select your notification preference:", view=view, ephemeral=True)
+        else:
+            await interaction.response.send_message("Please select your notification preference:", view=view, ephemeral=True)
 
     async def on_timeout(self) -> None:
         # Disable all buttons when the view times out
@@ -108,10 +124,15 @@ class GuildAdvertisementForm(Modal, title="Guild Advertisement Form"):
     )
 
     async def on_submit(self, interaction: discord.Interaction) -> None:
+        import time
+        start_time = time.time()
         self.interaction = interaction  # Store interaction when form is submitted
+        await self.cog._send_debug_message(f"Guild advertisement form submitted by user {interaction.user.id} ({interaction.user.name})")
+        
         # Check if guild ID is valid (only A-Z, 0-9, exactly 6 chars)
         guild_id = self.guild_id.value.upper()
         if not re.match(r'^[A-Z0-9]{6}$', guild_id):
+            await self.cog._send_debug_message(f"Invalid guild ID format from user {interaction.user.id}: {guild_id}")
             await interaction.response.send_message(
                 "Guild ID must be exactly 6 characters and only contain letters A-Z and numbers 0-9.",
                 ephemeral=True
@@ -123,6 +144,7 @@ class GuildAdvertisementForm(Modal, title="Guild Advertisement Form"):
 
         # Check cooldowns before processing
         user_id = interaction.user.id
+        cooldown_start = time.time()
 
         cooldown_check = await self.cog.check_cooldowns(
             interaction,
@@ -130,6 +152,12 @@ class GuildAdvertisementForm(Modal, title="Guild Advertisement Form"):
             guild_id,
             AdvertisementType.GUILD
         )
+        cooldown_time = time.time() - cooldown_start
+        await self.cog._send_debug_message(f"Cooldown check completed in {cooldown_time:.2f}s for user {interaction.user.id}")
+        
+        # Warn if cooldown check took too long
+        if cooldown_time > 1.0:
+            await self.cog._send_debug_message(f"⚠️ Cooldown check took {cooldown_time:.2f}s - potential timeout risk for user {interaction.user.id}")
 
         if not cooldown_check:
             return
@@ -150,6 +178,8 @@ class GuildAdvertisementForm(Modal, title="Guild Advertisement Form"):
 
         # Post advertisement and update cooldowns
         thread_title = f"[Guild] {self.guild_name.value} ({guild_id})"
+        total_time = time.time() - start_time
+        await self.cog._send_debug_message(f"Guild form processing completed in {total_time:.2f}s, posting advertisement for user {interaction.user.id}")
         await self.cog.post_advertisement(interaction, embed, thread_title, AdvertisementType.GUILD, guild_id, notify)
 
     async def on_timeout(self) -> None:
@@ -324,6 +354,9 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
         self.guild_id: Optional[int] = self.get_setting("guild_id")
         self.cooldown_filename: str = self.get_setting("cooldown_filename", "advertisement_cooldowns.json")
         self.pending_deletions_filename: str = self.get_setting("pending_deletions_filename", "advertisement_pending_deletions.pkl")
+        
+        # Get testing channel from config for debug messages
+        self.testing_channel_id: Optional[int] = self.config.get_channel_id("testing") if self.config else None
 
     async def cog_initialize(self) -> None:
         """Initialize the cog - called by BaseCog during ready process."""
@@ -554,23 +587,35 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
     @discord.app_commands.command(name="advertise", description="Create a new advertisement")
     async def advertise_slash(self, interaction: discord.Interaction) -> None:
         """Slash command for creating an advertisement."""
+        import time
+        start_time = time.time()
+        await self._send_debug_message(f"Advertise command started by user {interaction.user.id} ({interaction.user.name})")
+        
         if not await self.wait_until_ready():
+            await self._send_debug_message(f"System not ready for user {interaction.user.id}")
             await interaction.response.send_message("⏳ System is still initializing, please try again later.", ephemeral=True)
             return
 
         # Check if system is paused
         if self.is_paused:
+            await self._send_debug_message(f"System paused when user {interaction.user.id} tried to advertise")
             await interaction.response.send_message("⏸️ The advertisement system is currently paused. Please try again later.", ephemeral=True)
             return
 
         # Check permissions
+        permission_start = time.time()
         if not await self.interaction_check(interaction):
+            await self._send_debug_message(f"Permission check failed for user {interaction.user.id} after {time.time() - permission_start:.2f}s")
             return
+        permission_time = time.time() - permission_start
+        await self._send_debug_message(f"Permission check completed in {permission_time:.2f}s for user {interaction.user.id}")
 
         # Create the selection view
         view = AdTypeSelection(self)
 
         # Show the advertisement type selection
+        total_time = time.time() - start_time
+        await self._send_debug_message(f"Advertise command setup completed in {total_time:.2f}s for user {interaction.user.id}")
         await interaction.response.send_message(
             "What type of advertisement would you like to post?",
             view=view,
@@ -1267,6 +1312,18 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
         """Check for threads that were scheduled for deletion before restart."""
         self.logger.info(f"Resumed tracking {len(self.pending_deletions)} pending thread deletions")
 
+    async def _send_debug_message(self, message: str) -> None:
+        """Send debug message to testing channel if configured."""
+        if self.testing_channel_id:
+            try:
+                channel = self.bot.get_channel(self.testing_channel_id)
+                if channel:
+                    await channel.send(f"🔧 **Advertise Debug**: {message}")
+            except Exception as e:
+                self.logger.error(f"Failed to send debug message to testing channel: {e}")
+        # Always log to console as backup
+        self.logger.info(message)
+
     async def check_cooldowns(self, interaction: discord.Interaction, user_id: int, guild_id: Optional[str] = None,
                               ad_type: Optional[str] = None) -> bool:
         """Check if user or guild is on cooldown and handle the response.
@@ -1342,14 +1399,21 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
             guild_id: Guild ID (optional, for guild advertisements)
             notify: Whether to notify the user when the ad expires
         """
+        import time
+        start_time = time.time()
+        await self._send_debug_message(f"Starting post_advertisement for user {interaction.user.id} ({interaction.user.name}), type: {ad_type}")
+        
         try:
             # Track operation with BaseCog's task tracker
             async with self.task_tracker.task_context("Posting Advertisement"):
+                channel_fetch_start = time.time()
                 # Get the forum channel
                 channel = self.bot.get_channel(self.advertise_channel_id)
+                channel_fetch_time = time.time() - channel_fetch_start
+                await self._send_debug_message(f"Channel fetch took {channel_fetch_time:.2f}s for user {interaction.user.id}")
 
                 if not channel:
-                    self.logger.error(f"Advertisement channel not found: {self.advertise_channel_id}")
+                    await self._send_debug_message(f"❌ Advertisement channel not found: {self.advertise_channel_id}")
                     await interaction.response.send_message(
                         "There was an error posting your advertisement. Please contact @thedisasterfish.",
                         ephemeral=True
@@ -1381,6 +1445,7 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
                         self._has_errors = True
 
                 # Create the forum thread with tags
+                thread_create_start = time.time()
                 thread_with_message = await channel.create_thread(
                     name=thread_title,
                     content="",  # Empty content
@@ -1388,13 +1453,16 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
                     applied_tags=applied_tags,  # Apply the tags
                     auto_archive_duration=1440  # Auto-archive after 24 hours
                 )
+                thread_create_time = time.time() - thread_create_start
+                await self._send_debug_message(f"Thread creation took {thread_create_time:.2f}s for user {interaction.user.id}")
 
                 thread = thread_with_message.thread
-                self.logger.info(f"Created new advertisement thread: {thread.id} for user {interaction.user.id} (type: {ad_type})")
+                await self._send_debug_message(f"✅ Created advertisement thread: {thread.id} for user {interaction.user.id} ({interaction.user.name}), type: {ad_type}")
                 self._operation_count += 1
                 self._last_operation_time = datetime.datetime.now()
 
                 # Confirm to the user
+                response_start = time.time()
                 if interaction.response.is_done():
                     await interaction.followup.send(
                         f"Thank you! Your {ad_type} advertisement has been posted. "
@@ -1407,6 +1475,8 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
                         f"It will remain visible for {self.cooldown_hours} hours.",
                         ephemeral=True
                     )
+                response_time = time.time() - response_start
+                await self._send_debug_message(f"User response took {response_time:.2f}s for user {interaction.user.id}")
 
                 # Update cooldowns
                 current_time = datetime.datetime.now().isoformat()
@@ -1422,11 +1492,15 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
                 deletion_time = datetime.datetime.now() + datetime.timedelta(hours=self.cooldown_hours)
                 self.pending_deletions.append((thread.id, deletion_time, interaction.user.id, notify))
                 await self._save_pending_deletions()
-                self.logger.info(f"Scheduled thread {thread.id} for deletion at {deletion_time} "
-                                 f"with notify={notify}, author={interaction.user.id}")
+                await self._send_debug_message(f"Scheduled thread {thread.id} for deletion at {deletion_time} with notify={notify}, author={interaction.user.id}")
+                
+                total_time = time.time() - start_time
+                await self._send_debug_message(f"✅ Advertisement posting completed in {total_time:.2f}s for user {interaction.user.id} ({interaction.user.name})")
 
         except Exception as e:
-            self.logger.error(f"Error in post_advertisement: {e}", exc_info=True)
+            total_time = time.time() - start_time
+            await self._send_debug_message(f"❌ Error in post_advertisement after {total_time:.2f}s for user {interaction.user.id}: {str(e)}")
+            self.logger.error(f"Error in post_advertisement after {total_time:.2f}s: {e}", exc_info=True)
             self._has_errors = True
             if interaction.response.is_done():
                 await interaction.followup.send(
