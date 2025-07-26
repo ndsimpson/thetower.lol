@@ -353,13 +353,263 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
                     notify = False
                     self.pending_deletions.append((thread.id, deletion_time, author_id, notify))
                     new_orphans += 1
+
+                    # Update cooldown timestamp to match this thread's creation time
+                    if author_id != 0:
+                        thread_creation_timestamp = thread.created_at.isoformat()
+                        self.cooldowns['users'][str(author_id)] = thread_creation_timestamp
+                        await self._send_debug_message(f"Updated user {author_id} cooldown to match orphaned thread {thread.id} creation time")
             if new_orphans:
                 await self._save_pending_deletions()
+                await self._save_cooldowns()  # Save updated cooldown timestamps
                 await self._send_debug_message(f"Orphan scan: Added {new_orphans} orphaned threads to pending deletions.")
             else:
                 await self._send_debug_message("Orphan scan: No new orphaned threads found.")
+
+            # After handling orphans, check for duplicates
+            await self._check_and_remove_duplicates(threads)
         except Exception as e:
             await self._send_debug_message(f"Orphan scan: Error: {e}")
+
+    async def _check_and_remove_duplicates(self, threads: list) -> None:
+        """Check for duplicate posts and remove all but the oldest one."""
+        await self._send_debug_message("Starting duplicate detection scan.")
+        try:
+            # Group threads by author to check for duplicates from same user
+            author_threads = {}
+
+            for thread in threads:
+                author_id = getattr(thread, 'owner_id', 0) or 0
+                if author_id == 0:
+                    continue  # Skip threads with no owner
+
+                if author_id not in author_threads:
+                    author_threads[author_id] = []
+                author_threads[author_id].append(thread)
+
+            duplicates_removed = 0
+
+            # Check each author's threads for duplicates
+            for author_id, user_threads in author_threads.items():
+                if len(user_threads) <= 1:
+                    continue  # No duplicates possible with only one thread
+
+                # Sort threads by creation time (oldest first)
+                user_threads.sort(key=lambda t: t.created_at)
+
+                # Group similar threads (could be duplicates)
+                duplicate_groups = []
+                processed_threads = set()
+
+                for i, thread1 in enumerate(user_threads):
+                    if thread1.id in processed_threads:
+                        continue
+
+                    similar_threads = [thread1]
+                    processed_threads.add(thread1.id)
+
+                    # Check if other threads are similar to this one
+                    for j, thread2 in enumerate(user_threads[i + 1:], i + 1):
+                        if thread2.id in processed_threads:
+                            continue
+
+                        if await self._are_threads_similar(thread1, thread2):
+                            similar_threads.append(thread2)
+                            processed_threads.add(thread2.id)
+
+                    if len(similar_threads) > 1:
+                        duplicate_groups.append(similar_threads)
+
+                # Remove duplicates, keeping only the oldest or any pinned thread
+                for duplicate_group in duplicate_groups:
+                    # Check if any threads in the group are pinned
+                    pinned_threads = [t for t in duplicate_group if hasattr(t, 'pinned') and t.pinned]
+                    unpinned_threads = [t for t in duplicate_group if not (hasattr(t, 'pinned') and t.pinned)]
+
+                    if pinned_threads:
+                        # If there are pinned threads, keep all pinned threads and delete all unpinned ones
+                        keep_threads = pinned_threads
+                        delete_threads = unpinned_threads
+                        await self._send_debug_message(f"Found duplicates with {len(pinned_threads)} pinned thread(s) from user {author_id}, keeping pinned, deleting {len(delete_threads)} unpinned")
+                    else:
+                        # No pinned threads, keep the oldest (first in sorted list)
+                        keep_threads = [duplicate_group[0]]
+                        delete_threads = duplicate_group[1:]
+                        await self._send_debug_message(f"Found {len(delete_threads)} duplicate threads from user {author_id}, keeping oldest: {keep_threads[0].id}")
+
+                    for thread in delete_threads:
+                        try:
+                            await thread.delete()
+                            duplicates_removed += 1
+                            await self._send_debug_message(f"Deleted duplicate thread {thread.id}")
+
+                            # Remove from pending deletions if it was there
+                            self.pending_deletions = [
+                                entry for entry in self.pending_deletions
+                                if entry[0] != thread.id
+                            ]
+
+                        except Exception as e:
+                            await self._send_debug_message(f"Error deleting duplicate thread {thread.id}: {e}")
+
+                    # Ensure all kept threads are properly tracked
+                    tracked_ids = {t_id for t_id, _, _, _ in self.pending_deletions}
+                    for keep_thread in keep_threads:
+                        if keep_thread.id not in tracked_ids:
+                            deletion_time = datetime.datetime.now() + datetime.timedelta(hours=self.cooldown_hours)
+                            notify = False  # Don't notify for duplicate cleanup
+                            self.pending_deletions.append((keep_thread.id, deletion_time, author_id, notify))
+                            await self._send_debug_message(f"Added kept thread {keep_thread.id} to pending deletions tracking")
+
+                        # Update cooldown timestamp to match the kept thread's creation time
+                        # This ensures the timeout aligns with the actual remaining post
+                        thread_creation_timestamp = keep_thread.created_at.isoformat()
+                        self.cooldowns['users'][str(author_id)] = thread_creation_timestamp
+                        await self._send_debug_message(f"Updated user {author_id} cooldown to match kept thread {keep_thread.id} creation time")
+
+            if duplicates_removed > 0:
+                await self._save_pending_deletions()
+                await self._save_cooldowns()  # Save updated cooldown timestamps
+                await self._send_debug_message(f"Duplicate scan complete: Removed {duplicates_removed} duplicate threads.")
+            else:
+                await self._send_debug_message("Duplicate scan complete: No duplicates found.")
+
+        except Exception as e:
+            await self._send_debug_message(f"Duplicate detection error: {e}")
+
+    async def _are_threads_similar(self, thread1, thread2) -> bool:
+        """Determine if two threads are similar enough to be considered duplicates.
+
+        Since all posts are created by the bot via forms, we can be more precise
+        in duplicate detection by comparing the structured embed content.
+        """
+        try:
+            # First check: if threads are from the same author and created very close together
+            time_diff = abs((thread1.created_at - thread2.created_at).total_seconds())
+
+            # If created within 2 minutes, likely a duplicate submission
+            if time_diff <= 120:  # 2 minutes
+                # Get the embed content from both threads to compare
+                try:
+                    embed1_data = None
+                    embed2_data = None
+
+                    # Get the first message from each thread (the bot's embed post)
+                    async for msg1 in thread1.history(limit=1):
+                        if msg1.author == self.bot.user and msg1.embeds:
+                            embed1_data = msg1.embeds[0]
+                        break
+
+                    async for msg2 in thread2.history(limit=1):
+                        if msg2.author == self.bot.user and msg2.embeds:
+                            embed2_data = msg2.embeds[0]
+                        break
+
+                    if embed1_data and embed2_data:
+                        return self._are_embeds_similar(embed1_data, embed2_data)
+
+                except Exception:
+                    pass  # If we can't fetch messages, fall back to title comparison
+
+            # Fallback: Check if titles are very similar (for bot-generated titles)
+            title1 = thread1.name.lower().strip()
+            title2 = thread2.name.lower().strip()
+
+            # Remove common bot-generated prefixes
+            for prefix in ['[guild]', '[member]']:
+                title1 = title1.replace(prefix, '').strip()
+                title2 = title2.replace(prefix, '').strip()
+
+            # If titles are identical after cleaning, they're likely duplicates
+            if title1 == title2:
+                return True
+
+            # Check for very similar titles (for cases where user name might vary slightly)
+            if len(title1) > 10 and len(title2) > 10:
+                # Extract key parts (like guild names or player IDs from titles)
+                # Guild format: "[Guild] GuildName (ID)"
+                # Member format: "[Member] PlayerName (PlayerID)"
+
+                # Look for parentheses content (IDs)
+                import re
+                id_pattern = r'\(([^)]+)\)'
+
+                id1_match = re.search(id_pattern, title1)
+                id2_match = re.search(id_pattern, title2)
+
+                if id1_match and id2_match:
+                    id1 = id1_match.group(1).strip()
+                    id2 = id2_match.group(1).strip()
+
+                    # If the IDs are the same, likely duplicate
+                    if id1 == id2:
+                        return True
+
+            return False
+
+        except Exception as e:
+            await self._send_debug_message(f"Error comparing threads {thread1.id} and {thread2.id}: {e}")
+            return False
+
+    def _are_embeds_similar(self, embed1, embed2) -> bool:
+        """Compare two bot-generated embeds to see if they're duplicates.
+
+        Since these are bot-generated embeds with consistent structure,
+        we can be more precise in our comparison.
+        """
+        try:
+            # Compare embed titles (should be very similar for duplicates)
+            if embed1.title and embed2.title:
+                title1 = embed1.title.lower().strip()
+                title2 = embed2.title.lower().strip()
+                if title1 == title2:
+                    return True
+
+            # Compare field values (the most reliable indicator for bot-generated content)
+            if embed1.fields and embed2.fields:
+                # Create dictionaries of field name -> value for easier comparison
+                fields1 = {field.name.lower().strip(): field.value.lower().strip()
+                           for field in embed1.fields if field.name and field.value}
+                fields2 = {field.name.lower().strip(): field.value.lower().strip()
+                           for field in embed2.fields if field.name and field.value}
+
+                # Check for key identifying fields
+                key_fields = ['player id', 'guild id', 'guild name']
+
+                for key_field in key_fields:
+                    if key_field in fields1 and key_field in fields2:
+                        value1 = fields1[key_field]
+                        value2 = fields2[key_field]
+
+                        # Remove markdown links if present: [TEXT](URL) -> TEXT
+                        import re
+                        link_pattern = r'\[([^\]]+)\]\([^)]+\)'
+                        value1 = re.sub(link_pattern, r'\1', value1)
+                        value2 = re.sub(link_pattern, r'\1', value2)
+
+                        # If key identifying fields match, it's a duplicate
+                        if value1 == value2 and len(value1) > 0:
+                            return True
+
+                # Additional check: if most fields match, likely duplicate
+                matching_fields = 0
+                total_fields = len(fields1)
+
+                if total_fields > 0:
+                    for field_name, value1 in fields1.items():
+                        if field_name in fields2:
+                            value2 = fields2[field_name]
+                            if value1 == value2:
+                                matching_fields += 1
+
+                    # If 80% or more fields match, consider it a duplicate
+                    if matching_fields / total_fields >= 0.8:
+                        return True
+
+            return False
+
+        except Exception:
+            return False
     """Combined cog for both guild and member advertisements.
 
     Provides functionality for posting, managing and moderating
