@@ -129,8 +129,8 @@ class GuildAdvertisementForm(Modal, title="Guild Advertisement Form"):
         self.interaction = interaction  # Store interaction when form is submitted
         await self.cog._send_debug_message(f"Guild advertisement form submitted by user {interaction.user.id} ({interaction.user.name})")
 
-        # Check if guild ID is valid (only A-Z, 0-9, exactly 6 chars)
-        guild_id = self.guild_id.value.upper()
+        # Normalize and validate guild ID
+        guild_id = self.cog._normalize_guild_id(self.guild_id.value)
         if not re.match(r'^[A-Z0-9]{6}$', guild_id):
             await self.cog._send_debug_message(f"Invalid guild ID format from user {interaction.user.id}: {guild_id}")
             await interaction.response.send_message(
@@ -174,6 +174,7 @@ class GuildAdvertisementForm(Modal, title="Guild Advertisement Form"):
         embed.add_field(name="Guild ID", value=guild_id, inline=True)  # Display uppercase ID
         embed.add_field(name="Leader", value=self.guild_leader.value, inline=True)
         embed.add_field(name="Member Count", value=self.member_count.value, inline=True)
+        embed.add_field(name="Posted by", value=f"<@{interaction.user.id}>", inline=True)
         embed.set_footer(text="Use /advertise to submit your own advertisement")
 
         # CRITICAL: Respond to interaction IMMEDIATELY before heavy work
@@ -297,6 +298,7 @@ class MemberAdvertisementForm(Modal, title="Member Advertisement Form"):
         url_value = f"[{player_id}](https://thetower.lol/player?player={player_id})"
         embed.add_field(name="Player ID", value=url_value, inline=True)
         embed.add_field(name="Weekly Box Count", value=self.weekly_boxes.value, inline=True)
+        embed.add_field(name="Posted by", value=f"<@{interaction.user.id}>", inline=True)
         embed.add_field(name="Additional Info", value=self.additional_info.value, inline=False)
         embed.set_footer(text="Use /advertise to submit your own advertisement")
 
@@ -347,18 +349,26 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
             new_orphans = 0
             for thread in threads:
                 if thread.id not in tracked_ids:
+                    # Extract actual user and guild information from embed
+                    user_id, guild_id, ad_type = await self._extract_user_and_guild_info(thread)
+
                     # Add all orphans regardless of pin status
                     deletion_time = datetime.datetime.now() + datetime.timedelta(hours=self.cooldown_hours)
-                    author_id = getattr(thread, 'owner_id', 0) or 0
                     notify = False
-                    self.pending_deletions.append((thread.id, deletion_time, author_id, notify))
+                    self.pending_deletions.append((thread.id, deletion_time, user_id, notify))
                     new_orphans += 1
 
-                    # Update cooldown timestamp to match this thread's creation time
-                    if author_id != 0:
-                        thread_creation_timestamp = thread.created_at.isoformat()
-                        self.cooldowns['users'][str(author_id)] = thread_creation_timestamp
-                        await self._send_debug_message(f"Updated user {author_id} cooldown to match orphaned thread {thread.id} creation time")
+                    # Update cooldown timestamps to match this thread's creation time
+                    thread_creation_timestamp = thread.created_at.isoformat()
+
+                    if user_id != 0:
+                        self.cooldowns['users'][str(user_id)] = thread_creation_timestamp
+                        await self._send_debug_message(f"Updated user {user_id} cooldown to match orphaned thread {thread.id} creation time")
+
+                    # For guild advertisements, also update guild cooldown
+                    if ad_type == "guild" and guild_id:
+                        self.cooldowns['guilds'][guild_id] = thread_creation_timestamp
+                        await self._send_debug_message(f"Updated guild {guild_id} cooldown to match orphaned thread {thread.id} creation time")
             if new_orphans:
                 await self._save_pending_deletions()
                 await self._save_cooldowns()  # Save updated cooldown timestamps
@@ -379,20 +389,23 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
             author_threads = {}
 
             for thread in threads:
-                author_id = getattr(thread, 'owner_id', 0) or 0
-                if author_id == 0:
-                    continue  # Skip threads with no owner
+                user_id, guild_id, ad_type = await self._extract_user_and_guild_info(thread)
+                if user_id == 0:
+                    continue  # Skip threads with no identifiable user
 
-                if author_id not in author_threads:
-                    author_threads[author_id] = []
-                author_threads[author_id].append(thread)
+                if user_id not in author_threads:
+                    author_threads[user_id] = []
+                author_threads[user_id].append((thread, guild_id, ad_type))
 
             duplicates_removed = 0
 
             # Check each author's threads for duplicates
-            for author_id, user_threads in author_threads.items():
-                if len(user_threads) <= 1:
+            for user_id, user_thread_data in author_threads.items():
+                if len(user_thread_data) <= 1:
                     continue  # No duplicates possible with only one thread
+
+                # Extract just the threads for sorting
+                user_threads = [thread_data[0] for thread_data in user_thread_data]
 
                 # Sort threads by creation time (oldest first)
                 user_threads.sort(key=lambda t: t.created_at)
@@ -430,12 +443,12 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
                         # If there are pinned threads, keep all pinned threads and delete all unpinned ones
                         keep_threads = pinned_threads
                         delete_threads = unpinned_threads
-                        await self._send_debug_message(f"Found duplicates with {len(pinned_threads)} pinned thread(s) from user {author_id}, keeping pinned, deleting {len(delete_threads)} unpinned")
+                        await self._send_debug_message(f"Found duplicates with {len(pinned_threads)} pinned thread(s) from user {user_id}, keeping pinned, deleting {len(delete_threads)} unpinned")
                     else:
                         # No pinned threads, keep the oldest (first in sorted list)
                         keep_threads = [duplicate_group[0]]
                         delete_threads = duplicate_group[1:]
-                        await self._send_debug_message(f"Found {len(delete_threads)} duplicate threads from user {author_id}, keeping oldest: {keep_threads[0].id}")
+                        await self._send_debug_message(f"Found {len(delete_threads)} duplicate threads from user {user_id}, keeping oldest: {keep_threads[0].id}")
 
                     for thread in delete_threads:
                         try:
@@ -452,20 +465,30 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
                         except Exception as e:
                             await self._send_debug_message(f"Error deleting duplicate thread {thread.id}: {e}")
 
-                    # Ensure all kept threads are properly tracked
+                    # Ensure all kept threads are properly tracked and update cooldowns
                     tracked_ids = {t_id for t_id, _, _, _ in self.pending_deletions}
                     for keep_thread in keep_threads:
+                        # Get the thread's actual user and guild info
+                        thread_user_id, thread_guild_id, thread_ad_type = await self._extract_user_and_guild_info(keep_thread)
+
                         if keep_thread.id not in tracked_ids:
                             deletion_time = datetime.datetime.now() + datetime.timedelta(hours=self.cooldown_hours)
                             notify = False  # Don't notify for duplicate cleanup
-                            self.pending_deletions.append((keep_thread.id, deletion_time, author_id, notify))
+                            self.pending_deletions.append((keep_thread.id, deletion_time, thread_user_id, notify))
                             await self._send_debug_message(f"Added kept thread {keep_thread.id} to pending deletions tracking")
 
-                        # Update cooldown timestamp to match the kept thread's creation time
-                        # This ensures the timeout aligns with the actual remaining post
+                        # Update cooldown timestamps to match the kept thread's creation time
                         thread_creation_timestamp = keep_thread.created_at.isoformat()
-                        self.cooldowns['users'][str(author_id)] = thread_creation_timestamp
-                        await self._send_debug_message(f"Updated user {author_id} cooldown to match kept thread {keep_thread.id} creation time")
+
+                        # Update user cooldown
+                        if thread_user_id != 0:
+                            self.cooldowns['users'][str(thread_user_id)] = thread_creation_timestamp
+                            await self._send_debug_message(f"Updated user {thread_user_id} cooldown to match kept thread {keep_thread.id} creation time")
+
+                        # Update guild cooldown for guild advertisements
+                        if thread_ad_type == "guild" and thread_guild_id:
+                            self.cooldowns['guilds'][thread_guild_id] = thread_creation_timestamp
+                            await self._send_debug_message(f"Updated guild {thread_guild_id} cooldown to match kept thread {keep_thread.id} creation time")
 
             if duplicates_removed > 0:
                 await self._save_pending_deletions()
@@ -1625,6 +1648,76 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
         """Check for threads that were scheduled for deletion before restart."""
         self.logger.info(f"Resumed tracking {len(self.pending_deletions)} pending thread deletions")
 
+    async def _extract_user_and_guild_info(self, thread) -> tuple[int, str, str]:
+        """Extract the actual user ID and guild ID from the thread's embed data.
+
+        Returns:
+            tuple: (user_id, guild_id, ad_type) where user_id is the Discord user who submitted the form,
+                   guild_id is the guild ID for guild ads (or empty for member ads),
+                   and ad_type is either 'guild' or 'member'
+        """
+        try:
+            # Get the first message from the thread (the bot's embed post)
+            async for message in thread.history(limit=1):
+                if message.author == self.bot.user and message.embeds:
+                    embed = message.embeds[0]
+
+                    # Create a dictionary of field names to values for easier lookup
+                    fields = {field.name.lower().strip(): field.value.strip()
+                              for field in embed.fields if field.name and field.value}
+
+                    # Determine advertisement type from embed title or fields
+                    ad_type = "member"
+                    guild_id = ""
+
+                    if embed.title and "[guild]" in embed.title.lower():
+                        ad_type = "guild"
+                        # Extract guild ID from embed fields
+                        if "guild id" in fields:
+                            guild_id = self._normalize_guild_id(fields["guild id"])
+                    elif "guild id" in fields:
+                        ad_type = "guild"
+                        guild_id = self._normalize_guild_id(fields["guild id"])
+
+                    # Extract user ID from embed fields
+                    user_id = 0
+                    if "posted by" in fields:
+                        # Extract Discord user ID from "Posted by" field
+                        posted_by = fields["posted by"]
+                        # Format is typically "<@user_id>" or "username (user_id)"
+                        user_match = re.search(r'<@(\d+)>|(\d{17,19})', posted_by)
+                        if user_match:
+                            user_id = int(user_match.group(1) or user_match.group(2))
+                    elif "player id" in fields:
+                        # For member ads, we might need to cross-reference the player ID
+                        # But for now, fall back to thread owner
+                        user_id = getattr(thread, 'owner_id', 0) or 0
+
+                    if user_id == 0:
+                        # Fallback to thread owner if we can't extract from embed
+                        user_id = getattr(thread, 'owner_id', 0) or 0
+
+                    return user_id, guild_id, ad_type
+                break
+        except Exception as e:
+            await self._send_debug_message(f"Error extracting user/guild info from thread {thread.id}: {e}")
+
+        # Fallback values
+        return getattr(thread, 'owner_id', 0) or 0, "", "member"
+
+    def _normalize_guild_id(self, guild_id: str) -> str:
+        """Normalize guild ID to ensure consistent handling.
+
+        Args:
+            guild_id: Raw guild ID string
+
+        Returns:
+            str: Normalized guild ID (uppercase, stripped)
+        """
+        if not guild_id:
+            return ""
+        return str(guild_id).upper().strip()
+
     async def _send_debug_message(self, message: str) -> None:
         """Send debug message to testing channel if configured."""
         if self.testing_channel_id:
@@ -1646,12 +1739,16 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
         Args:
             interaction: The discord interaction
             user_id: Discord user ID
-            guild_id: Guild ID (optional)
+            guild_id: Guild ID (optional) - will be normalized for consistent checking
             ad_type: Type of advertisement (guild or member)
 
         Returns:
             bool: True if not on cooldown, False if on cooldown
         """
+        # Normalize guild_id if provided
+        if guild_id:
+            guild_id = self._normalize_guild_id(guild_id)
+
         # Check user cooldown
         if str(user_id) in self.cooldowns['users']:
             timestamp = self.cooldowns['users'][str(user_id)]
@@ -1677,8 +1774,8 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
                 return False
 
         # Check guild cooldown if applicable
-        if guild_id and str(guild_id) in self.cooldowns['guilds']:
-            timestamp = self.cooldowns['guilds'][str(guild_id)]
+        if guild_id and guild_id in self.cooldowns['guilds']:
+            timestamp = self.cooldowns['guilds'][guild_id]
             elapsed = (datetime.datetime.now() - datetime.datetime.fromisoformat(timestamp)).total_seconds()
 
             if elapsed < self.cooldown_hours * 3600:
@@ -1783,7 +1880,7 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
 
                 # If it's a guild advertisement, also add guild cooldown
                 if guild_id:
-                    self.cooldowns['guilds'][str(guild_id)] = current_time
+                    self.cooldowns['guilds'][guild_id] = current_time
 
                 await self._save_cooldowns()
                 cooldown_time = time.time() - cooldown_start
