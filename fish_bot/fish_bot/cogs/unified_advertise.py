@@ -176,6 +176,13 @@ class GuildAdvertisementForm(Modal, title="Guild Advertisement Form"):
         embed.add_field(name="Member Count", value=self.member_count.value, inline=True)
         embed.set_footer(text="Use /advertise to submit your own advertisement")
 
+        # CRITICAL: Respond to interaction IMMEDIATELY before heavy work
+        await interaction.response.send_message(
+            f"Thank you! Your {AdvertisementType.GUILD} advertisement is being posted. "
+            f"It will remain visible for {self.cog.cooldown_hours} hours.",
+            ephemeral=True
+        )
+
         # Post advertisement and update cooldowns
         thread_title = f"[Guild] {self.guild_name.value} ({guild_id})"
         total_time = time.time() - start_time
@@ -293,6 +300,13 @@ class MemberAdvertisementForm(Modal, title="Member Advertisement Form"):
         embed.add_field(name="Additional Info", value=self.additional_info.value, inline=False)
         embed.set_footer(text="Use /advertise to submit your own advertisement")
 
+        # CRITICAL: Respond to interaction IMMEDIATELY before heavy work
+        await interaction.response.send_message(
+            f"Thank you! Your {AdvertisementType.MEMBER} advertisement is being posted. "
+            f"It will remain visible for {self.cog.cooldown_hours} hours.",
+            ephemeral=True
+        )
+
         # Post advertisement and update cooldowns
         thread_title = f"[Member] {interaction.user.name} ({player_id})"
         await self.cog.post_advertisement(interaction, embed, thread_title, AdvertisementType.MEMBER, None, notify)
@@ -310,6 +324,41 @@ class MemberAdvertisementForm(Modal, title="Member Advertisement Form"):
 
 
 class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
+    @tasks.loop(hours=1)
+    async def orphaned_post_scan(self) -> None:
+        """Scan for orphaned advertisement posts and add them to pending deletions if not already tracked."""
+        await self._send_debug_message("Starting orphaned post scan.")
+        try:
+            channel = self.bot.get_channel(self.advertise_channel_id)
+            if not channel:
+                await self._send_debug_message(f"Orphan scan: Advertisement channel not found: {self.advertise_channel_id}")
+                return
+
+            # Fetch all active threads in the forum channel
+            threads = []
+            try:
+                threads = [t async for t in channel.threads]
+            except Exception as e:
+                await self._send_debug_message(f"Orphan scan: Failed to fetch threads: {e}")
+                return
+
+            tracked_ids = {t_id for t_id, _, _, _ in self.pending_deletions}
+            new_orphans = 0
+            for thread in threads:
+                if thread.id not in tracked_ids:
+                    # Add all orphans regardless of pin status
+                    deletion_time = datetime.datetime.now() + datetime.timedelta(hours=self.cooldown_hours)
+                    author_id = getattr(thread, 'owner_id', 0) or 0
+                    notify = False
+                    self.pending_deletions.append((thread.id, deletion_time, author_id, notify))
+                    new_orphans += 1
+            if new_orphans:
+                await self._save_pending_deletions()
+                await self._send_debug_message(f"Orphan scan: Added {new_orphans} orphaned threads to pending deletions.")
+            else:
+                await self._send_debug_message("Orphan scan: No new orphaned threads found.")
+        except Exception as e:
+            await self._send_debug_message(f"Orphan scan: Error: {e}")
     """Combined cog for both guild and member advertisements.
 
     Provides functionality for posting, managing and moderating
@@ -389,6 +438,8 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
                     self.check_deletions.start()
                 if not self.weekly_cleanup.is_running():
                     self.weekly_cleanup.start()
+                if not hasattr(self, 'orphaned_post_scan') or not self.orphaned_post_scan.is_running():
+                    self.orphaned_post_scan.start()
 
                 # 4. Update status variables
                 self._last_operation_time = datetime.datetime.utcnow()
@@ -410,6 +461,8 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
             self.check_deletions.cancel()
         if hasattr(self, 'weekly_cleanup'):
             self.weekly_cleanup.cancel()
+        if hasattr(self, 'orphaned_post_scan'):
+            self.orphaned_post_scan.cancel()
 
         # Force save any modified data
         if self.is_data_modified():
@@ -1151,6 +1204,10 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
                     try:
                         # Try to get the thread
                         thread = await self.bot.fetch_channel(thread_id)
+                        # Skip deletion if thread is pinned
+                        if hasattr(thread, 'pinned') and thread.pinned:
+                            self.logger.info(f"Skipping deletion for pinned thread {thread_id}")
+                            continue
 
                         # Send notification if requested
                         if notify and author_id:
@@ -1206,6 +1263,11 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
 
         # Wait until midnight to start the first run
         await asyncio.sleep(seconds_until_midnight)
+
+    @orphaned_post_scan.before_loop
+    async def before_orphaned_post_scan(self) -> None:
+        """Wait until the bot is ready before starting the orphaned post scan."""
+        await self.bot.wait_until_ready()
 
     # ====================
     # Helper Methods
@@ -1394,7 +1456,7 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
         """Post the advertisement as a thread in the forum channel.
 
         Args:
-            interaction: Discord interaction object
+            interaction: Discord interaction object (response already sent)
             embed: Embed to post
             thread_title: Title for the forum thread
             ad_type: Type of advertisement (guild or member)
@@ -1414,23 +1476,13 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
 
             if not channel:
                 await self._send_debug_message(f"❌ Advertisement channel not found: {self.advertise_channel_id}")
-                await interaction.response.send_message(
+                await interaction.followup.send(
                     "There was an error posting your advertisement. Please contact @thedisasterfish.",
                     ephemeral=True
                 )
                 return
 
-            # CRITICAL: Respond to user IMMEDIATELY before doing heavy work
-            response_start = time.time()
-            await interaction.response.send_message(
-                f"Thank you! Your {ad_type} advertisement is being posted. "
-                f"It will remain visible for {self.cooldown_hours} hours.",
-                ephemeral=True
-            )
-            response_time = time.time() - response_start
-            await self._send_debug_message(f"✅ User response sent in {response_time:.2f}s for user {interaction.user.id}")
-
-            # Now do the heavy work in the background
+            # Now do the heavy work (initial response already sent by form)
             async with self.task_tracker.task_context("Posting Advertisement"):
                 # Determine which tag to apply based on advertisement type
                 applied_tags = []
@@ -1503,18 +1555,12 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
             self.logger.error(f"Error in post_advertisement after {total_time:.2f}s: {e}", exc_info=True)
             self._has_errors = True
 
-            # Try to send error message - use followup since response might already be sent
+            # Try to send error message - use followup since initial response was already sent in form
             try:
-                if interaction.response.is_done():
-                    await interaction.followup.send(
-                        "There was an error posting your advertisement. Please contact @thedisasterfish.",
-                        ephemeral=True
-                    )
-                else:
-                    await interaction.response.send_message(
-                        "There was an error posting your advertisement. Please contact @thedisasterfish.",
-                        ephemeral=True
-                    )
+                await interaction.followup.send(
+                    "There was an error posting your advertisement. Please contact @thedisasterfish.",
+                    ephemeral=True
+                )
             except Exception as response_error:
                 await self._send_debug_message(f"❌ Failed to send error response to user {interaction.user.id}: {str(response_error)}")
 
