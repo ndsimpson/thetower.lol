@@ -337,7 +337,9 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
             # Fetch all active threads in the forum channel
             threads = []
             try:
-                threads = [t async for t in channel.threads]
+                # For forum channels, we need to fetch active threads
+                active_threads = await channel.active_threads()
+                threads = active_threads.threads
             except Exception as e:
                 await self._send_debug_message(f"Orphan scan: Failed to fetch threads: {e}")
                 return
