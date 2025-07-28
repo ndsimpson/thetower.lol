@@ -935,18 +935,26 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
         permission_time = time.time() - permission_start
 
         # Create the selection view
+        view_create_start = time.time()
         view = AdTypeSelection(self)
+        view_create_time = time.time() - view_create_start
 
         # Send the response first, then debug messages
+        response_start = time.time()
         await interaction.response.send_message(
             "What type of advertisement would you like to post?",
             view=view,
             ephemeral=True
         )
+        response_time = time.time() - response_start
         
-        # Now send debug messages after successful response
+        # Now send detailed debug messages after successful response
         total_time = time.time() - start_time
-        await self._send_debug_message(f"Advertise command completed for user {interaction.user.id} ({interaction.user.name}) in {total_time:.2f}s (permission: {permission_time:.2f}s)")
+        await self._send_debug_message(f"Advertise command started by user {interaction.user.id} ({interaction.user.name})")
+        await self._send_debug_message(f"Permission check completed in {permission_time:.2f}s for user {interaction.user.id}")
+        await self._send_debug_message(f"View creation took {view_create_time:.2f}s for user {interaction.user.id}")
+        await self._send_debug_message(f"Response send took {response_time:.2f}s for user {interaction.user.id}")
+        await self._send_debug_message(f"Advertise command setup completed in {total_time:.2f}s for user {interaction.user.id}")
 
     @discord.app_commands.command(name="advertisedelete", description="Delete your active advertisement")
     async def delete_ad_slash(self, interaction: discord.Interaction) -> None:
