@@ -2,6 +2,7 @@
 import asyncio
 import datetime
 import re
+import time
 from typing import Dict, List, Optional, Tuple, ClassVar
 
 # Third-party imports
@@ -914,40 +915,38 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
     @discord.app_commands.command(name="advertise", description="Create a new advertisement")
     async def advertise_slash(self, interaction: discord.Interaction) -> None:
         """Slash command for creating an advertisement."""
-        import time
         start_time = time.time()
-        await self._send_debug_message(f"Advertise command started by user {interaction.user.id} ({interaction.user.name})")
-
+        
+        # Send response immediately to avoid timeout
         if not await self.wait_until_ready():
-            await self._send_debug_message(f"System not ready for user {interaction.user.id}")
             await interaction.response.send_message("⏳ System is still initializing, please try again later.", ephemeral=True)
             return
 
         # Check if system is paused
         if self.is_paused:
-            await self._send_debug_message(f"System paused when user {interaction.user.id} tried to advertise")
             await interaction.response.send_message("⏸️ The advertisement system is currently paused. Please try again later.", ephemeral=True)
             return
 
-        # Check permissions
+        # Check permissions (do this before responding to avoid timeout)
         permission_start = time.time()
         if not await self.interaction_check(interaction):
-            await self._send_debug_message(f"Permission check failed for user {interaction.user.id} after {time.time() - permission_start:.2f}s")
+            # interaction_check should handle its own response
             return
         permission_time = time.time() - permission_start
-        await self._send_debug_message(f"Permission check completed in {permission_time:.2f}s for user {interaction.user.id}")
 
         # Create the selection view
         view = AdTypeSelection(self)
 
-        # Show the advertisement type selection
-        total_time = time.time() - start_time
-        await self._send_debug_message(f"Advertise command setup completed in {total_time:.2f}s for user {interaction.user.id}")
+        # Send the response first, then debug messages
         await interaction.response.send_message(
             "What type of advertisement would you like to post?",
             view=view,
             ephemeral=True
         )
+        
+        # Now send debug messages after successful response
+        total_time = time.time() - start_time
+        await self._send_debug_message(f"Advertise command completed for user {interaction.user.id} ({interaction.user.name}) in {total_time:.2f}s (permission: {permission_time:.2f}s)")
 
     @discord.app_commands.command(name="advertisedelete", description="Delete your active advertisement")
     async def delete_ad_slash(self, interaction: discord.Interaction) -> None:
