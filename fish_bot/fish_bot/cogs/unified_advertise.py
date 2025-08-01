@@ -916,7 +916,7 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
     async def advertise_slash(self, interaction: discord.Interaction) -> None:
         """Slash command for creating an advertisement."""
         start_time = time.time()
-        
+
         # Send response immediately to avoid timeout
         if not await self.wait_until_ready():
             await interaction.response.send_message("⏳ System is still initializing, please try again later.", ephemeral=True)
@@ -947,7 +947,7 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
             ephemeral=True
         )
         response_time = time.time() - response_start
-        
+
         # Now send detailed debug messages after successful response
         total_time = time.time() - start_time
         await self._send_debug_message(f"Advertise command started by user {interaction.user.id} ({interaction.user.name})")
