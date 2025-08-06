@@ -6,8 +6,6 @@ from urllib.parse import urlencode
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
-import streamlit.components.v1 as components
-from cachetools.func import ttl_cache
 from natsort import natsorted
 from plotly.subplots import make_subplots
 
@@ -40,99 +38,6 @@ from dtower.tourney_results.tourney_utils import check_all_live_entry
 
 id_mapping = get_id_lookup()
 hidden_features = os.environ.get("HIDDEN_FEATURES")
-
-
-@ttl_cache(maxsize=1000, ttl=6000)
-def get_stones(player_id):
-    import requests
-
-    headers = {
-        "User-Agent": "Mozilla/5.0 (X11; Linux x86_64; rv:130.0) Gecko/20100101 Firefox/130.0",
-        "Accept": "application/json, text/plain, */*",
-        "Accept-Language": "en-US,en;q=0.5",
-        "Content-Type": "application/json",
-        "Origin": "https://thetower.xsollasitebuilder.com",
-        "DNT": "1",
-        "Connection": "keep-alive",
-        "Referer": "https://thetower.xsollasitebuilder.com/",
-        "Sec-Fetch-Dest": "empty",
-        "Sec-Fetch-Mode": "cors",
-        "Sec-Fetch-Site": "cross-site",
-        "Priority": "u=0",
-    }
-
-    json_data = {
-        "settings": {
-            "projectId": 264652,
-            "merchantId": 706526,
-        },
-        "loginId": "11f7ad60-c267-4747-9a0d-7613e9711fe5",
-        "webhookUrl": "https://nowebhook.com",
-        "user": {
-            "id": player_id,
-            "country": "CH",
-        },
-        "isUserIdFromWebhook": False,
-    }
-
-    response = requests.post("https://sb-user-id-service.xsolla.com/api/v1/user-id", headers=headers, json=json_data)
-
-    # print(response.json())
-
-    token = response.json()["token"]
-
-    headers = {
-        "User-Agent": "Mozilla/5.0 (X11; Linux x86_64; rv:130.0) Gecko/20100101 Firefox/130.0",
-        "Accept": "application/json, text/plain, */*",
-        "Accept-Language": "en-US,en;q=0.5",
-        "Authorization": f"Bearer {token}",
-        "Origin": "https://thetower.xsollasitebuilder.com",
-        "DNT": "1",
-        "Connection": "keep-alive",
-        "Referer": "https://thetower.xsollasitebuilder.com/",
-        "Sec-Fetch-Dest": "empty",
-        "Sec-Fetch-Mode": "cors",
-        "Sec-Fetch-Site": "cross-site",
-    }
-
-    params = {
-        "locale": "en",
-        "offset": "0",
-    }
-
-    response = requests.get(
-        "https://store.xsolla.com/api/v2/project/264652/items/virtual_items/group/featured",
-        params=params,
-        headers=headers,
-    )
-    # print(response.json())
-
-    return response.json(), token
-
-
-def xsolla_things(player_id, hidden_features, info_tab):
-    stone_info, token = get_stones(player_id)
-    available = stone_info["items"][1]["limits"]["per_user"]["available"]
-
-    if hidden_features:
-        info_tab.write(f"<img src='./app/static/stones.webp' width='20px'>: {available}/5 available.", unsafe_allow_html=True)
-
-    if available and not hidden_features:
-        html_code = f"""
-        <button id="combinedButton" style="padding: 10px 20px; font-size: 16px; background-color: #FF4B4B; color: white; border: none; border-radius: 5px; cursor: pointer;">Gift stone packs on xsolla!</button>
-
-        <script>
-            document.getElementById('combinedButton').addEventListener('click', async function() {{
-                try {{
-                    window.open(`https://thetower.xsollasitebuilder.com/?token=${token}`, '_blank');
-                }} catch (error) {{
-                    console.error('There was a problem:', error);
-                }}
-            }});
-        </script>
-        """
-
-        components.html(html_code, height=50)
 
 
 def compute_player_lookup():
@@ -282,8 +187,6 @@ def compute_player_lookup():
     write_for_each_patch(patch_tab, player_df)
 
     player_id = player_df.iloc[0].id
-
-    xsolla_things(player_id, hidden_features, info_tab)
 
 
 def filter_lower_leagues(df):
