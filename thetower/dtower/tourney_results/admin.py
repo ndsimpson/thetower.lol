@@ -137,6 +137,9 @@ class TourneyResultAdmin(SimpleHistoryAdmin):
         "league",
         "date",
         "_conditions",
+        "needs_recalc",
+        "last_recalc_at",
+        "recalc_retry_count",
         "result_file",
         "public",
         "_overview",
@@ -150,7 +153,7 @@ class TourneyResultAdmin(SimpleHistoryAdmin):
         "public",
     )
 
-    list_filter = ["date", "league", "public", "conditions"]
+    list_filter = ["needs_recalc", "date", "league", "public", "conditions"]
 
     def _overview(self, obj):
         return obj.overview[:500] + "..." if obj.overview else ""
@@ -158,11 +161,17 @@ class TourneyResultAdmin(SimpleHistoryAdmin):
     def _conditions(self, obj):
         return mark_safe("<br>".join([str(condition) for condition in obj.conditions.all()]))
 
+    def mark_for_recalc(self, request, queryset):
+        """Mark selected tournaments for recalculation"""
+        count = queryset.update(needs_recalc=True, recalc_retry_count=0)
+        self.message_user(request, f"Marked {count} tournaments for recalculation")
+    mark_for_recalc.short_description = "Mark selected tournaments for recalculation"
     _conditions.short_description = "Battle Conditions"
 
     filter_horizontal = ("conditions",)
 
     actions = [
+        "mark_for_recalc",
         recalculate_results,
         publicize,
         restart_public_site,

@@ -146,7 +146,35 @@ class TourneyResult(models.Model):
     conditions = models.ManyToManyField(BattleCondition, related_name="results", help_text="Battle conditions for the tourney.", blank=True)
     overview = models.TextField(null=True, blank=True, help_text="Overview of the tourney.")
 
+    # Queue fields for position recalculation
+    needs_recalc = models.BooleanField(
+        default=False,
+        help_text="Tournament needs position recalculation"
+    )
+    last_recalc_at = models.DateTimeField(
+        null=True, blank=True,
+        help_text="When positions were last recalculated"
+    )
+    recalc_retry_count = models.SmallIntegerField(
+        default=0,
+        help_text="Number of failed recalculation attempts"
+    )
+
     history = HistoricalRecords()
+
+    class Meta:
+        indexes = [
+            # Compound index for worker queries
+            models.Index(
+                fields=['needs_recalc', 'recalc_retry_count', 'date'],
+                name='idx_recalc_queue'
+            ),
+            # Simple boolean index for counts
+            models.Index(
+                fields=['needs_recalc'],
+                name='idx_needs_recalc'
+            ),
+        ]
 
     def __str__(self):
         return f"({self.pk}): {self.league} {self.date.isoformat()}"

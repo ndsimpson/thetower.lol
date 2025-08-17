@@ -196,7 +196,7 @@ class PermissionManager:
             primary_name = command
         else:
             primary_name = self._get_primary_command_name(bot, command)
-        
+
         if not primary_name:
             return False
 

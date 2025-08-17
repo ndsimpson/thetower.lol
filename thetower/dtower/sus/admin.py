@@ -1,6 +1,5 @@
 import logging
 import os
-import threading
 
 from django.contrib import admin
 from django.utils.html import format_html
@@ -66,12 +65,29 @@ class SusPersonAdmin(SimpleHistoryAdmin):
         player_id = obj.player_id
 
         obj = super().save_model(request, obj, form, change)
-        thread = threading.Thread(target=recalc_all, args=(player_id,))
-        thread.start()
+
+        # Queue tournaments for recalculation instead of blocking
+        queue_recalculation_for_player(player_id)
         return obj
 
 
+def queue_recalculation_for_player(player_id):
+    """Mark all tournaments involving this player for recalculation"""
+    from dtower.tourney_results.models import TourneyResult
+
+    # Mark affected tournaments as needing recalculation - FAST operation
+    affected_count = TourneyResult.objects.filter(
+        rows__player_id=player_id
+    ).update(
+        needs_recalc=True,
+        recalc_retry_count=0  # Reset retry count
+    )
+
+    logging.info(f"Queued {affected_count} tournaments for recalculation (player: {player_id})")
+
+
 def recalc_all(player_id):
+    """Legacy function - kept for backwards compatibility but not used"""
     from dtower.tourney_results.models import TourneyResult, TourneyRow
     from dtower.tourney_results.tourney_utils import reposition
 
