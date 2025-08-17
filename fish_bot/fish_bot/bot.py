@@ -176,7 +176,13 @@ class DiscordBot(commands.Bot, BaseFileMonitor):
 
             # Check if the user is the bot owner
             if await self.is_owner(context.author):
-                command_name = context.command.name
+                # Use the same logic as BaseCog.get_command_name to get full command path
+                cmd = context.command
+                parent = cmd.parent
+                if parent is None:
+                    command_name = cmd.name
+                else:
+                    command_name = f"{parent.name} {cmd.name}"
 
                 # Get authorized channels from permission manager
                 authorized_channels = []
