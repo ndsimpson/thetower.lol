@@ -64,10 +64,25 @@ class SusPersonAdmin(SimpleHistoryAdmin):
     def save_model(self, request, obj, form, change):
         player_id = obj.player_id
 
+        # Check if sus or shun status changed (only these affect tournament positions)
+        should_recalc = False
+        if change:
+            # Get the original object to compare values
+            try:
+                original = SusPerson.objects.get(pk=obj.pk)
+                should_recalc = (original.sus != obj.sus or original.shun != obj.shun)
+            except SusPerson.DoesNotExist:
+                # Shouldn't happen in change mode, but be safe
+                should_recalc = True
+        else:
+            # New object - always recalculate if sus or shun is True
+            should_recalc = (obj.sus or obj.shun)
+
         obj = super().save_model(request, obj, form, change)
 
-        # Queue tournaments for recalculation instead of blocking
-        queue_recalculation_for_player(player_id)
+        # Only queue tournaments for recalculation if sus/shun status changed
+        if should_recalc:
+            queue_recalculation_for_player(player_id)
         return obj
 
 
