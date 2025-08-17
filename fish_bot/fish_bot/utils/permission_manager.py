@@ -100,7 +100,13 @@ class PermissionManager:
             UserUnauthorized: If the user is not authorized for this command
         """
         if not command_name:
-            command_name = ctx.command.name
+            # Use the same logic as BaseCog.get_command_name to get full command path
+            cmd = ctx.command
+            parent = cmd.parent
+            if parent is None:
+                command_name = cmd.name
+            else:
+                command_name = f"{parent.name} {cmd.name}"
 
         # Resolve to primary command name
         primary_name = self._get_primary_command_name(ctx, command_name)
@@ -128,8 +134,8 @@ class PermissionManager:
                     raise UserUnauthorized(ctx.author)
             return True
 
-        # Get command-specific permissions
-        command_config = self.permissions["commands"].get(primary_name, {})
+        # Get command-specific permissions using the full command name (not just primary name)
+        command_config = self.permissions["commands"].get(command_name, {})
         channel_config = command_config.get("channels", {}).get(str(ctx.channel.id))
 
         # Check for wildcard channel permission
@@ -143,7 +149,7 @@ class PermissionManager:
         # Check channel permissions
         if not channel_config:
             logger.warning(
-                f"Command '{primary_name}' blocked - unauthorized channel. "
+                f"Command '{command_name}' blocked - unauthorized channel. "
                 f"Channel: {ctx.channel} (ID: {ctx.channel.id})"
             )
             raise ChannelUnauthorized(ctx.channel)
@@ -152,7 +158,7 @@ class PermissionManager:
         if not channel_config.get("public", False):
             if str(ctx.author.id) not in channel_config.get("authorized_users", []):
                 logger.warning(
-                    f"Command '{primary_name}' blocked - unauthorized user. "
+                    f"Command '{command_name}' blocked - unauthorized user. "
                     f"User: {ctx.author} (ID: {ctx.author.id})"
                 )
                 raise UserUnauthorized(ctx.author)
