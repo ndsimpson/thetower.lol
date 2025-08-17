@@ -184,14 +184,19 @@ class PermissionManager:
 
         Args:
             bot: The bot instance
-            command: Command name
+            command: Command name (can be a subcommand path like "parent subcommand")
             channel_id: Channel ID to add
             public: Whether command is public in channel
 
         Returns:
             bool: True if successful
         """
-        primary_name = self._get_primary_command_name(bot, command)
+        # If command contains a space, it's a subcommand path - use it as-is
+        if ' ' in command:
+            primary_name = command
+        else:
+            primary_name = self._get_primary_command_name(bot, command)
+        
         if not primary_name:
             return False
 
@@ -223,15 +228,20 @@ class PermissionManager:
                 return False, f"Could not find channel/thread: {channel_input}"
 
         # Resolve to primary command name
-        cmd_obj = ctx.bot.get_command(command)
-        if cmd_obj:
-            primary_name = cmd_obj.name
-            display_name = f"'{primary_name}'"
-            if cmd_obj.aliases:
-                display_name += f" (alias of {command})" if command != primary_name else ""
-        else:
+        # If command contains a space, it's likely a subcommand path - use it as-is
+        if ' ' in command:
             primary_name = command
             display_name = f"'{primary_name}'"
+        else:
+            cmd_obj = ctx.bot.get_command(command)
+            if cmd_obj:
+                primary_name = cmd_obj.name
+                display_name = f"'{primary_name}'"
+                if cmd_obj.aliases:
+                    display_name += f" (alias of {command})" if command != primary_name else ""
+            else:
+                primary_name = command
+                display_name = f"'{primary_name}'"
 
         if self.add_command_channel(ctx.bot, primary_name, channel_id, public):
             status = "public" if public else "non-public"
