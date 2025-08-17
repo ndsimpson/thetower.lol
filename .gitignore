@@ -20,6 +20,13 @@ secrets
 .aider*
 .env
 
+# Log files
+*.log
+app.log
+
+# Python egg-info directories
+*.egg-info/
+
 # Python bytecode files
 __pycache__/
 *.py[cod]
