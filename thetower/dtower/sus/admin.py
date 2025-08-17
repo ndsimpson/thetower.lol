@@ -104,7 +104,7 @@ class KnownPlayerAdmin(SimpleHistoryAdmin):
 
     _ids.short_description = "Ids"
 
-    list_display = ("name", "approved", "discord_id", "_ids")
-    list_editable = ("approved",)
-    search_fields = ("name", "discord_id", "ids__id")
+    list_display = ("name", "approved", "discord_id", "creator_code", "_ids")
+    list_editable = ("approved", "creator_code")
+    search_fields = ("name", "discord_id", "creator_code", "ids__id")
     inlines = (IdInline,)

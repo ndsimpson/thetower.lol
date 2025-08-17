@@ -255,8 +255,23 @@ def draw_info_tab(info_tab, user, player_id, player_df, hidden_features):
 
     tourney_join = "✅" if check_all_live_entry(player_df.iloc[0].id) else "⛔"
 
+    # Get creator code from KnownPlayer model
+    creator_code = ""
+    try:
+        # Look up the player by their player ID
+        player_id_value = player_df.iloc[0].id
+
+        player_ids = PlayerId.objects.filter(id=player_id_value)
+        if player_ids.exists():
+            known_player = player_ids.first().player
+            if known_player.creator_code:
+                creator_code = f"<div style='font-size: 15px'>Creator code: <span style='color:#cd4b3d; font-weight:bold;'>{known_player.creator_code}</span> <a href='https://store.techtreegames.com/thetower/' target='_blank' style='text-decoration: none;'>🏪</a></div>"
+    except Exception:
+        # Silently fail if there's any issue looking up the creator code
+        pass
+
     info_tab.write(
-        f"<table class='top'><tr><td>{avatar_string}</td><td><div style='font-size: 30px'><span style='vertical-align: middle;'>{real_name}</span></div><div style='font-size: 15px'>ID: {player_df.iloc[0].id}</div><div style='font-size: 15px'>Joined the recent tourney {tourney_join}</div></td><td>{relic_url}</td></tr></table>",
+        f"<table class='top'><tr><td>{avatar_string}</td><td><div style='font-size: 30px'><span style='vertical-align: middle;'>{real_name}</span></div><div style='font-size: 15px'>ID: {player_df.iloc[0].id}</div><div style='font-size: 15px'>Joined the recent tourney {tourney_join}</div>{creator_code}</td><td>{relic_url}</td></tr></table>",
         unsafe_allow_html=True,
     )
 

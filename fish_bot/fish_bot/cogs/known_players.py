@@ -1,6 +1,7 @@
 # Standard library
 import asyncio
 import datetime
+import re
 from typing import List, Dict, Optional, Any, Set
 from pathlib import Path
 
@@ -286,6 +287,7 @@ class KnownPlayers(BaseCog,
         return {
             'name': player.name,
             'discord_id': player.discord_id,
+            'creator_code': player.creator_code,
             'approved': player.approved,
             'primary_id': primary_id,
             'all_ids': [pid.id for pid in player_ids],
@@ -785,6 +787,7 @@ class KnownPlayers(BaseCog,
                 value=(
                     f"**Name:** {details['name'] or 'Not set'}\n"
                     f"**Discord ID:** {details['discord_id'] or 'Not set'}\n"
+                    f"**Creator Code:** {details.get('creator_code') or 'Not set'}\n"
                     f"**Approved:** {'Yes' if details['approved'] else 'No'}\n"
                 ),
                 inline=False
@@ -814,6 +817,165 @@ class KnownPlayers(BaseCog,
             )
 
         await ctx.send(embed=embed)
+
+    def _validate_creator_code(self, code: str) -> tuple[bool, str]:
+        """
+        Validate creator code format - only one emoji allowed at the end, no punctuation or URLs.
+
+        Args:
+            code: The creator code to validate
+
+        Returns:
+            Tuple of (is_valid, error_message)
+        """
+        if not code or not code.strip():
+            return True, ""  # Empty codes are allowed (removes code)
+
+        code = code.strip()
+
+        # Check for URLs (basic patterns)
+        url_patterns = [
+            r'https?://',
+            r'www\.',
+            r'\.com',
+            r'\.org',
+            r'\.net',
+            r'\.io',
+            r'\.co',
+            r'\.me'
+        ]
+
+        for pattern in url_patterns:
+            if re.search(pattern, code, re.IGNORECASE):
+                return False, "Creator codes cannot contain URLs or web addresses."
+
+        # Check for punctuation and spaces (no punctuation or spaces allowed)
+        # Allow only letters and numbers
+        forbidden_characters = re.compile(r'[.,;:!?@#$%^&*()+=\[\]{}|\\<>"`~\/\-_\s]')
+        if forbidden_characters.search(code):
+            forbidden_chars = forbidden_characters.findall(code)
+            return False, f"Creator codes can only contain letters and numbers. Found: {', '.join(set(forbidden_chars))}"
+
+        # Regex pattern to match emojis (Unicode ranges for most common emojis)
+        emoji_pattern = re.compile(
+            r'[\U0001F600-\U0001F64F]|'  # emoticons
+            r'[\U0001F300-\U0001F5FF]|'  # symbols & pictographs
+            r'[\U0001F680-\U0001F6FF]|'  # transport & map symbols
+            r'[\U0001F1E0-\U0001F1FF]|'  # flags (iOS)
+            r'[\U00002702-\U000027B0]|'  # dingbats
+            r'[\U000024C2-\U0001F251]'   # enclosed characters
+        )
+
+        # Find all emojis in the code
+        emojis = emoji_pattern.findall(code)
+
+        if len(emojis) == 0:
+            return True, ""  # No emojis is fine
+        elif len(emojis) > 1:
+            return False, f"Only one emoji is allowed. Found {len(emojis)} emojis: {''.join(emojis)}"
+
+        # Check if the single emoji is at the end
+        emoji = emojis[0]
+        if not code.endswith(emoji):
+            return False, f"The emoji '{emoji}' must be at the end of your creator code."
+
+        return True, ""
+
+    @knownplayers_group.command(
+        name="set_creator_code",
+        description="Set your creator/supporter code"
+    )
+    @app_commands.describe(
+        creator_code="Your creator/supporter code (e.g., 'thedisasterfish'). Leave empty to remove."
+    )
+    async def set_creator_code(self, ctx: commands.Context, creator_code: str = None) -> None:
+        """Set creator/supporter code for the current Discord user."""
+        # Add ready check for command
+        if not await self.wait_until_ready():
+            await ctx.send("⏳ Still initializing, please try again shortly.")
+            return
+
+        discord_id = str(ctx.author.id)
+
+        # Validate creator code format if provided
+        if creator_code:
+            is_valid, error_message = self._validate_creator_code(creator_code)
+            if not is_valid:
+                embed = discord.Embed(
+                    title="Invalid Creator Code Format",
+                    description=error_message,
+                    color=discord.Color.red()
+                )
+                embed.add_field(
+                    name="Valid Format",
+                    value="Creator codes must follow these rules:\n• Only letters and numbers allowed\n• No URLs or web addresses\n• No punctuation marks, spaces, or special characters\n\nExamples:\n✅ `thedisasterfish`\n✅ `mycreatorcode`\n✅ `playername123`\n❌ `my code` (spaces not allowed)\n❌ `my_code` (underscore not allowed)\n❌ `player-name` (hyphen not allowed)\n❌ `visit-mysite.com` (URL)",
+                    inline=False
+                )
+                return await ctx.send(embed=embed)
+
+        try:
+            # Find the player by Discord ID
+            player = await sync_to_async(
+                lambda: KnownPlayer.objects.filter(discord_id=discord_id).first()
+            )()
+
+            if not player:
+                embed = discord.Embed(
+                    title="Player Not Found",
+                    description="No player account found linked to your Discord ID.\nPlease verify your player ID first using the validation process.",
+                    color=discord.Color.red()
+                )
+                return await ctx.send(embed=embed)
+
+            # Update the creator code
+            old_code = player.creator_code
+            player.creator_code = creator_code.strip() if creator_code else None
+            await sync_to_async(player.save)()
+
+            # Clear cache for this player to force refresh
+            player_cache_key = discord_id.lower()
+            if player_cache_key in self.player_details_cache:
+                del self.player_details_cache[player_cache_key]
+            if player_cache_key in self.player_cache:
+                del self.player_cache[player_cache_key]
+
+            # Create response embed
+            if creator_code:
+                embed = discord.Embed(
+                    title="Creator Code Updated",
+                    description=f"Your creator code has been set to: **{creator_code}**",
+                    color=discord.Color.green()
+                )
+                if old_code and old_code != creator_code:
+                    embed.add_field(
+                        name="Previous Code",
+                        value=old_code,
+                        inline=False
+                    )
+            else:
+                embed = discord.Embed(
+                    title="Creator Code Removed",
+                    description="Your creator code has been removed.",
+                    color=discord.Color.orange()
+                )
+                if old_code:
+                    embed.add_field(
+                        name="Previous Code",
+                        value=old_code,
+                        inline=False
+                    )
+
+            embed.add_field(
+                name="Linked Player",
+                value=f"**Name:** {player.name or 'Not set'}\n**Discord ID:** {player.discord_id}",
+                inline=False
+            )
+
+            await ctx.send(embed=embed)
+
+        except Exception as e:
+            self.logger.error(f"Error setting creator code for user {discord_id}: {e}")
+            await ctx.send(f"❌ Error updating creator code: {e}")
 
     @knownplayers_group.command(
         name="refresh",
