@@ -345,7 +345,7 @@ def service_status_page():
 
         # Try to import and run queue status
         try:
-            os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'dtower.settings')
+            os.environ.setdefault("DJANGO_SETTINGS_MODULE", "dtower.thetower.settings")
             import django
             django.setup()
 
