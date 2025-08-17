@@ -84,6 +84,13 @@ deprecated_pages = [
     st.Page("fallen_defenders.py", title="Fallen defenders", icon="🪦", url_path="fallen"),
 ]
 
+# Hidden admin pages (only available when HIDDEN_FEATURES env var is set)
+admin_pages = []
+if hidden_features:
+    admin_pages = [
+        st.Page("service_status.py", title="Service Status", icon="🔧", url_path="services"),
+    ]
+
 
 page_dict = {}
 page_dict["Overview"] = overview_pages
@@ -91,6 +98,10 @@ page_dict["Live Standings"] = live_pages
 page_dict["Individual Data"] = individual_pages
 page_dict["League Data"] = league_pages
 page_dict["Deprecated"] = deprecated_pages
+
+# Add admin pages only for hidden features
+if hidden_features and admin_pages:
+    page_dict["Admin"] = admin_pages
 
 pg = st.navigation(page_dict)
 
