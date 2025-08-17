@@ -203,8 +203,9 @@ AXES_HANDLER = 'axes.handlers.database.AxesDatabaseHandler'  # Use database hand
 AXES_LOCKOUT_PARAMETERS = ['ip_address', 'username']  # Lock by combination of IP and username
 
 # IP Address Detection for Proxies (CloudFlare + nginx configuration)
-AXES_PROXY_COUNT = 2  # CloudFlare + nginx = 2 proxies
-AXES_META_PRECEDENCE_ORDER = [
+# Modern django-axes 8.0.0+ IP detection settings
+AXES_IPWARE_PROXY_COUNT = 2  # CloudFlare + nginx = 2 proxies
+AXES_IPWARE_META_PRECEDENCE_ORDER = [
     'HTTP_CF_CONNECTING_IP',  # CloudFlare's real IP header (most reliable)
     'HTTP_X_FORWARDED_FOR',   # Standard forwarded header (may contain proxy chain)
     'HTTP_X_REAL_IP',         # nginx real_ip module header
