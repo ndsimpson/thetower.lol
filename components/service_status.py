@@ -189,10 +189,10 @@ def service_status_page():
             'service': 'get_results',
             'restart_allowed': False
         },
-        'tower-recalc-worker': {
+        'tower-recalc_worker': {
             'name': 'Recalc Worker',
             'description': 'Background tournament recalculation queue worker',
-            'service': 'tower-recalc-worker',
+            'service': 'tower-recalc_worker',
             'restart_allowed': True
         }
     }
