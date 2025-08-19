@@ -1,8 +1,38 @@
 import datetime
-
+import secrets
+from django.utils import timezone
 from django.db import models
 from django.db.models import Q
 from simple_history.models import HistoricalRecords
+
+
+class ApiKey(models.Model):
+    user = models.ForeignKey("auth.User", on_delete=models.CASCADE, related_name='api_keys')
+    key = models.CharField(max_length=64, unique=True, editable=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+    last_used_at = models.DateTimeField(null=True, blank=True)
+    active = models.BooleanField(default=True)
+    invalidated_at = models.DateTimeField(null=True, blank=True)
+
+    def save(self, *args, **kwargs):
+        if not self.key:
+            self.key = self.generate_key()
+        super().save(*args, **kwargs)
+
+    @staticmethod
+    def generate_key():
+        return secrets.token_urlsafe(48)
+
+    def invalidate(self):
+        self.active = False
+        self.invalidated_at = timezone.now()
+        self.save()
+
+    def key_suffix(self):
+        return self.key[-8:] if self.key else ''
+
+    def __str__(self):
+        return f"API Key for {self.user.username} (…{self.key_suffix()})"
 
 
 class KnownPlayer(models.Model):

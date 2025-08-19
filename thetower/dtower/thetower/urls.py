@@ -1,12 +1,19 @@
+
 from django.contrib import admin
 from django.urls import path
 from django.views.generic.base import RedirectView
+from dtower.sus.api_views import BanPlayerAPI
 
 # from dtower.tourney_results.views import last_full_results, results_per_tourney, results_per_user
 
 admin.site.site_url = "/admin"
 
-base_patterns = [path("admin/", admin.site.urls), path("", RedirectView.as_view(url="admin/", permanent=True))]
+
+base_patterns = [
+    path("admin/", admin.site.urls),
+    path("", RedirectView.as_view(url="admin/", permanent=True)),
+    path("api/ban_player/", BanPlayerAPI.as_view(), name="ban_player_api"),
+]
 
 
 urlpatterns = base_patterns

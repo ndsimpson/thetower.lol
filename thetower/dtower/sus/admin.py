@@ -7,7 +7,44 @@ from django.utils.safestring import mark_safe
 from simple_history.admin import SimpleHistoryAdmin
 from tqdm import tqdm
 
+
 from dtower.sus.models import KnownPlayer, PlayerId, SusPerson
+from .models import ApiKey
+
+# Admin for ApiKey
+from django.contrib import messages
+from django.utils.html import format_html
+
+from django.utils.translation import gettext_lazy as _
+
+
+@admin.register(ApiKey)
+class ApiKeyAdmin(admin.ModelAdmin):
+    list_display = ("user", "key_suffix", "created_at", "last_used_at", "active", "invalidated_at")
+    list_filter = ("active", "created_at", "invalidated_at")
+    search_fields = ("user__username", "key")
+    readonly_fields = ("key_suffix", "created_at", "last_used_at", "invalidated_at")
+
+    def key_suffix(self, obj):
+        return f"…{obj.key_suffix()}" if obj.key else ""
+    key_suffix.short_description = "Key Suffix"
+
+    def get_readonly_fields(self, request, obj=None):
+        return self.readonly_fields
+
+    def get_fields(self, request, obj=None):
+        return ["user", "active", "key_suffix", "created_at", "last_used_at", "invalidated_at"]
+
+    def save_model(self, request, obj, form, change):
+        # Prevent reactivation if invalidated_at is set
+        if obj.invalidated_at and obj.active:
+            messages.add_message(request, messages.ERROR, _(f"Cannot reactivate an invalidated API key."))
+            obj.active = False
+        super().save_model(request, obj, form, change)
+        if not change:
+            # Show the key only at creation
+            messages.add_message(request, messages.INFO, _(f"API Key created: {obj.key} (save this now; it will not be shown again)."))
+
 
 BASE_HIDDEN_URL = os.getenv("BASE_HIDDEN_URL")
 
