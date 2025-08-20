@@ -1,6 +1,4 @@
 import os
-from functools import reduce
-from operator import and_
 
 import django
 
@@ -17,6 +15,138 @@ from components.util import add_player_id, add_to_comparison
 from dtower.sus.models import PlayerId, SusPerson
 from dtower.tourney_results.constants import how_many_results_public_site
 from dtower.tourney_results.models import TourneyRow
+
+
+def search_players_optimized(search_term, excluded_player_ids, page=20):
+    """
+    Optimized search function that combines all searches into unified queries.
+    Returns results prioritized by relevance.
+    """
+    search_term = search_term.strip()
+    if not search_term:
+        return []
+
+    fragments = [part.strip() for part in search_term.split()]
+
+    # Check if this looks like a player ID search (contains hex characters)
+    is_player_id_search = any(c in search_term.upper() for c in 'ABCDEF') and len(search_term) >= 6
+
+    if is_player_id_search:
+        # Player ID search - unified query
+        match_conditions = Q()
+        for i, fragment in enumerate(fragments):
+            if i == 0:
+                match_conditions &= Q(player_id__istartswith=fragment)
+            else:
+                match_conditions &= Q(player_id__icontains=fragment)
+
+        # Single query for player ID search with grouping
+        results = list(
+            TourneyRow.objects.filter(
+                match_conditions,
+                ~Q(player_id__in=excluded_player_ids),
+                position__lte=how_many_results_public_site,
+            )
+            .values_list("player_id", "nickname")
+            .order_by("player_id")
+            .distinct()[:page * 3]  # Get more to account for grouping
+        )
+
+        # Group by player_id and combine nicknames
+        grouped_results = []
+        for player_id, group in groupby(sorted(results), lambda x: x[0]):
+            nicknames = list(set(nickname for _, nickname in group))
+            grouped_results.append((player_id, ", ".join(nicknames[:page])))
+            if len(grouped_results) >= page:
+                break
+
+        return grouped_results
+
+    else:
+        # Name search - unified query with prioritized results
+        all_results = []
+
+        # Build match conditions for name fragments
+        primary_fragment = fragments[0] if fragments else ""
+        additional_fragments = fragments[1:] if len(fragments) > 1 else []
+
+        # Priority 1: Primary names starting with first fragment
+        if primary_fragment:
+            base_condition = Q(player__name__istartswith=primary_fragment)
+            for fragment in additional_fragments:
+                base_condition &= Q(player__name__icontains=fragment)
+
+            priority1_results = list(
+                PlayerId.objects.filter(
+                    base_condition &
+                    Q(primary=True) &
+                    ~Q(id__in=excluded_player_ids)
+                )
+                .order_by("player_id")
+                .values_list("id", "player__name")[:page]
+            )
+            all_results.extend(priority1_results)
+
+        # Priority 2: Nicknames starting with first fragment (if we need more results)
+        existing_player_ids = {player_id for player_id, _ in all_results}
+        if len(all_results) < page and primary_fragment:
+            base_condition = Q(nickname__istartswith=primary_fragment)
+            for fragment in additional_fragments:
+                base_condition &= Q(nickname__icontains=fragment)
+
+            priority2_results = list(
+                TourneyRow.objects.filter(
+                    base_condition &
+                    ~Q(player_id__in=existing_player_ids) &
+                    ~Q(player_id__in=excluded_player_ids) &
+                    Q(position__lte=how_many_results_public_site)
+                )
+                .distinct()
+                .order_by("player_id")
+                .values_list("player_id", "nickname")[:page - len(all_results)]
+            )
+            all_results.extend(priority2_results)
+            existing_player_ids.update(player_id for player_id, _ in priority2_results)
+
+        # Priority 3: Primary names containing all fragments (if we need more results)
+        if len(all_results) < page and fragments:
+            base_condition = Q()
+            for fragment in fragments:
+                base_condition &= Q(player__name__icontains=fragment)
+
+            priority3_results = list(
+                PlayerId.objects.filter(
+                    base_condition &
+                    Q(primary=True) &
+                    ~Q(id__in=existing_player_ids) &
+                    ~Q(id__in=excluded_player_ids)
+                )
+                .order_by("player_id")
+                .values_list("id", "player__name")[:page - len(all_results)]
+            )
+            all_results.extend(priority3_results)
+            existing_player_ids.update(player_id for player_id, _ in priority3_results)
+
+        # Priority 4: Nicknames containing all fragments (if we need more results)
+        if len(all_results) < page and fragments:
+            base_condition = Q()
+            for fragment in fragments:
+                base_condition &= Q(nickname__icontains=fragment)
+
+            priority4_results = list(
+                TourneyRow.objects.filter(
+                    base_condition &
+                    ~Q(player_id__in=existing_player_ids) &
+                    ~Q(player_id__in=excluded_player_ids) &
+                    Q(position__lte=how_many_results_public_site)
+                )
+                .distinct()
+                .order_by("player_id")
+                .values_list("player_id", "nickname")[:page - len(all_results)]
+            )
+            all_results.extend(priority4_results)
+
+        return all_results[:page]
 
 
 def compute_search(player=False, comparison=False):
@@ -42,96 +172,26 @@ def compute_search(player=False, comparison=False):
     page = 20
 
     real_name_part = name_col.text_input("Enter part of the player name")
+    player_id_part = id_col.text_input("Enter part of the player_id to be queried")
 
-    fragments = [part.strip() for part in real_name_part.strip().split()]
+    # Determine which search to perform
+    search_term = ""
+    if real_name_part.strip():
+        search_term = real_name_part.strip()
+    elif player_id_part.strip():
+        search_term = player_id_part.strip()
 
-    if fragments:
-        match_part = reduce(and_, [Q(player__name__icontains=fragment) for fragment in fragments[1:]]) if fragments[1:] else Q()
-
-        nickname_ids = list(
-            PlayerId.objects.filter(
-                (Q(player__name__istartswith=fragments[0]) & match_part) &
-                Q(primary=True) &
-                ~Q(id__in=excluded_player_ids)  # Exclude suspicious or banned players
-            )
-            .order_by("player_id")
-            .values_list("id", "player__name")[:page]
-        )
-
-        if len(nickname_ids) < page:
-            match_part = reduce(and_, [Q(nickname__icontains=fragment) for fragment in fragments[1:]]) if fragments[1:] else Q()
-
-            nickname_ids += list(
-                TourneyRow.objects.filter(
-                    ~Q(player_id__in=[player_id for player_id, _ in nickname_ids]),
-                    ~Q(player_id__in=excluded_player_ids),  # Exclude suspicious or banned players
-                    Q(nickname__istartswith=fragments[0]) & match_part,
-                    position__lte=how_many_results_public_site,
-                )
-                .distinct()
-                .order_by("player_id")
-                .values_list("player_id", "nickname")[: page - len(nickname_ids)]
-            )
-
-        if len(nickname_ids) < page:
-            query = reduce(and_, [Q(player__name__icontains=fragment) for fragment in fragments])
-
-            nickname_ids += list(
-                PlayerId.objects.filter(
-                    ~Q(id__in=[player_id for player_id, _ in nickname_ids]),
-                    ~Q(id__in=excluded_player_ids),  # Exclude suspicious or banned players
-                    query,
-                    primary=True,
-                )
-                .order_by("player_id")
-                .values_list("id", "player__name")[:page]
-            )
-
-        if len(nickname_ids) < page:
-            query = reduce(and_, [Q(nickname__icontains=fragment) for fragment in fragments])
-
-            nickname_ids += list(
-                TourneyRow.objects.filter(
-                    ~Q(player_id__in=[player_id for player_id, _ in nickname_ids]),
-                    ~Q(player_id__in=excluded_player_ids),  # Exclude suspicious or banned players
-                    query,
-                    position__lte=how_many_results_public_site,
-                )
-                .distinct()
-                .order_by("player_id")
-                .values_list("player_id", "nickname")[: page - len(nickname_ids)]
-            )
+    if search_term:
+        # Use the optimized search function
+        nickname_ids = search_players_optimized(search_term, excluded_player_ids, page)
     else:
-        player_id_part = id_col.text_input("Enter part of the player_id to be queried")
-        player_id_fragments = [part.strip() for part in player_id_part.strip().split()]
+        nickname_ids = []
 
-        if player_id_fragments:
-            match_part = reduce(and_, [Q(player_id__icontains=fragment) for fragment in player_id_fragments[1:]]) if player_id_fragments[1:] else Q()
-
-            nickname_ids_data = (
-                TourneyRow.objects.filter(
-                    Q(player_id__istartswith=player_id_fragments[0]) & match_part,
-                    ~Q(player_id__in=excluded_player_ids),  # Exclude suspicious or banned players
-                    position__lte=how_many_results_public_site,
-                )
-                .order_by("player_id")
-                .values_list("player_id", "nickname")
-            )
-
-            nickname_ids = []
-
-            for _, group in groupby(sorted(nickname_ids_data), lambda x: x[0]):
-                group = list(group)
-                nickname_ids.append((group[0][0], ", ".join(list(set(nickname for _, nickname in group))[:page])))
-        else:
-            exit()
-
+    # Process results for display
     data_to_be_shown = []
-
     for player_id, nicknames in groupby(nickname_ids, lambda x: x[0]):
         nicknames = [nickname for _, nickname in nicknames]
         datum = {"player_id": player_id, "nicknames": ", ".join(set(nicknames)), "how_many_results": len(nicknames)}
-
         data_to_be_shown.append(datum)
 
     for datum in data_to_be_shown:
