@@ -100,10 +100,10 @@ def get_git_status(repo_path: str) -> Dict[str, any]:
             status_info['last_commit'] = f"{parts[0]} - {parts[1]}"
             status_info['last_commit_date'] = parts[2]
 
-    # Get ahead/behind info (only if we can fetch from remote)
+    # Get ahead/behind info (fetch from remote first for accurate info)
     try:
-        # First try to fetch to get updated remote refs
-        run_git_command(['git', 'fetch', '--dry-run'], repo_path)
+        # Fetch from remote to get updated refs (but don't output progress)
+        run_git_command(['git', 'fetch', 'origin', '--quiet'], repo_path)
 
         success, ahead_behind, _ = run_git_command(
             ['git', 'rev-list', '--left-right', '--count', f'{branch}...origin/{branch}'], repo_path
@@ -114,7 +114,7 @@ def get_git_status(repo_path: str) -> Dict[str, any]:
                 status_info['ahead'] = int(parts[0])
                 status_info['behind'] = int(parts[1])
     except Exception:
-        # If we can't check ahead/behind, that's okay
+        # If we can't check ahead/behind, that's okay - might be offline or no remote
         pass
 
     # Get working directory status
@@ -243,6 +243,8 @@ def get_status_emoji(repo_info: Dict[str, any]) -> str:
         return '⬇️'
     elif repo_info['ahead'] > 0:
         return '⬆️'
+    elif repo_info['ahead'] == 0 and repo_info['behind'] == 0:
+        return '✅'  # Up to date with remote (regardless of local changes)
     elif repo_info['has_changes']:
         return '📝'
     else:
@@ -294,15 +296,21 @@ def git_status_page():
         with col2:
             if main_repo['error']:
                 st.error(f"Error: {main_repo['error']}")
-            elif main_repo['behind'] > 0:
-                st.warning(f"Behind by {main_repo['behind']} commits")
-            elif main_repo['ahead'] > 0:
-                st.info(f"Ahead by {main_repo['ahead']} commits")
-            elif main_repo['has_changes']:
-                changes = len(main_repo['modified']) + len(main_repo['untracked']) + len(main_repo['staged'])
-                st.warning(f"{changes} local changes")
             else:
-                st.success("Up to date")
+                # Git status (remote tracking)
+                if main_repo['behind'] > 0:
+                    st.warning(f"Git status: {main_repo['behind']} behind")
+                elif main_repo['ahead'] > 0:
+                    st.info(f"Git status: {main_repo['ahead']} ahead")
+                else:
+                    st.success("Git status: up to date")
+
+                # Local changes (separate line)
+                if main_repo['has_changes']:
+                    changes = len(main_repo['modified']) + len(main_repo['untracked']) + len(main_repo['staged'])
+                    st.caption(f"Local changes: {changes} changes")
+                else:
+                    st.caption("Local changes: none")
 
         with col3:
             if main_repo['exists'] and not main_repo['error']:
@@ -366,7 +374,7 @@ def git_status_page():
 
     # Show detailed main repo info if there are changes
     if main_repo['exists'] and main_repo['has_changes']:
-        with st.expander("📝 Main Repository Changes", expanded=False):
+        with st.expander("📝 Main Repository - Local Changes", expanded=False):
             if main_repo['staged']:
                 st.markdown("**Staged changes:**")
                 for file in main_repo['staged'][:10]:  # Limit to first 10
@@ -415,15 +423,21 @@ def git_status_page():
                         st.warning("Needs update")
                     elif submodule['error']:
                         st.error(f"Error: {submodule['error']}")
-                    elif submodule['behind'] > 0:
-                        st.warning(f"Behind by {submodule['behind']} commits")
-                    elif submodule['ahead'] > 0:
-                        st.info(f"Ahead by {submodule['ahead']} commits")
-                    elif submodule['has_changes']:
-                        changes = len(submodule['modified']) + len(submodule['untracked']) + len(submodule['staged'])
-                        st.warning(f"{changes} local changes")
                     else:
-                        st.success("Up to date")
+                        # Git status (remote tracking)
+                        if submodule['behind'] > 0:
+                            st.warning(f"Git status: {submodule['behind']} behind")
+                        elif submodule['ahead'] > 0:
+                            st.info(f"Git status: {submodule['ahead']} ahead")
+                        else:
+                            st.success("Git status: up to date")
+
+                        # Local changes (separate line)
+                        if submodule['has_changes']:
+                            changes = len(submodule['modified']) + len(submodule['untracked']) + len(submodule['staged'])
+                            st.caption(f"Local changes: {changes} changes")
+                        else:
+                            st.caption("Local changes: none")
 
                 with col3:
                     if submodule['exists'] and not submodule['error']:
@@ -455,7 +469,7 @@ def git_status_page():
 
             # Show detailed submodule info if there are changes
             if submodule['exists'] and submodule['has_changes']:
-                with st.expander(f"📝 {submodule['submodule_path']} Changes", expanded=False):
+                with st.expander(f"📝 {submodule['submodule_path']} - Local Changes", expanded=False):
                     if submodule['staged']:
                         st.markdown("**Staged changes:**")
                         for file in submodule['staged'][:5]:  # Limit to first 5 for submodules
@@ -537,7 +551,7 @@ def git_status_page():
 
         # Check main repo
         if main_repo['exists'] and not main_repo['error']:
-            if main_repo['behind'] > 0 or main_repo['has_changes']:
+            if main_repo['behind'] > 0 or main_repo['ahead'] > 0:
                 needs_update += 1
             else:
                 up_to_date += 1
@@ -547,7 +561,7 @@ def git_status_page():
         # Check submodules
         for submodule in submodules:
             if submodule['exists'] and not submodule['error']:
-                if (submodule['behind'] > 0 or submodule['has_changes'] or
+                if (submodule['behind'] > 0 or submodule['ahead'] > 0 or
                         submodule['needs_update']):
                     needs_update += 1
                 else:
@@ -562,14 +576,24 @@ def git_status_page():
     # Instructions
     with st.expander("ℹ️ About Git Repository Status"):
         st.markdown("""
+        **Repository Status Display:**
+        - **Git status**: Shows synchronization with remote (ahead/behind/up to date)
+        - **Local changes**: Shows number of uncommitted local changes
+        - Both statuses are displayed independently for clear visibility
+        
         **Repository Status Indicators:**
-        - ✅ **Up to date**: Repository is clean and up to date with remote
+        - ✅ **Up to date**: Repository is up to date with remote
         - ⬇️ **Behind**: Local repository is behind remote (can pull updates)
         - ⬆️ **Ahead**: Local repository has unpushed commits
-        - 📝 **Changes**: Local repository has uncommitted changes
+        - 📝 **Changes**: Local repository has uncommitted changes (shown in expandable sections)
         - 🟡 **Needs update**: Submodule needs to be updated
         - ⚠️ **Error**: There's an issue with the repository
         - ❌ **Not found**: Repository directory doesn't exist
+
+        **Display Format:**
+        - Git status and local changes are shown as separate, clear indicators
+        - Click the expandable "Local Changes" sections to see detailed file lists
+        - This helps distinguish between remote sync status and local work progress
 
         **Pull Options:**
         - ⬇️ **Pull**: Normal `git pull` - merges remote changes
