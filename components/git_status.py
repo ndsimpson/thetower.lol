@@ -71,7 +71,10 @@ def get_git_status(repo_path: str) -> Dict[str, any]:
         status_info['error'] = 'Directory does not exist'
         return status_info
 
-    if not os.path.exists(os.path.join(repo_path, '.git')):
+    # Check if it's a git repository by trying a git command
+    # This works for both regular repos (.git directory) and submodules (.git file)
+    success, _, _ = run_git_command(['git', 'rev-parse', '--git-dir'], repo_path)
+    if not success:
         status_info['error'] = 'Not a git repository'
         return status_info
 
