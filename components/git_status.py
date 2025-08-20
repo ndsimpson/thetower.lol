@@ -9,7 +9,7 @@ import subprocess
 import streamlit as st
 import platform
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, List, Tuple
 
 
@@ -273,7 +273,7 @@ def git_status_page():
         if st.button("🔄 Refresh Status"):
             st.rerun()
     with col2:
-        utc_time = datetime.utcnow().strftime('%H:%M:%S')
+        utc_time = datetime.now(timezone.utc).strftime('%H:%M:%S')
         st.markdown(f"*Last updated: {utc_time} UTC*")
 
     st.markdown("---")
