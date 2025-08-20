@@ -37,7 +37,7 @@ def run_git_command(command: List[str], cwd: str = None) -> Tuple[bool, str, str
             timeout=30,
             cwd=cwd
         )
-        return (result.returncode == 0, result.stdout.strip(), result.stderr.strip())
+        return (result.returncode == 0, result.stdout.rstrip('\n\r'), result.stderr.strip())
     except (subprocess.TimeoutExpired, subprocess.CalledProcessError, FileNotFoundError) as e:
         return (False, "", str(e))
 
@@ -126,14 +126,28 @@ def get_git_status(repo_path: str) -> Dict[str, any]:
         for line in porcelain.split('\n'):
             if not line.strip():
                 continue
-            status_code = line[:2]
+
+            # Git porcelain format: XY filename
+            # X = index status, Y = working tree status
+            # Position 0: index status (space = unchanged, A/M/D/etc = staged)
+            # Position 1: working tree status (space = unchanged, M/D = modified, ? = untracked)
+            # Position 2: space separator
+            # Position 3+: filename
+            if len(line) < 3:
+                continue
+
+            index_status = line[0]
+            worktree_status = line[1]
             filename = line[3:]
 
-            if status_code[0] in ['M', 'A', 'D', 'R', 'C']:
+            # Check index (staged) changes
+            if index_status in ['M', 'A', 'D', 'R', 'C']:
                 status_info['staged'].append(filename)
-            if status_code[1] in ['M', 'D']:
+
+            # Check working tree changes
+            if worktree_status in ['M', 'D']:
                 status_info['modified'].append(filename)
-            elif status_code[1] == '?':
+            elif worktree_status == '?':
                 status_info['untracked'].append(filename)
 
     status_info['has_changes'] = bool(
