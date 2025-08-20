@@ -28,8 +28,12 @@ def search_players_optimized(search_term, excluded_player_ids, page=20):
 
     fragments = [part.strip() for part in search_term.split()]
 
-    # Check if this looks like a player ID search (contains hex characters)
-    is_player_id_search = any(c in search_term.upper() for c in 'ABCDEF') and len(search_term) >= 6
+    # Check if this looks like a player ID search (mostly hex characters)
+    hex_chars = sum(1 for c in search_term.upper() if c in 'ABCDEF0123456789')
+    is_player_id_search = (
+        len(search_term.replace(' ', '')) >= 12 and  # Player IDs are long
+        hex_chars / len(search_term.replace(' ', '')) > 0.7  # Mostly hex characters
+    )
 
     if is_player_id_search:
         # Player ID search - unified query
@@ -181,18 +185,32 @@ def compute_search(player=False, comparison=False):
     elif player_id_part.strip():
         search_term = player_id_part.strip()
 
+    # Debug output
+    if search_term:
+        st.write(f"🔍 Searching for: '{search_term}'")
+
     if search_term:
         # Use the optimized search function
         nickname_ids = search_players_optimized(search_term, excluded_player_ids, page)
+        st.write(f"📊 Found {len(nickname_ids)} raw results")
     else:
         nickname_ids = []
 
     # Process results for display
     data_to_be_shown = []
-    for player_id, nicknames in groupby(nickname_ids, lambda x: x[0]):
-        nicknames = [nickname for _, nickname in nicknames]
-        datum = {"player_id": player_id, "nicknames": ", ".join(set(nicknames)), "how_many_results": len(nicknames)}
-        data_to_be_shown.append(datum)
+
+    # Handle the optimized search results format
+    if nickname_ids:
+        # nickname_ids is a list of (player_id, nickname) tuples
+        # Group by player_id in case there are duplicates
+        for player_id, group in groupby(nickname_ids, lambda x: x[0]):
+            nicknames_list = [nickname for _, nickname in group]
+            datum = {
+                "player_id": player_id,
+                "nicknames": ", ".join(set(nicknames_list)),
+                "how_many_results": len(nicknames_list)
+            }
+            data_to_be_shown.append(datum)
 
     for datum in data_to_be_shown:
         nickname_col, player_id_col, button_col = st.columns([1, 1, 1])
