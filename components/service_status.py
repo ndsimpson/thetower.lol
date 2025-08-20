@@ -9,7 +9,7 @@ import subprocess
 import streamlit as st
 import platform
 from datetime import datetime
-from typing import Tuple
+from typing import Tuple, Optional
 
 
 def is_windows() -> bool:
@@ -60,6 +60,73 @@ def get_service_status(service_name: str) -> Tuple[str, str, str]:
 
     except (subprocess.TimeoutExpired, subprocess.CalledProcessError, FileNotFoundError):
         return ('not-found', 'inactive', 'dead')
+
+
+def get_service_start_time(service_name: str) -> Optional[str]:
+    """
+    Get the time when a systemd service was last started.
+
+    Returns:
+        str: Formatted start time or None if unavailable
+    """
+    if is_windows():
+        # On Windows, return mock start time for development
+        return "Development Mode - No Start Time"
+
+    try:
+        # Get service start time using systemctl show
+        result = subprocess.run(
+            ["systemctl", "show", service_name, "--property=ActiveEnterTimestamp"],
+            capture_output=True,
+            text=True,
+            timeout=5
+        )
+
+        for line in result.stdout.strip().split('\n'):
+            if line.startswith('ActiveEnterTimestamp='):
+                timestamp_str = line.split('=', 1)[1].strip()
+
+                # Handle empty timestamp (service never started)
+                if not timestamp_str or timestamp_str == 'n/a':
+                    return "Never Started"
+
+                # Parse the timestamp
+                # systemctl returns timestamps in format: "Tue 2024-08-20 14:30:15 UTC"
+                try:
+                    # Remove day of week if present
+                    if timestamp_str.startswith(('Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun')):
+                        timestamp_str = ' '.join(timestamp_str.split()[1:])
+
+                    # Parse the datetime
+                    dt = datetime.strptime(timestamp_str, '%Y-%m-%d %H:%M:%S %Z')
+
+                    # Calculate how long ago this was
+                    now = datetime.utcnow()
+                    time_diff = now - dt
+
+                    if time_diff.days > 0:
+                        time_ago = f"{time_diff.days} day{'s' if time_diff.days != 1 else ''} ago"
+                    elif time_diff.seconds > 3600:
+                        hours = time_diff.seconds // 3600
+                        time_ago = f"{hours} hour{'s' if hours != 1 else ''} ago"
+                    elif time_diff.seconds > 60:
+                        minutes = time_diff.seconds // 60
+                        time_ago = f"{minutes} minute{'s' if minutes != 1 else ''} ago"
+                    else:
+                        time_ago = "Just now"
+
+                    # Format the display string
+                    formatted_time = dt.strftime('%Y-%m-%d %H:%M:%S UTC')
+                    return f"{formatted_time}\n({time_ago})"
+
+                except ValueError:
+                    # If parsing fails, return raw timestamp
+                    return timestamp_str
+
+        return "Unknown"
+
+    except (subprocess.TimeoutExpired, subprocess.CalledProcessError, FileNotFoundError):
+        return "Unavailable"
 
 
 def get_status_color(active_state: str, sub_state: str) -> str:
@@ -211,11 +278,12 @@ def service_status_page():
     # Service status grid
     for service_id, config in services.items():
         with st.container():
-            col1, col2, col3, col4 = st.columns([3, 2, 2, 1])
+            col1, col2, col3, col4, col5 = st.columns([3, 1.5, 1.5, 2, 1])
 
-            # Get service status
+            # Get service status and start time
             load_state, active_state, sub_state = get_service_status(config['service'])
             status_emoji = get_status_emoji(active_state, sub_state)
+            start_time = get_service_start_time(config['service'])
 
             with col1:
                 st.markdown(f"**{status_emoji} {config['name']}**")
@@ -246,7 +314,29 @@ def service_status_page():
                     st.markdown(f"⚠️ {load_state}")
 
             with col4:
-                # Action button logic
+                # Display start time information
+                if start_time:
+                    if start_time == "Development Mode - No Start Time":
+                        st.markdown("🖥️ *Dev Mode*")
+                    elif start_time == "Never Started":
+                        st.markdown("⏸️ *Never Started*")
+                    elif start_time == "Unknown" or start_time == "Unavailable":
+                        st.markdown("❓ *Unknown*")
+                    else:
+                        # Show formatted time with tooltip
+                        if '\n' in start_time:
+                            time_parts = start_time.split('\n')
+                            full_time = time_parts[0]
+                            time_ago = time_parts[1].strip('()')
+                            st.markdown(f"🕐 **{time_ago}**")
+                            st.caption(full_time)
+                        else:
+                            st.markdown(f"🕐 {start_time}")
+                else:
+                    st.markdown("❓ *Unknown*")
+
+            with col5:
+                # Action button logic (moved to col5)
                 if load_state == 'loaded' or is_windows():
                     restart_allowed = config.get('restart_allowed', True)
 
@@ -388,23 +478,29 @@ def service_status_page():
         - 🟡 **Active**: Service is loaded but may not be running (e.g., one-shot services)
         - ⚪ **Stopped**: Service is inactive but loaded
         - 🔴 **Failed**: Service has failed and needs attention
-        
+
+        **Start Time Information:**
+        - 🕐 Shows when each service was last started/restarted
+        - Displays both absolute time (UTC) and relative time (e.g., "2 hours ago")
+        - ⏸️ **Never Started**: Service has never been activated
+        - ❓ **Unknown**: Start time information unavailable
+
         **Actions:**
         - 🔄 **Restart button**: Restart services (most services)
         - ▶️ **Start button**: Start stopped services (import_results, get_results only)
         - 🔒 **Start-only**: Some services can only be started when stopped, not restarted when running
-        - Use manual refresh to monitor services
+        - Use manual refresh to monitor services and update start times
         - Check the Queue Status for tournament recalculation progress
-        
+
         **Services:**
         - **Public/Hidden/Admin Sites**: Web applications serving different interfaces
         - **Fish Bot**: Discord bot for game interactions
         - **Import/Get Results**: Background services that fetch tournament data (start-only)
         - **Recalc Worker**: Processes tournament position recalculations
-        
+
         **Development Note:**
-        - On Windows: Service status is simulated for development purposes
-        - On Linux: Actual systemctl service status is displayed
+        - On Windows: Service status and start times are simulated for development purposes
+        - On Linux: Actual systemctl service status and timestamps are displayed
         """)
 
 
