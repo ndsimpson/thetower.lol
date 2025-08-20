@@ -13,7 +13,6 @@ from .models import ApiKey
 
 # Admin for ApiKey
 from django.contrib import messages
-from django.utils.html import format_html
 
 from django.utils.translation import gettext_lazy as _
 
@@ -38,7 +37,7 @@ class ApiKeyAdmin(admin.ModelAdmin):
     def save_model(self, request, obj, form, change):
         # Prevent reactivation if invalidated_at is set
         if obj.invalidated_at and obj.active:
-            messages.add_message(request, messages.ERROR, _(f"Cannot reactivate an invalidated API key."))
+            messages.add_message(request, messages.ERROR, _("Cannot reactivate an invalidated API key."))
             obj.active = False
         super().save_model(request, obj, form, change)
         if not change:
