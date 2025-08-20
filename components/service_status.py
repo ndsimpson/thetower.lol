@@ -143,10 +143,16 @@ def get_status_color(active_state: str, sub_state: str) -> str:
         return 'yellow'
 
 
-def get_status_emoji(active_state: str, sub_state: str) -> str:
+def get_status_emoji(active_state: str, sub_state: str, load_state: str = 'loaded') -> str:
     """Get the appropriate emoji for service status."""
     if is_windows() and sub_state == 'windows-dev':
         return '🖥️'
+    elif load_state == 'not-found':
+        return '❌'
+    elif load_state == 'masked':
+        return '🚫'
+    elif load_state != 'loaded':
+        return '⚠️'
     elif active_state == 'active' and sub_state == 'running':
         return '🟢'
     elif active_state == 'active':
@@ -278,11 +284,11 @@ def service_status_page():
     # Service status grid
     for service_id, config in services.items():
         with st.container():
-            col1, col2, col3, col4, col5 = st.columns([3, 1.5, 1.5, 2, 1])
+            col1, col2, col3, col4 = st.columns([3, 2, 2.5, 1])
 
             # Get service status and start time
             load_state, active_state, sub_state = get_service_status(config['service'])
-            status_emoji = get_status_emoji(active_state, sub_state)
+            status_emoji = get_status_emoji(active_state, sub_state, load_state)
             start_time = get_service_start_time(config['service'])
 
             with col1:
@@ -290,30 +296,27 @@ def service_status_page():
                 st.caption(config['description'])
 
             with col2:
+                # Combined status that includes both active state and load state issues
                 if is_windows() and sub_state == 'windows-dev':
                     st.info("Development Mode")
+                elif load_state == 'not-found':
+                    st.error("Not Found")
+                elif load_state == 'masked':
+                    st.warning("Disabled/Masked")
+                elif load_state != 'loaded':
+                    st.error(f"Error ({load_state})")
                 elif active_state == 'active' and sub_state == 'running':
-                    st.success(f"Running ({sub_state})")
+                    st.success("Running")
                 elif active_state == 'active':
                     st.warning(f"Active ({sub_state})")
                 elif active_state == 'failed':
-                    st.error(f"Failed ({sub_state})")
+                    st.error("Failed")
                 elif active_state == 'inactive':
-                    st.info(f"Stopped ({sub_state})")
+                    st.info("Stopped")
                 else:
-                    st.warning(f"{active_state} ({sub_state})")
+                    st.warning(f"Unknown ({active_state})")
 
             with col3:
-                if is_windows():
-                    st.markdown("🖥️ Windows Dev")
-                elif load_state == 'loaded':
-                    st.markdown("✅ Loaded")
-                elif load_state == 'not-found':
-                    st.markdown("❌ Not Found")
-                else:
-                    st.markdown(f"⚠️ {load_state}")
-
-            with col4:
                 # Display start time information
                 if start_time:
                     if start_time == "Development Mode - No Start Time":
@@ -335,8 +338,8 @@ def service_status_page():
                 else:
                     st.markdown("❓ *Unknown*")
 
-            with col5:
-                # Action button logic (moved to col5)
+            with col4:
+                # Action button logic
                 if load_state == 'loaded' or is_windows():
                     restart_allowed = config.get('restart_allowed', True)
 
@@ -473,11 +476,14 @@ def service_status_page():
     # Instructions
     with st.expander("ℹ️ About Service Status"):
         st.markdown("""
-        **Service States:**
+        **Service Status:**
         - 🟢 **Running**: Service is active and working normally
-        - 🟡 **Active**: Service is loaded but may not be running (e.g., one-shot services)
-        - ⚪ **Stopped**: Service is inactive but loaded
-        - 🔴 **Failed**: Service has failed and needs attention
+        - ⚪ **Stopped**: Service is inactive but ready to start
+        - � **Failed**: Service has failed and needs attention
+        - �🟡 **Active**: Service is loaded but may not be running (e.g., one-shot services)
+        - ❌ **Not Found**: Service configuration doesn't exist
+        - � **Disabled/Masked**: Service is intentionally disabled
+        - ⚠️ **Error**: Service has configuration issues
 
         **Start Time Information:**
         - 🕐 Shows when each service was last started/restarted
