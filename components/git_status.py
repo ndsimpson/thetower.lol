@@ -597,7 +597,7 @@ def git_status_page():
         - **Git status**: Shows synchronization with remote (ahead/behind/up to date)
         - **Local changes**: Shows number of uncommitted local changes
         - Both statuses are displayed independently for clear visibility
-        
+
         **Repository Status Indicators:**
         - ✅ **Up to date**: Repository is up to date with remote
         - ⬇️ **Behind**: Local repository is behind remote (can pull updates)
