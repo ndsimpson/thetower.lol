@@ -22,5 +22,5 @@
 
 ## Modern Package Management
 
-This project now uses `pyproject.toml` for dependency management instead of `requirements.txt`. 
+This project now uses `pyproject.toml` for dependency management instead of `requirements.txt`.
 All configuration (pytest, black, isort, flake8) is consolidated in this single file.
