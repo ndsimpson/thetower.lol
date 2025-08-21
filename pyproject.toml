@@ -85,11 +85,12 @@ Repository = "https://github.com/ndsimpson/thetower.lol"
 Issues = "https://github.com/ndsimpson/thetower.lol/issues"
 
 [project.scripts]
-thetower-web = "components.pages:main"
-fish-bot = "fish_bot.bot:main"
+thetower-web = "thetower.web.pages:main"
+thetower-bot = "thetower.bot.main:main"
 
 [tool.setuptools.packages.find]
-include = ["thetower*", "components*", "fish_bot*"]
+where = ["src"]
+include = ["thetower*"]
 exclude = ["tests*", "*.tests*", "*.tests.*"]
 
 [tool.setuptools.package-data]
@@ -125,7 +126,8 @@ extend-exclude = '''
 profile = "black"
 line_length = 150
 multi_line_output = 3
-known_first_party = ["components", "dtower", "fish_bot", "thetower"]
+known_first_party = ["thetower"]
+src_paths = ["src"]
 honor_noqa = true
 remove_redundant_aliases = true
 include_trailing_comma = true
