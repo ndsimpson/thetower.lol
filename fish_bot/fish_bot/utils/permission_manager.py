@@ -102,7 +102,7 @@ class PermissionManager:
         if not command_name:
             # Use the same logic as BaseCog.get_command_name to get full command path
             cmd = ctx.command
-            parent = cmd.parent
+            parent = getattr(cmd, 'parent', None)
             if parent is None:
                 command_name = cmd.name
             else:

@@ -386,8 +386,12 @@ class BaseCog(commands.Cog):
             return True
 
         # Create a mock context for permission manager
+        # Include parent attribute to match expected command structure
         ctx = SimpleNamespace(
-            command=SimpleNamespace(name=interaction.command.name),
+            command=SimpleNamespace(
+                name=interaction.command.name,
+                parent=getattr(interaction.command, 'parent', None)
+            ),
             bot=interaction.client,
             guild=interaction.guild,
             channel=interaction.channel,
