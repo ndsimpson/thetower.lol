@@ -63,7 +63,7 @@ def restart_admin_site(modeladmin, request, queryset):
 
 
 @admin.action(description="Restart fish bot")
-def restart_discord_bot(modeladmin, request, queryset):
+def restart_fish_bot(modeladmin, request, queryset):
     subprocess.call("systemctl restart fish_bot", shell=True)
 
 
@@ -177,7 +177,7 @@ class TourneyResultAdmin(SimpleHistoryAdmin):
         restart_public_site,
         restart_hidden_site,
         restart_admin_site,
-        restart_discord_bot,
+        restart_fish_bot,
         restart_verify_bot,
         restart_import_results,
         restart_get_results,
