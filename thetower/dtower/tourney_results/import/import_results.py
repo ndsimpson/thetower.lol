@@ -1,6 +1,7 @@
 #!/tourney/tourney_venv/bin/python
 import os
 import datetime
+import sys
 import threading
 
 import schedule
@@ -21,7 +22,9 @@ from dtower.tourney_results.constants import leagues
 from dtower.tourney_results.get_results import get_file_name, get_last_date
 from dtower.tourney_results.models import TourneyResult, BattleCondition
 from dtower.tourney_results.tourney_utils import create_tourney_rows, get_summary
-from towerbcs.towerbcs import predict_future_tournament, TournamentPredictor
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', '..', '..'))
+from towerbcs import predict_future_tournament, TournamentPredictor
+sys.path.pop(0)
 
 
 logging.basicConfig(level=logging.INFO)
