@@ -2,11 +2,11 @@ import os
 
 import django
 
-os.environ.setdefault("DJANGO_SETTINGS_MODULE", "dtower.thetower.settings")
+os.environ.setdefault("DJANGO_SETTINGS_MODULE", "thetower.backend.towerdb.settings")
 django.setup()
 
 
-from dtower.tourney_results.models import Patch, Role
+from thetower.backend.tourney_results.models import Patch, Role
 
 
 for role in Role.objects.filter(patch__version_minor=18):
