@@ -1,7 +1,8 @@
-from setuptools import find_packages, setup
+"""
+Legacy setup.py for backward compatibility.
+Use pyproject.toml for modern package management.
+"""
+from setuptools import setup
 
-setup(
-    name="components",
-    version="1.0",
-    packages=find_packages(),
-)
+# All configuration is now in pyproject.toml
+setup()
