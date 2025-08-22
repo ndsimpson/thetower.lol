@@ -3,7 +3,21 @@ import logging
 from zoneinfo import ZoneInfo
 from django.core.management.base import BaseCommand
 from dtower.tourney_results.models import TourneyResult, BattleCondition
-from towerbcs.towerbcs import predict_future_tournament, TournamentPredictor
+
+# Graceful towerbcs import handling
+try:
+    from towerbcs.towerbcs import predict_future_tournament, TournamentPredictor
+    TOWERBCS_AVAILABLE = True
+except ImportError:
+    TOWERBCS_AVAILABLE = False
+
+    def predict_future_tournament(tourney_id, league):
+        return []
+
+    class TournamentPredictor:
+        @staticmethod
+        def get_tournament_info(date):
+            return None, date, 0
 
 logging.basicConfig(level=logging.INFO)
 
@@ -36,6 +50,17 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **options):
+        # Check if towerbcs is available
+        if not TOWERBCS_AVAILABLE:
+            self.stdout.write(
+                self.style.ERROR(
+                    "Error: towerbcs package is not available.\n"
+                    "This command requires towerbcs to predict battle conditions.\n"
+                    "Please install towerbcs and try again."
+                )
+            )
+            return
+
         is_live = options['confirm']
         is_verbose = options['verbose']
         fix_mode = options['fix']

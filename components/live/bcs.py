@@ -6,10 +6,27 @@ import streamlit as st
 import logging
 from time import perf_counter
 from dtower.tourney_results.constants import leagues
-from towerbcs.towerbcs import predict_future_tournament, TournamentPredictor
+
+# Try to import towerbcs with graceful fallback
+try:
+    from towerbcs.towerbcs import predict_future_tournament, TournamentPredictor
+    TOWERBCS_AVAILABLE = True
+except ImportError:
+    TOWERBCS_AVAILABLE = False
+    predict_future_tournament = None
+    TournamentPredictor = None
 
 logging.info("Starting battle conditions analysis")
 t2_start = perf_counter()
+
+# Check if towerbcs is available
+if not TOWERBCS_AVAILABLE:
+    st.markdown("# Battle Conditions")
+    st.error("⚠️ Battle Conditions module not available")
+    st.markdown("""
+    The `towerbcs` package is not installed. To use battle conditions prediction, run the update script: `python update_towerbcs.py`
+    """)
+    st.stop()
 
 tourney_id, tourney_date, days_until = TournamentPredictor.get_tournament_info()
 

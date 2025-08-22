@@ -90,7 +90,7 @@ if hidden_features:
     admin_pages = [
         st.Page("duplicate_tournaments.py", title="Duplicate Tournament Entries", icon="🔍", url_path="duplicates"),
         st.Page("service_status.py", title="Service Status", icon="🔧", url_path="services"),
-        st.Page("git_status.py", title="Git Repository Status", icon="📦", url_path="git"),
+        st.Page("codebase_status.py", title="Codebase Status", icon="📦", url_path="codebase"),
     ]
 
 

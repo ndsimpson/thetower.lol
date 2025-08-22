@@ -1,4 +1,12 @@
 #!/tourney/tourney_venv/bin/python
+from dtower.tourney_results.tourney_utils import create_tourney_rows, get_summary
+from dtower.tourney_results.models import TourneyResult, BattleCondition
+from dtower.tourney_results.get_results import get_file_name, get_last_date
+from dtower.tourney_results.constants import leagues
+from django.core.files.uploadedfile import SimpleUploadedFile
+from glob import glob
+import time
+import logging
 import os
 import datetime
 import sys
@@ -12,19 +20,26 @@ os.environ.setdefault("DJANGO_SETTINGS_MODULE", "dtower.thetower.settings")
 django.setup()
 
 
-import logging
-import time
-from glob import glob
+# Graceful towerbcs import handling
+try:
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', '..', '..'))
+    from towerbcs import predict_future_tournament, TournamentPredictor
+    sys.path.pop(0)
+    TOWERBCS_AVAILABLE = True
+    logging.info("towerbcs package loaded successfully")
+except ImportError as e:
+    logging.warning(f"towerbcs package not available: {e}")
+    logging.warning("Battle condition predictions will be skipped")
+    # Create dummy functions to prevent errors
+    TOWERBCS_AVAILABLE = False
 
-from django.core.files.uploadedfile import SimpleUploadedFile
+    def predict_future_tournament(tourney_id, league):
+        return []
 
-from dtower.tourney_results.constants import leagues
-from dtower.tourney_results.get_results import get_file_name, get_last_date
-from dtower.tourney_results.models import TourneyResult, BattleCondition
-from dtower.tourney_results.tourney_utils import create_tourney_rows, get_summary
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', '..', '..'))
-from towerbcs import predict_future_tournament, TournamentPredictor
-sys.path.pop(0)
+    class TournamentPredictor:
+        @staticmethod
+        def get_tournament_info(date):
+            return None, date, 0
 
 
 logging.basicConfig(level=logging.INFO)
@@ -49,7 +64,8 @@ def execute():
             continue
 
         logging.info("Something new")
-        last_files = sorted([file_name for file_name in glob(f"{os.getenv('HOME')}/tourney/results_cache/{league}/{last_date}*") if "csv_raw" not in file_name])
+        last_files = sorted([file_name for file_name in glob(
+            f"{os.getenv('HOME')}/tourney/results_cache/{league}/{last_date}*") if "csv_raw" not in file_name])
 
         if not last_files:
             logging.info("Apparently we're checking the files before the download script could get them, try later.")
@@ -57,8 +73,18 @@ def execute():
 
         last_file = last_files[-1]
 
-        tourney_id, tourney_date, days_until = TournamentPredictor.get_tournament_info(last_date)
-        conditions = predict_future_tournament(tourney_id, league)
+        # Get tournament info and conditions (skip if towerbcs not available)
+        conditions = []
+        if TOWERBCS_AVAILABLE:
+            try:
+                tourney_id, tourney_date, days_until = TournamentPredictor.get_tournament_info(last_date)
+                conditions = predict_future_tournament(tourney_id, league)
+                logging.info(f"Predicted {len(conditions)} battle conditions for {league}")
+            except Exception as e:
+                logging.error(f"Error predicting battle conditions: {e}")
+                conditions = []
+        else:
+            logging.info("Skipping battle condition prediction (towerbcs not available)")
 
         try:
             with open(last_file, "rb") as infile:
@@ -82,8 +108,15 @@ def execute():
                 public=True,  # Make results public by default
             ),
         )
-        condition_ids = BattleCondition.objects.filter(name__in=conditions).values_list('id', flat=True)
-        result.conditions.set(condition_ids)
+
+        # Apply battle conditions if any were predicted
+        if conditions:
+            condition_ids = BattleCondition.objects.filter(name__in=conditions).values_list('id', flat=True)
+            result.conditions.set(condition_ids)
+            logging.info(f"Applied {len(condition_ids)} battle conditions to tournament result")
+        else:
+            logging.info("No battle conditions to apply")
+
         create_tourney_rows(result)
 
         # Generate summary for Legends league results

@@ -5,7 +5,21 @@ import discord
 from discord.ext import commands, tasks
 
 from fish_bot.basecog import BaseCog
-from towerbcs.towerbcs import predict_future_tournament, TournamentPredictor
+
+# Graceful towerbcs import handling
+try:
+    from towerbcs.towerbcs import predict_future_tournament, TournamentPredictor
+    TOWERBCS_AVAILABLE = True
+except ImportError:
+    TOWERBCS_AVAILABLE = False
+
+    def predict_future_tournament(tourney_id, league):
+        return ["Battle conditions unavailable - towerbcs package not installed"]
+
+    class TournamentPredictor:
+        @staticmethod
+        def get_tournament_info():
+            return None, "Unknown", 0
 
 
 class BattleConditions(BaseCog, name="Battle Conditions"):
@@ -50,6 +64,12 @@ class BattleConditions(BaseCog, name="Battle Conditions"):
     async def cog_initialize(self) -> None:
         """Initialize the cog - called by BaseCog during ready process."""
         self.logger.info("Initializing Battle Conditions module")
+
+        # Check if towerbcs is available
+        if not TOWERBCS_AVAILABLE:
+            self.logger.warning("towerbcs package not available - battle conditions functionality will be limited")
+            self._has_errors = True
+
         try:
             async with self.task_tracker.task_context("Initialization") as tracker:
                 # Initialize parent
@@ -146,6 +166,19 @@ class BattleConditions(BaseCog, name="Battle Conditions"):
         Args:
             league: League name (Legend, Champion, Platinum, Gold, Silver)
         """
+        if not TOWERBCS_AVAILABLE:
+            embed = discord.Embed(
+                title="Battle Conditions Unavailable",
+                description="⚠️ The towerbcs package is not installed, so battle condition predictions are not available.",
+                color=discord.Color.orange()
+            )
+            embed.add_field(
+                name="What this means",
+                value="Battle condition predictions require the towerbcs package to be installed on the bot server.",
+                inline=False
+            )
+            return await ctx.send(embed=embed)
+
         league = league.title()  # Standardize to title case
 
         # Validate league
@@ -180,6 +213,14 @@ class BattleConditions(BaseCog, name="Battle Conditions"):
     @battleconditions_group.command(name="tourney")
     async def get_tourney_command(self, ctx):
         """Get the date of the next tourney."""
+        if not TOWERBCS_AVAILABLE:
+            embed = discord.Embed(
+                title="Tournament Information Unavailable",
+                description="⚠️ The towerbcs package is not installed, so tournament information is not available.",
+                color=discord.Color.orange()
+            )
+            return await ctx.send(embed=embed)
+
         tourney_id, tourney_date, days_until = TournamentPredictor.get_tournament_info()
 
         embed = discord.Embed(
@@ -1048,6 +1089,9 @@ class BattleConditions(BaseCog, name="Battle Conditions"):
         Returns:
             List of battle condition strings.
         """
+        if not TOWERBCS_AVAILABLE:
+            return ["⚠️ Battle conditions unavailable - towerbcs package not installed"]
+
         tourney_id, _, _ = TournamentPredictor.get_tournament_info()
 
         try:
@@ -1055,7 +1099,7 @@ class BattleConditions(BaseCog, name="Battle Conditions"):
             return predict_future_tournament(tourney_id, league)
         except Exception as e:
             self.logger.error(f"Error fetching battle conditions for {league}: {e}")
-            return ["Error fetching battle conditions"]
+            return ["❌ Error fetching battle conditions"]
 
     async def send_battle_conditions_embed(self, channel, league, tourney_date, battleconditions):
         """Helper method to create and send battle conditions embeds
