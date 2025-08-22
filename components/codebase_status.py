@@ -76,12 +76,18 @@ def check_towerbcs_updates() -> Tuple[bool, str, str]:
     except ImportError:
         # Fallback to subprocess if import fails
         try:
+            # Get current environment and ensure TOWERBCS_REPO_URL is available
+            env = os.environ.copy()
+            if 'TOWERBCS_REPO_URL' not in env:
+                env['TOWERBCS_REPO_URL'] = 'https://github.com/ndsimpson/thetower.lol-bc-generator.git'
+
             result = subprocess.run(
                 [sys.executable, 'update_towerbcs.py', '--version-only'],
                 capture_output=True,
                 text=True,
                 timeout=10,
-                cwd=os.getcwd()
+                cwd=os.getcwd(),
+                env=env
             )
 
             if result.returncode == 0:
@@ -119,12 +125,18 @@ def update_towerbcs_package() -> Tuple[bool, str]:
         tuple: (success, message)
     """
     try:
+        # Get current environment and ensure TOWERBCS_REPO_URL is available
+        env = os.environ.copy()
+        if 'TOWERBCS_REPO_URL' not in env:
+            env['TOWERBCS_REPO_URL'] = 'https://github.com/ndsimpson/thetower.lol-bc-generator.git'
+
         result = subprocess.run(
             [sys.executable, 'update_towerbcs.py', '--auto'],
             capture_output=True,
             text=True,
             timeout=120,
-            cwd=os.getcwd()
+            cwd=os.getcwd(),
+            env=env
         )
 
         if result.returncode == 0:
@@ -144,12 +156,18 @@ def force_install_towerbcs_package() -> Tuple[bool, str]:
         tuple: (success, message)
     """
     try:
+        # Get current environment and ensure TOWERBCS_REPO_URL is available
+        env = os.environ.copy()
+        if 'TOWERBCS_REPO_URL' not in env:
+            env['TOWERBCS_REPO_URL'] = 'https://github.com/ndsimpson/thetower.lol-bc-generator.git'
+
         result = subprocess.run(
             [sys.executable, 'update_towerbcs.py', '--force'],
             capture_output=True,
             text=True,
             timeout=120,
-            cwd=os.getcwd()
+            cwd=os.getcwd(),
+            env=env
         )
 
         if result.returncode == 0:
