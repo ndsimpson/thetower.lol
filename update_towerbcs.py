@@ -53,13 +53,25 @@ def get_latest_version(repo_url=None):
 
         # Sort by version and return latest
         if tags:
+            from packaging import version
             latest = max(tags, key=lambda x: version.parse(x))
             return latest
         else:
             return None
 
-    except (subprocess.CalledProcessError, subprocess.TimeoutExpired, Exception):
-        # Return None for any error - caller can handle gracefully
+    except subprocess.CalledProcessError:
+        # Git command failed
+        return None
+    except subprocess.TimeoutExpired:
+        # Git command timed out
+        return None
+    except ImportError:
+        # packaging module not available - fallback to simple string comparison
+        if tags:
+            return max(tags)  # Simple string max as fallback
+        return None
+    except Exception:
+        # Any other error
         return None
 
 
