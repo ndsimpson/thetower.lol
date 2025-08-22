@@ -20,9 +20,6 @@ classifiers = [
 ]
 
 dependencies = [
-    # Local packages
-    "towerbcs @ file:./towerbcs",
-    
     # Web interface
     "streamlit==1.47.0",
     "streamlit-extras==0.6.0",
