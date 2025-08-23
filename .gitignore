@@ -33,7 +33,7 @@ __pycache__/
 *$py.class
 
 # Custom bytecode cache location
-.cache/bytecode/
+.cache/
 
 # Virtual Environment
 .venv/
