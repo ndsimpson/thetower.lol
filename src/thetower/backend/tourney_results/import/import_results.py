@@ -1,22 +1,25 @@
 #!/tourney/tourney_venv/bin/python
+import os
+import time
+import logging
+import datetime
+import threading
+from glob import glob
+
+import schedule
+import django
+
+# Django setup must come first
+os.environ.setdefault("DJANGO_SETTINGS_MODULE", "thetower.backend.towerdb.settings")
+django.setup()
+
 from ..tourney_utils import create_tourney_rows, get_summary
 from ..models import TourneyResult, BattleCondition
 from ..get_results import get_file_name, get_last_date
 from ..constants import leagues
+
+
 from django.core.files.uploadedfile import SimpleUploadedFile
-from glob import glob
-import time
-import logging
-import os
-import datetime
-import threading
-
-import schedule
-
-import django
-
-os.environ.setdefault("DJANGO_SETTINGS_MODULE", "thetower.backend.towerdb.settings")
-django.setup()
 
 
 # Graceful towerbcs import handling

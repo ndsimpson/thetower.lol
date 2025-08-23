@@ -2,24 +2,20 @@
 import datetime
 import os
 import time
-
-import schedule
-
-import requests
-
-weekdays_sat = [5, 6, 0, 1]
-weekdays_wed = [2, 3, 4]
-
-wednesday = 2
-saturday = 5
-
-
 import io
 import logging
 
+import schedule
+import requests
 import pandas as pd
 
 from .constants import leagues
+
+# Constants
+weekdays_sat = [5, 6, 0, 1]
+weekdays_wed = [2, 3, 4]
+wednesday = 2
+saturday = 5
 
 logging.basicConfig(level=logging.INFO)
 

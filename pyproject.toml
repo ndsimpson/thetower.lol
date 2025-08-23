@@ -137,7 +137,7 @@ ensure_newline_before_comments = true
 
 [tool.flake8]
 max-line-length = 150
-extend-ignore = ["E203", "E501", "W503"]
+extend-ignore = ["E203", "E402", "E501", "W503"]
 exclude = [
     ".git",
     "__pycache__",
@@ -147,4 +147,12 @@ exclude = [
     ".venv",
     "build",
     "dist"
+]
+
+[tool.autopep8]
+max_line_length = 150
+exclude = [
+    "src/thetower/backend/tourney_results/import/import_results.py",
+    "src/thetower/backend/tourney_results/import/get_results.py",
+    "src/thetower/backend/tourney_results/import/get_limited_results.py"
 ]

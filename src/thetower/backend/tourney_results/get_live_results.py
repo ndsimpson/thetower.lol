@@ -9,12 +9,11 @@ import pandas as pd
 import requests
 import schedule
 
-from .utils.data_ops import clear_cache
 from .constants import leagues
 
+# Constants
 weekdays_sat = [5, 6, 0, 1]
 weekdays_wed = [2, 3, 4]
-
 wednesday = 2
 saturday = 5
 
@@ -82,6 +81,8 @@ def execute(league):
     logging.info(f"Successfully stored file {file_path}")
 
     try:
+        # Import clear_cache here to avoid Django setup issues
+        from ...web.live.data_ops import clear_cache
         clear_cache()
         logging.info("Successfully cleared Streamlit cache")
     except Exception as e:

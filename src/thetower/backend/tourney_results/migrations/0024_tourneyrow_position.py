@@ -1,7 +1,7 @@
 from django.db import migrations, models
 from tqdm import tqdm
 
-from dtower.sus.models import SusPerson
+from thetower.backend.sus.models import SusPerson
 
 
 def populate_positions(apps, schema_editor):

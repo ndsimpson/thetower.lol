@@ -4,7 +4,7 @@ from pathlib import Path
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.db import migrations
 
-from dtower.tourney_results.constants import champ, data_folder_name_mapping
+from thetower.backend.tourney_results.constants import champ, data_folder_name_mapping
 
 
 def upgrade(apps, schema_editor):

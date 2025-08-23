@@ -2,7 +2,7 @@ from django.db import migrations
 
 
 def upgrade(apps, schema_editor):
-    from dtower.sus.models import SusPerson
+    from thetower.backend.sus.models import SusPerson
 
     for sus in SusPerson.objects.all():
         history = sus.history.all()
