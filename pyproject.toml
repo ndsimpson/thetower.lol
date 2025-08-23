@@ -7,7 +7,7 @@ name = "thetower"
 version = "1.0.0"
 description = "The Tower tournament results and Discord bot system"
 readme = "README.md"
-requires-python = ">=3.13"
+requires-python = ">=3.12"
 authors = [
     {name = "thetower.lol team"}
 ]
