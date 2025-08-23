@@ -6,7 +6,7 @@
 - install everything:
     - `cd /tourney` to make sure we're in the working directory
     - `pip install -e .` to install the unified project with all dependencies
-    - `python update_towerbcs.py --auto` to install the battle conditions predictor package
+    - `python src/thetower/scripts/install_towerbcs.py --auto` to install the battle conditions predictor package
     - Optional dependency groups:
         - `pip install -e ".[dev]"` for development tools (pytest, etc.)
         - `pip install -e ".[bot]"` for Discord bot only

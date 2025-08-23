@@ -24,7 +24,7 @@ if not TOWERBCS_AVAILABLE:
     st.markdown("# Battle Conditions")
     st.error("⚠️ Battle Conditions module not available")
     st.markdown("""
-    The `towerbcs` package is not installed. To use battle conditions prediction, run the update script: `python update_towerbcs.py`
+    The `towerbcs` package is not installed. To use battle conditions prediction, run the update script: `python src/thetower/scripts/install_towerbcs.py`
     """)
     st.stop()
 

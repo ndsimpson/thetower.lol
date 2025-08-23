@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Complete script to check and update towerbcs package from git repository.
-Usage: python update_towerbcs.py [--auto] [--check-only] [--repo-url URL]
+Usage: python install_towerbcs.py [--auto] [--check-only] [--repo-url URL]
 
 Repository URL priority:
 1. Command line: --repo-url (highest priority)

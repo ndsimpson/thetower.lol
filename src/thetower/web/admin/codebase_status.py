@@ -65,7 +65,7 @@ def check_towerbcs_updates() -> Tuple[bool, str, str]:
     """
     try:
         # Import the fast functions directly from update_towerbcs
-        from update_towerbcs import get_installed_version, get_latest_version
+        from thetower.scripts.install_towerbcs import get_installed_version, get_latest_version
 
         # Get versions quickly
         current_version = get_installed_version('towerbcs')
@@ -82,7 +82,7 @@ def check_towerbcs_updates() -> Tuple[bool, str, str]:
                 env['TOWERBCS_REPO_URL'] = 'https://github.com/ndsimpson/thetower.lol-bc-generator.git'
 
             result = subprocess.run(
-                [sys.executable, 'update_towerbcs.py', '--version-only'],
+                [sys.executable, 'src/thetower/scripts/install_towerbcs.py', '--version-only'],
                 capture_output=True,
                 text=True,
                 timeout=10,
@@ -119,7 +119,7 @@ def check_towerbcs_updates() -> Tuple[bool, str, str]:
 
 def update_towerbcs_package() -> Tuple[bool, str]:
     """
-    Update towerbcs package using the update_towerbcs.py script.
+    Update towerbcs package using the install_towerbcs.py script.
 
     Returns:
         tuple: (success, message)
@@ -131,7 +131,7 @@ def update_towerbcs_package() -> Tuple[bool, str]:
             env['TOWERBCS_REPO_URL'] = 'https://github.com/ndsimpson/thetower.lol-bc-generator.git'
 
         result = subprocess.run(
-            [sys.executable, 'update_towerbcs.py', '--auto'],
+            [sys.executable, 'src/thetower/scripts/install_towerbcs.py', '--auto'],
             capture_output=True,
             text=True,
             timeout=120,
@@ -150,7 +150,7 @@ def update_towerbcs_package() -> Tuple[bool, str]:
 
 def force_install_towerbcs_package() -> Tuple[bool, str]:
     """
-    Force install towerbcs package using the update_towerbcs.py script with --force flag.
+    Force install towerbcs package using the install_towerbcs.py script with --force flag.
 
     Returns:
         tuple: (success, message)
@@ -162,7 +162,7 @@ def force_install_towerbcs_package() -> Tuple[bool, str]:
             env['TOWERBCS_REPO_URL'] = 'https://github.com/ndsimpson/thetower.lol-bc-generator.git'
 
         result = subprocess.run(
-            [sys.executable, 'update_towerbcs.py', '--force'],
+            [sys.executable, 'src/thetower/scripts/install_towerbcs.py', '--force'],
             capture_output=True,
             text=True,
             timeout=120,
@@ -831,7 +831,7 @@ def codebase_status_page():
         - Shows status of external Python packages (like towerbcs)
         - Version checking and updates are handled via dedicated update scripts
         - Package installation status is monitored independently from git repositories
-        - Uses `update_towerbcs.py` script for towerbcs management
+        - Uses `install_towerbcs.py` script for towerbcs management
 
         **Package Update Options:**
         - 🔄 **Update**: Normal update (checks versions, installs if newer available)
