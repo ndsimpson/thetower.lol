@@ -1,6 +1,5 @@
 # Standard library imports
 from thetower.web.util import makeitrain
-from thetower.backend.tourney_results.models import RainPeriod
 from thetower.backend.tourney_results.constants import Graph, Options
 import os
 from pathlib import Path
@@ -116,6 +115,7 @@ icon_path = current_dir / "static" / "images" / "TTIcon.png"
 st.logo(str(logo_path), size="large", icon_image=str(icon_path))
 
 # Only show toggle and make it rain if there are active rain periods
+from thetower.backend.tourney_results.models import RainPeriod
 active_period = RainPeriod.get_active_period()
 
 if active_period:
