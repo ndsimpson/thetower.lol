@@ -11,8 +11,8 @@ from discord.ext import commands
 from discord.ext.commands import Context
 
 # Local imports
-from fish_bot.exceptions import UserUnauthorized, ChannelUnauthorized
-from fish_bot.utils import BaseFileMonitor, CommandTypeManager, ConfigManager, CogManager, MemoryUtils, PermissionManager
+from thetower.bot.exceptions import UserUnauthorized, ChannelUnauthorized
+from thetower.bot.utils import BaseFileMonitor, CommandTypeManager, ConfigManager, CogManager, MemoryUtils, PermissionManager
 
 # Set up logging
 log_level = getenv("LOG_LEVEL", "INFO").upper()
@@ -121,7 +121,8 @@ class DiscordBot(commands.Bot, BaseFileMonitor):
                 )
         elif isinstance(error, commands.CommandNotFound):
             # Log the unknown command attempt
-            command_name = context.message.content.split()[0][len(context.prefix):] if context.message.content.startswith(context.prefix) else "Unknown"
+            command_name = context.message.content.split()[0][len(
+                context.prefix):] if context.message.content.startswith(context.prefix) else "Unknown"
             self.logger.info(f"Unknown command '{command_name}' attempted by {context.author} (ID: {context.author.id})")
 
             # Check if we should log to a Discord channel
@@ -1224,5 +1225,15 @@ async def on_close():
     # Stop the file system observer
     bot.cog_manager.stop_observer()
 
-# Start the bot
-bot.run(getenv("DISCORD_TOKEN"), log_level=logging.INFO)
+
+def main():
+    """Main entry point for the Discord bot."""
+    bot.run(getenv("DISCORD_TOKEN"), log_level=logging.INFO)
+
+
+# Bot instance is available for import
+__all__ = ['bot', 'DiscordBot', 'main']
+
+# Run bot if this module is executed directly
+if __name__ == "__main__":
+    main()

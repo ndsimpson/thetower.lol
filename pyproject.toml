@@ -86,7 +86,7 @@ Issues = "https://github.com/ndsimpson/thetower.lol/issues"
 
 [project.scripts]
 thetower-web = "thetower.web.pages:main"
-thetower-bot = "thetower.bot.main:main"
+thetower-bot = "thetower.bot.bot:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
