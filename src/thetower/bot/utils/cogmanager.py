@@ -360,7 +360,7 @@ class CogManager(FileSystemEventHandler):
                     continue
 
                 try:
-                    await self.bot.load_extension(f"cogs.{extension}")
+                    await self.bot.load_extension(f"thetower.bot.cogs.{extension}")
                     if extension not in self.loaded_cogs:
                         self.loaded_cogs.append(extension)
                         logger.info(f"Loaded extension '{extension}'")
@@ -378,7 +378,7 @@ class CogManager(FileSystemEventHandler):
                 logger.warning(f"Cannot reload '{cog_name}' - not currently loaded")
                 return False
 
-            await self.bot.reload_extension(f"cogs.{cog_name}")
+            await self.bot.reload_extension(f"thetower.bot.cogs.{cog_name}")
             logger.info(f"Reloaded cog '{cog_name}'")
             return True
         except Exception as e:
@@ -393,7 +393,7 @@ class CogManager(FileSystemEventHandler):
     async def unload_cog(self, cog_name: str) -> bool:
         """Unload a specific cog"""
         try:
-            await self.bot.unload_extension(f"cogs.{cog_name}")
+            await self.bot.unload_extension(f"thetower.bot.cogs.{cog_name}")
             if cog_name in self.loaded_cogs:
                 self.loaded_cogs.remove(cog_name)
                 self.unloaded_cogs.append(cog_name)
@@ -422,7 +422,7 @@ class CogManager(FileSystemEventHandler):
 
         # Now proceed with loading if allowed
         try:
-            await self.bot.load_extension(f"cogs.{cog_name}")
+            await self.bot.load_extension(f"thetower.bot.cogs.{cog_name}")
             if cog_name in self.unloaded_cogs:
                 self.unloaded_cogs.remove(cog_name)
                 self.loaded_cogs.append(cog_name)
