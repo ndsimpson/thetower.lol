@@ -244,10 +244,10 @@ def service_status_page():
             'service': 'tower-admin_site',
             'restart_allowed': True
         },
-        'thetower_bot': {
+        'discord_bot': {
             'name': 'TheTower Bot',
             'description': 'Discord bot for game interactions',
-            'service': 'thetower-bot',
+            'service': 'discord_bot',
             'restart_allowed': True
         },
         'import_results': {
