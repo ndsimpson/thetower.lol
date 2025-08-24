@@ -49,18 +49,35 @@ def live_results():
     pdf.index = pdf.index + 1
 
     topx = canvas.selectbox("top x", [1000, 500, 200, 100, 50, 25], key=f"topx_{league}")
+    need_to_get_in = canvas.checkbox("Filter by needing to get in", key=f"need_to_get_in_{league}")
+
     joined_sum = sum(pdf["joined"][:topx])
     joined_tot = len(pdf["joined"][:topx])
+    not_joined_count = joined_tot - joined_sum
 
-    color = ("green" if joined_sum / joined_tot >= 0.7
-             else "orange" if joined_sum / joined_tot >= 0.5
-             else "red")
-    canvas.write(
-        f"Has top {topx} joined already? <font color='{color}'>{joined_sum}</font>/{topx}",
-        unsafe_allow_html=True
-    )
+    if need_to_get_in:
+        # Show count of players who need to join
+        canvas.write(
+            f"{not_joined_count} in the top {topx} need to join",
+            unsafe_allow_html=True
+        )
+        # Filter to show only those who haven't joined from the top X
+        top_x_df = pdf[:topx]
+        display_df = top_x_df[~top_x_df["joined"]]
+    else:
+        # Show original message
+        color = ("green" if joined_sum / joined_tot >= 0.7
+                 else "orange" if joined_sum / joined_tot >= 0.5
+                 else "red")
+        canvas.write(
+            f"<font color='{color}'>{joined_sum}</font>/{topx} have already joined.",
+            unsafe_allow_html=True
+        )
+        # Show all players in top X
+        display_df = pdf[:topx]
+
     canvas.dataframe(
-        pdf[["real_name", "wave_last", "joined"]][:topx],
+        display_df[["real_name", "wave_last", "joined"]],
         height=600,
         width=400
     )
