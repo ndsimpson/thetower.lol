@@ -11,7 +11,7 @@ from thetower.backend.tourney_results.models import TourneyRow
 
 def get_namechangers():
     css_path = Path(__file__).parent.parent / "static" / "styles" / "style.css"
-        with open(css_path, "r") as infile:
+    with open(css_path, "r") as infile:
         table_styling = f"<style>{infile.read()}</style>"
 
     st.write(table_styling, unsafe_allow_html=True)
@@ -72,6 +72,7 @@ def get_namechangers():
 
     new_df = pd.DataFrame(combined_data)
     new_df = new_df.sort_values("namechanged_times", ascending=False).reset_index(drop=True)
+    new_df.index = new_df.index + 1
 
     to_be_displayed = new_df.style.format(make_player_url, subset=["id"])
 
