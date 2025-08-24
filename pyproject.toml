@@ -47,7 +47,6 @@ dependencies = [
 
     # Discord bot
     "discord.py==2.5.2",
-    "easyocr==1.7.2",
     "psutil==7.0.0",
 
     # Utilities
