@@ -284,11 +284,28 @@ def get_live_df(league: str, shun: bool = False) -> pd.DataFrame:
     live_path = home / "tourney" / "results_cache" / f"{league}_live"
 
     all_files = sorted(live_path.glob("*.csv"))
-    last_file = all_files[-1]
 
+    # Filter out empty files
+    non_empty_files = [f for f in all_files if f.stat().st_size > 0]
+
+    if not non_empty_files:
+        raise ValueError("No current data, wait until the tourney day")
+
+    last_file = non_empty_files[-1]
     last_date = get_time(last_file)
 
-    data = {current_time: pd.read_csv(file) for file in all_files if last_date - (current_time := get_time(file)) < datetime.timedelta(hours=42.5)}
+    data = {}
+    for file in non_empty_files:
+        current_time = get_time(file)
+        time_diff = last_date - current_time
+        if time_diff < datetime.timedelta(hours=42.5):
+            try:
+                df = pd.read_csv(file)
+                if not df.empty:  # Only include non-empty dataframes
+                    data[current_time] = df
+            except Exception as e:
+                logging.warning(f"Failed to read {file}: {e}")
+                continue
 
     for dt, df in data.items():
         df["datetime"] = dt
