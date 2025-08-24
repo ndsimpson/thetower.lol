@@ -20,9 +20,9 @@ class ConfigManager(BaseFileMonitor):
 
     def __init__(self):
         if not hasattr(self, 'initialized'):
-            config_path = getenv('FISHBOT_CONFIG')
+            config_path = getenv('DISCORD_BOT_CONFIG')
             if not config_path:
-                logger.error("FISHBOT_CONFIG environment variable is not set")
+                logger.error("DISCORD_BOT_CONFIG environment variable is not set")
                 sys.exit(1)
 
             self.config_path = Path(config_path) / "config.json"
