@@ -143,6 +143,13 @@ class DataManager:
         try:
             with open(file_path, 'rb') as f:
                 return pickle.load(f)
+        except ModuleNotFoundError as e:
+            # Handle legacy pickle files with old module references
+            logger.warning(f"Legacy pickle file {file_path} contains references to missing modules ({e}). Using default value and will recreate file.")
+            if create_default and default is not None:
+                logger.info(f"Recreating pickle file {file_path} with default data")
+                DataManager.save_pickle_sync(default, file_path)
+            return default
         except Exception as e:
             logger.error(f"Failed to load pickle from {file_path}: {str(e)}")
             return default
@@ -215,6 +222,13 @@ class DataManager:
             else:
                 logger.error(f"Unsupported format type: {format_type}")
                 return default
+        except ModuleNotFoundError as e:
+            # Handle legacy pickle files with old module references
+            logger.warning(f"Legacy pickle file {file_path} contains references to missing modules ({e}). Using default value and will recreate file.")
+            if create_default and default is not None:
+                logger.info(f"Recreating file {file_path} with default data")
+                DataManager.save_data_sync(default, file_path, format_type)
+            return default
         except Exception as e:
             logger.error(f"Failed to load data from {file_path} as {format_type}: {str(e)}")
             return default
@@ -345,6 +359,13 @@ class DataManager:
 
             logger.info(f"Loaded data from {file_path}")
             return data
+        except ModuleNotFoundError as e:
+            # Handle legacy pickle files with old module references
+            logger.warning(f"Legacy pickle file {file_path} contains references to missing modules ({e}). Using default value and will recreate file.")
+            if create_default and default is not None:
+                logger.info(f"Recreating file {file_path} with default data")
+                await DataManager.save_data(default, file_path, format_type)
+            return default
         except Exception as e:
             logger.error(f"Failed to load data from {file_path} as {format_type}: {str(e)}")
             return default
