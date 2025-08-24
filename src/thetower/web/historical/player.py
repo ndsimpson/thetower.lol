@@ -128,6 +128,7 @@ def compute_player_lookup():
 
     tbdf = patch_df.reset_index(drop=True)
     tbdf = filter_lower_leagues(tbdf)
+    tbdf.index = tbdf.index + 1
     tbdf["average"] = tbdf.wave.rolling(rolling_average, min_periods=1, center=True).mean().astype(int)
     tbdf["position_average"] = tbdf.position.rolling(rolling_average, min_periods=1, center=True).mean().astype(int)
     tbdf["bcs"] = tbdf.bcs.map(lambda bc_qs: " / ".join([bc.shortcut for bc in bc_qs]))
@@ -154,6 +155,7 @@ def compute_player_lookup():
 
     player_df["average"] = player_df.wave.rolling(rolling_average, min_periods=1, center=True).mean().astype(int)
     player_df = player_df.reset_index(drop=True)
+    player_df.index = player_df.index + 1
     player_df["battle"] = [" / ".join([bc.shortcut for bc in bcs]) for bcs in player_df.bcs]
 
     def dataframe_styler(player_df):
@@ -317,6 +319,10 @@ def write_for_each_patch(patch_tab, player_df):
 
     wave_df = pd.DataFrame(wave_data).reset_index(drop=True)
     position_df = pd.DataFrame(position_data).reset_index(drop=True)
+    
+    # Set index to start from 1 instead of 0
+    wave_df.index = wave_df.index + 1
+    position_df.index = position_df.index + 1
 
     wave_tbdf = wave_df[["patch", "max_wave", "tourney_name", "date", "battle_conditions"]].style.apply(
         lambda row: [

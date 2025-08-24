@@ -296,6 +296,7 @@ def filter_plot_datas(datas, patch, filter_bcs):
             patch_df = patch_df[patch_df.bcs.map(lambda table_bcs: sbcs & set(table_bcs) == sbcs)]
 
         tbdf = patch_df.reset_index(drop=True)
+        tbdf.index = tbdf.index + 1
 
         if len(tbdf) >= 2:
             filtered_datas.append((tbdf, name))
