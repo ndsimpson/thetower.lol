@@ -304,7 +304,7 @@ def load_tourney_results__uncached(
     result_files = sorted(
         [
             (
-                Path(str(result.result_file)),
+                Path("src/thetower/backend") / str(result.result_file),
                 result.date.isoformat(),
                 result.conditions.all(),
             )
