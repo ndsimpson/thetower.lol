@@ -5,7 +5,7 @@ import logging
 from datetime import datetime, timedelta
 from collections import deque
 
-from fish_bot.basecog import BaseCog
+from thetower.bot.basecog import BaseCog
 
 logger = logging.getLogger(__name__)
 

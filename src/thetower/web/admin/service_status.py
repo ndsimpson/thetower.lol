@@ -244,10 +244,10 @@ def service_status_page():
             'service': 'tower-admin_site',
             'restart_allowed': True
         },
-        'fish_bot': {
-            'name': 'Fish Bot',
+        'thetower_bot': {
+            'name': 'TheTower Bot',
             'description': 'Discord bot for game interactions',
-            'service': 'fish_bot',
+            'service': 'thetower-bot',
             'restart_allowed': True
         },
         'import_results': {
@@ -500,7 +500,7 @@ def service_status_page():
 
         **Services:**
         - **Public/Hidden/Admin Sites**: Web applications serving different interfaces
-        - **Fish Bot**: Discord bot for game interactions
+        - **TheTower Bot**: Discord bot for game interactions
         - **Import/Get Results**: Background services that fetch tournament data (start-only)
         - **Recalc Worker**: Processes tournament position recalculations
 

@@ -4,7 +4,7 @@ from discord.ext import commands
 import datetime
 from pathlib import Path
 
-from fish_bot.basecog import BaseCog
+from thetower.bot.basecog import BaseCog
 
 
 class TourneyRoles(BaseCog, name="Tournament Roles"):

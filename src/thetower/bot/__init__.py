@@ -1,4 +1,4 @@
-"""Fish Bot - A Discord bot for The Tower community."""
+"""TheTower Bot - A Discord bot for The Tower community."""
 
 from .bot import DiscordBot
 from .basecog import basecog

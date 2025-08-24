@@ -11,8 +11,8 @@ from discord.ext import commands, tasks
 from discord.ui import Button, View, Modal, TextInput, Select
 
 # Local application imports
-from fish_bot.basecog import BaseCog
-from fish_bot.utils.decorators import flexible_command
+from thetower.bot.basecog import BaseCog
+from thetower.bot.utils.decorators import flexible_command
 
 
 class AdvertisementType:

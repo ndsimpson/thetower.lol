@@ -9,8 +9,8 @@ from discord.ext import commands
 import easyocr
 
 # Local application imports
-from fish_bot.basecog import BaseCog
-from fish_bot.util import is_channel
+from thetower.bot.basecog import BaseCog
+from thetower.bot.util import is_channel
 
 
 def is_valid_hex(text: str) -> bool:

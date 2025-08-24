@@ -99,7 +99,7 @@ MIDDLEWARE = [
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
 
-ROOT_URLCONF = "towerdb.urls"
+ROOT_URLCONF = "thetower.backend.towerdb.urls"
 
 TEMPLATES = [
     {
@@ -158,8 +158,8 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 
 # Whitenoise settings
-WSGI_APPLICATION = "towerdb.wsgi.application"
-ASGI_APPLICATION = "towerdb.asgi.application"
+WSGI_APPLICATION = "thetower.backend.towerdb.wsgi.application"
+ASGI_APPLICATION = "thetower.backend.towerdb.asgi.application"
 
 
 LOGGING = {

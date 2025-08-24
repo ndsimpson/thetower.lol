@@ -4,7 +4,7 @@ import asyncio
 import discord
 from discord.ext import commands
 from discord.ext.commands import Context
-from fish_bot.basecog import BaseCog
+from thetower.bot.basecog import BaseCog
 from pathlib import Path
 from typing import Optional, List, Tuple
 

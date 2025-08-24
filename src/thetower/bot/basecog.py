@@ -12,11 +12,11 @@ from discord.ext import commands
 from discord.ext.commands import Context
 
 # Local application imports
-from fish_bot.exceptions import ChannelUnauthorized, UserUnauthorized
-from fish_bot.utils import ConfigManager
-from fish_bot.utils.task_tracker import TaskTracker
-from fish_bot.utils.data_management import DataManager
-from fish_bot.utils.command_helpers import (
+from thetower.bot.exceptions import ChannelUnauthorized, UserUnauthorized
+from thetower.bot.utils import ConfigManager
+from thetower.bot.utils.task_tracker import TaskTracker
+from thetower.bot.utils.data_management import DataManager
+from thetower.bot.utils.command_helpers import (
     create_settings_command,
     create_set_command,
     add_settings_commands,
@@ -54,7 +54,7 @@ class BaseCog(commands.Cog):
         self._is_paused = False  # Track if the cog is paused
 
         # Just get the logger, inheriting parent configuration
-        self._logger = logging.getLogger(f"fish_bot.{self.__class__.__name__}")
+        self._logger = logging.getLogger(f"thetower.bot.{self.__class__.__name__}")
 
         # Data management components
         self._data_manager = DataManager()

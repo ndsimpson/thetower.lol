@@ -1,16 +1,13 @@
 # Project-specific
 SECRET_KEY
-dtower.egg-info
-components.egg-info
-fish_bot.egg-info
+thetower.egg-info
 data
 db.sqlite3*
 uploads
 results_cache
 backups
 unrelated_scripts
-components/static/
-thetower/dtower/uploads_500*
+thetower/backend/uploads_500*
 Tower_Relics/
 Tower_Skins/
 try_tesseract

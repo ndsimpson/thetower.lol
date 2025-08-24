@@ -12,8 +12,8 @@ from discord import app_commands
 from asgiref.sync import sync_to_async
 
 # Local
-from fish_bot.basecog import BaseCog
-from dtower.sus.models import KnownPlayer
+from thetower.bot.basecog import BaseCog
+from thetower.backend.sus.models import KnownPlayer
 
 
 class KnownPlayers(BaseCog,

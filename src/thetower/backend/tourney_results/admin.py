@@ -54,9 +54,9 @@ def restart_admin_site(modeladmin, request, queryset):
     subprocess.call("systemctl restart tower-admin_site", shell=True)
 
 
-@admin.action(description="Restart fish bot")
-def restart_fish_bot(modeladmin, request, queryset):
-    subprocess.call("systemctl restart fish_bot", shell=True)
+@admin.action(description="Restart thetower bot")
+def restart_thetower_bot(modeladmin, request, queryset):
+    subprocess.call("systemctl restart thetower-bot", shell=True)
 
 
 @admin.action(description="Restart verification bot")
@@ -169,7 +169,7 @@ class TourneyResultAdmin(SimpleHistoryAdmin):
         restart_public_site,
         restart_hidden_site,
         restart_admin_site,
-        restart_fish_bot,
+        restart_thetower_bot,
         restart_verify_bot,
         restart_import_results,
         restart_get_results,

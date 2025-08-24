@@ -10,7 +10,7 @@ import discord
 from discord.ext import commands, tasks
 
 # Local
-from fish_bot.basecog import BaseCog
+from thetower.bot.basecog import BaseCog
 
 
 class RoleCache(BaseCog,

@@ -28,7 +28,7 @@ intents.members = True
 
 class DiscordBot(commands.Bot, BaseFileMonitor):
     def __init__(self) -> None:
-        environ.setdefault("DJANGO_SETTINGS_MODULE", "dtower.thetower.settings")
+        environ.setdefault("DJANGO_SETTINGS_MODULE", "thetower.backend.settings")
         django.setup()
         self.config = ConfigManager()
         self.permission_manager = PermissionManager(self.config)
@@ -59,7 +59,7 @@ class DiscordBot(commands.Bot, BaseFileMonitor):
         formatter.converter = lambda *args: datetime.datetime.now(timezone.utc).timetuple()
 
         # Configure the root logger
-        root_logger = logging.getLogger('fish_bot')
+        root_logger = logging.getLogger('thetower.bot')
         if not root_logger.handlers:
             handler = logging.StreamHandler()
             handler.setFormatter(formatter)

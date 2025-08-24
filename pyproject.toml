@@ -98,9 +98,9 @@ exclude = ["tests*", "*.tests*", "*.tests.*"]
 
 # Tool configurations consolidated
 [tool.pytest.ini_options]
-DJANGO_SETTINGS_MODULE = "dtower.thetower.settings"
+DJANGO_SETTINGS_MODULE = "thetower.backend.settings"
 python_files = ["tests.py", "test_*.py", "*_tests.py"]
-testpaths = ["tests", "thetower", "components", "fish_bot"]
+testpaths = ["tests", "thetower", "components"]
 addopts = "-v --tb=short"
 
 [tool.black]

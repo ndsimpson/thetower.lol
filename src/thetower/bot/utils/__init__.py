@@ -1,17 +1,17 @@
-"""Utility modules for the Fish Bot application.
+"""Utility modules for The Tower Bot application.
 
 Contains utilities for configuration management, task tracking, data persistence,
 and other shared functionality.
 """
 
 # Import the classes you want to expose at the package level
-from fish_bot.utils.filemonitor import BaseFileMonitor
-from fish_bot.utils.command_type_manager import CommandTypeManager
-from fish_bot.utils.configmanager import ConfigManager
-from fish_bot.utils.cogmanager import CogManager
-from fish_bot.utils.memory_utils import MemoryUtils
-from fish_bot.utils.permission_manager import PermissionManager
-from fish_bot.utils.task_tracker import TaskTracker
+from thetower.bot.utils.filemonitor import BaseFileMonitor
+from thetower.bot.utils.command_type_manager import CommandTypeManager
+from thetower.bot.utils.configmanager import ConfigManager
+from thetower.bot.utils.cogmanager import CogManager
+from thetower.bot.utils.memory_utils import MemoryUtils
+from thetower.bot.utils.permission_manager import PermissionManager
+from thetower.bot.utils.task_tracker import TaskTracker
 
 __all__ = [
     'BaseFileMonitor',

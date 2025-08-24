@@ -8,11 +8,11 @@ import pandas as pd
 import discord
 from discord import app_commands
 
-from fish_bot.basecog import BaseCog
-from dtower.sus.models import SusPerson
-from dtower.tourney_results.constants import leagues, legend, how_many_results_hidden_site
-from dtower.tourney_results.data import get_results_for_patch, get_tourneys
-from dtower.tourney_results.models import PatchNew as Patch
+from thetower.bot.basecog import BaseCog
+from thetower.backend.sus.models import SusPerson
+from thetower.backend.tourney_results.constants import leagues, legend, how_many_results_hidden_site
+from thetower.backend.tourney_results.data import get_results_for_patch, get_tourneys
+from thetower.backend.tourney_results.models import PatchNew as Patch
 
 # Define league hierarchy - order matters for importance
 LEAGUE_HIERARCHY = ["legend", "champion", "platinum", "gold", "silver", "copper"]

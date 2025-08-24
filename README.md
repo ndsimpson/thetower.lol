@@ -42,11 +42,11 @@ This will:
 
 - streamlit run with: `streamlit run components/pages.py`
 
-- django collect all needed static files: `cd thetower/dtower && python manage.py collectstatic`
-- django admin run with: `cd thetower/dtower && DEBUG=true python manage.py runserver`
+- django collect all needed static files: `cd src/thetower/backend && python manage.py collectstatic`
+- django admin run with: `cd src/thetower/backend && DEBUG=true python manage.py runserver`
 
-- `db.sqlite3` goes to `thetower/dtower`
-- `uploads` csv folder goes to `thetower/dtower`
+- `db.sqlite3` goes to `src/thetower/backend`
+- `uploads` csv folder goes to `src/thetower/backend`
 
 ## Modern Package Management
 

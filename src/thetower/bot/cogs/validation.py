@@ -7,8 +7,8 @@ try:
 except ImportError:
     def is_channel(channel, id_):
         return getattr(channel, 'id', None) == id_
-from dtower.sus.models import KnownPlayer, PlayerId
-from dtower.tourney_results.models import Injection
+from thetower.backend.sus.models import KnownPlayer, PlayerId
+from thetower.backend.tourney_results.models import Injection
 from asgiref.sync import sync_to_async
 
 logger = logging.getLogger(__name__)

@@ -2,11 +2,11 @@
 from discord.ext import commands
 from asgiref.sync import sync_to_async
 
-from dtower.tourney_results.models import TourneyResult
-from dtower.tourney_results.tourney_utils import get_summary
+from thetower.backend.tourney_results.models import TourneyResult
+from thetower.backend.tourney_results.tourney_utils import get_summary
 
-from fish_bot.util import send_paginated_message
-from fish_bot.basecog import BaseCog
+from thetower.bot.util import send_paginated_message
+from thetower.bot.basecog import BaseCog
 
 
 class TourneyManagement(BaseCog, name="Tourney Management"):

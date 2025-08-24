@@ -4,7 +4,7 @@ from typing import List, Optional
 import discord
 from discord.ext import commands, tasks
 
-from fish_bot.basecog import BaseCog
+from thetower.bot.basecog import BaseCog
 
 # Graceful towerbcs import handling
 try:

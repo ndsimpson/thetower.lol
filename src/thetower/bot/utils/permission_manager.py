@@ -15,7 +15,7 @@ from discord.ext import commands
 from discord.ext.commands import Context
 
 # Local imports
-from fish_bot.exceptions import UserUnauthorized, ChannelUnauthorized
+from thetower.bot.exceptions import UserUnauthorized, ChannelUnauthorized
 
 logger = logging.getLogger(__name__)
 

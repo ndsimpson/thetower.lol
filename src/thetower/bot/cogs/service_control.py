@@ -3,7 +3,7 @@ from discord.ext import commands
 from discord.ext.commands import Context
 import discord
 from discord import app_commands
-from fish_bot.basecog import BaseCog
+from thetower.bot.basecog import BaseCog
 
 
 class ServiceControl(BaseCog, name="Service Control"):
