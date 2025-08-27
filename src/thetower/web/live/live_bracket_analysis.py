@@ -22,7 +22,7 @@ def bracket_analysis():
     options, league, is_mobile = setup_common_ui()
 
     # Get processed data
-    df, _, ldf, _, _ = get_processed_data(league)
+    df, _, ldf, _, _ = get_processed_data(league, True)
 
     # Get bracket statistics
     bracket_stats = get_bracket_stats(ldf)

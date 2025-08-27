@@ -22,7 +22,7 @@ def live_results():
     options, league, is_mobile = setup_common_ui()
 
     # Get processed data
-    df, tdf, ldf, _, _ = get_processed_data(league)
+    df, tdf, ldf, _, _ = get_processed_data(league, True)
 
     # Get reference data for joined calculation
     qs = TourneyResult.objects.filter(league=league, public=True).order_by("-date")

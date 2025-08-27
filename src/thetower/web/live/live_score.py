@@ -28,7 +28,7 @@ def live_score():
 
     tab = st
     try:
-        df = get_data(league)
+        df = get_data(league, True)
     except (IndexError, ValueError):
         tab.info("No current data, wait until the tourney day")
         return

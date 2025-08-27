@@ -14,23 +14,9 @@ from django.apps import apps
 from django.db.models import Q
 
 # Local imports
-from .constants import (
-    champ,
-    legend,
-    leagues,
-)
-from .data import (
-    get_player_id_lookup,
-    get_sus_ids,
-    get_shun_ids,
-    get_tourneys,
-)
-from .models import (
-    Injection,
-    PromptTemplate,
-    TourneyResult,
-    TourneyRow,
-)
+from .constants import champ, leagues, legend
+from .data import get_player_id_lookup, get_shun_ids, get_sus_ids, get_tourneys
+from .models import Injection, PromptTemplate, TourneyResult, TourneyRow
 
 # Initialize logging
 logging.basicConfig(level=logging.INFO)
@@ -74,7 +60,7 @@ def create_tourney_rows(tourney_result: TourneyResult) -> None:
         logging.info(f"There are {len(df.query('tourney_name.str.len() == 0'))} blank tourney names.")
         df.loc[df['tourney_name'].str.len() == 0, 'tourney_name'] = df['id']
 
-    excluded_ids = get_sus_ids() | get_shun_ids()
+    excluded_ids = get_sus_ids()
     positions = calculate_positions(df.id, df.index, df.wave, excluded_ids)
 
     df["position"] = positions
@@ -162,7 +148,7 @@ def reposition(
     waves = [datum[1] for datum in bulk_data]
     nicknames = [datum[2] for datum in bulk_data]
 
-    excluded_ids = get_sus_ids() | get_shun_ids()
+    excluded_ids = get_sus_ids()
     positions = calculate_positions(ids, indexes, waves, excluded_ids)
 
     bulk_update_data = []

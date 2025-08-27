@@ -221,7 +221,7 @@ def compute_comparison(player_id=None, canvas=st):
 
     canvas.plotly_chart(fig, use_container_width=True)
 
-    placement_datas = pd_datas[pd_datas.position >= 1].copy()  # exclude shunned/sus
+    placement_datas = pd_datas[pd_datas.position >= 1].copy()  # exclude sus
 
     fig = px.line(placement_datas, x="date", y="position", color="real_name", markers=True)
     fig.update_layout(showlegend=show_legend)

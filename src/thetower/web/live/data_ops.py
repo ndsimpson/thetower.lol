@@ -5,7 +5,7 @@ import logging
 import pandas as pd
 import streamlit as st
 
-from thetower.backend.tourney_results.tourney_utils import get_live_df, get_shun_ids, get_full_brackets
+from thetower.backend.tourney_results.tourney_utils import get_live_df, get_full_brackets
 
 # Cache configuration
 CACHE_TTL_SECONDS = 300  # 5 minutes cache duration
@@ -137,7 +137,7 @@ def get_placement_analysis_data(league: str):
 
     Returns:
         Tuple containing:
-        - Clean DataFrame
+        - DataFrame
         - Latest time
         - Bracket creation times dict
     """
@@ -159,11 +159,7 @@ def get_placement_analysis_data(league: str):
         for bracket in df["bracket"].unique()
     }
 
-    # Remove shunned players
-    sus_ids = get_shun_ids()
-    clean_df = df[~df.player_id.isin(sus_ids)].copy()
-
-    return clean_df, latest_time, bracket_creation_times
+    return df, latest_time, bracket_creation_times
 
 
 def analyze_wave_placement(df, wave_to_analyze, latest_time):

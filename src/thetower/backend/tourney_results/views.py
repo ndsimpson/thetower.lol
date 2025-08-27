@@ -94,7 +94,7 @@ def results_per_user(request, player_id):  # Unused with api disabled
 
 def last_full_results(request, league):  # Unused with api disabled
     position = int(request.GET.get("position", 0))
-    df = get_live_df(league)
+    df = get_live_df(league, True)
 
     ldf = df[df.datetime == df.datetime.max()]
 

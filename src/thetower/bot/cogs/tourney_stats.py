@@ -6,6 +6,7 @@ import asyncio
 import datetime
 import pandas as pd
 import discord
+from django.db.models import Q
 from discord import app_commands
 
 from thetower.bot.basecog import BaseCog
@@ -207,7 +208,7 @@ class TourneyStats(BaseCog, name="Tourney Stats"):
 
                     self.task_tracker.update_task_status(task_name, "Getting excluded player IDs...")
                     # Get sus IDs to filter out
-                    sus_ids = {item.player_id for item in await sync_to_async(list)(SusPerson.objects.filter(sus=True))}
+                    sus_ids = {item.player_id for item in await sync_to_async(list)(SusPerson.objects.filter(Q(sus=True) | Q(shun=True)))}
                     self.logger.info(f"Found {len(sus_ids)} excluded player IDs")
 
                     # Clear existing data if refreshing

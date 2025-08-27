@@ -25,7 +25,7 @@ def live_progress():
     options, league, is_mobile = setup_common_ui()
 
     # Get processed data
-    df, tdf, ldf, first_moment, last_moment = get_processed_data(league)
+    df, tdf, ldf, first_moment, last_moment = get_processed_data(league, True)
 
     # Process display names for better visualization
     tdf = process_display_names(tdf)
