@@ -9,18 +9,31 @@ from django.utils.safestring import mark_safe
 from simple_history.admin import SimpleHistoryAdmin
 
 from ..sus.models import PlayerId
-from .models import (
-    BattleCondition,
-    Injection,
-    NameDayWinner,
-    PatchNew,
-    PositionRole,
-    PromptTemplate,
-    Role,
-    TourneyResult,
-    TourneyRow,
-    RainPeriod,
-)
+from .models import BattleCondition, Injection, NameDayWinner, PatchNew, PositionRole, PromptTemplate, RainPeriod, Role, TourneyResult, TourneyRow
+
+
+class PatchFilter(admin.SimpleListFilter):
+    title = 'patch'
+    parameter_name = 'patch'
+
+    def lookups(self, request, model_admin):
+        """Return a list of tuples for the filter sidebar."""
+        patches = PatchNew.objects.all().order_by('-version_minor', '-version_patch')
+        return [(patch.pk, str(patch)) for patch in patches]
+
+    def queryset(self, request, queryset):
+        """Filter the queryset based on the selected patch."""
+        if self.value():
+            try:
+                patch = PatchNew.objects.get(pk=self.value())
+                return queryset.filter(
+                    date__gte=patch.start_date,
+                    date__lte=patch.end_date
+                )
+            except PatchNew.DoesNotExist:
+                return queryset
+        return queryset
+
 
 BASE_ADMIN_URL = os.getenv("BASE_ADMIN_URL")
 
@@ -117,6 +130,7 @@ class TourneyResultAdmin(SimpleHistoryAdmin):
         "id",
         "league",
         "date",
+        "_patch",
         "_conditions",
         "needs_recalc",
         "last_recalc_at",
@@ -134,13 +148,20 @@ class TourneyResultAdmin(SimpleHistoryAdmin):
         "public",
     )
 
-    list_filter = ["needs_recalc", "date", "league", "public", "conditions"]
+    list_filter = ["needs_recalc", "date", "league", "public", "conditions", PatchFilter]
 
     def _overview(self, obj):
         return obj.overview[:500] + "..." if obj.overview else ""
 
     def _conditions(self, obj):
         return mark_safe("<br>".join([str(condition) for condition in obj.conditions.all()]))
+
+    def _patch(self, obj):
+        """Display the patch version for this tournament."""
+        patch = obj.patch
+        return str(patch) if patch else "Unknown"
+    _patch.short_description = "Patch"
+    _patch.admin_order_field = 'date'  # Allow sorting by date as proxy for patch
 
     def mark_for_recalc(self, request, queryset):
         """Mark selected tournaments for recalculation"""

@@ -1,8 +1,8 @@
 from colorfield.fields import ColorField
-from django.db import models
-from simple_history.models import HistoricalRecords
 from django.core.cache import cache
+from django.db import models
 from django.utils import timezone
+from simple_history.models import HistoricalRecords
 
 from ..sus.models import KnownPlayer
 from .constants import leagues_choices, wave_border_choices
@@ -178,6 +178,17 @@ class TourneyResult(models.Model):
 
     def __str__(self):
         return f"({self.pk}): {self.league} {self.date.isoformat()}"
+
+    @property
+    def patch(self):
+        """Get the patch that was active during this tournament's date."""
+        try:
+            return PatchNew.objects.filter(
+                start_date__lte=self.date,
+                end_date__gte=self.date
+            ).first()
+        except Exception:
+            return None
 
 
 class NameDayWinner(models.Model):
