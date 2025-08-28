@@ -14,8 +14,8 @@ from django.core.management.base import BaseCommand
 from django.db import transaction
 from django.utils import timezone
 
-from .models import TourneyResult
-from .tourney_utils import reposition
+from ...models import TourneyResult
+from ...tourney_utils import reposition
 
 logger = logging.getLogger(__name__)
 
