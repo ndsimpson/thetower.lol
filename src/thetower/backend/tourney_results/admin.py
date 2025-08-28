@@ -28,17 +28,6 @@ logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 
 
-@admin.action(description="Recalculate position in results")
-def recalculate_results(modeladmin, request, queryset):
-    logging.info("Starting to recalculate results")
-    from .tourney_utils import reposition
-
-    logging.info(f"{queryset=}")
-    for tourney in queryset:
-        logging.info(f"{tourney=}")
-        reposition(tourney)
-
-
 @admin.action(description="Restart public site (thetower.lol)")
 def restart_public_site(modeladmin, request, queryset):
     subprocess.call("systemctl restart tower-public_site", shell=True)
@@ -164,7 +153,6 @@ class TourneyResultAdmin(SimpleHistoryAdmin):
 
     actions = [
         "mark_for_recalc",
-        recalculate_results,
         publicize,
         restart_public_site,
         restart_hidden_site,
