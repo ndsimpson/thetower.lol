@@ -1,6 +1,7 @@
+from pathlib import Path
+
 import pandas as pd
 import streamlit as st
-from pathlib import Path
 
 from thetower.backend.sus.models import PlayerId
 from thetower.backend.tourney_results.constants import champ, legend

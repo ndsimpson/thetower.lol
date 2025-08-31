@@ -7,10 +7,11 @@ Usage:
     python manage.py queue_status [--detailed]
 """
 
+from datetime import timedelta
+
 from django.core.management.base import BaseCommand
 from django.db.models import Count
 from django.utils import timezone
-from datetime import timedelta
 
 from .models import TourneyResult
 

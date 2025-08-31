@@ -1,7 +1,21 @@
-from .models import Role, TourneyResult, TourneyRow
-from .models import PatchNew as Patch
-from .models import BattleCondition
-from .formatting import color_position_barebones
+import csv
+import datetime
+import logging
+import os
+import re
+from collections import Counter, defaultdict
+from glob import glob
+from pathlib import Path
+from typing import Optional
+
+import django
+import numpy as np
+import pandas as pd
+import streamlit as st
+from cachetools.func import ttl_cache
+from django.db.models import Q, QuerySet
+
+from ..sus.models import PlayerId, SusPerson
 from .constants import (
     champ,
     data_folder_name_mapping,
@@ -9,23 +23,10 @@ from .constants import (
     how_many_results_public_site,
     how_many_results_public_site_other,
 )
-from ..sus.models import PlayerId, SusPerson
-from django.db.models import Q, QuerySet
-from cachetools.func import ttl_cache
-import streamlit as st
-import pandas as pd
-import numpy as np
-from typing import Optional
-from pathlib import Path
-from glob import glob
-from collections import Counter, defaultdict
-import re
-import logging
-import datetime
-import csv
-import os
-
-import django
+from .formatting import color_position_barebones
+from .models import BattleCondition
+from .models import PatchNew as Patch
+from .models import Role, TourneyResult, TourneyRow
 
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "thetower.backend.towerdb.settings")
 django.setup()

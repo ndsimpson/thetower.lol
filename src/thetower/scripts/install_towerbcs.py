@@ -9,13 +9,14 @@ Repository URL priority:
 3. Default: Built-in repository URL (lowest priority)
 """
 
+import argparse
+import importlib.metadata
+import os
+import re
 import subprocess
 import sys
-import re
-import argparse
-import os
+
 from packaging import version
-import importlib.metadata
 
 
 def get_latest_version(repo_url=None):

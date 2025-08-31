@@ -10,5 +10,6 @@ def test_thetower_package_imports():
 def test_package_structure():
     """Test that the package has expected structure."""
     import thetower
+
     # Basic import test - more tests will be added as we migrate components
     assert hasattr(thetower, '__version__')

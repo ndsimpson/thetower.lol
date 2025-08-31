@@ -2,12 +2,11 @@ import pandas as pd
 import plotly.express as px
 import streamlit as st
 
-from thetower.web.util import get_league_selection, get_options
-
 from thetower.backend.tourney_results.constants import champ, how_many_results_public_site
 from thetower.backend.tourney_results.data import get_tourneys
 from thetower.backend.tourney_results.models import TourneyResult
 from thetower.backend.tourney_results.tourney_utils import get_live_df
+from thetower.web.util import get_league_selection, get_options
 
 
 @st.cache_data(ttl=300)

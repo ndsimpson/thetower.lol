@@ -4,15 +4,17 @@ import os
 
 # Django setup
 import django
+
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "thetower.backend.towerdb.settings")
 django.setup()
 
 # Third-party imports
 from tqdm import tqdm
 
+from thetower.backend.tourney_results.data import get_sus_ids
+
 # Local imports
 from thetower.backend.tourney_results.models import TourneyResult, TourneyRow
-from thetower.backend.tourney_results.data import get_sus_ids
 from thetower.backend.tourney_results.tourney_utils import reposition
 
 # Initialize logging

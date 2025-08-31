@@ -1,8 +1,9 @@
 """Utility functions for The Tower Bot."""
 
+from typing import Union
+
 import discord
 from discord.ext import commands
-from typing import Union
 
 
 def is_channel(channel, id_):

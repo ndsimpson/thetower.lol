@@ -3,9 +3,10 @@ import logging
 import time
 from pathlib import Path
 from typing import Dict, Tuple
+
+from discord import Color, Embed
 from discord.ext.commands import Context, Paginator
-from discord import Embed, Color
-from watchdog.events import FileSystemEventHandler, FileModifiedEvent
+from watchdog.events import FileModifiedEvent, FileSystemEventHandler
 from watchdog.observers import Observer
 
 from .configmanager import ConfigManager

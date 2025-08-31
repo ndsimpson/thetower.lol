@@ -6,8 +6,6 @@ from typing import Optional
 
 import streamlit as st
 
-from thetower.web.util import get_options, get_league_selection, escape_df_html
-
 from thetower.backend.tourney_results.constants import (
     Graph,
     Options,
@@ -20,6 +18,7 @@ from thetower.backend.tourney_results.data import get_results_for_patch, get_sus
 from thetower.backend.tourney_results.formatting import am_i_sus, color_position__top, make_player_url, strike
 from thetower.backend.tourney_results.models import PatchNew as Patch
 from thetower.backend.tourney_results.models import TourneyResult
+from thetower.web.util import escape_df_html, get_league_selection, get_options
 
 
 class Results:

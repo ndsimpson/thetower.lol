@@ -5,11 +5,12 @@ Shows the status of various systemd services used by the Tower system.
 Gracefully handles Windows development environments.
 """
 
-import subprocess
-import streamlit as st
 import platform
+import subprocess
 from datetime import datetime
-from typing import Tuple, Optional
+from typing import Optional, Tuple
+
+import streamlit as st
 
 
 def is_windows() -> bool:
@@ -442,9 +443,11 @@ def service_status_page():
             import django
             django.setup()
 
-            from thetower.backend.tourney_results.models import TourneyResult
-            from django.utils import timezone
             from datetime import timedelta
+
+            from django.utils import timezone
+
+            from thetower.backend.tourney_results.models import TourneyResult
 
             # Get queue statistics
             pending_count = TourneyResult.objects.filter(needs_recalc=True).count()

@@ -7,7 +7,7 @@ for both global commands and cog-specific commands.
 
 # Standard library imports
 import logging
-from typing import Dict, Any, List, Optional, Union
+from typing import Any, Dict, List, Optional, Union
 
 # Third-party imports
 import discord
@@ -15,7 +15,7 @@ from discord.ext import commands
 from discord.ext.commands import Context
 
 # Local imports
-from thetower.bot.exceptions import UserUnauthorized, ChannelUnauthorized
+from thetower.bot.exceptions import ChannelUnauthorized, UserUnauthorized
 
 logger = logging.getLogger(__name__)
 

@@ -3,12 +3,12 @@ import asyncio
 import datetime
 import re
 import time
-from typing import Dict, List, Optional, Tuple, ClassVar
+from typing import ClassVar, Dict, List, Optional, Tuple
 
 # Third-party imports
 import discord
 from discord.ext import commands, tasks
-from discord.ui import Button, View, Modal, TextInput, Select
+from discord.ui import Button, Modal, Select, TextInput, View
 
 # Local application imports
 from thetower.bot.basecog import BaseCog

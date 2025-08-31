@@ -5,14 +5,15 @@ Shows the status of git repositories and external packages, allows pulling updat
 Gracefully handles Windows development environments.
 """
 
-import subprocess
-import streamlit as st
-import platform
 import os
+import platform
+import subprocess
 import sys
 from datetime import datetime, timezone
+from importlib.metadata import PackageNotFoundError, version
 from typing import Dict, List, Tuple
-from importlib.metadata import version, PackageNotFoundError
+
+import streamlit as st
 
 
 def get_external_package_status(package_name: str) -> Dict[str, any]:

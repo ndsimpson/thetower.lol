@@ -1,19 +1,20 @@
-from typing import Dict
-from asgiref.sync import sync_to_async
-from discord.ext import commands, tasks
-from pathlib import Path
 import asyncio
 import datetime
-import pandas as pd
-import discord
-from django.db.models import Q
-from discord import app_commands
+from pathlib import Path
+from typing import Dict
 
-from thetower.bot.basecog import BaseCog
+import discord
+import pandas as pd
+from asgiref.sync import sync_to_async
+from discord import app_commands
+from discord.ext import commands, tasks
+from django.db.models import Q
+
 from thetower.backend.sus.models import SusPerson
-from thetower.backend.tourney_results.constants import leagues, legend, how_many_results_hidden_site
+from thetower.backend.tourney_results.constants import how_many_results_hidden_site, leagues, legend
 from thetower.backend.tourney_results.data import get_results_for_patch, get_tourneys
 from thetower.backend.tourney_results.models import PatchNew as Patch
+from thetower.bot.basecog import BaseCog
 
 # Define league hierarchy - order matters for importance
 LEAGUE_HIERARCHY = ["legend", "champion", "platinum", "gold", "silver", "copper"]

@@ -8,7 +8,6 @@ django.setup()
 
 from thetower.backend.tourney_results.models import Patch, Role
 
-
 for role in Role.objects.filter(patch__version_minor=18):
     Role.objects.create(
         patch=Patch.objects.get(version_minor=19),

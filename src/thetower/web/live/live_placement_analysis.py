@@ -1,15 +1,12 @@
 import logging
+from time import perf_counter
+
 import pandas as pd
 import plotly.express as px
 import streamlit as st
-from time import perf_counter
 
+from thetower.web.live.data_ops import analyze_wave_placement, get_placement_analysis_data, require_tournament_data
 from thetower.web.live.ui_components import setup_common_ui
-from thetower.web.live.data_ops import (
-    get_placement_analysis_data,
-    analyze_wave_placement,
-    require_tournament_data
-)
 
 
 @require_tournament_data

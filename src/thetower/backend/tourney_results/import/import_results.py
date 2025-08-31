@@ -1,30 +1,28 @@
 #!/tourney/tourney_venv/bin/python
-import os
-import time
-import logging
 import datetime
+import logging
+import os
 import threading
+import time
 from glob import glob
 
-import schedule
 import django
+import schedule
 
 # Django setup must come first
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "thetower.backend.towerdb.settings")
 django.setup()
 
-from ..tourney_utils import create_tourney_rows, get_summary
-from ..models import TourneyResult, BattleCondition
-from ..get_results import get_file_name, get_last_date
-from ..constants import leagues
-
-
 from django.core.files.uploadedfile import SimpleUploadedFile
 
+from ..constants import leagues
+from ..get_results import get_file_name, get_last_date
+from ..models import BattleCondition, TourneyResult
+from ..tourney_utils import create_tourney_rows, get_summary
 
 # Graceful towerbcs import handling
 try:
-    from towerbcs import predict_future_tournament, TournamentPredictor
+    from towerbcs import TournamentPredictor, predict_future_tournament
     TOWERBCS_AVAILABLE = True
     logging.info("towerbcs package loaded successfully")
 except ImportError as e:

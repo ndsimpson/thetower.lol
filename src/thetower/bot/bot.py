@@ -1,18 +1,19 @@
 # Standard library imports
-import logging
-from os import environ, getenv
 import datetime
+import logging
 from datetime import timezone
+from os import environ, getenv
+
+import discord
 
 # Third-party imports
 import django
-import discord
 from discord.ext import commands
 from discord.ext.commands import Context
 
 # Local imports
-from thetower.bot.exceptions import UserUnauthorized, ChannelUnauthorized
-from thetower.bot.utils import BaseFileMonitor, CommandTypeManager, ConfigManager, CogManager, MemoryUtils, PermissionManager
+from thetower.bot.exceptions import ChannelUnauthorized, UserUnauthorized
+from thetower.bot.utils import BaseFileMonitor, CogManager, CommandTypeManager, ConfigManager, MemoryUtils, PermissionManager
 
 # Set up logging
 log_level = getenv("LOG_LEVEL", "INFO").upper()

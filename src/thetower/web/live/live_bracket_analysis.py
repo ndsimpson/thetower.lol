@@ -1,16 +1,12 @@
-import pandas as pd
-import plotly.express as px
-import streamlit as st
 import logging
 from time import perf_counter
 
+import pandas as pd
+import plotly.express as px
+import streamlit as st
+
+from thetower.web.live.data_ops import get_bracket_stats, get_cached_plot_data, get_processed_data, require_tournament_data
 from thetower.web.live.ui_components import setup_common_ui
-from thetower.web.live.data_ops import (
-    get_processed_data,
-    require_tournament_data,
-    get_bracket_stats,
-    get_cached_plot_data
-)
 
 
 @require_tournament_data

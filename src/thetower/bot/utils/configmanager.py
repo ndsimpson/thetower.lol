@@ -4,7 +4,9 @@ import sys
 from os import getenv
 from pathlib import Path
 from typing import Any, Dict
-from watchdog.events import FileSystemEventHandler, FileModifiedEvent
+
+from watchdog.events import FileModifiedEvent, FileSystemEventHandler
+
 from .filemonitor import BaseFileMonitor
 
 logger = logging.getLogger(__name__)

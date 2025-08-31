@@ -1,12 +1,13 @@
 import os
-
-import streamlit as st
 from pathlib import Path
 
-from thetower.web.historical.results import Results
+import streamlit as st
+
 from thetower.backend.tourney_results.constants import Graph, Options, leagues, legend
+
 # from thetower.backend.tourney_results.formatting import get_url
 from thetower.backend.tourney_results.models import TourneyResult
+from thetower.web.historical.results import Results
 
 
 def compute_overview(options: Options):

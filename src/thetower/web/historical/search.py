@@ -7,15 +7,15 @@ django.setup()
 
 
 from itertools import groupby
+from pathlib import Path
 
 import streamlit as st
 from django.db.models import Q
-from pathlib import Path
 
-from thetower.web.util import add_player_id, add_to_comparison
 from thetower.backend.sus.models import PlayerId, SusPerson
 from thetower.backend.tourney_results.constants import how_many_results_public_site
 from thetower.backend.tourney_results.models import TourneyRow
+from thetower.web.util import add_player_id, add_to_comparison
 
 
 def search_players_optimized(search_term, excluded_player_ids, page=20):

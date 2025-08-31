@@ -1,7 +1,8 @@
+from pathlib import Path
+
 import pandas as pd
 import streamlit as st
 from django.db.models import Count
-from pathlib import Path
 
 from thetower.backend.tourney_results.data import get_player_id_lookup
 from thetower.backend.tourney_results.formatting import make_player_url

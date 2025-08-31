@@ -1,15 +1,13 @@
 import datetime
 import os
+from pathlib import Path
 from statistics import median, stdev
 from urllib.parse import urlencode
 
 import pandas as pd
 import plotly.express as px
 import streamlit as st
-from pathlib import Path
 
-from thetower.web.historical.search import compute_search
-from thetower.web.util import get_league_selection, escape_df_html
 from thetower.backend.sus.models import KnownPlayer, PlayerId
 from thetower.backend.tourney_results.constants import (
     Graph,
@@ -26,6 +24,8 @@ from thetower.backend.tourney_results.formatting import BASE_URL, make_player_ur
 from thetower.backend.tourney_results.models import PatchNew as Patch
 from thetower.backend.tourney_results.models import TourneyResult, TourneyRow
 from thetower.backend.tourney_results.tourney_utils import get_live_df
+from thetower.web.historical.search import compute_search
+from thetower.web.util import escape_df_html, get_league_selection
 
 sus_ids = get_sus_ids()
 hidden_features = os.environ.get("HIDDEN_FEATURES")

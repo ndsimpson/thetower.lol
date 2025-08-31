@@ -1,20 +1,16 @@
 import logging
 import os
 
-from django.contrib import admin
+# Admin for ApiKey
+from django.contrib import admin, messages
 from django.utils.html import format_html
 from django.utils.safestring import mark_safe
+from django.utils.translation import gettext_lazy as _
 from simple_history.admin import SimpleHistoryAdmin
 from tqdm import tqdm
 
-
 from ..sus.models import KnownPlayer, PlayerId, SusPerson
 from .models import ApiKey
-
-# Admin for ApiKey
-from django.contrib import messages
-
-from django.utils.translation import gettext_lazy as _
 
 
 @admin.register(ApiKey)

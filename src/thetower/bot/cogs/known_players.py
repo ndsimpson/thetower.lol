@@ -2,18 +2,19 @@
 import asyncio
 import datetime
 import re
-from typing import List, Dict, Optional, Any, Set
 from pathlib import Path
+from typing import Any, Dict, List, Optional, Set
 
 # Third-party
 import discord
-from discord.ext import commands, tasks
-from discord import app_commands
 from asgiref.sync import sync_to_async
+from discord import app_commands
+from discord.ext import commands, tasks
+
+from thetower.backend.sus.models import KnownPlayer
 
 # Local
 from thetower.bot.basecog import BaseCog
-from thetower.backend.sus.models import KnownPlayer
 
 
 class KnownPlayers(BaseCog,

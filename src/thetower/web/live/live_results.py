@@ -1,15 +1,13 @@
-import streamlit as st
 import logging
 from time import perf_counter
 
-from thetower.web.live.ui_components import setup_common_ui
-from thetower.web.live.data_ops import (
-    get_processed_data,
-    require_tournament_data
-)
+import streamlit as st
+
 from thetower.backend.tourney_results.constants import champ, how_many_results_public_site
 from thetower.backend.tourney_results.data import get_tourneys
 from thetower.backend.tourney_results.models import TourneyResult
+from thetower.web.live.data_ops import get_processed_data, require_tournament_data
+from thetower.web.live.ui_components import setup_common_ui
 
 
 @require_tournament_data

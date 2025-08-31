@@ -1,13 +1,13 @@
 #!/tourney/tourney_venv/bin/python
 import datetime
-import os
-import time
 import io
 import logging
+import os
+import time
 
-import schedule
-import requests
 import pandas as pd
+import requests
+import schedule
 
 from .constants import leagues
 

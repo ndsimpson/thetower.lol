@@ -1,10 +1,10 @@
 import plotly.express as px
 import streamlit as st
 
-from thetower.web.util import deprecated
 from thetower.backend.tourney_results.constants import Graph, Options, how_many_results_public_site, how_many_results_public_site_other
 from thetower.backend.tourney_results.data import get_patches, get_sus_ids, load_tourney_results
 from thetower.backend.tourney_results.formatting import color_position__top, make_player_url
+from thetower.web.util import deprecated
 
 patches = sorted([patch for patch in get_patches() if patch.version_minor and patch.version_minor < 25], key=lambda patch: patch.start_date, reverse=True)
 

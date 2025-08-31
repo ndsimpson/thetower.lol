@@ -1,11 +1,13 @@
 import os
-import django
 from datetime import timedelta
+
+import django
 
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "thetower.settings")
 django.setup()
 
 from django.utils import timezone
+
 from ..sus.models import SusPerson
 from .models import TourneyRow
 

@@ -3,9 +3,9 @@ import datetime
 import pandas as pd
 import streamlit as st
 
-from thetower.web.util import deprecated, gantt
 from thetower.backend.tourney_results.constants import champ, league_to_folder
 from thetower.backend.tourney_results.data import get_sus_ids, load_tourney_results
+from thetower.web.util import deprecated, gantt
 
 
 def compute_fallen_defenders(df):

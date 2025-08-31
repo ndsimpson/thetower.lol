@@ -9,10 +9,10 @@ This module provides a TaskTracker class that handles tracking of:
 """
 import datetime
 import logging
-from typing import Dict, Any, Union, List
 from collections import deque
-from types import SimpleNamespace
 from contextlib import asynccontextmanager
+from types import SimpleNamespace
+from typing import Any, Dict, List, Union
 
 
 class TaskTracker:

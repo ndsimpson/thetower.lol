@@ -5,10 +5,10 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
-from thetower.web.util import deprecated
 from thetower.backend.tourney_results.constants import Options, champ, how_many_results_hidden_site, how_many_results_public_site, league_to_folder
 from thetower.backend.tourney_results.data import get_patches, get_sus_ids, load_tourney_results
 from thetower.backend.tourney_results.models import TourneyResult
+from thetower.web.util import deprecated
 
 patches = sorted([patch for patch in get_patches() if patch.version_minor and patch.version_minor < 25], key=lambda patch: patch.start_date, reverse=True)
 

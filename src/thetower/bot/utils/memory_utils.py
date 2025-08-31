@@ -1,6 +1,7 @@
-import sys
 import logging
-from typing import Dict, Any
+import sys
+from typing import Any, Dict
+
 import discord
 
 logger = logging.getLogger(__name__)
@@ -57,7 +58,7 @@ class MemoryUtils:
 
             # Object memory size using pympler (most accurate)
             try:
-                from pympler import asizeof, summary, muppy
+                from pympler import asizeof, muppy, summary
 
                 if obj is not None:
                     # Measure specific object

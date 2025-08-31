@@ -1,12 +1,14 @@
-from datetime import datetime
 import logging
+from datetime import datetime
 from zoneinfo import ZoneInfo
+
 from django.core.management.base import BaseCommand
-from ...models import TourneyResult, BattleCondition
+
+from ...models import BattleCondition, TourneyResult
 
 # Graceful towerbcs import handling
 try:
-    from towerbcs import predict_future_tournament, TournamentPredictor
+    from towerbcs import TournamentPredictor, predict_future_tournament
     TOWERBCS_AVAILABLE = True
 except ImportError:
     TOWERBCS_AVAILABLE = False

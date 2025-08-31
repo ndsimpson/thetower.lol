@@ -1,6 +1,6 @@
 from typing import Optional, Union
 
-from discord import TextChannel, Member, User
+from discord import Member, TextChannel, User
 from discord.ext import commands
 
 

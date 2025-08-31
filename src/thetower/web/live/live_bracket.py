@@ -1,23 +1,24 @@
+import logging
+from pathlib import Path
+from time import perf_counter
 from urllib.parse import urlencode
+
 import pandas as pd
 import plotly.express as px
 import streamlit as st
-import logging
-from time import perf_counter
-from pathlib import Path
 
-from thetower.web.live.ui_components import setup_common_ui
-from thetower.web.live.data_ops import (
-    get_live_data,
-    get_bracket_data,
-    process_display_names,
-    process_bracket_selection,
-    require_tournament_data,
-    initialize_bracket_state,
-    update_bracket_index
-)
-from thetower.backend.tourney_results.formatting import BASE_URL, make_player_url
 from thetower.backend.tourney_results.data import get_player_id_lookup
+from thetower.backend.tourney_results.formatting import BASE_URL, make_player_url
+from thetower.web.live.data_ops import (
+    get_bracket_data,
+    get_live_data,
+    initialize_bracket_state,
+    process_bracket_selection,
+    process_display_names,
+    require_tournament_data,
+    update_bracket_index,
+)
+from thetower.web.live.ui_components import setup_common_ui
 
 
 @require_tournament_data

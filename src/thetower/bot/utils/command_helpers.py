@@ -5,12 +5,12 @@ This module provides helper functions to create standardized commands
 across all cogs, such as settings management commands.
 """
 
-import logging
 import inspect
+import logging
 from typing import Any, Callable, Union
+
 import discord
 from discord.ext import commands
-
 
 logger = logging.getLogger(__name__)
 

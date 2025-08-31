@@ -1,12 +1,13 @@
 # Standard library imports
-from thetower.web.util import makeitrain
-from thetower.backend.tourney_results.constants import Graph, Options
 import os
 from pathlib import Path
 
 # Third-party imports
 import django
 import streamlit as st
+
+from thetower.backend.tourney_results.constants import Graph, Options
+from thetower.web.util import makeitrain
 
 # Django setup
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "thetower.backend.towerdb.settings")
@@ -116,6 +117,7 @@ st.logo(str(logo_path), size="large", icon_image=str(icon_path))
 
 # Only show toggle and make it rain if there are active rain periods
 from thetower.backend.tourney_results.models import RainPeriod
+
 active_period = RainPeriod.get_active_period()
 
 if active_period:

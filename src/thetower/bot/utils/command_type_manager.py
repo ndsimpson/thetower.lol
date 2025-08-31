@@ -1,5 +1,5 @@
-from typing import Literal
 import logging
+from typing import Literal
 
 CommandTypeOption = Literal["prefix", "slash", "both", "none"]
 

@@ -7,11 +7,10 @@ modifications, and handling serialization/deserialization across the bot.
 
 import asyncio
 import json
-import pickle
 import logging
+import pickle
 from pathlib import Path
-from typing import Any, Optional, Union, Callable
-
+from typing import Any, Callable, Optional, Union
 
 logger = logging.getLogger(__name__)
 

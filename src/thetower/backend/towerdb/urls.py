@@ -2,6 +2,7 @@
 from django.contrib import admin
 from django.urls import path
 from django.views.generic.base import RedirectView
+
 from thetower.backend.sus.api_views import BanPlayerAPI
 
 # from .views import last_full_results, results_per_tourney, results_per_user

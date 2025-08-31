@@ -1,6 +1,7 @@
 import datetime
 import os
 from html import escape
+from pathlib import Path
 from urllib.parse import urlencode
 
 import pandas as pd
@@ -8,10 +9,7 @@ import plotly.graph_objects as go
 import streamlit as st
 from natsort import natsorted
 from plotly.subplots import make_subplots
-from pathlib import Path
 
-from thetower.web.historical.search import compute_search
-from thetower.web.util import get_options, escape_df_html
 from thetower.backend.sus.models import PlayerId
 from thetower.backend.tourney_results.constants import (
     Graph,
@@ -27,15 +25,17 @@ from thetower.backend.tourney_results.data import (
     get_details,
     get_id_lookup,
     get_patches,
-    is_under_review,
     is_shun,
-    is_sus,
     is_support_flagged,
+    is_sus,
+    is_under_review,
 )
 from thetower.backend.tourney_results.formatting import BASE_URL, color_position
 from thetower.backend.tourney_results.models import PatchNew as Patch
 from thetower.backend.tourney_results.models import TourneyRow
 from thetower.backend.tourney_results.tourney_utils import check_all_live_entry
+from thetower.web.historical.search import compute_search
+from thetower.web.util import escape_df_html, get_options
 
 id_mapping = get_id_lookup()
 hidden_features = os.environ.get("HIDDEN_FEATURES")

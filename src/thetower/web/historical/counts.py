@@ -1,10 +1,9 @@
 import pandas as pd
 import streamlit as st
 
-from thetower.web.util import get_league_selection, get_options
-
-from thetower.backend.tourney_results.models import TourneyResult, TourneyRow
 from thetower.backend.tourney_results.data import date_to_patch
+from thetower.backend.tourney_results.models import TourneyResult, TourneyRow
+from thetower.web.util import get_league_selection, get_options
 
 
 def compute_counts():

@@ -1,8 +1,8 @@
 """TheTower Bot - A Discord bot for The Tower community."""
 
-from .bot import DiscordBot
 from .basecog import BaseCog
-from .exceptions import UserUnauthorized, ChannelUnauthorized
+from .bot import DiscordBot
+from .exceptions import ChannelUnauthorized, UserUnauthorized
 
 __all__ = [
     'DiscordBot',

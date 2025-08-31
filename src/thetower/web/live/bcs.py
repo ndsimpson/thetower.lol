@@ -1,15 +1,17 @@
 """Display tournament battle conditions in Streamlit interface."""
 
+import logging
 from datetime import timedelta
+from time import perf_counter
+
 import pandas as pd
 import streamlit as st
-import logging
-from time import perf_counter
+
 from thetower.backend.tourney_results.constants import leagues
 
 # Try to import towerbcs with graceful fallback
 try:
-    from towerbcs import predict_future_tournament, TournamentPredictor
+    from towerbcs import TournamentPredictor, predict_future_tournament
     TOWERBCS_AVAILABLE = True
 except ImportError:
     TOWERBCS_AVAILABLE = False

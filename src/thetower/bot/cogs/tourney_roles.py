@@ -1,8 +1,9 @@
 import asyncio
-import discord
-from discord.ext import commands
 import datetime
 from pathlib import Path
+
+import discord
+from discord.ext import commands
 
 from thetower.bot.basecog import BaseCog
 

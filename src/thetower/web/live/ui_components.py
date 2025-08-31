@@ -1,7 +1,8 @@
 import streamlit as st
-from thetower.web.util import get_league_selection, get_options
-from thetower.backend.tourney_results.tourney_utils import check_live_entry
+
 from thetower.backend.tourney_results.constants import leagues
+from thetower.backend.tourney_results.tourney_utils import check_live_entry
+from thetower.web.util import get_league_selection, get_options
 
 
 def get_league_for_player(player_id: str) -> str:

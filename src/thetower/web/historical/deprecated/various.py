@@ -1,13 +1,13 @@
 from collections import Counter
+from pathlib import Path
 
 import pandas as pd
 import streamlit as st
-from pathlib import Path
 
-from thetower.web.util import deprecated
 from thetower.backend.tourney_results.constants import Graph, Options, all_relics, champ, league_to_folder
 from thetower.backend.tourney_results.data import load_tourney_results
 from thetower.backend.tourney_results.models import PatchNew as Patch
+from thetower.web.util import deprecated
 
 
 def compute_various(df, options):

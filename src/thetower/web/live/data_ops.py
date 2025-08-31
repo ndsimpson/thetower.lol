@@ -1,11 +1,11 @@
+import logging
 from functools import wraps
 from pathlib import Path
-import logging
 
 import pandas as pd
 import streamlit as st
 
-from thetower.backend.tourney_results.tourney_utils import get_live_df, get_full_brackets
+from thetower.backend.tourney_results.tourney_utils import get_full_brackets, get_live_df
 
 # Cache configuration
 CACHE_TTL_SECONDS = 300  # 5 minutes cache duration

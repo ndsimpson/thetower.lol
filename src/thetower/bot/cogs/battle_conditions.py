@@ -8,7 +8,7 @@ from thetower.bot.basecog import BaseCog
 
 # Graceful towerbcs import handling
 try:
-    from towerbcs.towerbcs import predict_future_tournament, TournamentPredictor
+    from towerbcs.towerbcs import TournamentPredictor, predict_future_tournament
     TOWERBCS_AVAILABLE = True
 except ImportError:
     TOWERBCS_AVAILABLE = False

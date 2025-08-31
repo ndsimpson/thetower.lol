@@ -1,15 +1,18 @@
 
 import logging
-from discord.ext import commands
 from functools import partial
+
+from discord.ext import commands
+
 try:
     from ..utils import is_channel
 except ImportError:
     def is_channel(channel, id_):
         return getattr(channel, 'id', None) == id_
+from asgiref.sync import sync_to_async
+
 from thetower.backend.sus.models import KnownPlayer, PlayerId
 from thetower.backend.tourney_results.models import Injection
-from asgiref.sync import sync_to_async
 
 logger = logging.getLogger(__name__)
 
