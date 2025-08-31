@@ -8,7 +8,7 @@ import streamlit as st
 from thetower.backend.tourney_results.constants import champ
 from thetower.backend.tourney_results.data import get_tourneys
 from thetower.backend.tourney_results.models import TourneyResult
-from thetower.web.live.data_ops import get_processed_data, process_display_names, require_tournament_data
+from thetower.web.live.data_ops import get_processed_data, include_shun_enabled, process_display_names, require_tournament_data
 from thetower.web.live.ui_components import setup_common_ui
 
 
@@ -22,7 +22,7 @@ def live_progress():
     options, league, is_mobile = setup_common_ui()
 
     # Get processed data
-    df, tdf, ldf, first_moment, last_moment = get_processed_data(league, True)
+    df, tdf, ldf, first_moment, last_moment = get_processed_data(league, include_shun_enabled())
 
     # Process display names for better visualization
     tdf = process_display_names(tdf)

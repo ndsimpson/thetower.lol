@@ -11,11 +11,11 @@ django.setup()
 # Third-party imports
 from tqdm import tqdm
 
-from thetower.backend.tourney_results.data import get_sus_ids
+from thetower.backend.tourney_results.data import get_shun_ids, get_sus_ids
 
 # Local imports
 from thetower.backend.tourney_results.models import TourneyResult, TourneyRow
-from thetower.backend.tourney_results.tourney_utils import reposition
+from thetower.backend.tourney_results.tourney_utils import include_shun_enabled, reposition
 
 # Initialize logging
 logging.basicConfig(level=logging.INFO)
@@ -39,8 +39,10 @@ def fix_tourney_results():
 
 def view_broken_results():
 
-    # Get the excluded player IDs
+    # Get the excluded player IDs; respect filesystem flag
     excluded_ids = get_sus_ids()
+    if not include_shun_enabled():
+        excluded_ids = excluded_ids | get_shun_ids()
 
     # Query for TourneyRows
     suspicious_rows = TourneyRow.objects.filter(position__gt=0, player_id__in=excluded_ids).order_by("result__date", "position")

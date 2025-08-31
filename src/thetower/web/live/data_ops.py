@@ -5,7 +5,7 @@ from pathlib import Path
 import pandas as pd
 import streamlit as st
 
-from thetower.backend.tourney_results.tourney_utils import get_full_brackets, get_live_df
+from thetower.backend.tourney_results.tourney_utils import get_full_brackets, get_live_df, include_shun_enabled
 
 # Cache configuration
 CACHE_TTL_SECONDS = 300  # 5 minutes cache duration
@@ -139,7 +139,9 @@ def get_placement_analysis_data(league: str):
         - Latest time
         - Bracket creation times dict
     """
-    df = get_live_data(league, True)
+    # Respect filesystem flag: if include_shun file exists, include shunned players.
+    include_shun = include_shun_enabled()
+    df = get_live_data(league, include_shun)
 
     # Use the shared bracket filtering logic
     _, fullish_brackets = get_full_brackets(df)

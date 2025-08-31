@@ -22,6 +22,18 @@ from .models import Injection, PromptTemplate, TourneyResult, TourneyRow
 logging.basicConfig(level=logging.INFO)
 
 
+def include_shun_enabled() -> bool:
+    """Filesystem flag: if `include_shun` exists in the repository root, include shunned players.
+
+    Returns:
+        True if the flag file exists (shunned players are INCLUDED), False otherwise
+        (shunned players are excluded).
+    """
+    # Project root is four parents up from src/thetower/backend/...
+    repo_root = Path(__file__).resolve().parents[4]
+    return (repo_root / "include_shun").exists()
+
+
 def create_tourney_rows(tourney_result: TourneyResult) -> None:
     """Idempotent function to process tourney result during the csv import process.
 
@@ -60,7 +72,10 @@ def create_tourney_rows(tourney_result: TourneyResult) -> None:
         logging.info(f"There are {len(df.query('tourney_name.str.len() == 0'))} blank tourney names.")
         df.loc[df["tourney_name"].str.len() == 0, "tourney_name"] = df["id"]
 
+    # Exclude sus IDs, and exclude shun IDs unless the include_shun flag file exists
     excluded_ids = get_sus_ids()
+    if not include_shun_enabled():
+        excluded_ids = excluded_ids | get_shun_ids()
     positions = calculate_positions(df.id, df.index, df.wave, excluded_ids)
 
     df["position"] = positions
@@ -139,7 +154,10 @@ def reposition(tourney_result: TourneyResult, testrun: bool = False, verbose: bo
     waves = [datum[1] for datum in bulk_data]
     nicknames = [datum[2] for datum in bulk_data]
 
+    # Exclude sus IDs, and exclude shun IDs unless the include_shun flag file exists
     excluded_ids = get_sus_ids()
+    if not include_shun_enabled():
+        excluded_ids = excluded_ids | get_shun_ids()
     positions = calculate_positions(ids, indexes, waves, excluded_ids)
 
     bulk_update_data = []

@@ -16,6 +16,16 @@ from thetower.backend.tourney_results.data import get_results_for_patch, get_tou
 from thetower.backend.tourney_results.models import PatchNew as Patch
 from thetower.bot.basecog import BaseCog
 
+
+def include_shun_roles_enabled() -> bool:
+    """Check for repo-root flag file `include_shun_roles`.
+
+    If the file exists, the bot will INCLUDE shunned players (i.e. not treat them as excluded).
+    """
+    repo_root = Path(__file__).resolve().parents[4]
+    return (repo_root / "include_shun_roles").exists()
+
+
 # Define league hierarchy - order matters for importance
 LEAGUE_HIERARCHY = ["legend", "champion", "platinum", "gold", "silver", "copper"]
 
@@ -208,8 +218,14 @@ class TourneyStats(BaseCog, name="Tourney Stats"):
                     self.logger.info(f"Using patch: {patch}")
 
                     self.task_tracker.update_task_status(task_name, "Getting excluded player IDs...")
-                    # Get sus IDs to filter out
-                    sus_ids = {item.player_id for item in await sync_to_async(list)(SusPerson.objects.filter(Q(sus=True) | Q(shun=True)))}
+                    # Get sus IDs to filter out. The bot respects its own repo-root flag
+                    # `include_shun_roles` — if present, shunned players are INCLUDED and
+                    # therefore not added to the exclusion list.
+                    if include_shun_roles_enabled():
+                        sus_qs = SusPerson.objects.filter(sus=True)
+                    else:
+                        sus_qs = SusPerson.objects.filter(Q(sus=True) | Q(shun=True))
+                    sus_ids = {item.player_id for item in await sync_to_async(list)(sus_qs)}
                     self.logger.info(f"Found {len(sus_ids)} excluded player IDs")
 
                     # Clear existing data if refreshing

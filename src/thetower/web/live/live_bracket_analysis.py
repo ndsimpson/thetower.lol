@@ -5,7 +5,7 @@ import pandas as pd
 import plotly.express as px
 import streamlit as st
 
-from thetower.web.live.data_ops import get_bracket_stats, get_cached_plot_data, get_processed_data, require_tournament_data
+from thetower.web.live.data_ops import get_bracket_stats, get_cached_plot_data, get_processed_data, include_shun_enabled, require_tournament_data
 from thetower.web.live.ui_components import setup_common_ui
 
 
@@ -18,7 +18,7 @@ def bracket_analysis():
     options, league, is_mobile = setup_common_ui()
 
     # Get processed data
-    df, _, ldf, _, _ = get_processed_data(league, True)
+    df, _, ldf, _, _ = get_processed_data(league, include_shun_enabled())
 
     # Get bracket statistics
     bracket_stats = get_bracket_stats(ldf)
