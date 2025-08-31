@@ -1,0 +1,18 @@
+{
+  "prefix": "$",
+  "enabled_cogs": [],
+  "disabled_cogs": [],
+  "command_permissions": {
+    "commands": {}
+  },
+  "cogs": {
+    "_global": {}
+  },
+  "permissions": {
+    "global": {
+      "users": [],
+      "roles": []
+    },
+    "guilds": {}
+  }
+}
