@@ -61,11 +61,6 @@ def restart_thetower_bot(modeladmin, request, queryset):
     subprocess.call("systemctl restart thetower-bot", shell=True)
 
 
-@admin.action(description="Restart verification bot")
-def restart_verify_bot(modeladmin, request, queryset):
-    subprocess.call("systemctl restart validation_bot", shell=True)
-
-
 @admin.action(description="Restart import results (run me if you don't see TourneyResult objects from previous tourney when it should be there)")
 def restart_import_results(modeladmin, request, queryset):
     subprocess.call("systemctl restart import_results", shell=True)
@@ -179,7 +174,6 @@ class TourneyResultAdmin(SimpleHistoryAdmin):
         restart_hidden_site,
         restart_admin_site,
         restart_thetower_bot,
-        restart_verify_bot,
         restart_import_results,
         restart_get_results,
         generate_summary,
