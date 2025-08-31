@@ -60,7 +60,11 @@ dev = [
     "pytest==8.4.1",
     "pytest-django==4.11.1",
     "pytest-sugar==1.0.0",
+    "black==24.4.0",
+    "isort==5.14.0",
+    "flake8==6.1.0",
 ]
+
 
 bot = [
     "discord.py==2.5.2",
@@ -136,10 +140,11 @@ ensure_newline_before_comments = true
 
 [tool.flake8]
 max-line-length = 150
-extend-ignore = ["E203", "E402", "E501", "W503"]
+extend-ignore = ["E203", "E266", "E402", "E501", "W503", "DJ01"]
 exclude = [
     ".git",
     "__pycache__",
+    "*/__init__.py",
     "migrations",
     "*/migrations/*",
     "**/migrations/**",
