@@ -9,6 +9,7 @@ from thetower.bot.basecog import BaseCog
 # Graceful towerbcs import handling
 try:
     from towerbcs.towerbcs import TournamentPredictor, predict_future_tournament
+
     TOWERBCS_AVAILABLE = True
 except ImportError:
     TOWERBCS_AVAILABLE = False
@@ -42,15 +43,10 @@ class BattleConditions(BaseCog, name="Battle Conditions"):
             "notification_hour": (0, "Hour to send notifications (UTC)"),
             "notification_minute": (0, "Minute to send notifications (UTC)"),
             "days_before_notification": (1, "Days before tournament to notify"),
-
             # Display Settings
-            "enabled_leagues": (
-                ["Legend", "Champion", "Platinum", "Gold", "Silver"],
-                "Leagues to track"
-            ),
-
+            "enabled_leagues": (["Legend", "Champion", "Platinum", "Gold", "Silver"], "Leagues to track"),
             # Schedule Settings
-            "thread_schedules": ([], "Battle conditions announcement schedules")
+            "thread_schedules": ([], "Battle conditions announcement schedules"),
         }
 
         # Initialize all settings
@@ -106,7 +102,7 @@ class BattleConditions(BaseCog, name="Battle Conditions"):
     async def cog_unload(self) -> None:
         """Clean up when cog is unloaded."""
         # Cancel any scheduled tasks
-        if hasattr(self, 'scheduled_bc_messages'):
+        if hasattr(self, "scheduled_bc_messages"):
             self.scheduled_bc_messages.cancel()
 
         # Call parent implementation for data saving
@@ -128,7 +124,7 @@ class BattleConditions(BaseCog, name="Battle Conditions"):
             "Champion": self.config.get_thread_id("battleconditions", "champion"),
             "Platinum": self.config.get_thread_id("battleconditions", "platinum"),
             "Gold": self.config.get_thread_id("battleconditions", "gold"),
-            "Silver": self.config.get_thread_id("battleconditions", "silver")
+            "Silver": self.config.get_thread_id("battleconditions", "silver"),
         }
 
     @property
@@ -170,12 +166,12 @@ class BattleConditions(BaseCog, name="Battle Conditions"):
             embed = discord.Embed(
                 title="Battle Conditions Unavailable",
                 description="⚠️ The towerbcs package is not installed, so battle condition predictions are not available.",
-                color=discord.Color.orange()
+                color=discord.Color.orange(),
             )
             embed.add_field(
                 name="What this means",
                 value="Battle condition predictions require the towerbcs package to be installed on the bot server.",
-                inline=False
+                inline=False,
             )
             return await ctx.send(embed=embed)
 
@@ -192,11 +188,7 @@ class BattleConditions(BaseCog, name="Battle Conditions"):
             tourney_id, tourney_date, days_until = TournamentPredictor.get_tournament_info()
             battleconditions = await self.get_battle_conditions(league)
 
-            embed = discord.Embed(
-                title=f"{league} League Battle Conditions",
-                description=f"Tournament on {tourney_date}",
-                color=discord.Color.gold()
-            )
+            embed = discord.Embed(title=f"{league} League Battle Conditions", description=f"Tournament on {tourney_date}", color=discord.Color.gold())
 
             # Add BC list
             bc_text = "\n".join([f"• {bc}" for bc in battleconditions])
@@ -217,16 +209,13 @@ class BattleConditions(BaseCog, name="Battle Conditions"):
             embed = discord.Embed(
                 title="Tournament Information Unavailable",
                 description="⚠️ The towerbcs package is not installed, so tournament information is not available.",
-                color=discord.Color.orange()
+                color=discord.Color.orange(),
             )
             return await ctx.send(embed=embed)
 
         tourney_id, tourney_date, days_until = TournamentPredictor.get_tournament_info()
 
-        embed = discord.Embed(
-            title="Next Tournament Information",
-            color=discord.Color.blue()
-        )
+        embed = discord.Embed(title="Next Tournament Information", color=discord.Color.blue())
 
         if days_until == 0:
             embed.add_field(name="Status", value="The tournament is today! 🏆", inline=False)
@@ -260,62 +249,50 @@ class BattleConditions(BaseCog, name="Battle Conditions"):
                 "Predicts and announces upcoming tournament battle conditions for each league. "
                 "Provides automated notifications and manual lookup capabilities."
             ),
-            color=embed_color
+            color=embed_color,
         )
 
         # Add status section
         status_value = [f"{status_emoji} System Status: {status_text}"]
-        if hasattr(self, '_last_operation_time') and self._last_operation_time:
+        if hasattr(self, "_last_operation_time") and self._last_operation_time:
             time_since = self.format_relative_time(self._last_operation_time)
             status_value.append(f"🕒 Last Check: {time_since} ago")
-        embed.add_field(
-            name="System Status",
-            value="\n".join(status_value),
-            inline=False
-        )
+        embed.add_field(name="System Status", value="\n".join(status_value), inline=False)
 
         # Add configuration information
         config_lines = []
-        if hasattr(self, 'enabled_leagues'):
+        if hasattr(self, "enabled_leagues"):
             config_lines.append(f"📋 Enabled Leagues: {', '.join(self.enabled_leagues)}")
-        if hasattr(self, 'notification_hour') and hasattr(self, 'notification_minute'):
+        if hasattr(self, "notification_hour") and hasattr(self, "notification_minute"):
             config_lines.append(f"⏰ Default Notification Time: {self.notification_hour:02d}:{self.notification_minute:02d} UTC")
-        if hasattr(self, 'days_before_notification'):
+        if hasattr(self, "days_before_notification"):
             config_lines.append(f"📅 Default Notification Days: {self.days_before_notification} days before tournament")
 
         if config_lines:
-            embed.add_field(
-                name="Configuration",
-                value="\n".join(config_lines),
-                inline=False
-            )
+            embed.add_field(name="Configuration", value="\n".join(config_lines), inline=False)
 
         # Add scheduled notifications
         schedules = self.get_setting("thread_schedules", [])
         if schedules:
             schedule_lines = []
             for schedule in schedules:
-                channel_id = schedule.get('channel_id')
+                channel_id = schedule.get("channel_id")
                 channel = self.bot.get_channel(int(channel_id)) if channel_id else None
                 channel_name = channel.mention if channel else f"Unknown Channel ({channel_id})"
                 time = f"{schedule.get('hour', 0):02d}:{schedule.get('minute', 0):02d}"
-                days = schedule.get('days_before', 1)
-                leagues = ", ".join(schedule.get('leagues', []))
+                days = schedule.get("days_before", 1)
+                leagues = ", ".join(schedule.get("leagues", []))
                 schedule_lines.append(f"• {channel_name}: {time} UTC, {days}d before, Leagues: {leagues}")
 
             embed.add_field(
                 name=f"Scheduled Notifications ({len(schedules)})",
                 value="\n".join(schedule_lines) if schedule_lines else "No schedules configured",
-                inline=False
+                inline=False,
             )
 
         # Add statistics if available
-        if hasattr(self, '_operation_count'):
-            embed.add_field(
-                name="Statistics",
-                value=f"Predictions made: {self._operation_count}",
-                inline=False
-            )
+        if hasattr(self, "_operation_count"):
+            embed.add_field(name="Statistics", value=f"Predictions made: {self._operation_count}", inline=False)
 
         # Add usage hint in footer
         embed.set_footer(text="Use bc help for detailed command information")
@@ -326,9 +303,7 @@ class BattleConditions(BaseCog, name="Battle Conditions"):
     async def bc_settings_command(self, ctx):
         """Display current configuration for the Battle Conditions system."""
         embed = discord.Embed(
-            title="Battle Conditions Settings",
-            description="Current configuration for battle conditions system",
-            color=discord.Color.blue()
+            title="Battle Conditions Settings", description="Current configuration for battle conditions system", color=discord.Color.blue()
         )
 
         # Time Settings
@@ -338,28 +313,17 @@ class BattleConditions(BaseCog, name="Battle Conditions"):
         time_str = f"{hour:02d}:{minute:02d} UTC"
 
         embed.add_field(
-            name="🕒 Time Settings",
-            value=f"Default Notification Time: {time_str}\n"
-            f"Days Before Tournament: {days_before}",
-            inline=False
+            name="🕒 Time Settings", value=f"Default Notification Time: {time_str}\n" f"Days Before Tournament: {days_before}", inline=False
         )
 
         # Display Settings
         enabled_leagues = self.get_setting("enabled_leagues")
-        embed.add_field(
-            name="🏆 Display Settings",
-            value=f"Enabled Leagues: {', '.join(enabled_leagues)}",
-            inline=False
-        )
+        embed.add_field(name="🏆 Display Settings", value=f"Enabled Leagues: {', '.join(enabled_leagues)}", inline=False)
 
         # Flag Settings
         global_paused = self.get_setting("paused")
         paused_str = "❌ Disabled" if global_paused else "✅ Enabled"
-        embed.add_field(
-            name="🚩 Flag Settings",
-            value=f"Announcements: {paused_str}",
-            inline=False
-        )
+        embed.add_field(name="🚩 Flag Settings", value=f"Announcements: {paused_str}", inline=False)
 
         # Thread schedules - summary
         thread_schedules = self.get_setting("thread_schedules", [])
@@ -376,14 +340,10 @@ class BattleConditions(BaseCog, name="Battle Conditions"):
         else:
             schedule_summary = "No schedules configured. Use `bc schedule_add` to set up."
 
-        embed.add_field(
-            name="📆 Schedule Settings",
-            value=schedule_summary,
-            inline=False
-        )
+        embed.add_field(name="📆 Schedule Settings", value=schedule_summary, inline=False)
 
         # Format timestamp for footer
-        current_time = datetime.datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S UTC')
+        current_time = datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
         embed.set_footer(text=f"Last Updated: {current_time}")
 
         await ctx.send(embed=embed)
@@ -426,8 +386,7 @@ class BattleConditions(BaseCog, name="Battle Conditions"):
             if setting_name in ["notification_hour", "notification_minute"]:
                 self.scheduled_bc_messages.cancel()
                 self.scheduled_bc_messages.change_time(
-                    time=datetime.time(hour=self.get_setting("notification_hour"),
-                                       minute=self.get_setting("notification_minute"))
+                    time=datetime.time(hour=self.get_setting("notification_hour"), minute=self.get_setting("notification_minute"))
                 )
                 self.scheduled_bc_messages.start()
 
@@ -440,11 +399,9 @@ class BattleConditions(BaseCog, name="Battle Conditions"):
             await ctx.send("Value must be a number")
 
     @battleconditions_group.command(name="schedule_add")
-    async def bc_schedule_add_command(self, ctx, destination_input,
-                                      hour: Optional[int] = None,
-                                      minute: Optional[int] = None,
-                                      days_before: Optional[int] = None,
-                                      *leagues):
+    async def bc_schedule_add_command(
+        self, ctx, destination_input, hour: Optional[int] = None, minute: Optional[int] = None, days_before: Optional[int] = None, *leagues
+    ):
         """Add a new schedule for battle conditions
 
         Args:
@@ -453,7 +410,7 @@ class BattleConditions(BaseCog, name="Battle Conditions"):
             minute: Minute to post - defaults to global setting
             days_before: Days before tournament to post - defaults to global setting
             leagues: One or more leagues to post (Legend, Champion, etc)
-"""
+        """
         # Handle different input types for channel/thread
         destination = None
 
@@ -464,7 +421,7 @@ class BattleConditions(BaseCog, name="Battle Conditions"):
             # Try to interpret as an ID (handling both raw IDs and mentions)
             try:
                 # Clean the input and extract ID
-                cleaned_input = destination_input.strip('<#>')
+                cleaned_input = destination_input.strip("<#>")
                 destination_id = int(cleaned_input)
 
                 # Try different methods to get the channel/thread
@@ -503,8 +460,7 @@ class BattleConditions(BaseCog, name="Battle Conditions"):
                     for channel in ctx.guild.text_channels:
                         try:
                             # Check active threads
-                            threads = [t for t in channel.threads
-                                       if t.name.lower() == cleaned_name.lower()]
+                            threads = [t for t in channel.threads if t.name.lower() == cleaned_name.lower()]
                             if threads:
                                 destination = threads[0]
                                 break
@@ -558,14 +514,16 @@ class BattleConditions(BaseCog, name="Battle Conditions"):
 
         # Get current schedules and add the new one
         schedules = self.get_setting("thread_schedules", [])
-        schedules.append({
-            "thread_id": destination.id,
-            "thread_type": "thread" if isinstance(destination, discord.Thread) else "channel",
-            "leagues": leagues,
-            "hour": hour,
-            "minute": minute,
-            "days_before": days_before
-        })
+        schedules.append(
+            {
+                "thread_id": destination.id,
+                "thread_type": "thread" if isinstance(destination, discord.Thread) else "channel",
+                "leagues": leagues,
+                "hour": hour,
+                "minute": minute,
+                "days_before": days_before,
+            }
+        )
 
         # Save the updated schedules
         self.set_setting("thread_schedules", schedules)
@@ -590,10 +548,7 @@ class BattleConditions(BaseCog, name="Battle Conditions"):
         if not schedules:
             return await ctx.send("No battle conditions schedules configured")
 
-        embed = discord.Embed(
-            title="Battle Conditions Schedules",
-            color=discord.Color.blue()
-        )
+        embed = discord.Embed(title="Battle Conditions Schedules", color=discord.Color.blue())
 
         for i, schedule in enumerate(schedules, 1):
             thread_id = schedule.get("thread_id")
@@ -608,10 +563,8 @@ class BattleConditions(BaseCog, name="Battle Conditions"):
 
             embed.add_field(
                 name=f"Schedule #{i}",
-                value=f"Channel: {channel_str}\n"
-                f"Leagues: {', '.join(leagues)}\n"
-                f"Time: {time_str}, {days_before} days before tournament",
-                inline=False
+                value=f"Channel: {channel_str}\n" f"Leagues: {', '.join(leagues)}\n" f"Time: {time_str}, {days_before} days before tournament",
+                inline=False,
             )
 
         await ctx.send(embed=embed)
@@ -854,9 +807,7 @@ class BattleConditions(BaseCog, name="Battle Conditions"):
                     battleconditions = await self.get_battle_conditions(league)
 
                     embed = discord.Embed(
-                        title=f"{league} League Battle Conditions",
-                        description=f"Tournament on {tourney_date}",
-                        color=discord.Color.gold()
+                        title=f"{league} League Battle Conditions", description=f"Tournament on {tourney_date}", color=discord.Color.gold()
                     )
 
                     bc_text = "\n".join([f"• {bc}" for bc in battleconditions])
@@ -945,11 +896,7 @@ class BattleConditions(BaseCog, name="Battle Conditions"):
             embed_color = discord.Color.blue()
 
         # Create status embed
-        embed = discord.Embed(
-            title="Battle Conditions Status",
-            description=f"Current status: {status_emoji} {status_text}",
-            color=embed_color
-        )
+        embed = discord.Embed(title="Battle Conditions Status", description=f"Current status: {status_emoji} {status_text}", color=embed_color)
 
         # Add dependencies section
         dependencies = []
@@ -961,52 +908,32 @@ class BattleConditions(BaseCog, name="Battle Conditions"):
             dependencies.append("❌ Tournament Predictor: Error fetching data")
             self._has_errors = True
 
-        embed.add_field(
-            name="Dependencies",
-            value="\n".join(dependencies),
-            inline=False
-        )
+        embed.add_field(name="Dependencies", value="\n".join(dependencies), inline=False)
 
         # Add configuration section
         config_lines = [
             f"📋 Enabled Leagues: {', '.join(self.enabled_leagues)}",
             f"⏰ Notification Time: {self.notification_hour:02d}:{self.notification_minute:02d} UTC",
             f"📅 Notification Days: {self.days_before_notification} days before tournament",
-            f"⚙️ System State: {'⏸️ Paused' if self.is_paused else '✅ Running'}"
+            f"⚙️ System State: {'⏸️ Paused' if self.is_paused else '✅ Running'}",
         ]
 
-        embed.add_field(
-            name="Configuration",
-            value="\n".join(config_lines),
-            inline=False
-        )
+        embed.add_field(name="Configuration", value="\n".join(config_lines), inline=False)
 
         # Get schedule information
         schedules = self.get_setting("thread_schedules", [])
         active_schedules = sum(1 for s in schedules if not s.get("paused", False))
 
         # Add statistics section
-        stats = [
-            f"Total Schedules: {len(schedules)}",
-            f"Active Schedules: {active_schedules}",
-            f"Operations Completed: {self._operation_count}"
-        ]
-        embed.add_field(
-            name="Statistics",
-            value="\n".join(stats),
-            inline=False
-        )
+        stats = [f"Total Schedules: {len(schedules)}", f"Active Schedules: {active_schedules}", f"Operations Completed: {self._operation_count}"]
+        embed.add_field(name="Statistics", value="\n".join(stats), inline=False)
 
         # Add task tracking information
         self.add_task_status_fields(embed)
 
         # Add last activity
         if self._last_operation_time:
-            embed.add_field(
-                name="Last Activity",
-                value=f"Last check: {self.format_relative_time(self._last_operation_time)} ago",
-                inline=False
-            )
+            embed.add_field(name="Last Activity", value=f"Last check: {self.format_relative_time(self._last_operation_time)} ago", inline=False)
 
         await ctx.send(embed=embed)
 
@@ -1014,9 +941,7 @@ class BattleConditions(BaseCog, name="Battle Conditions"):
     async def bc_help_command(self, ctx):
         """Show help information for Battle Conditions commands."""
         embed = discord.Embed(
-            title="Battle Conditions Help",
-            description="Commands to manage and view tournament battle conditions.",
-            color=discord.Color.blue()
+            title="Battle Conditions Help", description="Commands to manage and view tournament battle conditions.", color=discord.Color.blue()
         )
 
         # Core commands
@@ -1029,7 +954,7 @@ class BattleConditions(BaseCog, name="Battle Conditions"):
                 "`bc status` - Show operational status\n"
                 "`bc settings` - Show configuration settings"
             ),
-            inline=False
+            inline=False,
         )
 
         # Schedule management
@@ -1043,7 +968,7 @@ class BattleConditions(BaseCog, name="Battle Conditions"):
                 "`bc schedule_pause <index>` - Pause specific schedule\n"
                 "`bc schedule_resume <index>` - Resume specific schedule"
             ),
-            inline=False
+            inline=False,
         )
 
         # System control
@@ -1056,7 +981,7 @@ class BattleConditions(BaseCog, name="Battle Conditions"):
                 "`bc set <setting> <value>` - Set a configuration value\n"
                 "`bc schedules_reload` - Reload schedules from config file"
             ),
-            inline=False
+            inline=False,
         )
 
         # Add footer with example
@@ -1114,11 +1039,7 @@ class BattleConditions(BaseCog, name="Battle Conditions"):
             bool: Whether the message was sent successfully
         """
         try:
-            embed = discord.Embed(
-                title=f"{league} League Battle Conditions",
-                description=f"Tournament on {tourney_date}",
-                color=discord.Color.gold()
-            )
+            embed = discord.Embed(title=f"{league} League Battle Conditions", description=f"Tournament on {tourney_date}", color=discord.Color.gold())
 
             bc_text = "\n".join([f"• {bc}" for bc in battleconditions])
             embed.add_field(name="Predicted Battle Conditions", value=bc_text, inline=False)
@@ -1177,10 +1098,7 @@ class BattleConditions(BaseCog, name="Battle Conditions"):
                         continue
 
                     # Skip if this is not the right time (with some margin for the 1-minute check)
-                    time_match = (
-                        current_hour == hour and
-                        (current_minute >= minute and current_minute < minute + 1)
-                    )
+                    time_match = current_hour == hour and (current_minute >= minute and current_minute < minute + 1)
                     if not time_match:
                         continue
 

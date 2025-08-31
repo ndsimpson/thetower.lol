@@ -17,9 +17,7 @@ from thetower.backend.sus.models import KnownPlayer
 from thetower.bot.basecog import BaseCog
 
 
-class KnownPlayers(BaseCog,
-                   name="Known Players",
-                   description="Player identity management and lookup"):
+class KnownPlayers(BaseCog, name="Known Players", description="Player identity management and lookup"):
     """Player identity management and lookup.
 
     Provides commands for finding players by ID, name or Discord info, and
@@ -54,7 +52,7 @@ class KnownPlayers(BaseCog,
             "auto_refresh": (True, "Automatically refresh cache when stale"),
             "save_on_update": (True, "Save cache after each update"),
             "allow_partial_matches": (True, "Allow partial name matches in searches"),
-            "case_sensitive": (False, "Use case-sensitive name matching")
+            "case_sensitive": (False, "Use case-sensitive name matching"),
         }
 
         # Initialize settings
@@ -67,16 +65,16 @@ class KnownPlayers(BaseCog,
 
     def _load_settings(self) -> None:
         """Load settings into instance variables."""
-        self.results_per_page = self.get_setting('results_per_page')
-        self.cache_refresh_interval = self.get_setting('cache_refresh_interval')
-        self.cache_save_interval = self.get_setting('cache_save_interval')
-        self.info_max_results = self.get_setting('info_max_results')
-        self.refresh_check_interval = self.get_setting('refresh_check_interval')
+        self.results_per_page = self.get_setting("results_per_page")
+        self.cache_refresh_interval = self.get_setting("cache_refresh_interval")
+        self.cache_save_interval = self.get_setting("cache_save_interval")
+        self.info_max_results = self.get_setting("info_max_results")
+        self.refresh_check_interval = self.get_setting("refresh_check_interval")
 
     @property
     def cache_file(self) -> Path:
         """Get the cache file path using the cog's data directory"""
-        cache_filename = self.get_setting('cache_filename')
+        cache_filename = self.get_setting("cache_filename")
         return self.data_directory / cache_filename
 
     async def save_cache(self) -> bool:
@@ -87,11 +85,7 @@ class KnownPlayers(BaseCog,
         # Use BaseCog's task tracking for save operation
         async with self.task_tracker.task_context("Cache Save", "Saving player cache to disk"):
             # Prepare serializable data to save
-            save_data = {
-                'last_update': self.last_cache_update,
-                'player_details': self.player_details_cache,
-                'player_map': self.cached_player_ids
-            }
+            save_data = {"last_update": self.last_cache_update, "player_details": self.player_details_cache, "player_map": self.cached_player_ids}
 
             # Use BaseCog's utility to save data
             return await self.save_data_if_modified(save_data, self.cache_file)
@@ -103,9 +97,9 @@ class KnownPlayers(BaseCog,
                 save_data = await self.load_data(self.cache_file, default={})
 
                 if save_data:
-                    self.player_details_cache = save_data.get('player_details', {})
-                    self.cached_player_ids = save_data.get('player_map', {})
-                    self.last_cache_update = save_data.get('last_update')
+                    self.player_details_cache = save_data.get("player_details", {})
+                    self.cached_player_ids = save_data.get("player_map", {})
+                    self.last_cache_update = save_data.get("last_update")
                     return True
 
                 return False
@@ -165,8 +159,7 @@ class KnownPlayers(BaseCog,
 
                 # Check if cache needs refresh
                 now = datetime.datetime.now()
-                if not force and self.last_cache_update and \
-                   (now - self.last_cache_update).total_seconds() < self.cache_refresh_interval:
+                if not force and self.last_cache_update and (now - self.last_cache_update).total_seconds() < self.cache_refresh_interval:
                     return True
 
                 self.logger.info("Starting player cache refresh")
@@ -184,19 +177,19 @@ class KnownPlayers(BaseCog,
                 for player in all_players:
                     # Cache player details
                     details = await self.get_player_details(player)
-                    player_id = details.get('primary_id')
+                    player_id = details.get("primary_id")
                     if player_id:
                         new_details[player_id] = details
                         new_ids[player_id] = player.pk
 
                         # Also cache by Discord ID if available
-                        discord_id = details.get('discord_id')
+                        discord_id = details.get("discord_id")
                         if discord_id:
                             new_details[discord_id] = details
                             new_ids[discord_id] = player.pk
 
                         # Cache by all known player IDs
-                        for pid in details.get('all_ids', []):
+                        for pid in details.get("all_ids", []):
                             new_details[pid] = details
                             new_ids[pid] = player.pk
 
@@ -206,7 +199,7 @@ class KnownPlayers(BaseCog,
                 self.last_cache_update = now
 
                 # Save cache to disk if configured
-                if self.get_setting('save_on_update'):
+                if self.get_setting("save_on_update"):
                     await self.save_cache()
 
                 self.logger.info(f"Player cache refresh complete. {len(new_details)} entries cached.")
@@ -257,21 +250,15 @@ class KnownPlayers(BaseCog,
             results: List[KnownPlayer] = []
 
             # Search by name (case insensitive)
-            name_results = await sync_to_async(list)(
-                KnownPlayer.objects.filter(name__icontains=search_term)
-            )
+            name_results = await sync_to_async(list)(KnownPlayer.objects.filter(name__icontains=search_term))
             results.extend(name_results)
 
             # Search by player ID
-            id_results = await sync_to_async(list)(
-                KnownPlayer.objects.filter(ids__id__icontains=search_term).distinct()
-            )
+            id_results = await sync_to_async(list)(KnownPlayer.objects.filter(ids__id__icontains=search_term).distinct())
             results.extend([r for r in id_results if r not in results])
 
             # Search by Discord ID
-            discord_results = await sync_to_async(list)(
-                KnownPlayer.objects.filter(discord_id__icontains=search_term)
-            )
+            discord_results = await sync_to_async(list)(KnownPlayer.objects.filter(discord_id__icontains=search_term))
             results.extend([r for r in discord_results if r not in results])
 
             return results
@@ -286,13 +273,13 @@ class KnownPlayers(BaseCog,
 
         # Return formatted details
         return {
-            'name': player.name,
-            'discord_id': player.discord_id,
-            'creator_code': player.creator_code,
-            'approved': player.approved,
-            'primary_id': primary_id,
-            'all_ids': [pid.id for pid in player_ids],
-            'ids_count': len(player_ids)
+            "name": player.name,
+            "discord_id": player.discord_id,
+            "creator_code": player.creator_code,
+            "approved": player.approved,
+            "primary_id": primary_id,
+            "all_ids": [pid.id for pid in player_ids],
+            "ids_count": len(player_ids),
         }
 
     async def get_player_by_player_id(self, player_id: str) -> Optional[KnownPlayer]:
@@ -348,8 +335,8 @@ class KnownPlayers(BaseCog,
 
         discord_ids: Set[str] = set()
         for details in self.player_details_cache.values():
-            if details.get('discord_id'):
-                discord_ids.add(details['discord_id'])
+            if details.get("discord_id"):
+                discord_ids.add(details["discord_id"])
 
         return list(discord_ids)
 
@@ -369,18 +356,18 @@ class KnownPlayers(BaseCog,
         # Process all entries in player_details_cache
         for player_details in self.player_details_cache.values():
             # Only process each player once by checking for Discord ID
-            discord_id = player_details.get('discord_id')
+            discord_id = player_details.get("discord_id")
             if discord_id and discord_id not in discord_mapping:
                 # Find all IDs for this player
-                all_ids = player_details.get('all_ids', [])
-                primary_id = player_details.get('primary_id')
+                all_ids = player_details.get("all_ids", [])
+                primary_id = player_details.get("primary_id")
 
                 # Create the mapping entry
                 discord_mapping[discord_id] = {
-                    'name': player_details.get('name', ''),
-                    'primary_id': primary_id,
-                    'all_ids': all_ids,
-                    'approved': player_details.get('approved', True)
+                    "name": player_details.get("name", ""),
+                    "primary_id": primary_id,
+                    "all_ids": all_ids,
+                    "approved": player_details.get("approved", True),
                 }
 
                 self.logger.debug(f"Added mapping for Discord ID {discord_id}: {all_ids}")
@@ -388,20 +375,13 @@ class KnownPlayers(BaseCog,
         self.logger.debug(f"Built Discord mapping with {len(discord_mapping)} entries")
         return discord_mapping
 
-    @commands.group(
-        name="knownplayers",
-        aliases=["kp"],
-        description="Known players management commands"
-    )
+    @commands.group(name="knownplayers", aliases=["kp"], description="Known players management commands")
     async def knownplayers_group(self, ctx):
         """Known players management commands."""
         if ctx.invoked_subcommand is None:
             await ctx.send_help(ctx.command)
 
-    @knownplayers_group.command(
-        name="info",
-        description="Display information about the known players system"
-    )
+    @knownplayers_group.command(name="info", description="Display information about the known players system")
     async def kp_info_command(self, ctx: commands.Context) -> None:
         """Display information about the known players system."""
         # Determine status and color
@@ -425,86 +405,52 @@ class KnownPlayers(BaseCog,
                 "Manages and tracks player identities across different platforms. "
                 "Links Discord users to their game IDs and handles alias management."
             ),
-            color=embed_color
+            color=embed_color,
         )
 
         # Add status and data freshness
         status_value = [f"{status_emoji} System Status: {status_text}"]
-        if hasattr(self, '_last_operation_time') and self._last_operation_time:
+        if hasattr(self, "_last_operation_time") and self._last_operation_time:
             time_since = self.format_relative_time(self._last_operation_time)
             status_value.append(f"🕒 Last Update: {time_since}")
-        embed.add_field(
-            name="System Status",
-            value="\n".join(status_value),
-            inline=False
-        )
+        embed.add_field(name="System Status", value="\n".join(status_value), inline=False)
 
         # Add data coverage
         try:
             # Calculate accurate stats from cache
-            player_count = len(set(v.get('pk', 0) for v in self.player_details_cache.values()))
-            id_count = len(self.cached_player_ids) if hasattr(self, 'cached_player_ids') else 0
-            discord_links = sum(1 for v in self.player_details_cache.values() if v.get('discord_id'))
+            player_count = len(set(v.get("pk", 0) for v in self.player_details_cache.values()))
+            id_count = len(self.cached_player_ids) if hasattr(self, "cached_player_ids") else 0
+            discord_links = sum(1 for v in self.player_details_cache.values() if v.get("discord_id"))
 
-            coverage = [
-                f"📊 Total Players: {player_count}",
-                f"🔤 Total IDs: {id_count}",
-                f"🔗 Discord Links: {discord_links}"
-            ]
+            coverage = [f"📊 Total Players: {player_count}", f"🔤 Total IDs: {id_count}", f"🔗 Discord Links: {discord_links}"]
 
-            embed.add_field(
-                name="Data Coverage",
-                value="\n".join(coverage),
-                inline=False
-            )
+            embed.add_field(name="Data Coverage", value="\n".join(coverage), inline=False)
         except Exception as e:
             self.logger.error(f"Error calculating coverage stats: {e}")
-            embed.add_field(
-                name="Data Coverage",
-                value="Error calculating statistics",
-                inline=False
-            )
+            embed.add_field(name="Data Coverage", value="Error calculating statistics", inline=False)
 
         # Add cache information
         if self.last_cache_update:
             cache_age = (datetime.datetime.now() - self.last_cache_update).total_seconds()
             age_str = self.format_relative_time(self.last_cache_update)
-            cache_info = [
-                f"💾 Cache Age: {age_str}",
-                f"🔄 Next Refresh: {self.format_time_value(self.cache_refresh_interval - cache_age)} remaining"
-            ]
-            embed.add_field(
-                name="Cache Information",
-                value="\n".join(cache_info),
-                inline=False
-            )
+            cache_info = [f"💾 Cache Age: {age_str}", f"🔄 Next Refresh: {self.format_time_value(self.cache_refresh_interval - cache_age)} remaining"]
+            embed.add_field(name="Cache Information", value="\n".join(cache_info), inline=False)
 
         # Add statistics if available
-        if hasattr(self, '_operation_count'):
-            embed.add_field(
-                name="Statistics",
-                value=f"Operations completed: {self._operation_count}",
-                inline=False
-            )
+        if hasattr(self, "_operation_count"):
+            embed.add_field(name="Statistics", value=f"Operations completed: {self._operation_count}", inline=False)
 
         # Add usage hint in footer
         embed.set_footer(text="Use /kp help for detailed command information")
 
         await ctx.send(embed=embed)
 
-    @knownplayers_group.command(
-        name="settings",
-        description="Display current player lookup settings"
-    )
+    @knownplayers_group.command(name="settings", description="Display current player lookup settings")
     async def player_settings_command(self, ctx: commands.Context) -> None:
         """Display current player lookup settings"""
         settings = self.get_all_settings()
 
-        embed = discord.Embed(
-            title="Player Lookup Settings",
-            description="Current configuration for player lookups",
-            color=discord.Color.blue()
-        )
+        embed = discord.Embed(title="Player Lookup Settings", description="Current configuration for player lookups", color=discord.Color.blue())
 
         for name, value in settings.items():
             # Format durations in a more readable way for time-based settings
@@ -527,13 +473,10 @@ class KnownPlayers(BaseCog,
 
         await ctx.send(embed=embed)
 
-    @knownplayers_group.command(
-        name="set",
-        description="Change a player lookup setting"
-    )
+    @knownplayers_group.command(name="set", description="Change a player lookup setting")
     @app_commands.describe(
         setting_name="Setting to change (results_per_page, cache_refresh_interval, cache_save_interval, info_max_results)",
-        value="New value for the setting"
+        value="New value for the setting",
     )
     async def player_set_setting_command(self, ctx: commands.Context, setting_name: str, value: int) -> None:
         """Change a player lookup setting
@@ -542,12 +485,7 @@ class KnownPlayers(BaseCog,
             setting_name: Setting to change (results_per_page, cache_refresh_interval, cache_save_interval, info_max_results)
             value: New value for the setting
         """
-        valid_settings = [
-            "results_per_page",
-            "cache_refresh_interval",
-            "cache_save_interval",
-            "info_max_results"
-        ]
+        valid_settings = ["results_per_page", "cache_refresh_interval", "cache_save_interval", "info_max_results"]
 
         if setting_name not in valid_settings:
             valid_settings_str = ", ".join(valid_settings)
@@ -574,9 +512,7 @@ class KnownPlayers(BaseCog,
             # If changing save interval, restart the save task
             if setting_name == "cache_save_interval" and self._save_task:
                 self._save_task.cancel()
-                self._save_task = self.create_periodic_save_task(
-                    save_interval=self.cache_save_interval
-                )
+                self._save_task = self.create_periodic_save_task(save_interval=self.cache_save_interval)
 
         # Format confirmation message
         if setting_name in ["cache_refresh_interval", "cache_save_interval"]:
@@ -594,20 +530,9 @@ class KnownPlayers(BaseCog,
         # Mark settings as modified
         self.mark_data_modified()
 
-    @knownplayers_group.command(
-        name="search",
-        description="Search for players by name, ID, or Discord info"
-    )
-    @app_commands.describe(
-        search_term="Name, ID or Discord info to search for",
-        limit="Maximum number of results to return"
-    )
-    async def player_search(
-        self,
-        ctx: commands.Context,
-        search_term: str,
-        limit: Optional[int] = None
-    ) -> None:
+    @knownplayers_group.command(name="search", description="Search for players by name, ID, or Discord info")
+    @app_commands.describe(search_term="Name, ID or Discord info to search for", limit="Maximum number of results to return")
+    async def player_search(self, ctx: commands.Context, search_term: str, limit: Optional[int] = None) -> None:
         """Search for players by name, ID, or Discord info.
 
         Args:
@@ -632,13 +557,11 @@ class KnownPlayers(BaseCog,
 
             # Format results
             embed = discord.Embed(
-                title=f"Player Search Results for '{search_term}'",
-                description=f"Found {len(results)} matching players",
-                color=discord.Color.blue()
+                title=f"Player Search Results for '{search_term}'", description=f"Found {len(results)} matching players", color=discord.Color.blue()
             )
 
             # Limit to reasonable number
-            page_size = self.get_setting('results_per_page')
+            page_size = self.get_setting("results_per_page")
             displayed_results = results[:page_size]
 
             for i, player in enumerate(displayed_results, 1):
@@ -663,30 +586,17 @@ class KnownPlayers(BaseCog,
                 if len(player_ids) > 3:
                     id_list += f" (+{len(player_ids) - 3} more)"
 
-                player_info = (
-                    f"**Name:** {player.name}\n"
-                    f"**Discord ID:** {player.discord_id or 'Not set'}\n"
-                    f"**Player IDs:** {id_list}"
-                )
+                player_info = f"**Name:** {player.name}\n" f"**Discord ID:** {player.discord_id or 'Not set'}\n" f"**Player IDs:** {id_list}"
 
-                embed.add_field(
-                    name=f"Player #{i}",
-                    value=player_info,
-                    inline=False
-                )
+                embed.add_field(name=f"Player #{i}", value=player_info, inline=False)
 
             if len(results) > page_size:
                 embed.set_footer(text=f"Showing {page_size} of {len(results)} results. Use more specific search terms to narrow results.")
 
         await ctx.send(embed=embed)
 
-    @knownplayers_group.command(
-        name="lookup",
-        description="Get detailed information about a specific player"
-    )
-    @app_commands.describe(
-        identifier="Player ID, name, or Discord ID/name"
-    )
+    @knownplayers_group.command(name="lookup", description="Get detailed information about a specific player")
+    @app_commands.describe(identifier="Player ID, name, or Discord ID/name")
     async def player_lookup(self, ctx: commands.Context, *, identifier: str) -> None:
         """
         Get detailed information about a specific player
@@ -724,14 +634,14 @@ class KnownPlayers(BaseCog,
                     player = results[0]
                 elif len(results) > 1:
                     # Get the setting for max results
-                    max_results = self.get_setting('info_max_results')
+                    max_results = self.get_setting("info_max_results")
 
                     # If we have more results than our threshold, show them up to the limit
                     if 1 < len(results) <= max_results:
                         embed = discord.Embed(
                             title=f"Multiple players found matching '{identifier}'",
                             description=f"Found {len(results)} possible matches. Showing details for all:",
-                            color=discord.Color.gold()
+                            color=discord.Color.gold(),
                         )
 
                         for i, p in enumerate(results, 1):
@@ -739,17 +649,17 @@ class KnownPlayers(BaseCog,
 
                             # Organize IDs to show primary first with checkmark
                             formatted_ids = []
-                            if details['primary_id']:
+                            if details["primary_id"]:
                                 formatted_ids.append(f"✅ {details['primary_id']}")
 
                             # Add other IDs (up to 3 total including primary)
-                            other_ids = [pid for pid in details['all_ids'] if pid != details['primary_id']]
+                            other_ids = [pid for pid in details["all_ids"] if pid != details["primary_id"]]
                             remaining_slots = 3 - len(formatted_ids)
                             formatted_ids.extend(other_ids[:remaining_slots])
 
                             # Join the IDs into a string
                             id_list = ", ".join(formatted_ids)
-                            if len(details['all_ids']) > 3:
+                            if len(details["all_ids"]) > 3:
                                 id_list += f" (+{len(details['all_ids']) - 3} more)"
 
                             # Basic information
@@ -759,16 +669,14 @@ class KnownPlayers(BaseCog,
                                 f"**Player IDs:** {id_list}"
                             )
 
-                            embed.add_field(
-                                name=f"Player #{i}: {details['name'] or 'Unknown'}",
-                                value=player_info,
-                                inline=False
-                            )
+                            embed.add_field(name=f"Player #{i}: {details['name'] or 'Unknown'}", value=player_info, inline=False)
 
                         await ctx.send(embed=embed)
                         return
                     else:
-                        return await ctx.send(f"Found {len(results)} players matching '{identifier}'. Please be more specific or use the search command.")
+                        return await ctx.send(
+                            f"Found {len(results)} players matching '{identifier}'. Please be more specific or use the search command."
+                        )
 
             if not player:
                 return await ctx.send(f"No player found matching '{identifier}'")
@@ -777,10 +685,7 @@ class KnownPlayers(BaseCog,
             details = await self.get_player_details(player)
 
             # Create embed
-            embed = discord.Embed(
-                title=f"Player Details: {details['name'] or 'Unknown'}",
-                color=discord.Color.blue()
-            )
+            embed = discord.Embed(title=f"Player Details: {details['name'] or 'Unknown'}", color=discord.Color.blue())
 
             # Basic information
             embed.add_field(
@@ -791,12 +696,12 @@ class KnownPlayers(BaseCog,
                     f"**Creator Code:** {details.get('creator_code') or 'Not set'}\n"
                     f"**Approved:** {'Yes' if details['approved'] else 'No'}\n"
                 ),
-                inline=False
+                inline=False,
             )
 
             # Player IDs - rearrange to show primary first with checkmark
-            primary_id = details['primary_id']
-            ids_list = details['all_ids']
+            primary_id = details["primary_id"]
+            ids_list = details["all_ids"]
 
             # Format ID list to show primary first with checkmark
             formatted_ids = []
@@ -812,9 +717,7 @@ class KnownPlayers(BaseCog,
 
             # Add IDs to embed
             embed.add_field(
-                name=f"Player IDs ({len(details['all_ids'])})",
-                value="\n".join(formatted_ids) if formatted_ids else "No IDs found",
-                inline=False
+                name=f"Player IDs ({len(details['all_ids'])})", value="\n".join(formatted_ids) if formatted_ids else "No IDs found", inline=False
             )
 
         await ctx.send(embed=embed)
@@ -835,16 +738,7 @@ class KnownPlayers(BaseCog,
         code = code.strip()
 
         # Check for URLs (basic patterns)
-        url_patterns = [
-            r'https?://',
-            r'www\.',
-            r'\.com',
-            r'\.org',
-            r'\.net',
-            r'\.io',
-            r'\.co',
-            r'\.me'
-        ]
+        url_patterns = [r"https?://", r"www\.", r"\.com", r"\.org", r"\.net", r"\.io", r"\.co", r"\.me"]
 
         for pattern in url_patterns:
             if re.search(pattern, code, re.IGNORECASE):
@@ -859,12 +753,12 @@ class KnownPlayers(BaseCog,
 
         # Regex pattern to match emojis (Unicode ranges for most common emojis)
         emoji_pattern = re.compile(
-            r'[\U0001F600-\U0001F64F]|'  # emoticons
-            r'[\U0001F300-\U0001F5FF]|'  # symbols & pictographs
-            r'[\U0001F680-\U0001F6FF]|'  # transport & map symbols
-            r'[\U0001F1E0-\U0001F1FF]|'  # flags (iOS)
-            r'[\U00002702-\U000027B0]|'  # dingbats
-            r'[\U000024C2-\U0001F251]'   # enclosed characters
+            r"[\U0001F600-\U0001F64F]|"  # emoticons
+            r"[\U0001F300-\U0001F5FF]|"  # symbols & pictographs
+            r"[\U0001F680-\U0001F6FF]|"  # transport & map symbols
+            r"[\U0001F1E0-\U0001F1FF]|"  # flags (iOS)
+            r"[\U00002702-\U000027B0]|"  # dingbats
+            r"[\U000024C2-\U0001F251]"  # enclosed characters
         )
 
         # Find all emojis in the code
@@ -882,13 +776,8 @@ class KnownPlayers(BaseCog,
 
         return True, ""
 
-    @knownplayers_group.command(
-        name="set_creator_code",
-        description="Set your creator/supporter code"
-    )
-    @app_commands.describe(
-        creator_code="Your creator/supporter code (e.g., 'thedisasterfish'). Leave empty to remove."
-    )
+    @knownplayers_group.command(name="set_creator_code", description="Set your creator/supporter code")
+    @app_commands.describe(creator_code="Your creator/supporter code (e.g., 'thedisasterfish'). Leave empty to remove.")
     async def set_creator_code(self, ctx: commands.Context, creator_code: str = None) -> None:
         """Set creator/supporter code for the current Discord user."""
         # Add ready check for command
@@ -902,29 +791,23 @@ class KnownPlayers(BaseCog,
         if creator_code:
             is_valid, error_message = self._validate_creator_code(creator_code)
             if not is_valid:
-                embed = discord.Embed(
-                    title="Invalid Creator Code Format",
-                    description=error_message,
-                    color=discord.Color.red()
-                )
+                embed = discord.Embed(title="Invalid Creator Code Format", description=error_message, color=discord.Color.red())
                 embed.add_field(
                     name="Valid Format",
                     value="Creator codes must follow these rules:\n• Only letters and numbers allowed\n• No URLs or web addresses\n• No punctuation marks, spaces, or special characters\n\nExamples:\n✅ `thedisasterfish`\n✅ `mycreatorcode`\n✅ `playername123`\n❌ `my code` (spaces not allowed)\n❌ `my_code` (underscore not allowed)\n❌ `player-name` (hyphen not allowed)\n❌ `visit-mysite.com` (URL)",
-                    inline=False
+                    inline=False,
                 )
                 return await ctx.send(embed=embed)
 
         try:
             # Find the player by Discord ID
-            player = await sync_to_async(
-                lambda: KnownPlayer.objects.filter(discord_id=discord_id).first()
-            )()
+            player = await sync_to_async(lambda: KnownPlayer.objects.filter(discord_id=discord_id).first())()
 
             if not player:
                 embed = discord.Embed(
                     title="Player Not Found",
                     description="No player account found linked to your Discord ID.\nPlease verify your player ID first using the validation process.",
-                    color=discord.Color.red()
+                    color=discord.Color.red(),
                 )
                 return await ctx.send(embed=embed)
 
@@ -943,34 +826,16 @@ class KnownPlayers(BaseCog,
             # Create response embed
             if creator_code:
                 embed = discord.Embed(
-                    title="Creator Code Updated",
-                    description=f"Your creator code has been set to: **{creator_code}**",
-                    color=discord.Color.green()
+                    title="Creator Code Updated", description=f"Your creator code has been set to: **{creator_code}**", color=discord.Color.green()
                 )
                 if old_code and old_code != creator_code:
-                    embed.add_field(
-                        name="Previous Code",
-                        value=old_code,
-                        inline=False
-                    )
+                    embed.add_field(name="Previous Code", value=old_code, inline=False)
             else:
-                embed = discord.Embed(
-                    title="Creator Code Removed",
-                    description="Your creator code has been removed.",
-                    color=discord.Color.orange()
-                )
+                embed = discord.Embed(title="Creator Code Removed", description="Your creator code has been removed.", color=discord.Color.orange())
                 if old_code:
-                    embed.add_field(
-                        name="Previous Code",
-                        value=old_code,
-                        inline=False
-                    )
+                    embed.add_field(name="Previous Code", value=old_code, inline=False)
 
-            embed.add_field(
-                name="Linked Player",
-                value=f"**Name:** {player.name or 'Not set'}\n**Discord ID:** {player.discord_id}",
-                inline=False
-            )
+            embed.add_field(name="Linked Player", value=f"**Name:** {player.name or 'Not set'}\n**Discord ID:** {player.discord_id}", inline=False)
 
             await ctx.send(embed=embed)
 
@@ -978,10 +843,7 @@ class KnownPlayers(BaseCog,
             self.logger.error(f"Error setting creator code for user {discord_id}: {e}")
             await ctx.send(f"❌ Error updating creator code: {e}")
 
-    @knownplayers_group.command(
-        name="refresh",
-        description="Force refresh player cache"
-    )
+    @knownplayers_group.command(name="refresh", description="Force refresh player cache")
     async def player_refresh_command(self, ctx: commands.Context) -> None:
         """Force refresh player cache"""
         # Add ready check for command
@@ -1009,7 +871,7 @@ class KnownPlayers(BaseCog,
                 embed = discord.Embed(
                     title="Player Cache Refreshed",
                     description=f"Successfully refreshed player cache in {duration.total_seconds():.1f} seconds.",
-                    color=discord.Color.green()
+                    color=discord.Color.green(),
                 )
                 embed.add_field(name="Cache Entries", value=str(len(self.player_details_cache)))
                 embed.add_field(name="Last Updated", value=self.last_cache_update.strftime("%Y-%m-%d %H:%M:%S"), inline=False)
@@ -1032,30 +894,20 @@ class KnownPlayers(BaseCog,
         """
         try:
             # Get unique players by primary ID
-            unique_players = len({details.get('primary_id') for details in self.player_details_cache.values()
-                                  if details.get('primary_id')})
+            unique_players = len({details.get("primary_id") for details in self.player_details_cache.values() if details.get("primary_id")})
 
             # Get total number of player IDs
             all_player_ids = set()
             for details in self.player_details_cache.values():
-                all_player_ids.update(details.get('all_ids', []))
+                all_player_ids.update(details.get("all_ids", []))
 
             # Get number of players with Discord IDs
-            players_with_discord = len({details.get('discord_id') for details in self.player_details_cache.values()
-                                        if details.get('discord_id')})
+            players_with_discord = len({details.get("discord_id") for details in self.player_details_cache.values() if details.get("discord_id")})
 
-            return {
-                'unique_players': unique_players,
-                'total_ids': len(all_player_ids),
-                'discord_linked': players_with_discord
-            }
+            return {"unique_players": unique_players, "total_ids": len(all_player_ids), "discord_linked": players_with_discord}
         except Exception as e:
             self.logger.error(f"Error calculating cache statistics: {e}", exc_info=True)
-            return {
-                'unique_players': 0,
-                'total_ids': 0,
-                'discord_linked': 0
-            }
+            return {"unique_players": 0, "total_ids": 0, "discord_linked": 0}
 
     def _format_cache_info(self) -> List[str]:
         """Format basic cache information into display lines.
@@ -1071,32 +923,22 @@ class KnownPlayers(BaseCog,
                 f"**Last Updated:** {self.last_cache_update.strftime('%Y-%m-%d %H:%M:%S')} ({age_str})",
                 f"**Cache File:** {self.cache_file}",
                 f"**Refresh Interval:** {self.format_time_value(self.cache_refresh_interval)}",
-                f"**Save Interval:** {self.format_time_value(self.cache_save_interval)}"
+                f"**Save Interval:** {self.format_time_value(self.cache_save_interval)}",
             ]
         except Exception as e:
             self.logger.error(f"Error formatting cache info: {e}")
             return ["Error retrieving cache information"]
 
-    @knownplayers_group.command(
-        name="cache",
-        description="Show cache status information"
-    )
+    @knownplayers_group.command(name="cache", description="Show cache status information")
     async def player_cache_command(self, ctx: commands.Context) -> None:
         """Show cache status information"""
         if not self.last_cache_update:
             return await ctx.send("Player cache has not been initialized yet.")
 
-        embed = discord.Embed(
-            title="Player Cache Status",
-            color=discord.Color.blue()
-        )
+        embed = discord.Embed(title="Player Cache Status", color=discord.Color.blue())
 
         # Add basic cache information
-        embed.add_field(
-            name="Basic Info",
-            value="\n".join(self._format_cache_info()),
-            inline=False
-        )
+        embed.add_field(name="Basic Info", value="\n".join(self._format_cache_info()), inline=False)
 
         # Add cache statistics
         stats = self._calculate_cache_statistics()
@@ -1106,42 +948,34 @@ class KnownPlayers(BaseCog,
                 f"**Name Entries:** {stats['name_entries']}",
                 f"**Discord ID Entries:** {stats['discord_entries']}",
                 f"**Player ID Entries:** {stats['id_entries']}",
-                f"**Total Cache Entries:** {stats['total_entries']}"
+                f"**Total Cache Entries:** {stats['total_entries']}",
             ]
-            embed.add_field(
-                name="Cache Statistics",
-                value="\n".join(stats_text),
-                inline=False
-            )
+            embed.add_field(name="Cache Statistics", value="\n".join(stats_text), inline=False)
         else:
-            embed.add_field(
-                name="Cache Statistics",
-                value="Error calculating statistics",
-                inline=False
-            )
+            embed.add_field(name="Cache Statistics", value="Error calculating statistics", inline=False)
 
         # Add cache statistics
         cache_stats = []
         if self.player_details_cache:
             try:
                 # Get unique players by primary ID
-                unique_players = len({details.get('primary_id') for details in self.player_details_cache.values()
-                                      if details.get('primary_id')})
+                unique_players = len({details.get("primary_id") for details in self.player_details_cache.values() if details.get("primary_id")})
 
                 # Get total number of player IDs
                 all_player_ids = set()
                 for details in self.player_details_cache.values():
-                    all_player_ids.update(details.get('all_ids', []))
+                    all_player_ids.update(details.get("all_ids", []))
 
                 # Get number of players with Discord IDs
-                players_with_discord = len({details.get('discord_id') for details in self.player_details_cache.values()
-                                            if details.get('discord_id')})
+                players_with_discord = len({details.get("discord_id") for details in self.player_details_cache.values() if details.get("discord_id")})
 
-                cache_stats.extend([
-                    f"Known players: {unique_players:,}",
-                    f"Total player IDs: {len(all_player_ids):,}",
-                    f"Players with Discord: {players_with_discord:,}"
-                ])
+                cache_stats.extend(
+                    [
+                        f"Known players: {unique_players:,}",
+                        f"Total player IDs: {len(all_player_ids):,}",
+                        f"Players with Discord: {players_with_discord:,}",
+                    ]
+                )
             except Exception as e:
                 self.logger.error(f"Error calculating cache stats: {e}")
                 cache_stats.append("Error calculating statistics")
@@ -1151,22 +985,16 @@ class KnownPlayers(BaseCog,
 
         await ctx.send(embed=embed)
 
-    @knownplayers_group.command(
-        name="status",
-        description="Display current operational status of the player lookup system"
-    )
+    @knownplayers_group.command(name="status", description="Display current operational status of the player lookup system")
     async def show_status(self, ctx):
         """Display current operational status of the player lookup system."""
-        embed = discord.Embed(
-            title="Known Players Status",
-            color=discord.Color.blue() if self.is_ready else discord.Color.orange()
-        )
+        embed = discord.Embed(title="Known Players Status", color=discord.Color.blue() if self.is_ready else discord.Color.orange())
 
         # Overall status section
         status_lines = [
             f"**State**: {'✅ Ready' if self.is_ready else '⏳ Initializing'}",
             f"**Errors**: {'❌ Yes' if self._has_errors else '✅ None'}",
-            f"**Cache**: {'✅ Initialized' if self.last_cache_update else '❌ Not initialized'}"
+            f"**Cache**: {'✅ Initialized' if self.last_cache_update else '❌ Not initialized'}",
         ]
         embed.add_field(name="System Status", value="\n".join(status_lines), inline=False)
 
@@ -1176,7 +1004,7 @@ class KnownPlayers(BaseCog,
             cache_info = [
                 f"**Last Update**: {self.last_cache_update.strftime('%Y-%m-%d %H:%M:%S')}",
                 f"**Cache Age**: {cache_age:.1f}s",
-                f"**Cache File**: {self.cache_file}"
+                f"**Cache File**: {self.cache_file}",
             ]
             embed.add_field(name="Cache Info", value="\n".join(cache_info), inline=False)
 
@@ -1186,7 +1014,7 @@ class KnownPlayers(BaseCog,
             stats_lines = [
                 f"**Known Players**: {stats['unique_players']:,}",
                 f"**Total Player IDs**: {stats['total_ids']:,}",
-                f"**Discord Linked**: {stats['discord_linked']:,}"
+                f"**Discord Linked**: {stats['discord_linked']:,}",
             ]
             embed.add_field(name="Statistics", value="\n".join(stats_lines), inline=False)
 
@@ -1196,7 +1024,7 @@ class KnownPlayers(BaseCog,
             f"**Auto Refresh**: {'✅' if settings.get('auto_refresh') else '❌'}",
             f"**Save on Update**: {'✅' if settings.get('save_on_update') else '❌'}",
             f"**Refresh Interval**: {settings.get('cache_refresh_interval', 0)}s",
-            f"**Save Interval**: {settings.get('cache_save_interval', 0)}s"
+            f"**Save Interval**: {settings.get('cache_save_interval', 0)}s",
         ]
         embed.add_field(name="Settings", value="\n".join(settings_lines), inline=False)
 
@@ -1217,11 +1045,7 @@ class KnownPlayers(BaseCog,
             self._process_start_time = datetime.datetime.now()
 
             # Prepare serializable data to save
-            save_data = {
-                'last_update': self.last_cache_update,
-                'player_details': self.player_details_cache,
-                'player_map': self.cached_player_ids
-            }
+            save_data = {"last_update": self.last_cache_update, "player_details": self.player_details_cache, "player_map": self.cached_player_ids}
 
             # Save data if it's been modified
             success = await self.save_data_if_modified(save_data, self.cache_file)
@@ -1257,11 +1081,7 @@ class KnownPlayers(BaseCog,
         if self.periodic_cache_save.is_being_cancelled():
             self.logger.info("Cache save task was cancelled")
             # Try to save one last time
-            save_data = {
-                'last_update': self.last_cache_update,
-                'player_details': self.player_details_cache,
-                'player_map': self.cached_player_ids
-            }
+            save_data = {"last_update": self.last_cache_update, "player_details": self.player_details_cache, "player_map": self.cached_player_ids}
             await self.save_data_if_modified(save_data, self.cache_file, force=True)
 
     @tasks.loop(seconds=None)  # Will set interval in before_loop
@@ -1276,8 +1096,7 @@ class KnownPlayers(BaseCog,
 
             # If cache is too old, refresh it
             now = datetime.datetime.now()
-            if not self.last_cache_update or \
-               (now - self.last_cache_update).total_seconds() >= self.cache_refresh_interval:
+            if not self.last_cache_update or (now - self.last_cache_update).total_seconds() >= self.cache_refresh_interval:
                 self.logger.info("Cache refresh interval exceeded, refreshing...")
                 await self.refresh_cache()
 
@@ -1362,16 +1181,12 @@ class KnownPlayers(BaseCog,
             self.periodic_cache_save.cancel()
 
         # Cancel the periodic tasks
-        if hasattr(self, 'periodic_refresh') and self.periodic_refresh.is_running():
+        if hasattr(self, "periodic_refresh") and self.periodic_refresh.is_running():
             self.periodic_refresh.cancel()
 
         # Save cache one last time
         try:
-            save_data = {
-                'last_update': self.last_cache_update,
-                'player_details': self.player_details_cache,
-                'player_map': self.cached_player_ids
-            }
+            save_data = {"last_update": self.last_cache_update, "player_details": self.player_details_cache, "player_map": self.cached_player_ids}
             await self.save_data_if_modified(save_data, self.cache_file, force=True)
         except Exception as e:
             self.logger.error(f"Error saving cache during unload: {e}")
@@ -1380,14 +1195,8 @@ class KnownPlayers(BaseCog,
         await super().cog_unload()
         self.logger.info("Known Players cog unloaded")
 
-    @knownplayers_group.command(
-        name="toggle_setting",
-        description="Toggle a player lookup boolean setting"
-    )
-    @app_commands.describe(
-        setting_name="Name of the setting to toggle",
-        value="Optional boolean value to set explicitly"
-    )
+    @knownplayers_group.command(name="toggle_setting", description="Toggle a player lookup boolean setting")
+    @app_commands.describe(setting_name="Name of the setting to toggle", value="Optional boolean value to set explicitly")
     async def player_toggle_setting(self, ctx: commands.Context, setting_name: str, value: Optional[bool] = None) -> None:
         """Toggle a player lookup boolean setting.
 
@@ -1400,16 +1209,11 @@ class KnownPlayers(BaseCog,
             "auto_refresh": "Automatically refresh cache when stale",
             "save_on_update": "Save cache after each update",
             "allow_partial_matches": "Allow partial name matches in searches",
-            "case_sensitive": "Use case-sensitive name matching"
+            "case_sensitive": "Use case-sensitive name matching",
         }
 
         # Use BaseCog's toggle handler
-        await self._handle_toggle(
-            ctx,
-            setting_name,
-            value,
-            description=valid_settings.get(setting_name)
-        )
+        await self._handle_toggle(ctx, setting_name, value, description=valid_settings.get(setting_name))
 
 
 async def setup(bot) -> None:

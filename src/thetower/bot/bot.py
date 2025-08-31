@@ -40,7 +40,7 @@ class DiscordBot(commands.Bot, BaseFileMonitor):
             self.config.save_config()
 
         super().__init__(
-            command_prefix=self.config.get('prefix'),
+            command_prefix=self.config.get("prefix"),
             intents=intents,
             case_insensitive=True,
             # Add application_id for slash commands support
@@ -53,14 +53,11 @@ class DiscordBot(commands.Bot, BaseFileMonitor):
         self.command_types = self.config.get("command_types", {})
 
         # Set up logging with UTC timestamps
-        formatter = logging.Formatter(
-            '%(asctime)s UTC [%(name)s] %(levelname)s: %(message)s',
-            datefmt='%Y-%m-%d %H:%M:%S'
-        )
+        formatter = logging.Formatter("%(asctime)s UTC [%(name)s] %(levelname)s: %(message)s", datefmt="%Y-%m-%d %H:%M:%S")
         formatter.converter = lambda *args: datetime.datetime.now(timezone.utc).timetuple()
 
         # Configure the root logger
-        root_logger = logging.getLogger('thetower.bot')
+        root_logger = logging.getLogger("thetower.bot")
         if not root_logger.handlers:
             handler = logging.StreamHandler()
             handler.setFormatter(formatter)
@@ -92,7 +89,7 @@ class DiscordBot(commands.Bot, BaseFileMonitor):
     async def global_command_check(self, ctx):
         """Global permissions check for all commands."""
         # Always allow the help command
-        if ctx.command.name == 'help':
+        if ctx.command.name == "help":
             return True
 
         # Skip checks for cog commands as they have their own check
@@ -108,9 +105,7 @@ class DiscordBot(commands.Bot, BaseFileMonitor):
 
     async def on_command_error(self, context: Context, error) -> None:
         if isinstance(error, commands.NotOwner):
-            embed = discord.Embed(
-                description="You are not the owner of the bot!", color=discord.Color.red()
-            )
+            embed = discord.Embed(description="You are not the owner of the bot!", color=discord.Color.red())
             await context.send(embed=embed)
             if context.guild:
                 self.logger.warning(
@@ -122,8 +117,9 @@ class DiscordBot(commands.Bot, BaseFileMonitor):
                 )
         elif isinstance(error, commands.CommandNotFound):
             # Log the unknown command attempt
-            command_name = context.message.content.split()[0][len(
-                context.prefix):] if context.message.content.startswith(context.prefix) else "Unknown"
+            command_name = (
+                context.message.content.split()[0][len(context.prefix) :] if context.message.content.startswith(context.prefix) else "Unknown"
+            )
             self.logger.info(f"Unknown command '{command_name}' attempted by {context.author} (ID: {context.author.id})")
 
             # Check if we should log to a Discord channel
@@ -137,7 +133,7 @@ class DiscordBot(commands.Bot, BaseFileMonitor):
                             title="Command Not Found",
                             description="Unknown command attempted",
                             color=discord.Color.orange(),
-                            timestamp=context.message.created_at
+                            timestamp=context.message.created_at,
                         )
 
                         # Add details about the command attempt
@@ -157,9 +153,7 @@ class DiscordBot(commands.Bot, BaseFileMonitor):
                     self.logger.error(f"Failed to log CommandNotFound to Discord channel: {e}")
         elif isinstance(error, commands.MissingPermissions):
             embed = discord.Embed(
-                description="You are missing the permission(s) `"
-                + ", ".join(error.missing_permissions)
-                + "` to execute this command!",
+                description="You are missing the permission(s) `" + ", ".join(error.missing_permissions) + "` to execute this command!",
                 color=discord.Color.red(),
             )
             await context.send(embed=embed)
@@ -257,21 +251,13 @@ class DiscordBot(commands.Bot, BaseFileMonitor):
                 dm_embed = discord.Embed(
                     title="Command Permission Error",
                     description=f"Your command `{command_name}` was blocked in {context.channel.mention}",
-                    color=discord.Color.orange()
+                    color=discord.Color.orange(),
                 )
 
                 if authorized_channels:
-                    dm_embed.add_field(
-                        name="Allowed Channels",
-                        value="\n".join(authorized_channels) or "None",
-                        inline=False
-                    )
+                    dm_embed.add_field(name="Allowed Channels", value="\n".join(authorized_channels) or "None", inline=False)
                 else:
-                    dm_embed.add_field(
-                        name="Allowed Channels",
-                        value="No channels are authorized for this command",
-                        inline=False
-                    )
+                    dm_embed.add_field(name="Allowed Channels", value="No channels are authorized for this command", inline=False)
 
                 try:
                     await context.author.send(embed=dm_embed)
@@ -280,9 +266,7 @@ class DiscordBot(commands.Bot, BaseFileMonitor):
                     pass
         elif isinstance(error, commands.BotMissingPermissions):
             embed = discord.Embed(
-                description="I am missing the permission(s) `"
-                + ", ".join(error.missing_permissions)
-                + "` to fully perform this command!",
+                description="I am missing the permission(s) `" + ", ".join(error.missing_permissions) + "` to fully perform this command!",
                 color=discord.Color.red(),
             )
             await context.send(embed=embed)
@@ -300,15 +284,13 @@ class DiscordBot(commands.Bot, BaseFileMonitor):
             error_message = f"The argument `{param_name}` is required but was not provided."
 
             embed = discord.Embed(
-                title="Missing Required Argument",
-                description=f"{error_message}\n\n**Usage:**\n`{usage}`",
-                color=discord.Color.red()
+                title="Missing Required Argument", description=f"{error_message}\n\n**Usage:**\n`{usage}`", color=discord.Color.red()
             )
 
             # If there's a command help text, include it
             if context.command.help:
                 # Extract the first paragraph of help (stops at first double newline)
-                help_text = context.command.help.split('\n\n')[0].strip()
+                help_text = context.command.help.split("\n\n")[0].strip()
                 embed.add_field(name="Help", value=help_text, inline=False)
 
             # Add examples if they exist in the help text
@@ -428,7 +410,7 @@ async def cog_reload_all(ctx):
     loaded_cogs = list(bot.cogs.keys())
     total_cogs = len(loaded_cogs)
 
-    if (total_cogs == 0):
+    if total_cogs == 0:
         return await ctx.send("⚠️ No cogs are currently loaded.")
 
     # Progress message
@@ -451,23 +433,12 @@ async def cog_reload_all(ctx):
             failed_cogs.append(f"{cog_name} ({str(e)[:50]}{'...' if len(str(e)) > 50 else ''})")
 
     # Create result embed
-    embed = discord.Embed(
-        title="Cog Reload Results",
-        color=discord.Color.green() if not failed_cogs else discord.Color.orange()
-    )
+    embed = discord.Embed(title="Cog Reload Results", color=discord.Color.green() if not failed_cogs else discord.Color.orange())
 
-    embed.add_field(
-        name="Summary",
-        value=f"✅ Successfully reloaded: {success_count}/{total_cogs}",
-        inline=False
-    )
+    embed.add_field(name="Summary", value=f"✅ Successfully reloaded: {success_count}/{total_cogs}", inline=False)
 
     if failed_cogs:
-        embed.add_field(
-            name="❌ Failed to reload",
-            value="\n".join(failed_cogs) or "None",
-            inline=False
-        )
+        embed.add_field(name="❌ Failed to reload", value="\n".join(failed_cogs) or "None", inline=False)
 
     await progress_msg.delete()
     await ctx.send(embed=embed)
@@ -512,12 +483,12 @@ async def cog_toggle(ctx, setting_name: str, value: bool = None):
 
     # Handle per-cog auto_reload setting
     elif setting_name.startswith("auto_reload_"):
-        cog_name = setting_name[len("auto_reload_"):]
+        cog_name = setting_name[len("auto_reload_") :]
         if not cog_name:
             await ctx.send("❌ Please specify a cog name: `auto_reload_cogname`")
             return
 
-        await ctx.invoke(bot.get_command('cog autoreload toggle_cog'), cog_name=cog_name)
+        await ctx.invoke(bot.get_command("cog autoreload toggle_cog"), cog_name=cog_name)
         return
 
     # Unknown setting
@@ -623,30 +594,18 @@ async def memory_all_cogs(ctx):
         cog_sizes[cog_name] = asizeof.asizeof(cog)
 
     # Create embed
-    embed = discord.Embed(
-        title="Cog Memory Usage",
-        color=discord.Color.blue()
-    )
+    embed = discord.Embed(title="Cog Memory Usage", color=discord.Color.blue())
 
     # Calculate total size
     total_size = sum(cog_sizes.values())
-    embed.add_field(
-        name="Total Cogs Size",
-        value=MemoryUtils.format_bytes(total_size),
-        inline=False
-    )
+    embed.add_field(name="Total Cogs Size", value=MemoryUtils.format_bytes(total_size), inline=False)
 
     # Sort cogs by size and create the breakdown text
-    cog_size_text = "\n".join([
-        f"**{name}**: {MemoryUtils.format_bytes(size)}"
-        for name, size in sorted(cog_sizes.items(), key=lambda x: x[1], reverse=True)
-    ])
-
-    embed.add_field(
-        name="Size by Cog",
-        value=cog_size_text or "No cogs found",
-        inline=False
+    cog_size_text = "\n".join(
+        [f"**{name}**: {MemoryUtils.format_bytes(size)}" for name, size in sorted(cog_sizes.items(), key=lambda x: x[1], reverse=True)]
     )
+
+    embed.add_field(name="Size by Cog", value=cog_size_text or "No cogs found", inline=False)
 
     await ctx.send(embed=embed)
 
@@ -758,11 +717,7 @@ async def permission_alias_info(ctx, command_name: str = None):
     """
     try:
         # This command requires special permissions - only for admins
-        embed = discord.Embed(
-            title="Command Alias Mappings",
-            description="How command aliases map to primary commands",
-            color=discord.Color.blue()
-        )
+        embed = discord.Embed(title="Command Alias Mappings", description="How command aliases map to primary commands", color=discord.Color.blue())
 
         if command_name:
             # Check a specific command
@@ -778,22 +733,18 @@ async def permission_alias_info(ctx, command_name: str = None):
             embed.title = f"Command: {primary_name}"
 
             # Show alias information
-            if (aliases):
-                embed.add_field(
-                    name="Aliases",
-                    value="\n".join([f"`{alias}` → `{primary_name}`" for alias in aliases]),
-                    inline=False
-                )
+            if aliases:
+                embed.add_field(name="Aliases", value="\n".join([f"`{alias}` → `{primary_name}`" for alias in aliases]), inline=False)
             else:
                 embed.add_field(name="Aliases", value="No aliases", inline=False)
 
             # Show permission information
             permissions = bot.permission_manager.get_command_permissions(primary_name)
 
-            if permissions and 'channels' in permissions:
+            if permissions and "channels" in permissions:
                 channel_info = []
 
-                for channel_id, perms in permissions['channels'].items():
+                for channel_id, perms in permissions["channels"].items():
                     channel_name = channel_id
                     if channel_id != "*":
                         channel = bot.get_channel(int(channel_id))
@@ -801,21 +752,17 @@ async def permission_alias_info(ctx, command_name: str = None):
                     else:
                         channel_name = "All Channels"
 
-                    is_public = perms.get('public', False)
+                    is_public = perms.get("public", False)
                     status = "✅ Public" if is_public else "🔒 Restricted"
 
                     if not is_public:
-                        user_count = len(perms.get('authorized_users', []))
+                        user_count = len(perms.get("authorized_users", []))
                         status += f" ({user_count} authorized users)"
 
                     channel_info.append(f"{channel_name}: {status}")
 
                 if channel_info:
-                    embed.add_field(
-                        name="Authorized Channels",
-                        value="\n".join(channel_info),
-                        inline=False
-                    )
+                    embed.add_field(name="Authorized Channels", value="\n".join(channel_info), inline=False)
                 else:
                     embed.add_field(name="Authorized Channels", value="No channels authorized", inline=False)
             else:
@@ -829,11 +776,7 @@ async def permission_alias_info(ctx, command_name: str = None):
             else:
                 # Sort alphabetically for consistency
                 for name, aliases in sorted(commands_with_aliases):
-                    embed.add_field(
-                        name=f"Command: {name}",
-                        value="\n".join([f"`{alias}` → `{name}`" for alias in aliases]),
-                        inline=True
-                    )
+                    embed.add_field(name=f"Command: {name}", value="\n".join([f"`{alias}` → `{name}`" for alias in aliases]), inline=True)
 
         await ctx.send(embed=embed)
 
@@ -883,22 +826,15 @@ async def permission_toggle(ctx, setting_name: str, value: bool = None):
 async def settings(ctx):
     """Display all bot-level settings and configuration."""
     # Create the main settings embed following standardized embed structure
-    embed = discord.Embed(
-        title="Bot Settings",
-        description="Current configuration for bot system",
-        color=discord.Color.blue()
-    )
+    embed = discord.Embed(title="Bot Settings", description="Current configuration for bot system", color=discord.Color.blue())
 
     # Get basic bot configuration
-    prefix = bot.config.get('prefix', '$')
+    prefix = bot.config.get("prefix", "$")
     error_channel_id = bot.config.get("error_log_channel", None)
     error_channel = bot.get_channel(int(error_channel_id)) if error_channel_id else None
 
     # General settings section
-    general_settings = [
-        f"**Prefix**: `{prefix}`",
-        f"**Error Log Channel**: {error_channel.mention if error_channel else '❌ Disabled'}"
-    ]
+    general_settings = [f"**Prefix**: `{prefix}`", f"**Error Log Channel**: {error_channel.mention if error_channel else '❌ Disabled'}"]
     embed.add_field(name="General Settings", value="\n".join(general_settings), inline=False)
 
     # Cog management settings
@@ -910,7 +846,7 @@ async def settings(ctx):
         f"**Load All Cogs**: {'✅ Enabled' if load_all_cogs else '❌ Disabled'}",
         f"**Enabled Cogs**: {enabled_cogs_count}",
         f"**Disabled Cogs**: {disabled_cogs_count}",
-        f"**Active Cogs**: {len(bot.cogs)}"
+        f"**Active Cogs**: {len(bot.cogs)}",
     ]
     embed.add_field(name="Cog Management", value="\n".join(cog_settings), inline=False)
 
@@ -918,7 +854,7 @@ async def settings(ctx):
     intents = [
         f"**Message Content**: {'✅ Enabled' if bot.intents.message_content else '❌ Disabled'}",
         f"**Members**: {'✅ Enabled' if bot.intents.members else '❌ Disabled'}",
-        f"**Presences**: {'✅ Enabled' if bot.intents.presences else '❌ Disabled'}"
+        f"**Presences**: {'✅ Enabled' if bot.intents.presences else '❌ Disabled'}",
     ]
     embed.add_field(name="Discord Intents", value="\n".join(intents), inline=False)
 
@@ -936,7 +872,7 @@ async def settings(ctx):
         f"**Status**: {status_emoji} {'Connected' if bot.is_ready() else 'Connecting'}",
         f"**Uptime**: {uptime_str}",
         f"**Latency**: {round(bot.latency * 1000)}ms",
-        f"**Servers**: {len(bot.guilds)}"
+        f"**Servers**: {len(bot.guilds)}",
     ]
     embed.add_field(name="Bot Status", value="\n".join(status_info), inline=False)
 
@@ -950,7 +886,7 @@ async def settings(ctx):
 async def config_group(ctx):
     """Commands for managing bot configuration"""
     if ctx.invoked_subcommand is None:
-        await ctx.invoke(bot.get_command('settings'))
+        await ctx.invoke(bot.get_command("settings"))
 
 
 @config_group.command(name="prefix")
@@ -967,14 +903,14 @@ async def config_prefix(ctx, new_prefix: str = None):
     $config prefix
     """
     if new_prefix is None:
-        current_prefix = bot.config.get('prefix', '$')
+        current_prefix = bot.config.get("prefix", "$")
         await ctx.send(f"Current command prefix: `{current_prefix}`")
     else:
         # Ensure prefix isn't too long
         if len(new_prefix) > 5:
             return await ctx.send("❌ Prefix must be 5 characters or less")
 
-        bot.config.config['prefix'] = new_prefix
+        bot.config.config["prefix"] = new_prefix
         bot.config.save_config()
         bot.command_prefix = new_prefix
         await ctx.send(f"✅ Command prefix changed to: `{new_prefix}`")
@@ -995,7 +931,7 @@ async def config_error_channel(ctx, channel: discord.TextChannel = None):
     """
     if channel is None:
         error_channel_id = bot.config.get("error_log_channel", None)
-        if (error_channel_id):
+        if error_channel_id:
             channel = bot.get_channel(int(error_channel_id))
             if channel:
                 await ctx.send(f"Command errors are being logged to {channel.mention}")
@@ -1004,7 +940,7 @@ async def config_error_channel(ctx, channel: discord.TextChannel = None):
         else:
             await ctx.send("Command error logging is disabled")
     else:
-        await ctx.invoke(bot.get_command('set_error_log_channel'), channel=channel)
+        await ctx.invoke(bot.get_command("set_error_log_channel"), channel=channel)
 
 
 @config_group.command(name="toggle")
@@ -1045,45 +981,27 @@ async def command_type_group(ctx):
     """Manage command types (prefix, slash, both, none)"""
     if ctx.invoked_subcommand is None:
         # Show current settings
-        embed = discord.Embed(
-            title="Command Type Settings",
-            description="Control how commands are invoked",
-            color=discord.Color.blue()
-        )
+        embed = discord.Embed(title="Command Type Settings", description="Control how commands are invoked", color=discord.Color.blue())
 
         default_mode = bot.config.get("command_type_mode", "prefix")
-        embed.add_field(
-            name="Default Mode",
-            value=f"`{default_mode}`",
-            inline=False
-        )
+        embed.add_field(name="Default Mode", value=f"`{default_mode}`", inline=False)
 
         # Show custom command types
         command_types = bot.config.get("command_types", {})
         if command_types:
-            custom_settings = "\n".join([
-                f"`{cmd}`: {mode}" for cmd, mode in sorted(command_types.items())
-            ])
-            embed.add_field(
-                name="Custom Command Settings",
-                value=custom_settings,
-                inline=False
-            )
+            custom_settings = "\n".join([f"`{cmd}`: {mode}" for cmd, mode in sorted(command_types.items())])
+            embed.add_field(name="Custom Command Settings", value=custom_settings, inline=False)
         else:
-            embed.add_field(
-                name="Custom Command Settings",
-                value="No custom settings configured",
-                inline=False
-            )
+            embed.add_field(name="Custom Command Settings", value="No custom settings configured", inline=False)
 
         # Add explanation
         embed.add_field(
             name="Command Type Options",
             value="`prefix`: Traditional commands only (e.g., $command)\n"
-                  "`slash`: Slash commands only (e.g., /command)\n"
-                  "`both`: Both prefix and slash commands\n"
-                  "`none`: Command disabled",
-            inline=False
+            "`slash`: Slash commands only (e.g., /command)\n"
+            "`both`: Both prefix and slash commands\n"
+            "`none`: Command disabled",
+            inline=False,
         )
 
         await ctx.send(embed=embed)
@@ -1196,12 +1114,12 @@ async def command_type_sync(ctx):
         for command in bot.walk_commands():
             # Skip commands that shouldn't be slash commands
             command_type = bot.command_type_manager.get_command_type(command.qualified_name)
-            if command_type in ['slash', 'both']:
+            if command_type in ["slash", "both"]:
                 # Convert command to slash command format
                 slash_command = {
-                    'name': command.name,
-                    'description': command.help or 'No description available',
-                    'options': []  # Add parameter handling if needed
+                    "name": command.name,
+                    "description": command.help or "No description available",
+                    "options": [],  # Add parameter handling if needed
                 }
                 commands.append(slash_command)
 
@@ -1233,7 +1151,7 @@ def main():
 
 
 # Bot instance is available for import
-__all__ = ['bot', 'DiscordBot', 'main']
+__all__ = ["bot", "DiscordBot", "main"]
 
 # Run bot if this module is executed directly
 if __name__ == "__main__":

@@ -30,7 +30,7 @@ def escape_df_html(df: pd.DataFrame, escape_columns: list[str]) -> pd.DataFrame:
     result = df.copy()
     for col in escape_columns:
         if col in result.columns:
-            result[col] = result[col].apply(lambda x: html.escape(str(x)) if pd.notnull(x) else '')
+            result[col] = result[col].apply(lambda x: html.escape(str(x)) if pd.notnull(x) else "")
     return result
 
 
@@ -97,19 +97,16 @@ def get_league_selection(options=None, patch=None):
     with st.sidebar:
         # Use the session state value as the default
         league_index = leagues.index(st.session_state.selected_league)
-        league = st.radio(
-            "League",
-            leagues,
-            league_index,
-            key="league_selector",
-            on_change=league_changed
-        )
+        league = st.radio("League", leagues, league_index, key="league_selector", on_change=league_changed)
 
         # Force Champion league for historical patches if Legend is selected
-        if (patch and league == "Legend" and
-            hasattr(patch, 'version_minor') and
-            isinstance(patch.version_minor, (int, float)) and
-                patch.version_minor < 25):
+        if (
+            patch
+            and league == "Legend"
+            and hasattr(patch, "version_minor")
+            and isinstance(patch.version_minor, (int, float))
+            and patch.version_minor < 25
+        ):
             league = "Champion"
             st.info("Using Champion league for historical patch (Legend not available)")
             st.session_state.selected_league = league
@@ -175,7 +172,9 @@ def add_to_comparison(player_id, nicknames):
 
 
 def deprecated():
-    st.info("This page is now deprecated and won't be updated past the end of Champ era. If you use or like this page, please let the site admins know on discord.")
+    st.info(
+        "This page is now deprecated and won't be updated past the end of Champ era. If you use or like this page, please let the site admins know on discord."
+    )
 
 
 def makeitrain(icon: str | None = None, after: datetime.date | None = None, before: datetime.date | None = None):
@@ -184,6 +183,7 @@ def makeitrain(icon: str | None = None, after: datetime.date | None = None, befo
     If specific parameters are provided, they override the database entries.
     """
     from django.utils import timezone
+
     today = timezone.now().date()
 
     if icon and after and before:
@@ -199,6 +199,7 @@ def makeitrain(icon: str | None = None, after: datetime.date | None = None, befo
 
     # Use cached lookup for active period
     from thetower.backend.tourney_results.models import RainPeriod
+
     active_period = RainPeriod.get_active_period()
 
     if active_period:

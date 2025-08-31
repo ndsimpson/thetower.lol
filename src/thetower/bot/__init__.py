@@ -5,8 +5,8 @@ from .bot import DiscordBot
 from .exceptions import ChannelUnauthorized, UserUnauthorized
 
 __all__ = [
-    'DiscordBot',
-    'BaseCog',
-    'UserUnauthorized',
-    'ChannelUnauthorized',
+    "DiscordBot",
+    "BaseCog",
+    "UserUnauthorized",
+    "ChannelUnauthorized",
 ]

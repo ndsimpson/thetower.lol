@@ -22,6 +22,7 @@ class ApiKeyAdmin(admin.ModelAdmin):
 
     def key_suffix(self, obj):
         return f"…{obj.key_suffix()}" if obj.key else ""
+
     key_suffix.short_description = "Key Suffix"
 
     def get_readonly_fields(self, request, obj=None):
@@ -47,7 +48,9 @@ BASE_HIDDEN_URL = os.getenv("BASE_HIDDEN_URL")
 @admin.register(SusPerson)
 class SusPersonAdmin(SimpleHistoryAdmin):
     def _link(self, obj):
-        return format_html(f"<a href='https://{BASE_HIDDEN_URL}/player?player={obj.player_id}' target='_new'>https://{BASE_HIDDEN_URL}/player?player={obj.player_id}</a>")
+        return format_html(
+            f"<a href='https://{BASE_HIDDEN_URL}/player?player={obj.player_id}' target='_new'>https://{BASE_HIDDEN_URL}/player?player={obj.player_id}</a>"
+        )
 
     _link.short_description = "link"
 
@@ -102,13 +105,13 @@ class SusPersonAdmin(SimpleHistoryAdmin):
             # Get the original object to compare values
             try:
                 original = SusPerson.objects.get(pk=obj.pk)
-                should_recalc = (original.sus != obj.sus or original.shun != obj.shun)
+                should_recalc = original.sus != obj.sus or original.shun != obj.shun
             except SusPerson.DoesNotExist:
                 # Shouldn't happen in change mode, but be safe
                 should_recalc = True
         else:
             # New object - always recalculate if sus or shun is True
-            should_recalc = (obj.sus or obj.shun)
+            should_recalc = obj.sus or obj.shun
 
         obj = super().save_model(request, obj, form, change)
 
@@ -123,12 +126,7 @@ def queue_recalculation_for_player(player_id):
     from .models import TourneyResult
 
     # Mark affected tournaments as needing recalculation - FAST operation
-    affected_count = TourneyResult.objects.filter(
-        rows__player_id=player_id
-    ).update(
-        needs_recalc=True,
-        recalc_retry_count=0  # Reset retry count
-    )
+    affected_count = TourneyResult.objects.filter(rows__player_id=player_id).update(needs_recalc=True, recalc_retry_count=0)  # Reset retry count
 
     logging.info(f"Queued {affected_count} tournaments for recalculation (player: {player_id})")
 

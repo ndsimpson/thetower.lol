@@ -24,8 +24,7 @@ from pathlib import Path
 def get_venv_site_packages():
     """Get the site-packages directory of the active virtual environment."""
     # Check if we're in a virtual environment
-    if not (hasattr(sys, 'real_prefix') or
-            (hasattr(sys, 'base_prefix') and sys.base_prefix != sys.prefix)):
+    if not (hasattr(sys, "real_prefix") or (hasattr(sys, "base_prefix") and sys.base_prefix != sys.prefix)):
         print("❌ Error: No virtual environment detected!")
         print("   Please activate your virtual environment first:")
         print("   .venv\\Scripts\\Activate.ps1  # Windows")
@@ -34,12 +33,13 @@ def get_venv_site_packages():
 
     # Get site-packages directory
     import site
+
     site_packages = site.getsitepackages()
 
     # Find the one in the current virtual environment
     venv_site_packages = None
     for path in site_packages:
-        if sys.prefix in path and 'site-packages' in path:
+        if sys.prefix in path and "site-packages" in path:
             venv_site_packages = path
             break
 
@@ -64,7 +64,7 @@ def cleanup_pycache(start_path=None, verbose=True):
         print(f"🧹 Cleaning up __pycache__ directories from: {start_path}")
 
     try:
-        for item in start_path.rglob('__pycache__'):
+        for item in start_path.rglob("__pycache__"):
             if item.is_dir():
                 try:
                     shutil.rmtree(item)
@@ -96,18 +96,18 @@ def show_status():
     print("=" * 40)
 
     # Check if in virtual environment
-    in_venv = (hasattr(sys, 'real_prefix') or
-               (hasattr(sys, 'base_prefix') and sys.base_prefix != sys.prefix))
+    in_venv = hasattr(sys, "real_prefix") or (hasattr(sys, "base_prefix") and sys.base_prefix != sys.prefix)
 
     print(f"Virtual Environment: {'✅ Active' if in_venv else '❌ Not detected'}")
 
     if in_venv:
         # Get site-packages directory
         import site
+
         site_packages = site.getsitepackages()
         venv_site_packages = None
         for path in site_packages:
-            if sys.prefix in path and 'site-packages' in path:
+            if sys.prefix in path and "site-packages" in path:
                 venv_site_packages = Path(path)
                 break
 
@@ -121,7 +121,7 @@ def show_status():
             print("sitecustomize.py: ❌ Could not determine site-packages location")
 
     # Check pycache_prefix
-    cache_prefix = getattr(sys, 'pycache_prefix', None)
+    cache_prefix = getattr(sys, "pycache_prefix", None)
     if cache_prefix:
         print(f"Cache Location: ✅ {cache_prefix}")
         cache_exists = Path(cache_prefix).exists()
@@ -131,9 +131,9 @@ def show_status():
 
     # Count existing __pycache__ directories
     project_root = Path.cwd()
-    pycache_dirs = list(project_root.rglob('__pycache__'))
+    pycache_dirs = list(project_root.rglob("__pycache__"))
     # Filter out virtual environment pycache dirs
-    pycache_dirs = [d for d in pycache_dirs if '.venv' not in str(d)]
+    pycache_dirs = [d for d in pycache_dirs if ".venv" not in str(d)]
 
     print(f"__pycache__ directories: {len(pycache_dirs)} found in project")
     if len(pycache_dirs) > 0:
@@ -170,12 +170,12 @@ def install_sitecustomize():
         import importlib
 
         # Force reload of sitecustomize module
-        if 'sitecustomize' in sys.modules:
-            importlib.reload(sys.modules['sitecustomize'])
+        if "sitecustomize" in sys.modules:
+            importlib.reload(sys.modules["sitecustomize"])
         else:
-            importlib.import_module('sitecustomize')
+            importlib.import_module("sitecustomize")
 
-        cache_prefix = getattr(sys, 'pycache_prefix', None)
+        cache_prefix = getattr(sys, "pycache_prefix", None)
         if cache_prefix:
             print(f"✅ Bytecode cache configured: {cache_prefix}")
 
@@ -202,30 +202,18 @@ Examples:
   python scripts/manage_bytecode.py setup    # Install bytecode cache management
   python scripts/manage_bytecode.py cleanup  # Remove __pycache__ directories
   python scripts/manage_bytecode.py status   # Show current configuration
-        """
+        """,
     )
 
-    parser.add_argument(
-        'command',
-        choices=['setup', 'cleanup', 'status'],
-        help='Command to execute'
-    )
+    parser.add_argument("command", choices=["setup", "cleanup", "status"], help="Command to execute")
 
-    parser.add_argument(
-        '--path',
-        type=str,
-        help='Path to clean (for cleanup command, defaults to current directory)'
-    )
+    parser.add_argument("--path", type=str, help="Path to clean (for cleanup command, defaults to current directory)")
 
-    parser.add_argument(
-        '--quiet', '-q',
-        action='store_true',
-        help='Suppress verbose output'
-    )
+    parser.add_argument("--quiet", "-q", action="store_true", help="Suppress verbose output")
 
     args = parser.parse_args()
 
-    if args.command == 'setup':
+    if args.command == "setup":
         print("🔧 Setting up bytecode cache management...")
         print("=" * 50)
 
@@ -241,14 +229,14 @@ Examples:
             print("\n❌ Setup failed!")
             sys.exit(1)
 
-    elif args.command == 'cleanup':
+    elif args.command == "cleanup":
         start_path = args.path if args.path else None
         removed_count, errors = cleanup_pycache(start_path, verbose=not args.quiet)
 
         if errors:
             sys.exit(1)
 
-    elif args.command == 'status':
+    elif args.command == "status":
         show_status()
 
 

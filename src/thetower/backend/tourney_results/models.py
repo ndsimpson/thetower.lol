@@ -147,33 +147,18 @@ class TourneyResult(models.Model):
     overview = models.TextField(null=True, blank=True, help_text="Overview of the tourney.")
 
     # Queue fields for position recalculation
-    needs_recalc = models.BooleanField(
-        default=False,
-        help_text="Tournament needs position recalculation"
-    )
-    last_recalc_at = models.DateTimeField(
-        null=True, blank=True,
-        help_text="When positions were last recalculated"
-    )
-    recalc_retry_count = models.SmallIntegerField(
-        default=0,
-        help_text="Number of failed recalculation attempts"
-    )
+    needs_recalc = models.BooleanField(default=False, help_text="Tournament needs position recalculation")
+    last_recalc_at = models.DateTimeField(null=True, blank=True, help_text="When positions were last recalculated")
+    recalc_retry_count = models.SmallIntegerField(default=0, help_text="Number of failed recalculation attempts")
 
     history = HistoricalRecords()
 
     class Meta:
         indexes = [
             # Compound index for worker queries
-            models.Index(
-                fields=['needs_recalc', 'recalc_retry_count', 'date'],
-                name='idx_recalc_queue'
-            ),
+            models.Index(fields=["needs_recalc", "recalc_retry_count", "date"], name="idx_recalc_queue"),
             # Simple boolean index for counts
-            models.Index(
-                fields=['needs_recalc'],
-                name='idx_needs_recalc'
-            ),
+            models.Index(fields=["needs_recalc"], name="idx_needs_recalc"),
         ]
 
     def __str__(self):
@@ -183,10 +168,7 @@ class TourneyResult(models.Model):
     def patch(self):
         """Get the patch that was active during this tournament's date."""
         try:
-            return PatchNew.objects.filter(
-                start_date__lte=self.date,
-                end_date__gte=self.date
-            ).first()
+            return PatchNew.objects.filter(start_date__lte=self.date, end_date__gte=self.date).first()
         except Exception:
             return None
 

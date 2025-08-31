@@ -106,7 +106,7 @@ def compute_player_lookup():
     user = player_df["real_name"][0]
 
     # Apply HTML escaping before styling or displaying
-    player_df = escape_df_html(player_df, ['real_name', 'tourney_name'])
+    player_df = escape_df_html(player_df, ["real_name", "tourney_name"])
 
     draw_info_tab(info_tab, user, player_id, player_df, hidden_features)
 
@@ -116,7 +116,9 @@ def compute_player_lookup():
     ]
     patch_col, average_col = graph_tab.columns([1, 1])
     patch = patch_col.selectbox("Limit results to a patch? (see side bar to change default)", graph_options)
-    filter_bcs = patch_col.multiselect("Filter by battle conditions?", sorted({bc for bcs in player_df.bcs for bc in bcs}, key=lambda bc: bc.shortcut))
+    filter_bcs = patch_col.multiselect(
+        "Filter by battle conditions?", sorted({bc for bcs in player_df.bcs for bc in bcs}, key=lambda bc: bc.shortcut)
+    )
     rolling_average = average_col.slider("Use rolling average for results from how many tourneys?", min_value=1, max_value=10, value=5)
 
     colors, patch_df, stratas = handle_colors_dependant_on_patch(patch, player_df)
@@ -161,7 +163,7 @@ def compute_player_lookup():
     def dataframe_styler(player_df):
         df_copy = player_df.copy()
         # Convert patch objects to strings
-        df_copy['patch'] = df_copy['patch'].apply(str)
+        df_copy["patch"] = df_copy["patch"].apply(str)
         return (
             df_copy[["name", "wave", "#", "date", "patch", "battle"] + additional_column]
             .style.apply(
@@ -319,7 +321,7 @@ def write_for_each_patch(patch_tab, player_df):
 
     wave_df = pd.DataFrame(wave_data).reset_index(drop=True)
     position_df = pd.DataFrame(position_data).reset_index(drop=True)
-    
+
     # Set index to start from 1 instead of 0
     wave_df.index = wave_df.index + 1
     position_df.index = position_df.index + 1

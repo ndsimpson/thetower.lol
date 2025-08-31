@@ -30,10 +30,10 @@ def search_players_optimized(search_term, excluded_player_ids, page=20):
     fragments = [part.strip() for part in search_term.split()]
 
     # Check if this looks like a player ID search (mostly hex characters)
-    hex_chars = sum(1 for c in search_term.upper() if c in 'ABCDEF0123456789')
+    hex_chars = sum(1 for c in search_term.upper() if c in "ABCDEF0123456789")
     is_player_id_search = (
-        len(search_term.replace(' ', '')) >= 12 and  # Player IDs are long
-        hex_chars / len(search_term.replace(' ', '')) > 0.7  # Mostly hex characters
+        len(search_term.replace(" ", "")) >= 12  # Player IDs are long
+        and hex_chars / len(search_term.replace(" ", "")) > 0.7  # Mostly hex characters
     )
 
     if is_player_id_search:
@@ -54,7 +54,7 @@ def search_players_optimized(search_term, excluded_player_ids, page=20):
             )
             .values_list("player_id", "nickname")
             .order_by("player_id")
-            .distinct()[:page * 3]  # Get more to account for grouping
+            .distinct()[: page * 3]  # Get more to account for grouping
         )
 
         # Group by player_id and combine nicknames
@@ -82,11 +82,7 @@ def search_players_optimized(search_term, excluded_player_ids, page=20):
                 base_condition &= Q(player__name__icontains=fragment)
 
             priority1_results = list(
-                PlayerId.objects.filter(
-                    base_condition &
-                    Q(primary=True) &
-                    ~Q(id__in=excluded_player_ids)
-                )
+                PlayerId.objects.filter(base_condition & Q(primary=True) & ~Q(id__in=excluded_player_ids))
                 .order_by("player_id")
                 .values_list("id", "player__name")[:page]
             )
@@ -101,14 +97,14 @@ def search_players_optimized(search_term, excluded_player_ids, page=20):
 
             priority2_results = list(
                 TourneyRow.objects.filter(
-                    base_condition &
-                    ~Q(player_id__in=existing_player_ids) &
-                    ~Q(player_id__in=excluded_player_ids) &
-                    Q(position__lte=how_many_results_public_site)
+                    base_condition
+                    & ~Q(player_id__in=existing_player_ids)
+                    & ~Q(player_id__in=excluded_player_ids)
+                    & Q(position__lte=how_many_results_public_site)
                 )
                 .distinct()
                 .order_by("player_id")
-                .values_list("player_id", "nickname")[:page - len(all_results)]
+                .values_list("player_id", "nickname")[: page - len(all_results)]
             )
             all_results.extend(priority2_results)
             existing_player_ids.update(player_id for player_id, _ in priority2_results)
@@ -120,14 +116,9 @@ def search_players_optimized(search_term, excluded_player_ids, page=20):
                 base_condition &= Q(player__name__icontains=fragment)
 
             priority3_results = list(
-                PlayerId.objects.filter(
-                    base_condition &
-                    Q(primary=True) &
-                    ~Q(id__in=existing_player_ids) &
-                    ~Q(id__in=excluded_player_ids)
-                )
+                PlayerId.objects.filter(base_condition & Q(primary=True) & ~Q(id__in=existing_player_ids) & ~Q(id__in=excluded_player_ids))
                 .order_by("player_id")
-                .values_list("id", "player__name")[:page - len(all_results)]
+                .values_list("id", "player__name")[: page - len(all_results)]
             )
             all_results.extend(priority3_results)
             existing_player_ids.update(player_id for player_id, _ in priority3_results)
@@ -140,14 +131,14 @@ def search_players_optimized(search_term, excluded_player_ids, page=20):
 
             priority4_results = list(
                 TourneyRow.objects.filter(
-                    base_condition &
-                    ~Q(player_id__in=existing_player_ids) &
-                    ~Q(player_id__in=excluded_player_ids) &
-                    Q(position__lte=how_many_results_public_site)
+                    base_condition
+                    & ~Q(player_id__in=existing_player_ids)
+                    & ~Q(player_id__in=excluded_player_ids)
+                    & Q(position__lte=how_many_results_public_site)
                 )
                 .distinct()
                 .order_by("player_id")
-                .values_list("player_id", "nickname")[:page - len(all_results)]
+                .values_list("player_id", "nickname")[: page - len(all_results)]
             )
             all_results.extend(priority4_results)
 
@@ -165,11 +156,7 @@ def compute_search(player=False, comparison=False):
     hidden_features = os.environ.get("HIDDEN_FEATURES")
 
     if not hidden_features:
-        excluded_player_ids = list(
-            SusPerson.objects.filter(
-                Q(sus=True) | Q(soft_banned=True) | Q(banned=True)
-            ).values_list('player_id', flat=True)
-        )
+        excluded_player_ids = list(SusPerson.objects.filter(Q(sus=True) | Q(soft_banned=True) | Q(banned=True)).values_list("player_id", flat=True))
     else:
         excluded_player_ids = []
 
@@ -207,11 +194,7 @@ def compute_search(player=False, comparison=False):
         # Group by player_id in case there are duplicates
         for player_id, group in groupby(nickname_ids, lambda x: x[0]):
             nicknames_list = [nickname for _, nickname in group]
-            datum = {
-                "player_id": player_id,
-                "nicknames": ", ".join(set(nicknames_list)),
-                "how_many_results": len(nicknames_list)
-            }
+            datum = {"player_id": player_id, "nicknames": ", ".join(set(nicknames_list)), "how_many_results": len(nicknames_list)}
             data_to_be_shown.append(datum)
 
     for datum in data_to_be_shown:
@@ -220,10 +203,14 @@ def compute_search(player=False, comparison=False):
         player_id_col.write(datum["player_id"])
 
         if player:
-            button_col.button("See player page", on_click=add_player_id, args=(datum["player_id"],), key=f'{datum["player_id"]}{datum["nicknames"]}but')
+            button_col.button(
+                "See player page", on_click=add_player_id, args=(datum["player_id"],), key=f'{datum["player_id"]}{datum["nicknames"]}but'
+            )
 
         if comparison:
-            button_col.button("Add to comparison", on_click=add_to_comparison, args=(datum["player_id"], datum["nicknames"]), key=f'{datum["player_id"]}comp')
+            button_col.button(
+                "Add to comparison", on_click=add_to_comparison, args=(datum["player_id"], datum["nicknames"]), key=f'{datum["player_id"]}comp'
+            )
 
     if not data_to_be_shown:
         st.info("No results found")

@@ -36,7 +36,7 @@ def compute_winners():
     df = pd.concat([cdf, ldf])
 
     # Escape HTML in name columns early in the pipeline
-    df = escape_df_html(df, ['real_name', 'tourney_name'])
+    df = escape_df_html(df, ["real_name", "tourney_name"])
 
     how_col, hole_col = st.columns([1, 1])
 
@@ -61,7 +61,9 @@ def compute_winners():
     else:
         roll_columns = st.columns([1, 1, 1, 1, 1])
         winner_score = {
-            place: roll_columns[(place - 1) % 5].slider(f"How many points for place {place}?", min_value=0, max_value=10, value=skye_scoring.get(place, 0))
+            place: roll_columns[(place - 1) % 5].slider(
+                f"How many points for place {place}?", min_value=0, max_value=10, value=skye_scoring.get(place, 0)
+            )
             for place in range(1, 11)
         }
         colormap = st.selectbox(

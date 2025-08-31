@@ -129,12 +129,14 @@ def live_score():
         def get_top_n(group, n):
             return group.nlargest(n).iloc[-1] if len(group) >= n else None
 
-        stats_df = pd.DataFrame({
-            "Top 1": group_by_bracket.apply(lambda x: get_top_n(x, 1)),
-            "Top 4": group_by_bracket.apply(lambda x: get_top_n(x, 4)),
-            "Top 10": group_by_bracket.apply(lambda x: get_top_n(x, 10)),
-            "Top 15": group_by_bracket.apply(lambda x: get_top_n(x, 15)),
-        }).melt()
+        stats_df = pd.DataFrame(
+            {
+                "Top 1": group_by_bracket.apply(lambda x: get_top_n(x, 1)),
+                "Top 4": group_by_bracket.apply(lambda x: get_top_n(x, 4)),
+                "Top 10": group_by_bracket.apply(lambda x: get_top_n(x, 10)),
+                "Top 15": group_by_bracket.apply(lambda x: get_top_n(x, 15)),
+            }
+        ).melt()
 
         # Create histogram
         fig1 = px.histogram(
@@ -148,10 +150,7 @@ def live_score():
             height=300,
         )
 
-        fig1.update_layout(
-            margin=dict(l=20, r=20, t=40, b=20),
-            legend=dict(yanchor="top", y=0.99, xanchor="right", x=0.99)
-        )
+        fig1.update_layout(margin=dict(l=20, r=20, t=40, b=20), legend=dict(yanchor="top", y=0.99, xanchor="right", x=0.99))
         st.plotly_chart(fig1, use_container_width=True)
 
         cols = st.columns(2 if not is_mobile else 1)
@@ -173,11 +172,7 @@ def live_score():
     with view_tabs[3]:
         # Get all unique real names for the selector
         all_players = sorted(df["real_name"].unique())
-        selected_player = st.selectbox(
-            "Select player",
-            all_players,
-            key=f"player_selector_{league}"
-        )
+        selected_player = st.selectbox("Select player", all_players, key=f"player_selector_{league}")
 
         if not selected_player:
             return

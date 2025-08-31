@@ -43,7 +43,7 @@ class TourneyStats(BaseCog, name="Tourney Stats"):
             "cache_filename": ("tourney_stats_data.pkl", "Filename for caching tournament data"),
             "update_check_interval": (6 * 60 * 60, "How often to check for updates (seconds)"),
             "update_error_retry_interval": (30 * 60, "How long to wait after errors (seconds)"),
-            "recent_tournaments_display_count": (3, "Number of recent tournaments to display")
+            "recent_tournaments_display_count": (3, "Number of recent tournaments to display"),
         }
 
         # Initialize settings
@@ -59,9 +59,9 @@ class TourneyStats(BaseCog, name="Tourney Stats"):
 
     def _load_settings(self) -> None:
         """Load settings into instance variables."""
-        self.update_check_interval = self.get_setting('update_check_interval')
-        self.update_error_retry_interval = self.get_setting('update_error_retry_interval')
-        self.recent_tournaments_display_count = self.get_setting('recent_tournaments_display_count')
+        self.update_check_interval = self.get_setting("update_check_interval")
+        self.update_error_retry_interval = self.get_setting("update_error_retry_interval")
+        self.recent_tournaments_display_count = self.get_setting("recent_tournaments_display_count")
 
     @property
     def cache_file(self) -> Path:
@@ -141,10 +141,10 @@ class TourneyStats(BaseCog, name="Tourney Stats"):
         try:
             # Prepare the data to save
             save_data = {
-                'latest_patch': self.latest_patch,
-                'league_dfs': self.league_dfs,
-                'last_updated': self.last_updated or datetime.datetime.now(),
-                'tournament_counts': self.tournament_counts
+                "latest_patch": self.latest_patch,
+                "league_dfs": self.league_dfs,
+                "last_updated": self.last_updated or datetime.datetime.now(),
+                "tournament_counts": self.tournament_counts,
             }
 
             # Use BaseCog's utility to save data
@@ -168,10 +168,10 @@ class TourneyStats(BaseCog, name="Tourney Stats"):
             save_data = data or {}  # Use empty dict if no data loaded
 
             if save_data:
-                self.latest_patch = save_data.get('latest_patch')
-                self.league_dfs = save_data.get('league_dfs', {})
-                self.last_updated = save_data.get('last_updated')
-                self.tournament_counts = save_data.get('tournament_counts', {})
+                self.latest_patch = save_data.get("latest_patch")
+                self.league_dfs = save_data.get("league_dfs", {})
+                self.last_updated = save_data.get("last_updated")
+                self.tournament_counts = save_data.get("tournament_counts", {})
 
                 self.logger.info(f"Loaded tournament data from {self.cache_file}")
                 return True
@@ -226,10 +226,7 @@ class TourneyStats(BaseCog, name="Tourney Stats"):
 
                         # Wrap the database operations in sync_to_async
                         results = await sync_to_async(get_results_for_patch)(patch=patch, league=league_name)
-                        df = await sync_to_async(get_tourneys)(
-                            results,
-                            limit=how_many_results_hidden_site
-                        )
+                        df = await sync_to_async(get_tourneys)(results, limit=how_many_results_hidden_site)
 
                         # Filter out sus players
                         original_rows = len(df)
@@ -320,64 +317,72 @@ class TourneyStats(BaseCog, name="Tourney Stats"):
             best_position = player_df.position.min()
             best_position_row = player_df[player_df.position == best_position].iloc[0]
             best_wave = best_position_row.wave
-            best_date = best_position_row.date if 'date' in best_position_row else None
+            best_date = best_position_row.date if "date" in best_position_row else None
 
             # Calculate average position and wave
             avg_position = player_df.position.mean()
             avg_wave = player_df.wave.mean()
 
             # Find most recent tournament
-            latest_tournament = player_df.sort_values('date', ascending=False).iloc[0] if 'date' in player_df.columns else None
+            latest_tournament = player_df.sort_values("date", ascending=False).iloc[0] if "date" in player_df.columns else None
             latest_position = latest_tournament.position if latest_tournament is not None else None
             latest_wave = latest_tournament.wave if latest_tournament is not None else None
             latest_date = latest_tournament.date if latest_tournament is not None else None
 
             return {
-                'best_position': best_position,
-                'position_at_best_wave': best_position,
-                'best_wave': best_wave,
-                'best_date': best_date,
-                'avg_position': round(avg_position, 2),
-                'avg_wave': round(avg_wave, 2),
-                'latest_position': latest_position,
-                'latest_wave': latest_wave,
-                'latest_date': latest_date,
-                'total_tourneys': total_tourneys,
-                'max_wave': player_df.wave.max(),
-                'min_wave': player_df.wave.min(),
-                'tournaments': player_df[['date', 'position', 'wave']].sort_values('date', ascending=False).to_dict('records') if 'date' in player_df.columns else []
+                "best_position": best_position,
+                "position_at_best_wave": best_position,
+                "best_wave": best_wave,
+                "best_date": best_date,
+                "avg_position": round(avg_position, 2),
+                "avg_wave": round(avg_wave, 2),
+                "latest_position": latest_position,
+                "latest_wave": latest_wave,
+                "latest_date": latest_date,
+                "total_tourneys": total_tourneys,
+                "max_wave": player_df.wave.max(),
+                "min_wave": player_df.wave.min(),
+                "tournaments": (
+                    player_df[["date", "position", "wave"]].sort_values("date", ascending=False).to_dict("records")
+                    if "date" in player_df.columns
+                    else []
+                ),
             }
         else:
             # For other leagues, higher wave is better
             best_wave = player_df.wave.max()
             best_wave_row = player_df[player_df.wave == best_wave].iloc[0]
             position_at_best = best_wave_row.position
-            best_date = best_wave_row.date if 'date' in best_wave_row else None
+            best_date = best_wave_row.date if "date" in best_wave_row else None
 
             # Calculate average position and wave
             avg_position = player_df.position.mean()
             avg_wave = player_df.wave.mean()
 
             # Find most recent tournament
-            latest_tournament = player_df.sort_values('date', ascending=False).iloc[0] if 'date' in player_df.columns else None
+            latest_tournament = player_df.sort_values("date", ascending=False).iloc[0] if "date" in player_df.columns else None
             latest_position = latest_tournament.position if latest_tournament is not None else None
             latest_wave = latest_tournament.wave if latest_tournament is not None else None
             latest_date = latest_tournament.date if latest_tournament is not None else None
 
             return {
-                'best_wave': best_wave,
-                'position_at_best_wave': position_at_best,
-                'best_date': best_date,
-                'avg_position': round(avg_position, 2),
-                'avg_wave': round(avg_wave, 2),
-                'latest_position': latest_position,
-                'latest_wave': latest_wave,
-                'latest_date': latest_date,
-                'total_tourneys': total_tourneys,
-                'best_position': player_df.position.min(),
-                'max_wave': best_wave,
-                'min_wave': player_df.wave.min(),
-                'tournaments': player_df[['date', 'position', 'wave']].sort_values('date', ascending=False).to_dict('records') if 'date' in player_df.columns else []
+                "best_wave": best_wave,
+                "position_at_best_wave": position_at_best,
+                "best_date": best_date,
+                "avg_position": round(avg_position, 2),
+                "avg_wave": round(avg_wave, 2),
+                "latest_position": latest_position,
+                "latest_wave": latest_wave,
+                "latest_date": latest_date,
+                "total_tourneys": total_tourneys,
+                "best_position": player_df.position.min(),
+                "max_wave": best_wave,
+                "min_wave": player_df.wave.min(),
+                "tournaments": (
+                    player_df[["date", "position", "wave"]].sort_values("date", ascending=False).to_dict("records")
+                    if "date" in player_df.columns
+                    else []
+                ),
             }
 
     async def send_battle_conditions_embed(self, channel, league, tourney_date, battleconditions):
@@ -393,11 +398,7 @@ class TourneyStats(BaseCog, name="Tourney Stats"):
             bool: Whether the message was sent successfully
         """
         try:
-            embed = discord.Embed(
-                title=f"{league} League Battle Conditions",
-                description=f"Tournament on {tourney_date}",
-                color=discord.Color.gold()
-            )
+            embed = discord.Embed(title=f"{league} League Battle Conditions", description=f"Tournament on {tourney_date}", color=discord.Color.gold())
 
             bc_text = "\n".join([f"• {bc}" for bc in battleconditions])
             embed.add_field(name="Predicted Battle Conditions", value=bc_text, inline=False)
@@ -409,20 +410,13 @@ class TourneyStats(BaseCog, name="Tourney Stats"):
             self.logger.error(f"Error sending battle conditions for {league} league: {e}")
             return False
 
-    @commands.group(
-        name="tourney",
-        aliases=["ts"],
-        description="Tournament statistics commands"
-    )
+    @commands.group(name="tourney", aliases=["ts"], description="Tournament statistics commands")
     async def tourney_group(self, ctx):
         """Commands for tournament statistics and analysis."""
         if ctx.invoked_subcommand is None:
             await ctx.send_help(ctx.command)
 
-    @tourney_group.command(
-        name="status",
-        description="Display operational status and statistics"
-    )
+    @tourney_group.command(name="status", description="Display operational status and statistics")
     async def show_status(self, ctx):
         """Display current operational status of the player tournament stats system."""
         # Determine overall status
@@ -439,11 +433,7 @@ class TourneyStats(BaseCog, name="Tourney Stats"):
             status_text = "Operational"
             embed_color = discord.Color.blue()
 
-        embed = discord.Embed(
-            title="Tournament Stats Status",
-            description="Current operational state and statistics",
-            color=embed_color
-        )
+        embed = discord.Embed(title="Tournament Stats Status", description="Current operational state and statistics", color=embed_color)
 
         # Add status information
         status_value = [f"{status_emoji} Status: {status_text}"]
@@ -451,11 +441,7 @@ class TourneyStats(BaseCog, name="Tourney Stats"):
             time_since = self.format_relative_time(self._last_operation)
             status_value.append(f"🕒 Last Operation: {time_since}")
 
-        embed.add_field(
-            name="System State",
-            value="\n".join(status_value),
-            inline=False
-        )
+        embed.add_field(name="System State", value="\n".join(status_value), inline=False)
 
         # Add dependency information
         dependencies = []
@@ -470,11 +456,7 @@ class TourneyStats(BaseCog, name="Tourney Stats"):
         for name, value in settings.items():
             settings_text.append(f"**{name}:** {value}")
 
-        embed.add_field(
-            name="Current Settings",
-            value="\n".join(settings_text),
-            inline=False
-        )
+        embed.add_field(name="Current Settings", value="\n".join(settings_text), inline=False)
 
         # Add process information using the task tracking system
         self.add_task_status_fields(embed)
@@ -483,9 +465,7 @@ class TourneyStats(BaseCog, name="Tourney Stats"):
         if self.league_dfs:
             total_rows = sum(len(df) for df in self.league_dfs.values())
             embed.add_field(
-                name="Cache Statistics",
-                value=f"Loaded {len(self.league_dfs)} leagues with {total_rows} total tournament entries",
-                inline=False
+                name="Cache Statistics", value=f"Loaded {len(self.league_dfs)} leagues with {total_rows} total tournament entries", inline=False
             )
 
         # Add statistics
@@ -495,22 +475,12 @@ class TourneyStats(BaseCog, name="Tourney Stats"):
         if self.last_updated:
             stats_text.append(f"Last data update: {self.format_relative_time(self.last_updated)} ago")
         if stats_text:
-            embed.add_field(
-                name="Statistics",
-                value="\n".join(stats_text),
-                inline=False
-            )
+            embed.add_field(name="Statistics", value="\n".join(stats_text), inline=False)
 
         await ctx.send(embed=embed)
 
-    @tourney_group.command(
-        name="settings",
-        description="Manage tournament stats settings"
-    )
-    @app_commands.describe(
-        setting_name="Setting to change",
-        value="New value for the setting"
-    )
+    @tourney_group.command(name="settings", description="Manage tournament stats settings")
+    @app_commands.describe(setting_name="Setting to change", value="New value for the setting")
     async def settings_command(self, ctx: commands.Context, setting_name: str, value: str) -> None:
         """Change a tournament stats setting.
 
@@ -527,7 +497,7 @@ class TourneyStats(BaseCog, name="Tourney Stats"):
             # Convert value to correct type based on current setting type
             current_value = self.get_setting(setting_name)
             if isinstance(current_value, bool):
-                value = value.lower() in ('true', '1', 'yes')
+                value = value.lower() in ("true", "1", "yes")
             elif isinstance(current_value, int):
                 value = int(value)
             elif isinstance(current_value, float):
@@ -549,10 +519,7 @@ class TourneyStats(BaseCog, name="Tourney Stats"):
             self.logger.error(f"Error changing setting: {e}")
             await ctx.send("An error occurred changing the setting")
 
-    @tourney_group.command(
-        name="pause",
-        description="Pause/unpause tournament data updates"
-    )
+    @tourney_group.command(name="pause", description="Pause/unpause tournament data updates")
     async def pause_command(self, ctx: commands.Context) -> None:
         """Toggle pausing of tournament data updates."""
         # Get current pause state from settings
@@ -563,7 +530,7 @@ class TourneyStats(BaseCog, name="Tourney Stats"):
         self.set_setting("paused", new_state)
 
         # Update periodic task if it exists
-        if hasattr(self, 'periodic_update_check'):
+        if hasattr(self, "periodic_update_check"):
             if new_state:
                 self.periodic_update_check.cancel()
             else:
@@ -572,11 +539,7 @@ class TourneyStats(BaseCog, name="Tourney Stats"):
         await ctx.send(f"✅ Tournament updates {'paused' if new_state else 'resumed'}")
         self.logger.info(f"Update task {'paused' if new_state else 'resumed'} by {ctx.author}")
 
-    @tourney_group.command(
-        name="refresh",
-        aliases=["reload"],
-        description="Refresh tournament data cache"
-    )
+    @tourney_group.command(name="refresh", aliases=["reload"], description="Refresh tournament data cache")
     async def refresh_command(self, ctx: commands.Context) -> None:
         """Refresh tournament data cache."""
         try:
@@ -595,7 +558,7 @@ class TourneyStats(BaseCog, name="Tourney Stats"):
                 embed = discord.Embed(
                     title="Tournament Data Refreshed",
                     description=f"Successfully refreshed tournament data in {duration.total_seconds():.1f} seconds.",
-                    color=discord.Color.green()
+                    color=discord.Color.green(),
                 )
                 embed.add_field(name="Tournament Counts", value=stats)
                 embed.add_field(name="Patch", value=str(self.latest_patch), inline=False)
@@ -626,8 +589,8 @@ class TourneyStats(BaseCog, name="Tourney Stats"):
 
             for league_name, league_stats in stats.items():
                 # Format dates for display
-                best_date = league_stats.get('best_date')
-                latest_date = league_stats.get('latest_date')
+                best_date = league_stats.get("best_date")
+                latest_date = league_stats.get("latest_date")
                 best_date_str = best_date.strftime("%Y-%m-%d") if best_date else "N/A"
                 latest_date_str = latest_date.strftime("%Y-%m-%d") if latest_date else "N/A"
 
@@ -638,12 +601,10 @@ class TourneyStats(BaseCog, name="Tourney Stats"):
                     f"• Average: **{league_stats.get('avg_wave', 'N/A')}**\n"
                     f"• Latest: **{league_stats.get('latest_wave', 'N/A')}** ({latest_date_str})\n"
                     f"• Range: {league_stats.get('min_wave', 'N/A')} - {league_stats.get('max_wave', 'N/A')}\n\n"
-
                     f"**Position Stats:**\n"
                     f"• Best position: **{league_stats.get('best_position', 'N/A')}**\n"
                     f"• Average: **{league_stats.get('avg_position', 'N/A')}**\n"
                     f"• Latest: **{league_stats.get('latest_position', 'N/A')}** ({latest_date_str})\n\n"
-
                     f"**Participation:**\n"
                     f"• Total tournaments: **{league_stats.get('total_tourneys', 'N/A')}**"
                 )
@@ -651,12 +612,12 @@ class TourneyStats(BaseCog, name="Tourney Stats"):
                 embed.add_field(name=f"{league_name.title()} League", value=stat_text, inline=False)
 
                 # Add brief recent history if available
-                tournaments = league_stats.get('tournaments', [])
+                tournaments = league_stats.get("tournaments", [])
                 if tournaments and len(tournaments) > 0:
                     history_text = "**Recent tournaments:**\n"
                     # Show last 3 tournaments
                     for i, t in enumerate(tournaments[:3]):
-                        t_date = t.get('date')
+                        t_date = t.get("date")
                         date_str = t_date.strftime("%Y-%m-%d") if t_date else "N/A"
                         history_text += f"• {date_str}: Wave {t.get('wave')}, Position {t.get('position')}\n"
 
@@ -681,19 +642,16 @@ class TourneyStats(BaseCog, name="Tourney Stats"):
 
             leagues_to_show = [league_name] if league_name else dfs.keys()
 
-            embed = discord.Embed(
-                title="Tournament League Summary",
-                color=discord.Color.blue()
-            )
+            embed = discord.Embed(title="Tournament League Summary", color=discord.Color.blue())
 
             for league in leagues_to_show:
                 df = dfs[league.capitalize()]
 
                 # Calculate league statistics
-                total_players = df['id'].nunique()
+                total_players = df["id"].nunique()
                 total_tournaments = self.tournament_counts.get(league, 0)
-                avg_wave = round(df['wave'].mean(), 2)
-                max_wave = df['wave'].max()
+                avg_wave = round(df["wave"].mean(), 2)
+                max_wave = df["wave"].max()
 
                 stats = (
                     f"**Players:** {total_players}\n"
@@ -732,31 +690,27 @@ class TourneyStats(BaseCog, name="Tourney Stats"):
             # Get the highest wave for each player
             if league.lower() == "legend":
                 # For legend league, lower position is better
-                best_players = df.sort_values('position').drop_duplicates('id').head(count)
+                best_players = df.sort_values("position").drop_duplicates("id").head(count)
                 ranking_metric = "position"
             else:
                 # For other leagues, higher wave is better
-                best_players = df.sort_values('wave', ascending=False).drop_duplicates('id').head(count)
+                best_players = df.sort_values("wave", ascending=False).drop_duplicates("id").head(count)
                 ranking_metric = "wave"
 
             embed = discord.Embed(
                 title=f"Top Players in {league.title()} League",
                 description=f"By {'position' if ranking_metric == 'position' else 'highest wave'}",
-                color=discord.Color.gold()
+                color=discord.Color.gold(),
             )
 
             for i, (_, player) in enumerate(best_players.iterrows(), 1):
                 player_name = f"Player {player['id']}"
                 value = f"{'Position' if ranking_metric == 'position' else 'Wave'}: **{player[ranking_metric]}**"
 
-                if 'date' in player and player['date']:
+                if "date" in player and player["date"]:
                     value += f" (on {player['date'].strftime('%Y-%m-%d')})"
 
-                embed.add_field(
-                    name=f"#{i}: {player_name}",
-                    value=value,
-                    inline=False
-                )
+                embed.add_field(name=f"#{i}: {player_name}", value=value, inline=False)
 
         await ctx.send(embed=embed)
 
@@ -804,21 +758,18 @@ class TourneyStats(BaseCog, name="Tourney Stats"):
             if not comparison_data:
                 return await ctx.send("No valid players to compare")
 
-            embed = discord.Embed(
-                title=f"Player Comparison - {league.title()} League",
-                color=discord.Color.blue()
-            )
+            embed = discord.Embed(title=f"Player Comparison - {league.title()} League", color=discord.Color.blue())
 
             # Add comparison fields for key stats
             for stat_name, display_name in [
-                ('best_wave', 'Best Wave'),
-                ('avg_wave', 'Avg Wave'),
-                ('best_position', 'Best Position'),
-                ('total_tourneys', 'Tournaments')
+                ("best_wave", "Best Wave"),
+                ("avg_wave", "Avg Wave"),
+                ("best_position", "Best Position"),
+                ("total_tourneys", "Tournaments"),
             ]:
                 values = []
                 for player_id, stats in comparison_data:
-                    stat_value = stats.get(stat_name, 'N/A')
+                    stat_value = stats.get(stat_name, "N/A")
                     values.append(f"{player_id}: **{stat_value}**")
 
                 embed.add_field(name=display_name, value="\n".join(values), inline=True)
@@ -849,7 +800,7 @@ class TourneyStats(BaseCog, name="Tourney Stats"):
                 "Tracks and analyzes tournament performance across all leagues. "
                 "Provides detailed statistics for player achievements and tournament history."
             ),
-            color=embed_color
+            color=embed_color,
         )
 
         # Add status and data freshness
@@ -857,11 +808,7 @@ class TourneyStats(BaseCog, name="Tourney Stats"):
         if self.last_updated:
             time_since_update = self.format_relative_time(self.last_updated)
             status_value.append(f"📅 Last Data Update: {time_since_update} ago")
-        embed.add_field(
-            name="System Status",
-            value="\n".join(status_value),
-            inline=False
-        )
+        embed.add_field(name="System Status", value="\n".join(status_value), inline=False)
 
         # Add data coverage
         coverage = []
@@ -871,11 +818,7 @@ class TourneyStats(BaseCog, name="Tourney Stats"):
                 coverage.append(f"• {league}: {tournament_count} tournaments")
 
         if coverage:
-            embed.add_field(
-                name="Data Coverage",
-                value="\n".join(coverage),
-                inline=False
-            )
+            embed.add_field(name="Data Coverage", value="\n".join(coverage), inline=False)
 
         # Add statistics
         stats = []
@@ -885,11 +828,7 @@ class TourneyStats(BaseCog, name="Tourney Stats"):
             for league, count in self.tournament_counts.items():
                 stats.append(f"• {league}: {count} tracked")
 
-        embed.add_field(
-            name="Statistics",
-            value="\n".join(stats),
-            inline=False
-        )
+        embed.add_field(name="Statistics", value="\n".join(stats), inline=False)
 
         # Add usage hint in footer
         embed.set_footer(text="Use /tourney help for detailed command information")
@@ -899,7 +838,7 @@ class TourneyStats(BaseCog, name="Tourney Stats"):
     async def cog_unload(self):
         """Called when the cog is unloaded."""
         # Cancel the update task
-        if hasattr(self, 'periodic_update_check') and self.periodic_update_check.is_running():
+        if hasattr(self, "periodic_update_check") and self.periodic_update_check.is_running():
             self.periodic_update_check.cancel()
 
         # Save data when unloaded using super's implementation which handles
@@ -911,4 +850,3 @@ class TourneyStats(BaseCog, name="Tourney Stats"):
 
 async def setup(bot) -> None:
     await bot.add_cog(TourneyStats(bot))
-

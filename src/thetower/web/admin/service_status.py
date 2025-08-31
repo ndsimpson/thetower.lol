@@ -15,7 +15,7 @@ import streamlit as st
 
 def is_windows() -> bool:
     """Check if running on Windows."""
-    return platform.system().lower() == 'windows'
+    return platform.system().lower() == "windows"
 
 
 def get_service_status(service_name: str) -> Tuple[str, str, str]:
@@ -27,40 +27,28 @@ def get_service_status(service_name: str) -> Tuple[str, str, str]:
     """
     if is_windows():
         # On Windows, return mock status for development
-        return ('not-available', 'unknown', 'windows-dev')
+        return ("not-available", "unknown", "windows-dev")
 
     try:
         # Get service status
-        result = subprocess.run(
-            ["systemctl", "is-active", service_name],
-            capture_output=True,
-            text=True,
-            timeout=5
-        )
+        result = subprocess.run(["systemctl", "is-active", service_name], capture_output=True, text=True, timeout=5)
         active_state = result.stdout.strip()
 
         # Get more detailed status
         result = subprocess.run(
-            ["systemctl", "show", service_name, "--property=SubState,ActiveState,LoadState"],
-            capture_output=True,
-            text=True,
-            timeout=5
+            ["systemctl", "show", service_name, "--property=SubState,ActiveState,LoadState"], capture_output=True, text=True, timeout=5
         )
 
         properties = {}
-        for line in result.stdout.strip().split('\n'):
-            if '=' in line:
-                key, value = line.split('=', 1)
+        for line in result.stdout.strip().split("\n"):
+            if "=" in line:
+                key, value = line.split("=", 1)
                 properties[key] = value
 
-        return (
-            properties.get('LoadState', 'unknown'),
-            properties.get('ActiveState', active_state),
-            properties.get('SubState', 'unknown')
-        )
+        return (properties.get("LoadState", "unknown"), properties.get("ActiveState", active_state), properties.get("SubState", "unknown"))
 
     except (subprocess.TimeoutExpired, subprocess.CalledProcessError, FileNotFoundError):
-        return ('not-found', 'inactive', 'dead')
+        return ("not-found", "inactive", "dead")
 
 
 def get_service_start_time(service_name: str) -> Optional[str]:
@@ -76,30 +64,25 @@ def get_service_start_time(service_name: str) -> Optional[str]:
 
     try:
         # Get service start time using systemctl show
-        result = subprocess.run(
-            ["systemctl", "show", service_name, "--property=ActiveEnterTimestamp"],
-            capture_output=True,
-            text=True,
-            timeout=5
-        )
+        result = subprocess.run(["systemctl", "show", service_name, "--property=ActiveEnterTimestamp"], capture_output=True, text=True, timeout=5)
 
-        for line in result.stdout.strip().split('\n'):
-            if line.startswith('ActiveEnterTimestamp='):
-                timestamp_str = line.split('=', 1)[1].strip()
+        for line in result.stdout.strip().split("\n"):
+            if line.startswith("ActiveEnterTimestamp="):
+                timestamp_str = line.split("=", 1)[1].strip()
 
                 # Handle empty timestamp (service never started)
-                if not timestamp_str or timestamp_str == 'n/a':
+                if not timestamp_str or timestamp_str == "n/a":
                     return "Never Started"
 
                 # Parse the timestamp
                 # systemctl returns timestamps in format: "Tue 2024-08-20 14:30:15 UTC"
                 try:
                     # Remove day of week if present
-                    if timestamp_str.startswith(('Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun')):
-                        timestamp_str = ' '.join(timestamp_str.split()[1:])
+                    if timestamp_str.startswith(("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")):
+                        timestamp_str = " ".join(timestamp_str.split()[1:])
 
                     # Parse the datetime
-                    dt = datetime.strptime(timestamp_str, '%Y-%m-%d %H:%M:%S %Z')
+                    dt = datetime.strptime(timestamp_str, "%Y-%m-%d %H:%M:%S %Z")
 
                     # Calculate how long ago this was
                     now = datetime.utcnow()
@@ -117,7 +100,7 @@ def get_service_start_time(service_name: str) -> Optional[str]:
                         time_ago = "Just now"
 
                     # Format the display string
-                    formatted_time = dt.strftime('%Y-%m-%d %H:%M:%S UTC')
+                    formatted_time = dt.strftime("%Y-%m-%d %H:%M:%S UTC")
                     return f"{formatted_time}\n({time_ago})"
 
                 except ValueError:
@@ -132,38 +115,38 @@ def get_service_start_time(service_name: str) -> Optional[str]:
 
 def get_status_color(active_state: str, sub_state: str) -> str:
     """Get the appropriate color for service status."""
-    if active_state == 'active' and sub_state == 'running':
-        return 'green'
-    elif active_state == 'active':
-        return 'orange'
-    elif active_state == 'inactive':
-        return 'gray'
-    elif active_state == 'failed':
-        return 'red'
+    if active_state == "active" and sub_state == "running":
+        return "green"
+    elif active_state == "active":
+        return "orange"
+    elif active_state == "inactive":
+        return "gray"
+    elif active_state == "failed":
+        return "red"
     else:
-        return 'yellow'
+        return "yellow"
 
 
-def get_status_emoji(active_state: str, sub_state: str, load_state: str = 'loaded') -> str:
+def get_status_emoji(active_state: str, sub_state: str, load_state: str = "loaded") -> str:
     """Get the appropriate emoji for service status."""
-    if is_windows() and sub_state == 'windows-dev':
-        return '🖥️'
-    elif load_state == 'not-found':
-        return '❌'
-    elif load_state == 'masked':
-        return '🚫'
-    elif load_state != 'loaded':
-        return '⚠️'
-    elif active_state == 'active' and sub_state == 'running':
-        return '🟢'
-    elif active_state == 'active':
-        return '🟡'
-    elif active_state == 'inactive':
-        return '⚪'
-    elif active_state == 'failed':
-        return '🔴'
+    if is_windows() and sub_state == "windows-dev":
+        return "🖥️"
+    elif load_state == "not-found":
+        return "❌"
+    elif load_state == "masked":
+        return "🚫"
+    elif load_state != "loaded":
+        return "⚠️"
+    elif active_state == "active" and sub_state == "running":
+        return "🟢"
+    elif active_state == "active":
+        return "🟡"
+    elif active_state == "inactive":
+        return "⚪"
+    elif active_state == "failed":
+        return "🔴"
     else:
-        return '🟡'
+        return "🟡"
 
 
 def restart_service(service_name: str) -> bool:
@@ -178,12 +161,7 @@ def restart_service(service_name: str) -> bool:
         return True
 
     try:
-        result = subprocess.run(
-            ["systemctl", "restart", service_name],
-            capture_output=True,
-            text=True,
-            timeout=30
-        )
+        result = subprocess.run(["systemctl", "restart", service_name], capture_output=True, text=True, timeout=30)
         return result.returncode == 0
     except (subprocess.TimeoutExpired, subprocess.CalledProcessError):
         return False
@@ -201,12 +179,7 @@ def start_service(service_name: str) -> bool:
         return True
 
     try:
-        result = subprocess.run(
-            ["systemctl", "start", service_name],
-            capture_output=True,
-            text=True,
-            timeout=30
-        )
+        result = subprocess.run(["systemctl", "start", service_name], capture_output=True, text=True, timeout=30)
         return result.returncode == 0
     except (subprocess.TimeoutExpired, subprocess.CalledProcessError):
         return False
@@ -223,52 +196,54 @@ def service_status_page():
         st.markdown("Monitor and manage Tower system services")
 
     # Warning about restarting services
-    st.warning("⚠️ **Important**: Do not restart services without talking to **thedisasterfish** first! Service restarts can affect live users and ongoing tournaments.")
+    st.warning(
+        "⚠️ **Important**: Do not restart services without talking to **thedisasterfish** first! Service restarts can affect live users and ongoing tournaments."
+    )
 
     # Define services to monitor (from admin.py restart actions)
     services = {
-        'tower-public_site': {
-            'name': 'Public Site',
-            'description': 'Main public website (thetower.lol)',
-            'service': 'tower-public_site',
-            'restart_allowed': True
+        "tower-public_site": {
+            "name": "Public Site",
+            "description": "Main public website (thetower.lol)",
+            "service": "tower-public_site",
+            "restart_allowed": True,
         },
-        'tower-hidden_site': {
-            'name': 'Hidden Site',
-            'description': 'Internal analytics site (hidden.thetower.lol)',
-            'service': 'tower-hidden_site',
-            'restart_allowed': True
+        "tower-hidden_site": {
+            "name": "Hidden Site",
+            "description": "Internal analytics site (hidden.thetower.lol)",
+            "service": "tower-hidden_site",
+            "restart_allowed": True,
         },
-        'tower-admin_site': {
-            'name': 'Admin Site',
-            'description': 'Admin interface (admin.thetower.lol)',
-            'service': 'tower-admin_site',
-            'restart_allowed': True
+        "tower-admin_site": {
+            "name": "Admin Site",
+            "description": "Admin interface (admin.thetower.lol)",
+            "service": "tower-admin_site",
+            "restart_allowed": True,
         },
-        'discord_bot': {
-            'name': 'TheTower Bot',
-            'description': 'Discord bot for game interactions',
-            'service': 'discord_bot',
-            'restart_allowed': True
+        "discord_bot": {
+            "name": "TheTower Bot",
+            "description": "Discord bot for game interactions",
+            "service": "discord_bot",
+            "restart_allowed": True,
         },
-        'import_results': {
-            'name': 'Import Results',
-            'description': 'Service that imports tournament results (start-only)',
-            'service': 'import_results',
-            'restart_allowed': False
+        "import_results": {
+            "name": "Import Results",
+            "description": "Service that imports tournament results (start-only)",
+            "service": "import_results",
+            "restart_allowed": False,
         },
-        'get_results': {
-            'name': 'Get Results',
-            'description': 'Service that fetches tournament data (start-only)',
-            'service': 'get_results',
-            'restart_allowed': False
+        "get_results": {
+            "name": "Get Results",
+            "description": "Service that fetches tournament data (start-only)",
+            "service": "get_results",
+            "restart_allowed": False,
         },
-        'tower-recalc_worker': {
-            'name': 'Recalc Worker',
-            'description': 'Background tournament recalculation queue worker',
-            'service': 'tower-recalc_worker',
-            'restart_allowed': True
-        }
+        "tower-recalc_worker": {
+            "name": "Recalc Worker",
+            "description": "Background tournament recalculation queue worker",
+            "service": "tower-recalc_worker",
+            "restart_allowed": True,
+        },
     }
 
     # Refresh controls
@@ -277,7 +252,7 @@ def service_status_page():
         if st.button("🔄 Refresh Now"):
             st.rerun()
     with col2:
-        utc_time = datetime.utcnow().strftime('%H:%M:%S')
+        utc_time = datetime.utcnow().strftime("%H:%M:%S")
         st.markdown(f"*Last updated: {utc_time} UTC*")
 
     st.markdown("---")
@@ -288,31 +263,31 @@ def service_status_page():
             col1, col2, col3, col4 = st.columns([3, 2, 2.5, 1])
 
             # Get service status and start time
-            load_state, active_state, sub_state = get_service_status(config['service'])
+            load_state, active_state, sub_state = get_service_status(config["service"])
             status_emoji = get_status_emoji(active_state, sub_state, load_state)
-            start_time = get_service_start_time(config['service'])
+            start_time = get_service_start_time(config["service"])
 
             with col1:
                 st.markdown(f"**{status_emoji} {config['name']}**")
-                st.caption(config['description'])
+                st.caption(config["description"])
 
             with col2:
                 # Combined status that includes both active state and load state issues
-                if is_windows() and sub_state == 'windows-dev':
+                if is_windows() and sub_state == "windows-dev":
                     st.info("Development Mode")
-                elif load_state == 'not-found':
+                elif load_state == "not-found":
                     st.error("Not Found")
-                elif load_state == 'masked':
+                elif load_state == "masked":
                     st.warning("Disabled/Masked")
-                elif load_state != 'loaded':
+                elif load_state != "loaded":
                     st.error(f"Error ({load_state})")
-                elif active_state == 'active' and sub_state == 'running':
+                elif active_state == "active" and sub_state == "running":
                     st.success("Running")
-                elif active_state == 'active':
+                elif active_state == "active":
                     st.warning(f"Active ({sub_state})")
-                elif active_state == 'failed':
+                elif active_state == "failed":
                     st.error("Failed")
-                elif active_state == 'inactive':
+                elif active_state == "inactive":
                     st.info("Stopped")
                 else:
                     st.warning(f"Unknown ({active_state})")
@@ -328,10 +303,10 @@ def service_status_page():
                         st.markdown("❓ *Unknown*")
                     else:
                         # Show formatted time with tooltip
-                        if '\n' in start_time:
-                            time_parts = start_time.split('\n')
+                        if "\n" in start_time:
+                            time_parts = start_time.split("\n")
                             full_time = time_parts[0]
-                            time_ago = time_parts[1].strip('()')
+                            time_ago = time_parts[1].strip("()")
                             st.markdown(f"🕐 **{time_ago}**")
                             st.caption(full_time)
                         else:
@@ -341,13 +316,13 @@ def service_status_page():
 
             with col4:
                 # Action button logic
-                if load_state == 'loaded' or is_windows():
-                    restart_allowed = config.get('restart_allowed', True)
+                if load_state == "loaded" or is_windows():
+                    restart_allowed = config.get("restart_allowed", True)
 
                     # Determine button state and text
                     if not restart_allowed:
                         # Start-only services (import_results, get_results)
-                        if is_windows() or (active_state != 'active' or sub_state != 'running'):
+                        if is_windows() or (active_state != "active" or sub_state != "running"):
                             # Show start button if stopped or in dev mode
                             button_icon = "▶️"
                             button_help = f"Start {config['name']}" if not is_windows() else f"Simulate start {config['name']} (dev mode)"
@@ -370,17 +345,18 @@ def service_status_page():
                             with st.spinner(f"{action_word} {config['name']}..."):
                                 # Use appropriate service function
                                 if action_text == "start":
-                                    success = start_service(config['service'])
+                                    success = start_service(config["service"])
                                 else:
-                                    success = restart_service(config['service'])
+                                    success = restart_service(config["service"])
 
                                 if success:
-                                    past_tense = f"{action_text}ed" if action_text.endswith('t') else f"{action_text}ed"
+                                    past_tense = f"{action_text}ed" if action_text.endswith("t") else f"{action_text}ed"
                                     sim_text = f" ({action_text} simulated)" if is_windows() else f" {past_tense}"
                                     msg = f"✅ {config['name']}{sim_text} successfully!"
                                     st.success(msg)
                                     # Small delay to let service start, then refresh
                                     import time
+
                                     time.sleep(1 if is_windows() else 2)
                                     st.rerun()
                                 else:
@@ -393,37 +369,37 @@ def service_status_page():
 
     # Count services by status
     if is_windows():
-        status_counts = {'dev_mode': len(services), 'running': 0, 'stopped': 0, 'failed': 0, 'other': 0}
+        status_counts = {"dev_mode": len(services), "running": 0, "stopped": 0, "failed": 0, "other": 0}
     else:
-        status_counts = {'running': 0, 'stopped': 0, 'failed': 0, 'other': 0}
+        status_counts = {"running": 0, "stopped": 0, "failed": 0, "other": 0}
 
         for service_id, config in services.items():
-            load_state, active_state, sub_state = get_service_status(config['service'])
-            if active_state == 'active' and sub_state == 'running':
-                status_counts['running'] += 1
-            elif active_state == 'inactive':
-                status_counts['stopped'] += 1
-            elif active_state == 'failed':
-                status_counts['failed'] += 1
+            load_state, active_state, sub_state = get_service_status(config["service"])
+            if active_state == "active" and sub_state == "running":
+                status_counts["running"] += 1
+            elif active_state == "inactive":
+                status_counts["stopped"] += 1
+            elif active_state == "failed":
+                status_counts["failed"] += 1
             else:
-                status_counts['other'] += 1
+                status_counts["other"] += 1
 
     if is_windows():
         col1, col2 = st.columns(2)
         with col1:
-            st.metric("🖥️ Dev Mode", status_counts['dev_mode'])
+            st.metric("🖥️ Dev Mode", status_counts["dev_mode"])
         with col2:
             st.info("Service monitoring available in Linux production environment")
     else:
         col1, col2, col3, col4 = st.columns(4)
         with col1:
-            st.metric("🟢 Running", status_counts['running'])
+            st.metric("🟢 Running", status_counts["running"])
         with col2:
-            st.metric("⚪ Stopped", status_counts['stopped'])
+            st.metric("⚪ Stopped", status_counts["stopped"])
         with col3:
-            st.metric("🔴 Failed", status_counts['failed'])
+            st.metric("🔴 Failed", status_counts["failed"])
         with col4:
-            st.metric("🟡 Other", status_counts['other'])
+            st.metric("🟡 Other", status_counts["other"])
 
     # Queue status (if recalc worker exists)
     st.markdown("### 🔄 Queue Status")
@@ -433,7 +409,7 @@ def service_status_page():
         import sys
 
         # Add Django project to path
-        django_path = os.path.join(os.path.dirname(__file__), '..', '..', 'backend')
+        django_path = os.path.join(os.path.dirname(__file__), "..", "..", "backend")
         if django_path not in sys.path:
             sys.path.insert(0, django_path)
 
@@ -441,6 +417,7 @@ def service_status_page():
         try:
             os.environ.setdefault("DJANGO_SETTINGS_MODULE", "thetower.backend.towerdb.settings")
             import django
+
             django.setup()
 
             from datetime import timedelta
@@ -451,16 +428,11 @@ def service_status_page():
 
             # Get queue statistics
             pending_count = TourneyResult.objects.filter(needs_recalc=True).count()
-            failed_count = TourneyResult.objects.filter(
-                needs_recalc=True,
-                recalc_retry_count__gte=3
-            ).count()
+            failed_count = TourneyResult.objects.filter(needs_recalc=True, recalc_retry_count__gte=3).count()
 
             # Get recent processing stats (last 24h)
             yesterday = timezone.now() - timedelta(days=1)
-            recent_processed = TourneyResult.objects.filter(
-                last_recalc_at__gte=yesterday
-            ).count()
+            recent_processed = TourneyResult.objects.filter(last_recalc_at__gte=yesterday).count()
 
             col1, col2, col3 = st.columns(3)
             with col1:
@@ -478,7 +450,8 @@ def service_status_page():
 
     # Instructions
     with st.expander("ℹ️ About Service Status"):
-        st.markdown("""
+        st.markdown(
+            """
         **Service Status:**
         - 🟢 **Running**: Service is active and working normally
         - ⚪ **Stopped**: Service is inactive but ready to start
@@ -510,7 +483,8 @@ def service_status_page():
         **Development Note:**
         - On Windows: Service status and start times are simulated for development purposes
         - On Linux: Actual systemctl service status and timestamps are displayed
-        """)
+        """
+        )
 
 
 if __name__ == "__main__":

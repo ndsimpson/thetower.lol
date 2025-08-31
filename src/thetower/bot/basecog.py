@@ -70,7 +70,7 @@ class BaseCog(commands.Cog):
 
         # Register for the reconnect event to clear the guild cache
         self.logger.debug(f"Registering listeners for {self.__class__.__name__}")
-        self.bot.add_listener(self.on_reconnect, 'on_resumed')
+        self.bot.add_listener(self.on_reconnect, "on_resumed")
 
         # Manually call _initialize_cog if bot is already ready
         if self.bot.is_ready():
@@ -78,7 +78,7 @@ class BaseCog(commands.Cog):
             self.bot.loop.create_task(self._initialize_cog())
         else:
             # Otherwise register for the ready event
-            self.bot.add_listener(self._on_ready, 'on_ready')
+            self.bot.add_listener(self._on_ready, "on_ready")
 
         self.logger.debug(f"Registered listeners for {self.__class__.__name__}")
 
@@ -123,51 +123,36 @@ class BaseCog(commands.Cog):
         if active_tasks:
             active_tasks_text = []
             for name, info in active_tasks.items():
-                elapsed = self.format_relative_time(info['start_time'])
+                elapsed = self.format_relative_time(info["start_time"])
                 active_tasks_text.append(f"🔄 **{name}**: {info['status']} (started {elapsed} ago)")
 
             if active_tasks_text:
-                embed.add_field(
-                    name="Active Processes",
-                    value="\n".join(active_tasks_text),
-                    inline=False
-                )
+                embed.add_field(name="Active Processes", value="\n".join(active_tasks_text), inline=False)
 
         # Add recent task activity
         report = self.task_tracker.get_status_report()
-        recent_activity = report.get('recent_activity', {})
+        recent_activity = report.get("recent_activity", {})
         if recent_activity:
             for name, info in recent_activity.items():
-                time_ago = self.format_relative_time(info['time'])
-                status = "✅ Succeeded" if info['success'] else f"❌ Failed: {info['status']}"
-                duration = self.task_tracker.format_task_time(info['execution_time'])
+                time_ago = self.format_relative_time(info["time"])
+                status = "✅ Succeeded" if info["success"] else f"❌ Failed: {info['status']}"
+                duration = self.task_tracker.format_task_time(info["execution_time"])
 
-                embed.add_field(
-                    name="Last Activity",
-                    value=f"**{name}**: {status} ({time_ago} ago, took {duration})",
-                    inline=False
-                )
+                embed.add_field(name="Last Activity", value=f"**{name}**: {status} ({time_ago} ago, took {duration})", inline=False)
                 break  # Just show the first recent activity
 
         # Add task statistics
-        statistics = report.get('statistics', {})
+        statistics = report.get("statistics", {})
         if statistics:
             stats_text = []
             for name, stats in statistics.items():
-                if stats.get('total', 0) > 0:
-                    success_rate = (stats.get('success', 0) / stats.get('total', 1)) * 100
-                    avg_time = self.task_tracker.format_task_time(stats.get('avg_time', 0))
-                    stats_text.append(
-                        f"**{name}**: {stats.get('total', 0)} runs, "
-                        f"{success_rate:.1f}% success, avg {avg_time}"
-                    )
+                if stats.get("total", 0) > 0:
+                    success_rate = (stats.get("success", 0) / stats.get("total", 1)) * 100
+                    avg_time = self.task_tracker.format_task_time(stats.get("avg_time", 0))
+                    stats_text.append(f"**{name}**: {stats.get('total', 0)} runs, " f"{success_rate:.1f}% success, avg {avg_time}")
 
             if stats_text:
-                embed.add_field(
-                    name="Task Statistics",
-                    value="\n".join(stats_text[:3]),  # Limit to 3 for readability
-                    inline=False
-                )
+                embed.add_field(name="Task Statistics", value="\n".join(stats_text[:3]), inline=False)  # Limit to 3 for readability
 
     async def _on_ready(self):
         """Internal handler for bot ready event."""
@@ -180,7 +165,7 @@ class BaseCog(commands.Cog):
         self.logger.debug(f"Starting _initialize_cog for {self.__class__.__name__}")
         try:
             # Call the cog-specific initialization if it exists
-            if hasattr(self, 'cog_initialize') and callable(self.cog_initialize):
+            if hasattr(self, "cog_initialize") and callable(self.cog_initialize):
                 self.logger.debug(f"Calling cog_initialize for {self.__class__.__name__}")
                 await self.cog_initialize()
                 self.logger.debug(f"Completed cog_initialize for {self.__class__.__name__}")
@@ -279,8 +264,7 @@ class BaseCog(commands.Cog):
                     del kwargs["aliases"]
 
                 # Register with the app command tree
-                self.bot.tree.command(name=command_name, **kwargs)(
-                    command._flex_command_func)
+                self.bot.tree.command(name=command_name, **kwargs)(command._flex_command_func)
 
             elif command_type == "both":
                 # Ensure it exists as both types
@@ -293,8 +277,7 @@ class BaseCog(commands.Cog):
                     slash_kwargs = kwargs
 
                 # Register with the app command tree if not already
-                self.bot.tree.command(name=command_name, **slash_kwargs)(
-                    command._flex_command_func)
+                self.bot.tree.command(name=command_name, **slash_kwargs)(command._flex_command_func)
 
             elif command_type == "none":
                 # Remove from both systems
@@ -363,7 +346,7 @@ class BaseCog(commands.Cog):
             return False
 
         # Skip permission checks for help command
-        if ctx.command.name == 'help':
+        if ctx.command.name == "help":
             return True
 
         # Get the full command name for subcommands
@@ -387,15 +370,12 @@ class BaseCog(commands.Cog):
         # Create a mock context for permission manager
         # Include parent attribute to match expected command structure
         ctx = SimpleNamespace(
-            command=SimpleNamespace(
-                name=interaction.command.name,
-                parent=getattr(interaction.command, 'parent', None)
-            ),
+            command=SimpleNamespace(name=interaction.command.name, parent=getattr(interaction.command, "parent", None)),
             bot=interaction.client,
             guild=interaction.guild,
             channel=interaction.channel,
             author=interaction.user,
-            message=SimpleNamespace(channel_mentions=[])
+            message=SimpleNamespace(channel_mentions=[]),
         )
 
         try:
@@ -404,15 +384,9 @@ class BaseCog(commands.Cog):
         except (UserUnauthorized, ChannelUnauthorized) as e:
             # Send error message as ephemeral response
             if isinstance(e, UserUnauthorized):
-                await interaction.response.send_message(
-                    "❌ You don't have permission to use this command.",
-                    ephemeral=True
-                )
+                await interaction.response.send_message("❌ You don't have permission to use this command.", ephemeral=True)
             elif isinstance(e, ChannelUnauthorized):
-                await interaction.response.send_message(
-                    "❌ This command cannot be used in this channel.",
-                    ephemeral=True
-                )
+                await interaction.response.send_message("❌ This command cannot be used in this channel.", ephemeral=True)
             return False
 
     def reload_permissions(self) -> None:
@@ -567,6 +541,7 @@ class BaseCog(commands.Cog):
         Returns:
             asyncio.Task: The created task
         """
+
         async def periodic_save():
             await self.bot.wait_until_ready()
             while not self.bot.is_closed():
@@ -667,6 +642,7 @@ class BaseCog(commands.Cog):
         Returns:
             Dict of validator functions for time settings
         """
+
         def time_validator(value):
             if not isinstance(value, (int, float)):
                 return "Value must be a number"
@@ -675,8 +651,9 @@ class BaseCog(commands.Cog):
             return True
 
         return {
-            name: time_validator for name in self.get_all_settings().keys()
-            if name.endswith(('_interval', '_threshold', '_timeout', '_delay', '_duration'))
+            name: time_validator
+            for name in self.get_all_settings().keys()
+            if name.endswith(("_interval", "_threshold", "_timeout", "_delay", "_duration"))
         }
 
     def format_time_value(self, seconds: int) -> str:
@@ -709,7 +686,7 @@ class BaseCog(commands.Cog):
         now = datetime.datetime.now()
 
         # Handle timezone-aware timestamps
-        if hasattr(timestamp, 'tzinfo') and timestamp.tzinfo:
+        if hasattr(timestamp, "tzinfo") and timestamp.tzinfo:
             if not now.tzinfo:
                 now = now.replace(tzinfo=datetime.timezone.utc)
 
@@ -742,16 +719,11 @@ class BaseCog(commands.Cog):
             self.logger.warning(f"Cog {self.__class__.__name__} has unsaved data on unload")
 
         # Call parent implementation if it exists
-        if hasattr(super(), 'cog_unload'):
+        if hasattr(super(), "cog_unload"):
             await super().cog_unload()
 
     async def _handle_toggle(
-        self,
-        ctx: commands.Context,
-        setting_name: str,
-        value: Optional[bool] = None,
-        *,
-        description: Optional[str] = None
+        self, ctx: commands.Context, setting_name: str, value: Optional[bool] = None, *, description: Optional[str] = None
     ) -> None:
         """Handle toggling a boolean setting.
 
@@ -774,7 +746,7 @@ class BaseCog(commands.Cog):
         self.set_setting(setting_name, new_value)
 
         # Format the setting name for display
-        display_name = description or setting_name.replace('_', ' ').title()
+        display_name = description or setting_name.replace("_", " ").title()
 
         emoji = "✅" if new_value else "❌"
         await ctx.send(f"{emoji} {display_name} is now {'enabled' if new_value else 'disabled'}")
@@ -786,11 +758,7 @@ class BaseCog(commands.Cog):
         self.mark_data_modified()
 
     async def _handle_pause(
-        self,
-        ctx: Union[commands.Context, discord.Interaction],
-        state: Optional[bool] = None,
-        *,
-        description: Optional[str] = None
+        self, ctx: Union[commands.Context, discord.Interaction], state: Optional[bool] = None, *, description: Optional[str] = None
     ) -> None:
         """Handle pausing/unpausing cog operations.
 
@@ -822,8 +790,7 @@ class BaseCog(commands.Cog):
 
             # Log the change
             self.logger.info(
-                f"{self.__class__.__name__} {'paused' if new_state else 'resumed'} "
-                f"by {ctx.author if hasattr(ctx, 'author') else ctx.user}"
+                f"{self.__class__.__name__} {'paused' if new_state else 'resumed'} " f"by {ctx.author if hasattr(ctx, 'author') else ctx.user}"
             )
 
     def create_pause_commands(self, group_command) -> None:

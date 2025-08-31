@@ -16,7 +16,7 @@ class ChannelUnauthorized(commands.CommandError):
     def __init__(self, channel: TextChannel, message: Optional[str] = None) -> None:
         self.channel = channel
         # Handle case where channel attributes might be inaccessible
-        channel_name = getattr(channel, 'name', 'Unknown')
+        channel_name = getattr(channel, "name", "Unknown")
         self.message = message or f"Channel {channel_name} (ID: {channel.id}) is not authorized"
         super().__init__(self.message)
 
@@ -36,7 +36,7 @@ class UserUnauthorized(commands.CommandError):
     def __init__(self, user: Union[Member, User], message: Optional[str] = None) -> None:
         self.user = user
         # Handle users without discriminator (Discord change)
-        display_name = getattr(user, 'global_name', None) or user.name
+        display_name = getattr(user, "global_name", None) or user.name
         self.message = message or f"User {display_name} (ID: {user.id}) is not authorized"
         super().__init__(self.message)
 

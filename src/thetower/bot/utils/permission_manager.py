@@ -68,10 +68,10 @@ class PermissionManager:
             The primary command name
         """
         # Get the bot instance
-        bot = ctx_or_bot.bot if hasattr(ctx_or_bot, 'bot') else ctx_or_bot
+        bot = ctx_or_bot.bot if hasattr(ctx_or_bot, "bot") else ctx_or_bot
 
         # If no command_name provided and we have a context, use context's command
-        if command_name is None and hasattr(ctx_or_bot, 'command'):
+        if command_name is None and hasattr(ctx_or_bot, "command"):
             return ctx_or_bot.command.name
 
         # Try to get the command
@@ -102,7 +102,7 @@ class PermissionManager:
         if not command_name:
             # Use the same logic as BaseCog.get_command_name to get full command path
             cmd = ctx.command
-            parent = getattr(cmd, 'parent', None)
+            parent = getattr(cmd, "parent", None)
             if parent is None:
                 command_name = cmd.name
             else:
@@ -112,7 +112,7 @@ class PermissionManager:
         primary_name = self._get_primary_command_name(ctx, command_name)
 
         # Always allow the help command
-        if primary_name == 'help':
+        if primary_name == "help":
             return True
 
         # Always allow DMs from bot owner
@@ -128,8 +128,7 @@ class PermissionManager:
             if not channel_config.get("public", False):
                 if str(ctx.author.id) not in channel_config.get("authorized_users", []):
                     logger.warning(
-                        f"Command '{primary_name}' blocked - unauthorized user in wildcard channel. "
-                        f"User: {ctx.author} (ID: {ctx.author.id})"
+                        f"Command '{primary_name}' blocked - unauthorized user in wildcard channel. " f"User: {ctx.author} (ID: {ctx.author.id})"
                     )
                     raise UserUnauthorized(ctx.author)
             return True
@@ -142,25 +141,18 @@ class PermissionManager:
         if "*" in command_config.get("channels", {}):
             wildcard_channel_config = command_config["channels"].get("*", {})
             # If wildcard is public or user is authorized
-            if wildcard_channel_config.get("public", False) or \
-               str(ctx.author.id) in wildcard_channel_config.get("authorized_users", []):
+            if wildcard_channel_config.get("public", False) or str(ctx.author.id) in wildcard_channel_config.get("authorized_users", []):
                 return True
 
         # Check channel permissions
         if not channel_config:
-            logger.warning(
-                f"Command '{command_name}' blocked - unauthorized channel. "
-                f"Channel: {ctx.channel} (ID: {ctx.channel.id})"
-            )
+            logger.warning(f"Command '{command_name}' blocked - unauthorized channel. " f"Channel: {ctx.channel} (ID: {ctx.channel.id})")
             raise ChannelUnauthorized(ctx.channel)
 
         # Check user permissions if channel is not public
         if not channel_config.get("public", False):
             if str(ctx.author.id) not in channel_config.get("authorized_users", []):
-                logger.warning(
-                    f"Command '{command_name}' blocked - unauthorized user. "
-                    f"User: {ctx.author} (ID: {ctx.author.id})"
-                )
+                logger.warning(f"Command '{command_name}' blocked - unauthorized user. " f"User: {ctx.author} (ID: {ctx.author.id})")
                 raise UserUnauthorized(ctx.author)
 
         return True
@@ -192,7 +184,7 @@ class PermissionManager:
             bool: True if successful
         """
         # If command contains a space, it's a subcommand path - use it as-is
-        if ' ' in command:
+        if " " in command:
             primary_name = command
         else:
             primary_name = self._get_primary_command_name(bot, command)
@@ -215,8 +207,8 @@ class PermissionManager:
             tuple[bool, str]: (success, message)
         """
         # Handle wildcard channel case
-        if channel_input == '*':
-            channel_id = '*'
+        if channel_input == "*":
+            channel_id = "*"
             channel_display = "all channels"
         else:
             # Try to resolve channel from input
@@ -229,7 +221,7 @@ class PermissionManager:
 
         # Resolve to primary command name
         # If command contains a space, it's likely a subcommand path - use it as-is
-        if ' ' in command:
+        if " " in command:
             primary_name = command
             display_name = f"'{primary_name}'"
         else:
@@ -437,10 +429,7 @@ class PermissionManager:
         return wildcard_channel_config.get("public", False)
 
     @staticmethod
-    async def resolve_channel_from_input(
-        ctx: commands.Context,
-        channel_input: str
-    ) -> Optional[Union[discord.TextChannel, discord.Thread]]:
+    async def resolve_channel_from_input(ctx: commands.Context, channel_input: str) -> Optional[Union[discord.TextChannel, discord.Thread]]:
         """
         Resolve a channel from different input types (mention, ID, name, or search).
 
@@ -463,13 +452,13 @@ class PermissionManager:
         # Check if it's a channel mention
         if ctx.message.channel_mentions:
             for mentioned_channel in ctx.message.channel_mentions:
-                if f'<#{mentioned_channel.id}>' in channel_input:
+                if f"<#{mentioned_channel.id}>" in channel_input:
                     return mentioned_channel
 
         # Try to extract ID from mention format (<#123456789>)
-        if channel_input.startswith('<#') and channel_input.endswith('>'):
+        if channel_input.startswith("<#") and channel_input.endswith(">"):
             try:
-                channel_id = int(channel_input.strip('<#>'))
+                channel_id = int(channel_input.strip("<#>"))
                 channel = ctx.guild.get_channel(channel_id)
                 if channel:
                     return channel
@@ -513,33 +502,24 @@ class PermissionManager:
             pass
 
         # Try exact name match first (case-insensitive)
-        channel = discord.utils.get(
-            ctx.guild.text_channels,
-            name=channel_input.lower().replace(' ', '-')
-        )
+        channel = discord.utils.get(ctx.guild.text_channels, name=channel_input.lower().replace(" ", "-"))
         if channel:
             return channel
 
         # Try exact display name match
-        channel = discord.utils.get(
-            ctx.guild.text_channels,
-            name=channel_input.lower().replace(' ', '-')
-        )
+        channel = discord.utils.get(ctx.guild.text_channels, name=channel_input.lower().replace(" ", "-"))
         if channel:
             return channel
 
         # Try thread exact name match
-        channel = discord.utils.get(
-            ctx.guild.threads,
-            name=channel_input
-        )
+        channel = discord.utils.get(ctx.guild.threads, name=channel_input)
         if channel:
             return channel
 
         # If no exact match, try partial name search
-        channels = [c for c in ctx.guild.text_channels
-                    if channel_input.lower() in c.name.lower() or
-                    channel_input.lower() in c.name.lower().replace('-', ' ')]
+        channels = [
+            c for c in ctx.guild.text_channels if channel_input.lower() in c.name.lower() or channel_input.lower() in c.name.lower().replace("-", " ")
+        ]
 
         if len(channels) == 1:
             return channels[0]
@@ -548,13 +528,13 @@ class PermissionManager:
             channel_list = "\n".join([f"- {c.mention} ({c.name})" for c in channels[:5]])
             if len(channels) > 5:
                 channel_list += f"\n...and {len(channels) - 5} more"
-            await ctx.send(f"Multiple channels found matching '{channel_input}':\n{channel_list}\n"
-                           "Please be more specific or use the channel ID/mention.")
+            await ctx.send(
+                f"Multiple channels found matching '{channel_input}':\n{channel_list}\n" "Please be more specific or use the channel ID/mention."
+            )
             return None
 
         # Check threads for partial matches as last resort
-        threads = [t for t in ctx.guild.threads
-                   if channel_input.lower() in t.name.lower()]
+        threads = [t for t in ctx.guild.threads if channel_input.lower() in t.name.lower()]
 
         if len(threads) == 1:
             return threads[0]
@@ -562,8 +542,9 @@ class PermissionManager:
             thread_list = "\n".join([f"- {t.mention} ({t.name})" for t in threads[:5]])
             if len(threads) > 5:
                 thread_list += f"\n...and {len(threads) - 5} more"
-            await ctx.send(f"Multiple threads found matching '{channel_input}':\n{thread_list}\n"
-                           "Please be more specific or use the thread ID/mention.")
+            await ctx.send(
+                f"Multiple threads found matching '{channel_input}':\n{thread_list}\n" "Please be more specific or use the thread ID/mention."
+            )
             return None
 
         return None
@@ -692,27 +673,15 @@ class PermissionManager:
         Args:
             ctx: The command context
         """
-        embed = discord.Embed(
-            title="Permission Management",
-            description="Overview of command permissions",
-            color=discord.Color.blue()
-        )
+        embed = discord.Embed(title="Permission Management", description="Overview of command permissions", color=discord.Color.blue())
 
         # List all commands with permissions
         commands_with_perms = list(self.permissions.get("commands", {}).keys())
         if commands_with_perms:
             commands_list = "\n".join([f"• {cmd}" for cmd in commands_with_perms])
-            embed.add_field(
-                name="Commands with Permissions",
-                value=commands_list,
-                inline=False
-            )
+            embed.add_field(name="Commands with Permissions", value=commands_list, inline=False)
         else:
-            embed.add_field(
-                name="Commands with Permissions",
-                value="No commands have permissions set",
-                inline=False
-            )
+            embed.add_field(name="Commands with Permissions", value="No commands have permissions set", inline=False)
 
         # Add help text
         embed.add_field(
@@ -725,7 +694,7 @@ class PermissionManager:
                 "• `!perm remove_user <command> <channel> <user>` - Remove user\n"
                 "• `!perm set_public <command> <channel> [true/false]` - Set public status"
             ),
-            inline=False
+            inline=False,
         )
 
         await ctx.send(embed=embed)
@@ -742,7 +711,7 @@ class PermissionManager:
             List of command aliases
         """
         cmd = bot.get_command(command_name)
-        return cmd.aliases if cmd and hasattr(cmd, 'aliases') else []
+        return cmd.aliases if cmd and hasattr(cmd, "aliases") else []
 
     async def show_permissions(self, ctx: Context, command_name: Optional[str] = None) -> None:
         """
@@ -760,7 +729,7 @@ class PermissionManager:
             cmd = bot.get_command(command_name)
             if cmd:
                 primary_name = cmd.name
-                aliases = cmd.aliases if hasattr(cmd, 'aliases') else []
+                aliases = cmd.aliases if hasattr(cmd, "aliases") else []
             else:
                 primary_name = command_name
                 aliases = []
@@ -769,10 +738,7 @@ class PermissionManager:
             if primary_name not in commands_dict and primary_name != "*":
                 return await ctx.send(f"No permissions set for command `{primary_name}`")
 
-            embed = discord.Embed(
-                title=f"Permissions for `{primary_name}`",
-                color=discord.Color.blue()
-            )
+            embed = discord.Embed(title=f"Permissions for `{primary_name}`", color=discord.Color.blue())
 
             # Add aliases information if any exist
             if aliases:
@@ -814,19 +780,13 @@ class PermissionManager:
                         else:
                             value += "**Authorized Users**: None"
 
-                    embed.add_field(
-                        name=f"Channel: {channel_desc}",
-                        value=value,
-                        inline=False
-                    )
+                    embed.add_field(name=f"Channel: {channel_desc}", value=value, inline=False)
 
             await ctx.send(embed=embed)
         else:
             # Show overview of all commands
             embed = discord.Embed(
-                title="Command Permissions Overview",
-                description="List of commands with their permissions",
-                color=discord.Color.blue()
+                title="Command Permissions Overview", description="List of commands with their permissions", color=discord.Color.blue()
             )
 
             if not commands_dict:
@@ -836,7 +796,7 @@ class PermissionManager:
                     # Get command aliases if any
                     cmd = bot.get_command(cmd_name)
                     aliases_text = ""
-                    if cmd and hasattr(cmd, 'aliases') and cmd.aliases:
+                    if cmd and hasattr(cmd, "aliases") and cmd.aliases:
                         aliases_text = f" (aliases: {', '.join([f'`{a}`' for a in cmd.aliases])})"
 
                     channels = cmd_config.get("channels", {})
@@ -856,10 +816,8 @@ class PermissionManager:
                     if channel_list:
                         embed.add_field(
                             name=f"Command: `{cmd_name}`{aliases_text}",
-                            value="\n".join(channel_list[:5]) + (
-                                f"\n...and {len(channel_list) - 5} more channels" if len(channel_list) > 5 else ""
-                            ),
-                            inline=False
+                            value="\n".join(channel_list[:5]) + (f"\n...and {len(channel_list) - 5} more channels" if len(channel_list) > 5 else ""),
+                            inline=False,
                         )
 
             await ctx.send(embed=embed)

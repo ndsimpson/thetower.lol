@@ -47,7 +47,7 @@ def is_time_setting(setting_name: str) -> bool:
     Returns:
         bool: True if the setting likely represents a time value
     """
-    time_suffixes = ('_interval', '_threshold', '_timeout', '_delay', '_duration', '_rate', '_cooldown')
+    time_suffixes = ("_interval", "_threshold", "_timeout", "_delay", "_duration", "_rate", "_cooldown")
     return any(setting_name.endswith(suffix) for suffix in time_suffixes)
 
 
@@ -62,16 +62,16 @@ def convert_value_type(value: str) -> Any:
         The converted value with appropriate type
     """
     # Try to infer the type and convert
-    if value.lower() == 'true':
+    if value.lower() == "true":
         return True
-    elif value.lower() == 'false':
+    elif value.lower() == "false":
         return False
-    elif value.lower() == 'none' or value.lower() == 'null':
+    elif value.lower() == "none" or value.lower() == "null":
         return None
 
     # Try numeric conversion
     try:
-        if '.' in value:
+        if "." in value:
             return float(value)
         else:
             return int(value)
@@ -90,6 +90,7 @@ def create_settings_command(cog) -> Callable:
     Returns:
         callable: The command function
     """
+
     async def settings_command(ctx):
         """Display current settings for this module"""
         settings = cog.get_all_settings()
@@ -97,7 +98,7 @@ def create_settings_command(cog) -> Callable:
         embed = discord.Embed(
             title=f"{cog.__class__.__name__} Settings",
             description=f"Current configuration for {cog.__class__.__name__.lower()} module",
-            color=discord.Color.blue()
+            color=discord.Color.blue(),
         )
 
         # No settings case
@@ -111,8 +112,8 @@ def create_settings_command(cog) -> Callable:
         uncategorized = []
 
         for name, value in settings.items():
-            if '_' in name:
-                category, setting_name = name.split('_', 1)
+            if "_" in name:
+                category, setting_name = name.split("_", 1)
                 if category not in categories:
                     categories[category] = []
                 categories[category].append((name, value))
@@ -135,7 +136,7 @@ def create_settings_command(cog) -> Callable:
             category_text = []
 
             for name, value in settings_list:
-                setting_name = name.split('_', 1)[1]  # Remove category prefix for display
+                setting_name = name.split("_", 1)[1]  # Remove category prefix for display
 
                 # Format time values specially
                 if is_time_setting(name) and isinstance(value, (int, float)):
@@ -169,6 +170,7 @@ def create_set_command(cog, valid_settings=None, validators=None) -> Callable:
     Returns:
         callable: The command function
     """
+
     async def set_setting_command(ctx, setting_name: str, *, value: str = None):
         """Change a module setting"""
         # Handle case where value is None (i.e., user wants to see current value)
@@ -211,7 +213,7 @@ def create_set_command(cog, valid_settings=None, validators=None) -> Callable:
         if is_time_setting(setting_name) and isinstance(converted_value, (int, float)):
             if converted_value < 1:
                 return await ctx.send(f"Value for `{setting_name}` must be positive.")
-            if converted_value < 60 and '_interval' in setting_name:
+            if converted_value < 60 and "_interval" in setting_name:
                 await ctx.send(f"⚠️ Warning: Setting `{setting_name}` to less than 60 seconds may cause performance issues.")
 
         # Update instance variables directly if they exist
@@ -257,10 +259,7 @@ def add_settings_commands(cog, group_command, valid_settings=None, validators=No
     group_command.command(name="set")(set_cmd)
 
 
-def register_settings_commands(cog, group_command_name,
-                               valid_settings=None,
-                               validators=None,
-                               aliases=None) -> commands.Group:
+def register_settings_commands(cog, group_command_name, valid_settings=None, validators=None, aliases=None) -> commands.Group:
     """
     Register a complete settings command group for a cog.
 
@@ -274,6 +273,7 @@ def register_settings_commands(cog, group_command_name,
     Returns:
         The created command group
     """
+
     # Create the group command
     @commands.group(name=group_command_name, aliases=aliases or [], invoke_without_command=True)
     async def settings_group(ctx):
@@ -307,6 +307,7 @@ def command_with_help(name=None, brief=None, description=None, **attrs):
             '''Command docstring'''
             ...
     """
+
     def decorator(func):
         # Get the signature to analyze parameters
         sig = inspect.signature(func)
@@ -365,7 +366,7 @@ def command_with_help(name=None, brief=None, description=None, **attrs):
             name=name or func.__name__,
             help=help_text,
             brief=brief or (description or func.__doc__).split("\n")[0] if (description or func.__doc__) else None,
-            **attrs
+            **attrs,
         )(func)
 
     return decorator
@@ -383,6 +384,7 @@ def add_standard_admin_commands(cog, group_name, aliases=None):
     Returns:
         The created command group
     """
+
     # Create the admin group
     @commands.group(name=group_name, aliases=aliases or [], invoke_without_command=True)
     @commands.is_owner()  # Restrict to bot owner
@@ -410,10 +412,7 @@ def add_standard_admin_commands(cog, group_name, aliases=None):
     @admin_group.command(name="info")
     async def info_command(ctx):
         """Show debug information for this module"""
-        embed = discord.Embed(
-            title=f"{cog.__class__.__name__} Debug Info",
-            color=discord.Color.blue()
-        )
+        embed = discord.Embed(title=f"{cog.__class__.__name__} Debug Info", color=discord.Color.blue())
 
         # Basic info about the cog
         cog_attrs = {
@@ -428,43 +427,25 @@ def add_standard_admin_commands(cog, group_name, aliases=None):
         # Add instance attributes that don't start with _ and aren't commands or listeners
         for attr_name, attr_value in cog.__dict__.items():
             # Skip private attributes, commands, and bot reference
-            if (not attr_name.startswith('_') and
-                attr_name not in ('bot', 'qualified_name') and
-                    not callable(attr_value)):
+            if not attr_name.startswith("_") and attr_name not in ("bot", "qualified_name") and not callable(attr_value):
 
                 if isinstance(attr_value, (str, int, float, bool)) or attr_value is None:
                     cog_attrs[attr_name] = attr_value
 
         # Add basic attributes
-        embed.add_field(
-            name="Attributes",
-            value="\n".join(f"**{k}:** {v}" for k, v in cog_attrs.items()),
-            inline=False
-        )
+        embed.add_field(name="Attributes", value="\n".join(f"**{k}:** {v}" for k, v in cog_attrs.items()), inline=False)
 
         # List commands
-        embed.add_field(
-            name="Commands",
-            value=", ".join(f"`{cmd}`" for cmd in commands_list) or "No commands",
-            inline=False
-        )
+        embed.add_field(name="Commands", value=", ".join(f"`{cmd}`" for cmd in commands_list) or "No commands", inline=False)
 
         # Add any available status info
         if hasattr(cog, "get_status"):
             try:
                 status = await cog.get_status()
                 if status:
-                    embed.add_field(
-                        name="Status",
-                        value="\n".join(f"**{k}:** {v}" for k, v in status.items()),
-                        inline=False
-                    )
+                    embed.add_field(name="Status", value="\n".join(f"**{k}:** {v}" for k, v in status.items()), inline=False)
             except Exception as e:
-                embed.add_field(
-                    name="Status Error",
-                    value=f"Failed to get status: {str(e)}",
-                    inline=False
-                )
+                embed.add_field(name="Status Error", value=f"Failed to get status: {str(e)}", inline=False)
 
         await ctx.send(embed=embed)
 

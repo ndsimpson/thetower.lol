@@ -14,12 +14,4 @@ from thetower.bot.utils.memory_utils import MemoryUtils
 from thetower.bot.utils.permission_manager import PermissionManager
 from thetower.bot.utils.task_tracker import TaskTracker
 
-__all__ = [
-    'BaseFileMonitor',
-    'CommandTypeManager',
-    'ConfigManager',
-    'CogManager',
-    'MemoryUtils',
-    'PermissionManager',
-    'TaskTracker'
-]
+__all__ = ["BaseFileMonitor", "CommandTypeManager", "ConfigManager", "CogManager", "MemoryUtils", "PermissionManager", "TaskTracker"]

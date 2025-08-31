@@ -95,7 +95,7 @@ class CogManager(FileSystemEventHandler):
             return
 
         path = Path(event.src_path)
-        if path.suffix != '.py':
+        if path.suffix != ".py":
             return
 
         cog_name = path.stem
@@ -108,10 +108,7 @@ class CogManager(FileSystemEventHandler):
 
         # Check if this is a loaded cog before attempting to reload
         if cog_name in self.loaded_cogs:
-            asyncio.run_coroutine_threadsafe(
-                self.auto_reload_cog(cog_name),
-                self.bot.loop
-            )
+            asyncio.run_coroutine_threadsafe(self.auto_reload_cog(cog_name), self.bot.loop)
         else:
             logger.debug(f"Modified file {cog_name}.py is not a loaded cog, ignoring")
 
@@ -226,8 +223,9 @@ class CogManager(FileSystemEventHandler):
 
         # Additional message if the cog has auto-reload enabled but global auto-reload is disabled
         if cog_enabled and not global_enabled:
-            await ctx.send("⚠️ Note: This cog is set to use auto-reload, but global auto-reload is disabled. "
-                           "Use `toggle_auto_reload` to enable globally.")
+            await ctx.send(
+                "⚠️ Note: This cog is set to use auto-reload, but global auto-reload is disabled. " "Use `toggle_auto_reload` to enable globally."
+            )
 
     async def auto_reload_settings(self, ctx: Context) -> None:
         """Display auto-reload settings following the project's settings command pattern."""
@@ -235,19 +233,11 @@ class CogManager(FileSystemEventHandler):
         enabled_cogs = self.config.get_cog_setting("cogmanager", "auto_reload_cogs", [])
 
         # Create standardized settings embed
-        embed = Embed(
-            title="Auto-Reload Settings",
-            description="Current configuration for automatic cog reloading",
-            color=Color.blue()
-        )
+        embed = Embed(title="Auto-Reload Settings", description="Current configuration for automatic cog reloading", color=Color.blue())
 
         # Flag settings section
         global_status = "✅ Enabled" if global_enabled else "❌ Disabled"
-        embed.add_field(
-            name="Flag Settings",
-            value=f"**Global Auto-Reload**: {global_status}",
-            inline=False
-        )
+        embed.add_field(name="Flag Settings", value=f"**Global Auto-Reload**: {global_status}", inline=False)
 
         # Cog settings section
         if enabled_cogs:
@@ -259,11 +249,7 @@ class CogManager(FileSystemEventHandler):
         else:
             cogs_text = "*No cogs are set to use auto-reload*"
 
-        embed.add_field(
-            name="Auto-Reload Enabled Cogs",
-            value=cogs_text,
-            inline=False
-        )
+        embed.add_field(name="Auto-Reload Enabled Cogs", value=cogs_text, inline=False)
 
         # Status information
         if self.observer is not None and self.observer.is_alive():
@@ -273,11 +259,7 @@ class CogManager(FileSystemEventHandler):
             status_emoji = "⏸️ Inactive"
             status_path = "No directory being monitored"
 
-        embed.add_field(
-            name="Observer Status",
-            value=f"{status_emoji}\n{status_path}",
-            inline=False
-        )
+        embed.add_field(name="Observer Status", value=f"{status_emoji}\n{status_path}", inline=False)
 
         # Add footer with usage instructions
         embed.set_footer(text="Use toggle_auto_reload or toggle_cog_auto_reload <name> to change settings")
@@ -542,12 +524,12 @@ class CogManager(FileSystemEventHandler):
         cog_status = []
         for cog in available_cogs:
             status = {
-                'name': cog,
-                'loaded': cog in self.loaded_cogs,
-                'explicitly_enabled': cog in enabled_cogs,
-                'explicitly_disabled': cog in disabled_cogs,
-                'effectively_enabled': load_all or cog in enabled_cogs,
-                'effectively_disabled': cog in disabled_cogs or (not load_all and cog not in enabled_cogs)
+                "name": cog,
+                "loaded": cog in self.loaded_cogs,
+                "explicitly_enabled": cog in enabled_cogs,
+                "explicitly_disabled": cog in disabled_cogs,
+                "effectively_enabled": load_all or cog in enabled_cogs,
+                "effectively_disabled": cog in disabled_cogs or (not load_all and cog not in enabled_cogs),
             }
             cog_status.append(status)
 
@@ -555,13 +537,13 @@ class CogManager(FileSystemEventHandler):
 
     async def list_modules(self, ctx: Context) -> None:
         """Lists all cogs and their status of loading."""
-        cog_list = Paginator(prefix='', suffix='')
-        cog_list.add_line('**✅ Successfully loaded:**')
+        cog_list = Paginator(prefix="", suffix="")
+        cog_list.add_line("**✅ Successfully loaded:**")
         for cog in self.loaded_cogs:
-            cog_list.add_line('- ' + cog)
-        cog_list.add_line('**❌ Not loaded:**')
+            cog_list.add_line("- " + cog)
+        cog_list.add_line("**❌ Not loaded:**")
         for cog in self.unloaded_cogs:
-            cog_list.add_line('- ' + cog)
+            cog_list.add_line("- " + cog)
         for page in cog_list.pages:
             await ctx.send(page)
 
@@ -573,35 +555,35 @@ class CogManager(FileSystemEventHandler):
 
         # Never load disabled cogs
         if cog in disabled_cogs:
-            return await ctx.send('❌ Cannot load disabled cog. Enable it first with `cog enable` command.')
+            return await ctx.send("❌ Cannot load disabled cog. Enable it first with `cog enable` command.")
 
         # Check if cog is enabled or load_all is true
         if not (load_all or cog in enabled_cogs):
-            return await ctx.send('❌ Cannot load cog that is not enabled. Enable it first with `cog enable` command.')
+            return await ctx.send("❌ Cannot load cog that is not enabled. Enable it first with `cog enable` command.")
 
         if cog in self.loaded_cogs:
-            return await ctx.send('Cog already loaded.')
+            return await ctx.send("Cog already loaded.")
 
         try:
             success = await self.load_cog(cog)
             if success:
-                await ctx.send('✅ Module successfully loaded.')
+                await ctx.send("✅ Module successfully loaded.")
             else:
-                await ctx.send('**💢 Could not load module. Check logs for details.**')
+                await ctx.send("**💢 Could not load module. Check logs for details.**")
         except Exception as e:
-            await ctx.send('**💢 Could not load module: An exception was raised. For your convenience, the exception will be printed below:**')
-            await ctx.send('```{}\n{}```'.format(type(e).__name__, e))
+            await ctx.send("**💢 Could not load module: An exception was raised. For your convenience, the exception will be printed below:**")
+            await ctx.send("```{}\n{}```".format(type(e).__name__, e))
 
     async def unload_cog_with_ctx(self, ctx: Context, cog: str) -> None:
         """Unload the selected cog with Discord context feedback."""
         if cog not in self.loaded_cogs:
-            return await ctx.send('💢 Module not loaded.')
+            return await ctx.send("💢 Module not loaded.")
 
         success = await self.unload_cog(cog)
         if success:
-            await ctx.send('✅ Module successfully unloaded.')
+            await ctx.send("✅ Module successfully unloaded.")
         else:
-            await ctx.send('**💢 Could not unload module. Check logs for details.**')
+            await ctx.send("**💢 Could not unload module. Check logs for details.**")
 
     async def reload_cog_with_ctx(self, ctx: Context, cog: str) -> None:
         """Reload the selected cog with Discord context feedback."""
@@ -610,23 +592,23 @@ class CogManager(FileSystemEventHandler):
         disabled_cogs = self.config.get("disabled_cogs", [])
 
         if cog in disabled_cogs:
-            return await ctx.send('❌ Cannot reload disabled cog. Enable it first with `cog enable` command.')
+            return await ctx.send("❌ Cannot reload disabled cog. Enable it first with `cog enable` command.")
 
         if not (load_all or cog in enabled_cogs):
-            return await ctx.send('❌ Cannot reload cog that is not enabled. Enable it first with `cog enable` command.')
+            return await ctx.send("❌ Cannot reload cog that is not enabled. Enable it first with `cog enable` command.")
 
         if cog not in self.loaded_cogs:
-            return await ctx.send('💢 Module not loaded, cannot reload.')
+            return await ctx.send("💢 Module not loaded, cannot reload.")
 
         try:
             success = await self.reload_cog(cog)
             if success:
-                await ctx.send('✅ Module successfully reloaded.')
+                await ctx.send("✅ Module successfully reloaded.")
             else:
-                await ctx.send('**💢 Could not reload module. Check logs for details.**')
+                await ctx.send("**💢 Could not reload module. Check logs for details.**")
         except Exception as e:
-            await ctx.send('**💢 Could not reload module: An exception was raised. For your convenience, the exception will be printed below:**')
-            await ctx.send('```{}\n{}```'.format(type(e).__name__, e))
+            await ctx.send("**💢 Could not reload module: An exception was raised. For your convenience, the exception will be printed below:**")
+            await ctx.send("```{}\n{}```".format(type(e).__name__, e))
 
     async def enable_cog_with_ctx(self, ctx: Context, cog: str) -> None:
         """Enable a cog with Discord context feedback."""

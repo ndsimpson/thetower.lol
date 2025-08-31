@@ -25,11 +25,10 @@ def get_duplicate_tournaments():
     # Step 1: Use SQL aggregation to find player-date combinations with duplicates
     with st.spinner("🔍 Analyzing tournament data for duplicates..."):
         duplicate_combinations = (
-            TourneyRow.objects
-            .values('player_id', 'result__date')
-            .annotate(count=Count('id'))
+            TourneyRow.objects.values("player_id", "result__date")
+            .annotate(count=Count("id"))
             .filter(count__gt=1)
-            .order_by('-result__date', 'player_id')
+            .order_by("-result__date", "player_id")
         )
 
         # Convert to list to get the actual data
@@ -44,17 +43,13 @@ def get_duplicate_tournaments():
     # Step 2: Get detailed information for duplicates efficiently
     with st.spinner("📊 Getting detailed duplicate information..."):
         # Use a more efficient approach: get player_ids and dates separately
-        duplicate_player_ids = [item['player_id'] for item in duplicate_list]
-        duplicate_dates = [item['result__date'] for item in duplicate_list]
+        duplicate_player_ids = [item["player_id"] for item in duplicate_list]
+        duplicate_dates = [item["result__date"] for item in duplicate_list]
 
         # Get all rows for players who have duplicates, then filter in pandas
         detailed_rows = (
-            TourneyRow.objects
-            .select_related("result")
-            .filter(
-                player_id__in=duplicate_player_ids,
-                result__date__in=duplicate_dates
-            )
+            TourneyRow.objects.select_related("result")
+            .filter(player_id__in=duplicate_player_ids, result__date__in=duplicate_dates)
             .values("player_id", "nickname", "wave", "position", "result__date", "result__league")
             .order_by("-result__date", "player_id", "position")
         )
@@ -67,17 +62,13 @@ def get_duplicate_tournaments():
             return
 
         # Filter to only actual duplicates (since the above query might get some non-duplicates)
-        duplicate_combinations_set = {(item['player_id'], item['result__date']) for item in duplicate_list}
+        duplicate_combinations_set = {(item["player_id"], item["result__date"]) for item in duplicate_list}
 
         # Filter DataFrame to only include actual duplicate combinations
-        df['combination'] = list(zip(df['player_id'], df['result__date']))
-        df = df[df['combination'].isin(duplicate_combinations_set)]
-        df = df.drop('combination', axis=1)
-    df = df.rename(columns={
-        "nickname": "tourney_name",
-        "result__date": "date",
-        "result__league": "league"
-    })
+        df["combination"] = list(zip(df["player_id"], df["result__date"]))
+        df = df[df["combination"].isin(duplicate_combinations_set)]
+        df = df.drop("combination", axis=1)
+    df = df.rename(columns={"nickname": "tourney_name", "result__date": "date", "result__league": "league"})
 
     # Get player name lookup
     player_lookup = get_player_id_lookup()
@@ -92,21 +83,19 @@ def get_duplicate_tournaments():
 
         # Get all the duplicate tournament details for this player-date combination
         for _, row in group.iterrows():
-            duplicate_entries.append({
-                "date": date,
-                "league": row["league"],
-                "tourney_name": row["tourney_name"],
-                "wave": row["wave"],
-                "position": row["position"]
-            })
+            duplicate_entries.append(
+                {"date": date, "league": row["league"], "tourney_name": row["tourney_name"], "wave": row["wave"], "position": row["position"]}
+            )
 
-        duplicate_data.append({
-            "player_id": player_id,
-            "real_name": real_name,
-            "duplicate_count": len(group),
-            "duplicate_entries": duplicate_entries,
-            "latest_date": date  # For sorting
-        })
+        duplicate_data.append(
+            {
+                "player_id": player_id,
+                "real_name": real_name,
+                "duplicate_count": len(group),
+                "duplicate_entries": duplicate_entries,
+                "latest_date": date,  # For sorting
+            }
+        )
 
     # Convert to DataFrame for display
     display_data = []
@@ -114,17 +103,17 @@ def get_duplicate_tournaments():
         # Create a string representation of duplicate dates and details
         duplicate_details = []
         for dup in entry["duplicate_entries"]:
-            duplicate_details.append(
-                f"{dup['date']} ({dup['league']}) - {dup['tourney_name']} - Wave {dup['wave']} - Pos {dup['position']}"
-            )
+            duplicate_details.append(f"{dup['date']} ({dup['league']}) - {dup['tourney_name']} - Wave {dup['wave']} - Pos {dup['position']}")
 
-        display_data.append({
-            "player_id": entry["player_id"],
-            "real_name": entry["real_name"],
-            "duplicate_count": entry["duplicate_count"],
-            "latest_date": entry["latest_date"],
-            "duplicate_details": "; ".join(duplicate_details)
-        })
+        display_data.append(
+            {
+                "player_id": entry["player_id"],
+                "real_name": entry["real_name"],
+                "duplicate_count": entry["duplicate_count"],
+                "latest_date": entry["latest_date"],
+                "duplicate_details": "; ".join(duplicate_details),
+            }
+        )
 
     result_df = pd.DataFrame(display_data)
     result_df = result_df.sort_values(["latest_date", "duplicate_count"], ascending=[False, False]).reset_index(drop=True)
@@ -143,21 +132,17 @@ def get_duplicate_tournaments():
 
     # Format the player_id column to be clickable
     styled_df = result_df.copy()
-    styled_df["clickable_player_id"] = [
-        make_player_url(player_id, id=player_id)
-        for player_id in styled_df["player_id"]
-    ]
+    styled_df["clickable_player_id"] = [make_player_url(player_id, id=player_id) for player_id in styled_df["player_id"]]
 
     # Display the table - rename the column for display
     display_cols = ["clickable_player_id", "real_name", "duplicate_count", "latest_date", "duplicate_details"]
     display_df = styled_df[display_cols].rename(columns={"clickable_player_id": "player_id"})
 
     st.write(
-        display_df.style.format({
-            "latest_date": lambda x: x.strftime("%Y-%m-%d") if pd.notnull(x) else "",
-            "duplicate_details": lambda x: x  # Keep details as-is
-        }).to_html(escape=False, index=False),
-        unsafe_allow_html=True
+        display_df.style.format(
+            {"latest_date": lambda x: x.strftime("%Y-%m-%d") if pd.notnull(x) else "", "duplicate_details": lambda x: x}  # Keep details as-is
+        ).to_html(escape=False, index=False),
+        unsafe_allow_html=True,
     )
 
     # Optional: Show detailed breakdown in an expander

@@ -23,6 +23,7 @@ from ..tourney_utils import create_tourney_rows, get_summary
 # Graceful towerbcs import handling
 try:
     from towerbcs import TournamentPredictor, predict_future_tournament
+
     TOWERBCS_AVAILABLE = True
     logging.info("towerbcs package loaded successfully")
 except ImportError as e:
@@ -62,8 +63,9 @@ def execute():
             continue
 
         logging.info("Something new")
-        last_files = sorted([file_name for file_name in glob(
-            f"{os.getenv('HOME')}/tourney/results_cache/{league}/{last_date}*") if "csv_raw" not in file_name])
+        last_files = sorted(
+            [file_name for file_name in glob(f"{os.getenv('HOME')}/tourney/results_cache/{league}/{last_date}*") if "csv_raw" not in file_name]
+        )
 
         if not last_files:
             logging.info("Apparently we're checking the files before the download script could get them, try later.")
@@ -109,7 +111,7 @@ def execute():
 
         # Apply battle conditions if any were predicted
         if conditions:
-            condition_ids = BattleCondition.objects.filter(name__in=conditions).values_list('id', flat=True)
+            condition_ids = BattleCondition.objects.filter(name__in=conditions).values_list("id", flat=True)
             result.conditions.set(condition_ids)
             logging.info(f"Applied {len(condition_ids)} battle conditions to tournament result")
         else:

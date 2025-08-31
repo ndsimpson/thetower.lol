@@ -28,15 +28,7 @@ def live_progress():
     tdf = process_display_names(tdf)
 
     # Create top 25 progress plot
-    fig = px.line(
-        tdf,
-        x="datetime",
-        y="wave",
-        color="display_name",
-        title="Top 25 Players: live score",
-        markers=True,
-        line_shape="linear"
-    )
+    fig = px.line(tdf, x="datetime", y="wave", color="display_name", title="Top 25 Players: live score", markers=True, line_shape="linear")
 
     fig.update_traces(mode="lines+markers")
     fig.update_layout(
@@ -68,14 +60,7 @@ def live_progress():
 
     # Create fill up progress plot
     fill_ups = pd.DataFrame(sorted(fill_ups), columns=["time", "fillup"])
-    fig = px.line(
-        fill_ups,
-        x="time",
-        y="fillup",
-        title="Fill up progress",
-        markers=True,
-        line_shape="linear"
-    )
+    fig = px.line(fill_ups, x="time", y="fillup", title="Fill up progress", markers=True, line_shape="linear")
     fig.update_traces(mode="lines+markers", fill="tozeroy")
     fig.update_layout(
         xaxis_title="Time [h]",

@@ -14,11 +14,12 @@ CACHE_TTL_SECONDS = 300  # 5 minutes cache duration
 def is_caching_disabled():
     """Check if caching should be disabled by looking for the control file."""
     root_dir = Path(__file__).parent.parent.parent
-    return (root_dir / 'live_cache_disabled').exists()
+    return (root_dir / "live_cache_disabled").exists()
 
 
 def cache_data_if_enabled(**cache_args):
     """Decorator that only applies st.cache_data if caching is enabled."""
+
     def decorator(func):
         @wraps(func)
         def wrapper(*args, **kwargs):
@@ -27,7 +28,9 @@ def cache_data_if_enabled(**cache_args):
             if is_disabled:
                 return func(*args, **kwargs)
             return st.cache_data(**cache_args)(func)(*args, **kwargs)
+
         return wrapper
+
     return decorator
 
 
@@ -117,12 +120,7 @@ def process_display_names(df: pd.DataFrame) -> pd.DataFrame:
     if len(duplicate_names) > 0:
         # Add player_id to duplicated names
         mask = result["real_name"].isin(duplicate_names)
-        result.loc[mask, "display_name"] = (
-            result.loc[mask, "real_name"] +
-            " (" +
-            result.loc[mask, "player_id"].astype(str) +
-            ")"
-        )
+        result.loc[mask, "display_name"] = result.loc[mask, "real_name"] + " (" + result.loc[mask, "player_id"].astype(str) + ")"
 
     return result
 
@@ -154,10 +152,7 @@ def get_placement_analysis_data(league: str):
     latest_time = df["datetime"].max()
 
     # Get bracket creation times
-    bracket_creation_times = {
-        bracket: df[df["bracket"] == bracket]["datetime"].min()
-        for bracket in df["bracket"].unique()
-    }
+    bracket_creation_times = {bracket: df[df["bracket"] == bracket]["datetime"].min() for bracket in df["bracket"].unique()}
 
     return df, latest_time, bracket_creation_times
 
@@ -184,14 +179,16 @@ def analyze_wave_placement(df, wave_to_analyze, latest_time):
         total = last_bracket_df.shape[0]
         rank = better_or_equal + 1
 
-        results.append({
-            "Bracket": bracket,
-            "Would Place": f"{rank}/{total}",
-            "Top Wave": last_bracket_df["wave"].max(),
-            "Median Wave": int(last_bracket_df["wave"].median()),
-            "Players Above": better_or_equal,
-            "Start Time": start_time,
-        })
+        results.append(
+            {
+                "Bracket": bracket,
+                "Would Place": f"{rank}/{total}",
+                "Top Wave": last_bracket_df["wave"].max(),
+                "Median Wave": int(last_bracket_df["wave"].median()),
+                "Players Above": better_or_equal,
+                "Start Time": start_time,
+            }
+        )
 
     return results
 
@@ -252,7 +249,7 @@ def get_bracket_stats(df):
         "highest_total": group_by_bracket.sum().sort_values(ascending=False).index[0],
         "highest_median": group_by_bracket.median().sort_values(ascending=False).index[0],
         "lowest_total": group_by_bracket.sum().sort_values(ascending=True).index[0],
-        "lowest_median": group_by_bracket.median().sort_values(ascending=True).index[0]
+        "lowest_median": group_by_bracket.median().sort_values(ascending=True).index[0],
     }
 
 
@@ -264,12 +261,14 @@ def handle_no_data():
 
 def require_tournament_data(func):
     """Decorator to handle cases where tournament data is not available"""
+
     @wraps(func)
     def wrapper(*args, **kwargs):
         try:
             return func(*args, **kwargs)
         except (IndexError, ValueError):
             return handle_no_data()
+
     return wrapper
 
 
@@ -279,7 +278,7 @@ def get_cached_plot_data(df):
     plot_data = df.copy()
 
     # Only convert datetime if the column exists
-    if 'datetime' in plot_data.columns:
+    if "datetime" in plot_data.columns:
         plot_data["datetime"] = pd.to_datetime(plot_data["datetime"])
 
     return plot_data

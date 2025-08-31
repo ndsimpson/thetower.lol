@@ -17,7 +17,7 @@ def is_channel(channel, id_):
     Returns:
         bool: True if the channel ID matches, False otherwise
     """
-    return getattr(channel, 'id', None) == id_
+    return getattr(channel, "id", None) == id_
 
 
 async def send_paginated_message(ctx: Union[commands.Context, discord.Interaction], content: str, header: str = "", max_length: int = 2000):
@@ -52,7 +52,7 @@ async def send_paginated_message(ctx: Union[commands.Context, discord.Interactio
         return
 
     # Split the content into chunks
-    lines = full_content.split('\n')
+    lines = full_content.split("\n")
     current_chunk = header if header else ""
 
     for line in lines:

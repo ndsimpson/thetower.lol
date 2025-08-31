@@ -41,13 +41,14 @@ class MemoryUtils:
             "total_size_formatted": "0 bytes",
             "process_rss": None,
             "process_vms": None,
-            "type_summary": None
+            "type_summary": None,
         }
 
         try:
             # Process memory from system
             try:
                 import psutil
+
                 process = psutil.Process()
                 result["process_rss"] = process.memory_info().rss  # Resident Set Size
                 result["process_vms"] = process.memory_info().vms  # Virtual Memory Size
@@ -70,10 +71,7 @@ class MemoryUtils:
                         component_sizes = {}
                         for key, value in obj.__dict__.items():
                             if not key.startswith("_"):  # Skip private attributes
-                                component_sizes[key] = {
-                                    "size": asizeof.asizeof(value),
-                                    "size_formatted": cls.format_bytes(asizeof.asizeof(value))
-                                }
+                                component_sizes[key] = {"size": asizeof.asizeof(value), "size_formatted": cls.format_bytes(asizeof.asizeof(value))}
                         result["components"] = component_sizes
 
                 # If detailed is requested or no specific object
@@ -115,10 +113,7 @@ class MemoryUtils:
                         seen = set()  # Reset seen set for each component
                         for key, value in obj.__dict__.items():
                             if not key.startswith("_"):  # Skip private attributes
-                                component_sizes[key] = {
-                                    "size": get_size(value),
-                                    "size_formatted": cls.format_bytes(get_size(value))
-                                }
+                                component_sizes[key] = {"size": get_size(value), "size_formatted": cls.format_bytes(get_size(value))}
                         result["components"] = component_sizes
 
                 result["success"] = True
@@ -131,10 +126,9 @@ class MemoryUtils:
         return result
 
     @classmethod
-    async def send_memory_report(cls, ctx: discord.ext.commands.Context,
-                                 obj=None,
-                                 title: str = "Memory Usage Report",
-                                 detailed: bool = False) -> None:
+    async def send_memory_report(
+        cls, ctx: discord.ext.commands.Context, obj=None, title: str = "Memory Usage Report", detailed: bool = False
+    ) -> None:
         """
         Generate and send a memory usage report to a Discord context
 
@@ -160,58 +154,33 @@ class MemoryUtils:
             return
 
         # Create main embed
-        embed = discord.Embed(
-            title=title,
-            description=f"Memory analysis for {obj_name}",
-            color=discord.Color.blue()
-        )
+        embed = discord.Embed(title=title, description=f"Memory analysis for {obj_name}", color=discord.Color.blue())
 
         # Add object size
-        embed.add_field(
-            name=f"{obj_name} Size",
-            value=mem_info["total_size_formatted"],
-            inline=True
-        )
+        embed.add_field(name=f"{obj_name} Size", value=mem_info["total_size_formatted"], inline=True)
 
         # Add process memory if available
         if mem_info.get("process_rss"):
             embed.add_field(
-                name="Process Memory",
-                value=f"RSS: {mem_info['process_rss_formatted']}\nVMS: {mem_info['process_vms_formatted']}",
-                inline=True
+                name="Process Memory", value=f"RSS: {mem_info['process_rss_formatted']}\nVMS: {mem_info['process_vms_formatted']}", inline=True
             )
 
         # Add measurement method if available
         if "method" in mem_info:
-            embed.add_field(
-                name="Measurement Method",
-                value=mem_info["method"],
-                inline=True
-            )
+            embed.add_field(name="Measurement Method", value=mem_info["method"], inline=True)
 
         # Add component breakdown if available
         if "components" in mem_info:
             # Sort components by size (largest first)
-            sorted_components = sorted(
-                mem_info["components"].items(),
-                key=lambda x: x[1]["size"],
-                reverse=True
-            )
+            sorted_components = sorted(mem_info["components"].items(), key=lambda x: x[1]["size"], reverse=True)
 
             # Format component list
-            component_text = "\n".join([
-                f"**{name}**: {data['size_formatted']}"
-                for name, data in sorted_components[:10]  # Show top 10
-            ])
+            component_text = "\n".join([f"**{name}**: {data['size_formatted']}" for name, data in sorted_components[:10]])  # Show top 10
 
             if len(sorted_components) > 10:
                 component_text += f"\n... and {len(sorted_components) - 10} more"
 
-            embed.add_field(
-                name="Component Breakdown",
-                value=component_text or "No components found",
-                inline=False
-            )
+            embed.add_field(name="Component Breakdown", value=component_text or "No components found", inline=False)
 
         # Send the main embed
         await ctx.send(embed=embed)
@@ -224,5 +193,5 @@ class MemoryUtils:
 
             # Split into chunks if needed
             for i in range(0, len(summary_text), 1990):
-                chunk = summary_text[i:i + 1990]
+                chunk = summary_text[i : i + 1990]
                 await ctx.send(f"```\n{chunk}\n```")

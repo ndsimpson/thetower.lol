@@ -1,4 +1,3 @@
-
 import logging
 from functools import partial
 
@@ -7,8 +6,11 @@ from discord.ext import commands
 try:
     from ..utils import is_channel
 except ImportError:
+
     def is_channel(channel, id_):
-        return getattr(channel, 'id', None) == id_
+        return getattr(channel, "id", None) == id_
+
+
 from asgiref.sync import sync_to_async
 
 from thetower.backend.sus.models import KnownPlayer, PlayerId
@@ -21,25 +23,16 @@ class ValidationCog(commands.Cog):
 
     def _create_or_update_player(self, discord_id, author_name, player_id):
         try:
-            player, created = KnownPlayer.objects.get_or_create(
-                discord_id=discord_id, defaults=dict(approved=True, name=author_name)
-            )
+            player, created = KnownPlayer.objects.get_or_create(discord_id=discord_id, defaults=dict(approved=True, name=author_name))
 
             # First, set all existing PlayerIds for this player to non-primary
             PlayerId.objects.filter(player_id=player.id).update(primary=False)
 
             # Then create/update the new PlayerID as primary
-            player_id_obj, player_id_created = PlayerId.objects.update_or_create(
-                id=player_id, player_id=player.id, defaults=dict(primary=True)
-            )
+            player_id_obj, player_id_created = PlayerId.objects.update_or_create(id=player_id, player_id=player.id, defaults=dict(primary=True))
 
             # Return simple values instead of Django model instances to avoid lazy evaluation
-            return {
-                'player_id': player.id,
-                'player_name': player.name,
-                'discord_id': player.discord_id,
-                'created': created
-            }
+            return {"player_id": player.id, "player_name": player.name, "discord_id": player.discord_id, "created": created}
         except Exception as exc:
             raise exc
 
@@ -48,7 +41,7 @@ class ValidationCog(commands.Cog):
 
     def __init__(self, bot):
         self.bot = bot
-        self.config = getattr(bot, 'config', None)
+        self.config = getattr(bot, "config", None)
 
     @staticmethod
     def only_made_of_hex(text: str) -> bool:
@@ -129,11 +122,7 @@ class ValidationCog(commands.Cog):
         player_ids = list(PlayerId.objects.filter(id=player_id))
         results = []
         for player_id_obj in player_ids:
-            results.append({
-                'discord_id': player_id_obj.player.discord_id,
-                'id': player_id_obj.id,
-                'primary': player_id_obj.primary
-            })
+            results.append({"discord_id": player_id_obj.player.discord_id, "id": player_id_obj.id, "primary": player_id_obj.primary})
         return results
 
     async def check_id(self, message):
@@ -145,7 +134,9 @@ class ValidationCog(commands.Cog):
 
             player_id_results = await sync_to_async(self._get_player_id_info, thread_sensitive=True)(potential_id)
             for result in player_id_results:
-                await message.channel.send(f"player_id.player.discord_id={result['discord_id']}, player_id.id={result['id']}, player_id.primary={result['primary']}")
+                await message.channel.send(
+                    f"player_id.player.discord_id={result['discord_id']}, player_id.id={result['id']}, player_id.primary={result['primary']}"
+                )
 
     @commands.Cog.listener()
     async def on_message(self, message):
@@ -177,7 +168,7 @@ class ValidationCog(commands.Cog):
                 except Exception as exc:
                     logger.exception(exc)
             elif is_top50_channel(message.channel) and message.content.startswith("!inject"):
-                if top1_id and top1_id in {role.id for role in getattr(message.author, 'roles', [])}:
+                if top1_id and top1_id in {role.id for role in getattr(message.author, "roles", [])}:
                     injection = message.content.split(" ", 1)[1]
                     author = message.author.name
                     channel = message.channel

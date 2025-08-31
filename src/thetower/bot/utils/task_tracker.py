@@ -7,6 +7,7 @@ This module provides a TaskTracker class that handles tracking of:
 - Task success/failure statistics
 - Error states
 """
+
 import datetime
 import logging
 from collections import deque
@@ -40,7 +41,7 @@ class TaskTracker:
         # Initialize state tracking
         self._active_tasks = {}  # name -> {'start_time': datetime, 'status': str}
         self._task_history = {}  # name -> deque of execution records
-        self._task_stats = {}    # name -> {'count': int, 'success': int, 'failure': int, 'avg_time': float}
+        self._task_stats = {}  # name -> {'count': int, 'success': int, 'failure': int, 'avg_time': float}
         self._task_history_size = history_size
         self._has_errors = False  # General error flag
 
@@ -55,20 +56,11 @@ class TaskTracker:
             task_name: Name of the task being executed
             status: Initial status message for the task
         """
-        self._active_tasks[task_name] = {
-            'start_time': datetime.datetime.now(),
-            'status': status
-        }
+        self._active_tasks[task_name] = {"start_time": datetime.datetime.now(), "status": status}
 
         # Initialize task stats if this is a new task
         if task_name not in self._task_stats:
-            self._task_stats[task_name] = {
-                'count': 0,
-                'success': 0,
-                'failure': 0,
-                'total_time': 0,
-                'avg_time': 0
-            }
+            self._task_stats[task_name] = {"count": 0, "success": 0, "failure": 0, "total_time": 0, "avg_time": 0}
 
         # Initialize history queue if this is a new task
         if task_name not in self._task_history:
@@ -91,36 +83,30 @@ class TaskTracker:
 
         task_info = self._active_tasks.pop(task_name)
         end_time = datetime.datetime.now()
-        execution_time = (end_time - task_info['start_time']).total_seconds()
+        execution_time = (end_time - task_info["start_time"]).total_seconds()
 
         # Update task statistics
-        stats = self._task_stats.get(task_name, {
-            'count': 0,
-            'success': 0,
-            'failure': 0,
-            'total_time': 0,
-            'avg_time': 0
-        })
+        stats = self._task_stats.get(task_name, {"count": 0, "success": 0, "failure": 0, "total_time": 0, "avg_time": 0})
 
-        stats['count'] += 1
+        stats["count"] += 1
         if success:
-            stats['success'] += 1
+            stats["success"] += 1
         else:
-            stats['failure'] += 1
+            stats["failure"] += 1
             self._has_errors = True  # Set general error flag
 
-        stats['total_time'] += execution_time
-        stats['avg_time'] = stats['total_time'] / stats['count']
+        stats["total_time"] += execution_time
+        stats["avg_time"] = stats["total_time"] / stats["count"]
 
         self._task_stats[task_name] = stats
 
         # Add to history
         history_record = {
-            'start_time': task_info['start_time'],
-            'end_time': end_time,
-            'execution_time': execution_time,
-            'success': success,
-            'status': status or task_info['status']
+            "start_time": task_info["start_time"],
+            "end_time": end_time,
+            "execution_time": execution_time,
+            "success": success,
+            "status": status or task_info["status"],
         }
 
         if task_name in self._task_history:
@@ -128,10 +114,7 @@ class TaskTracker:
         else:
             self._task_history[task_name] = deque([history_record], maxlen=self._task_history_size)
 
-        self.logger.debug(
-            f"Task '{task_name}' ended with {'success' if success else 'failure'} "
-            f"in {execution_time:.2f}s"
-        )
+        self.logger.debug(f"Task '{task_name}' ended with {'success' if success else 'failure'} " f"in {execution_time:.2f}s")
 
     def update_task_status(self, task_name: str, status: str) -> None:
         """
@@ -142,7 +125,7 @@ class TaskTracker:
             status: New status message
         """
         if task_name in self._active_tasks:
-            self._active_tasks[task_name]['status'] = status
+            self._active_tasks[task_name]["status"] = status
             self.logger.debug(f"Task '{task_name}' status updated to: {status}")
         else:
             self.logger.warning(f"Attempted to update status of unknown task: {task_name}")
@@ -159,11 +142,8 @@ class TaskTracker:
         result = {}
 
         for name, info in self._active_tasks.items():
-            elapsed = (now - info['start_time']).total_seconds()
-            result[name] = {
-                **info,
-                'elapsed_seconds': elapsed
-            }
+            elapsed = (now - info["start_time"]).total_seconds()
+            result[name] = {**info, "elapsed_seconds": elapsed}
 
         return result
 
@@ -178,13 +158,7 @@ class TaskTracker:
             Dictionary of task statistics
         """
         if task_name:
-            return self._task_stats.get(task_name, {
-                'count': 0,
-                'success': 0,
-                'failure': 0,
-                'total_time': 0,
-                'avg_time': 0
-            })
+            return self._task_stats.get(task_name, {"count": 0, "success": 0, "failure": 0, "total_time": 0, "avg_time": 0})
         return self._task_stats
 
     def get_task_history(self, task_name: str = None, limit: int = None) -> Union[List[Dict[str, Any]], Dict[str, List[Dict[str, Any]]]]:
@@ -246,14 +220,11 @@ class TaskTracker:
         """
         if task_name:
             stats = self._task_stats.get(task_name)
-            if not stats or stats['count'] == 0:
+            if not stats or stats["count"] == 0:
                 return 0.0
-            return (stats['failure'] / stats['count'])
+            return stats["failure"] / stats["count"]
 
-        return {
-            name: (stats['failure'] / stats['count']) if stats['count'] > 0 else 0.0
-            for name, stats in self._task_stats.items()
-        }
+        return {name: (stats["failure"] / stats["count"]) if stats["count"] > 0 else 0.0 for name, stats in self._task_stats.items()}
 
     def get_status_report(self) -> Dict[str, Any]:
         """
@@ -267,12 +238,8 @@ class TaskTracker:
         # Get active task information with elapsed time
         active_tasks = {}
         for name, info in self._active_tasks.items():
-            elapsed = (now - info['start_time']).total_seconds()
-            active_tasks[name] = {
-                'status': info['status'],
-                'started_at': info['start_time'],
-                'elapsed_seconds': elapsed
-            }
+            elapsed = (now - info["start_time"]).total_seconds()
+            active_tasks[name] = {"status": info["status"], "started_at": info["start_time"], "elapsed_seconds": elapsed}
 
         # Get the most recent execution of each task
         recent_activity = {}
@@ -280,30 +247,25 @@ class TaskTracker:
             if history:
                 latest = history[-1]
                 recent_activity[name] = {
-                    'time': latest['end_time'],
-                    'success': latest['success'],
-                    'execution_time': latest['execution_time'],
-                    'status': latest['status']
+                    "time": latest["end_time"],
+                    "success": latest["success"],
+                    "execution_time": latest["execution_time"],
+                    "status": latest["status"],
                 }
 
         # Get task statistics
         task_stats = {
             name: {
-                'total': stats['count'],
-                'success': stats['success'],
-                'failure': stats['failure'],
-                'success_rate': (stats['success'] / stats['count']) if stats['count'] > 0 else 0,
-                'avg_time': stats['avg_time']
+                "total": stats["count"],
+                "success": stats["success"],
+                "failure": stats["failure"],
+                "success_rate": (stats["success"] / stats["count"]) if stats["count"] > 0 else 0,
+                "avg_time": stats["avg_time"],
             }
             for name, stats in self._task_stats.items()
         }
 
-        return {
-            'active_tasks': active_tasks,
-            'recent_activity': recent_activity,
-            'statistics': task_stats,
-            'has_errors': self._has_errors
-        }
+        return {"active_tasks": active_tasks, "recent_activity": recent_activity, "statistics": task_stats, "has_errors": self._has_errors}
 
     async def task_wrapped(self, task_name: str, coroutine_func, *args, **kwargs):
         """
@@ -347,10 +309,7 @@ class TaskTracker:
         self.begin_task(task_name, initial_status)
         try:
             # Create a simple namespace for status updates
-            tracker = SimpleNamespace(
-                current_status=initial_status,
-                update_status=lambda status: self.update_task_status(task_name, status)
-            )
+            tracker = SimpleNamespace(current_status=initial_status, update_status=lambda status: self.update_task_status(task_name, status))
             yield tracker
             self.end_task(task_name, success=True)
         except Exception as e:

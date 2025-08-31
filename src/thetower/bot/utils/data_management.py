@@ -88,7 +88,7 @@ class DataManager:
             return default
 
         try:
-            with open(file_path, 'r') as f:
+            with open(file_path, "r") as f:
                 return json.load(f)
         except Exception as e:
             logger.error(f"Failed to load JSON from {file_path}: {str(e)}")
@@ -110,7 +110,7 @@ class DataManager:
         file_path.parent.mkdir(parents=True, exist_ok=True)
 
         try:
-            with open(file_path, 'w') as f:
+            with open(file_path, "w") as f:
                 json.dump(data, f, indent=2)
             return True
         except Exception as e:
@@ -140,11 +140,13 @@ class DataManager:
             return default
 
         try:
-            with open(file_path, 'rb') as f:
+            with open(file_path, "rb") as f:
                 return pickle.load(f)
         except ModuleNotFoundError as e:
             # Handle legacy pickle files with old module references
-            logger.warning(f"Legacy pickle file {file_path} contains references to missing modules ({e}). Using default value and will recreate file.")
+            logger.warning(
+                f"Legacy pickle file {file_path} contains references to missing modules ({e}). Using default value and will recreate file."
+            )
             if create_default and default is not None:
                 logger.info(f"Recreating pickle file {file_path} with default data")
                 DataManager.save_pickle_sync(default, file_path)
@@ -169,7 +171,7 @@ class DataManager:
         file_path.parent.mkdir(parents=True, exist_ok=True)
 
         try:
-            with open(file_path, 'wb') as f:
+            with open(file_path, "wb") as f:
                 pickle.dump(data, f)
             return True
         except Exception as e:
@@ -177,8 +179,7 @@ class DataManager:
             return False
 
     @staticmethod
-    def load_data_sync(file_path: Union[str, Path], default: Any = None,
-                       format_type: str = None, create_default: bool = False) -> Any:
+    def load_data_sync(file_path: Union[str, Path], default: Any = None, format_type: str = None, create_default: bool = False) -> Any:
         """
         Synchronously load data from a file in either JSON or pickle format.
 
@@ -203,27 +204,29 @@ class DataManager:
         # Determine format from extension if not explicitly provided
         if format_type is None:
             extension = file_path.suffix.lower()
-            if extension == '.json':
-                format_type = 'json'
-            elif extension in ('.pkl', '.pickle'):
-                format_type = 'pickle'
+            if extension == ".json":
+                format_type = "json"
+            elif extension in (".pkl", ".pickle"):
+                format_type = "pickle"
             else:
                 logger.warning(f"Couldn't determine format from extension {extension}, defaulting to JSON")
-                format_type = 'json'
+                format_type = "json"
 
         try:
-            if format_type.lower() == 'json':
-                with open(file_path, 'r') as f:
+            if format_type.lower() == "json":
+                with open(file_path, "r") as f:
                     return json.load(f)
-            elif format_type.lower() in ('pickle', 'pkl'):
-                with open(file_path, 'rb') as f:
+            elif format_type.lower() in ("pickle", "pkl"):
+                with open(file_path, "rb") as f:
                     return pickle.load(f)
             else:
                 logger.error(f"Unsupported format type: {format_type}")
                 return default
         except ModuleNotFoundError as e:
             # Handle legacy pickle files with old module references
-            logger.warning(f"Legacy pickle file {file_path} contains references to missing modules ({e}). Using default value and will recreate file.")
+            logger.warning(
+                f"Legacy pickle file {file_path} contains references to missing modules ({e}). Using default value and will recreate file."
+            )
             if create_default and default is not None:
                 logger.info(f"Recreating file {file_path} with default data")
                 DataManager.save_data_sync(default, file_path, format_type)
@@ -233,8 +236,7 @@ class DataManager:
             return default
 
     @staticmethod
-    def save_data_sync(data: Any, file_path: Union[str, Path],
-                       format_type: str = None) -> bool:
+    def save_data_sync(data: Any, file_path: Union[str, Path], format_type: str = None) -> bool:
         """
         Synchronously save data to a file in either JSON or pickle format.
 
@@ -252,21 +254,21 @@ class DataManager:
         # Determine format from extension if not explicitly provided
         if format_type is None:
             extension = file_path.suffix.lower()
-            if extension == '.json':
-                format_type = 'json'
-            elif extension in ('.pkl', '.pickle'):
-                format_type = 'pickle'
+            if extension == ".json":
+                format_type = "json"
+            elif extension in (".pkl", ".pickle"):
+                format_type = "pickle"
             else:
                 logger.warning(f"Couldn't determine format from extension {extension}, defaulting to JSON")
-                format_type = 'json'
+                format_type = "json"
 
         try:
-            if format_type.lower() == 'json':
-                with open(file_path, 'w') as f:
+            if format_type.lower() == "json":
+                with open(file_path, "w") as f:
                     json.dump(data, f, indent=2)
                 return True
-            elif format_type.lower() in ('pickle', 'pkl'):
-                with open(file_path, 'wb') as f:
+            elif format_type.lower() in ("pickle", "pkl"):
+                with open(file_path, "wb") as f:
                     pickle.dump(data, f)
                 return True
             else:
@@ -281,27 +283,23 @@ class DataManager:
         """Save data as JSON."""
         # Use run_in_executor for file IO to avoid blocking
         loop = asyncio.get_event_loop()
-        await loop.run_in_executor(
-            None,
-            lambda: file_path.write_text(json.dumps(data, indent=2))
-        )
+        await loop.run_in_executor(None, lambda: file_path.write_text(json.dumps(data, indent=2)))
 
     @staticmethod
     async def _save_pickle(data: Any, file_path: Path) -> None:
         """Save data as pickle."""
         # Use run_in_executor for file IO to avoid blocking
         loop = asyncio.get_event_loop()
-        await loop.run_in_executor(
-            None,
-            lambda: file_path.write_bytes(pickle.dumps(data))
-        )
+        await loop.run_in_executor(None, lambda: file_path.write_bytes(pickle.dumps(data)))
 
     @staticmethod
-    async def load_data(file_path: Union[str, Path],
-                        default: Any = None,
-                        post_process: Optional[Callable] = None,
-                        format_type: str = None,
-                        create_default: bool = False) -> Any:
+    async def load_data(
+        file_path: Union[str, Path],
+        default: Any = None,
+        post_process: Optional[Callable] = None,
+        format_type: str = None,
+        create_default: bool = False,
+    ) -> Any:
         """
         Load data from a file with fallback to default if file doesn't exist.
 
@@ -330,25 +328,19 @@ class DataManager:
             # Determine format from extension if not explicitly provided
             if format_type is None:
                 extension = file_path.suffix.lower()
-                if extension == '.json':
-                    format_type = 'json'
-                elif extension in ('.pkl', '.pickle'):
-                    format_type = 'pickle'
+                if extension == ".json":
+                    format_type = "json"
+                elif extension in (".pkl", ".pickle"):
+                    format_type = "pickle"
                 else:
                     logger.warning(f"Couldn't determine format from extension {extension}, defaulting to JSON")
-                    format_type = 'json'
+                    format_type = "json"
 
             # Load data based on format type
-            if format_type.lower() == 'json':
-                data = await loop.run_in_executor(
-                    None,
-                    lambda: json.loads(file_path.read_text())
-                )
-            elif format_type.lower() in ('pickle', 'pkl'):
-                data = await loop.run_in_executor(
-                    None,
-                    lambda: pickle.loads(file_path.read_bytes())
-                )
+            if format_type.lower() == "json":
+                data = await loop.run_in_executor(None, lambda: json.loads(file_path.read_text()))
+            elif format_type.lower() in ("pickle", "pkl"):
+                data = await loop.run_in_executor(None, lambda: pickle.loads(file_path.read_bytes()))
             else:
                 raise ValueError(f"Unsupported format type: {format_type}")
 
@@ -360,7 +352,9 @@ class DataManager:
             return data
         except ModuleNotFoundError as e:
             # Handle legacy pickle files with old module references
-            logger.warning(f"Legacy pickle file {file_path} contains references to missing modules ({e}). Using default value and will recreate file.")
+            logger.warning(
+                f"Legacy pickle file {file_path} contains references to missing modules ({e}). Using default value and will recreate file."
+            )
             if create_default and default is not None:
                 logger.info(f"Recreating file {file_path} with default data")
                 await DataManager.save_data(default, file_path, format_type)
@@ -369,8 +363,7 @@ class DataManager:
             logger.error(f"Failed to load data from {file_path} as {format_type}: {str(e)}")
             return default
 
-    async def save_data(self, data: Any, file_path: Union[str, Path],
-                        format_type: str = None) -> bool:
+    async def save_data(self, data: Any, file_path: Union[str, Path], format_type: str = None) -> bool:
         """
         Save data to a file in either JSON or pickle format.
 
@@ -390,18 +383,18 @@ class DataManager:
             # Determine format from extension if not explicitly provided
             if format_type is None:
                 extension = file_path.suffix.lower()
-                if extension == '.json':
-                    format_type = 'json'
-                elif extension in ('.pkl', '.pickle'):
-                    format_type = 'pickle'
+                if extension == ".json":
+                    format_type = "json"
+                elif extension in (".pkl", ".pickle"):
+                    format_type = "pickle"
                 else:
                     logger.warning(f"Couldn't determine format from extension {extension}, defaulting to JSON")
-                    format_type = 'json'
+                    format_type = "json"
 
             # Save based on format type
-            if format_type.lower() == 'json':
+            if format_type.lower() == "json":
                 await self._save_json(data, file_path)
-            elif format_type.lower() in ('pickle', 'pkl'):
+            elif format_type.lower() in ("pickle", "pkl"):
                 await self._save_pickle(data, file_path)
             else:
                 raise ValueError(f"Unsupported format type: {format_type}")
@@ -441,11 +434,7 @@ class PeriodicTask:
         self.bot = bot
         self.tasks = {}
 
-    async def create_periodic_task(self,
-                                   coroutine_func: Callable,
-                                   interval: int,
-                                   name: Optional[str] = None,
-                                   *args, **kwargs) -> asyncio.Task:
+    async def create_periodic_task(self, coroutine_func: Callable, interval: int, name: Optional[str] = None, *args, **kwargs) -> asyncio.Task:
         """
         Create a task that runs periodically.
 
@@ -458,6 +447,7 @@ class PeriodicTask:
         Returns:
             asyncio.Task: The created task
         """
+
         async def periodic_runner():
             await self.bot.wait_until_ready()
             while not self.bot.is_closed():
@@ -474,12 +464,9 @@ class PeriodicTask:
 
         return task
 
-    async def create_periodic_save_task(self,
-                                        data_manager: DataManager,
-                                        data_object: Any,
-                                        file_path: Union[str, Path],
-                                        interval: int = 3600,
-                                        name: Optional[str] = None) -> asyncio.Task:
+    async def create_periodic_save_task(
+        self, data_manager: DataManager, data_object: Any, file_path: Union[str, Path], interval: int = 3600, name: Optional[str] = None
+    ) -> asyncio.Task:
         """
         Create a task that periodically saves data.
 
@@ -494,11 +481,7 @@ class PeriodicTask:
             asyncio.Task: The created task
         """
         return await self.create_periodic_task(
-            data_manager.save_if_modified,
-            interval,
-            name or f"save_task_{Path(file_path).name}",
-            data_object,
-            file_path
+            data_manager.save_if_modified, interval, name or f"save_task_{Path(file_path).name}", data_object, file_path
         )
 
     def cancel_task(self, name: str) -> bool:

@@ -8,7 +8,7 @@ from simple_history.models import HistoricalRecords
 
 
 class ApiKey(models.Model):
-    user = models.ForeignKey("auth.User", on_delete=models.CASCADE, related_name='api_keys')
+    user = models.ForeignKey("auth.User", on_delete=models.CASCADE, related_name="api_keys")
     key = models.CharField(max_length=64, unique=True, editable=False)
     created_at = models.DateTimeField(auto_now_add=True)
     last_used_at = models.DateTimeField(null=True, blank=True)
@@ -30,7 +30,7 @@ class ApiKey(models.Model):
         self.save()
 
     def key_suffix(self):
-        return self.key[-8:] if self.key else ''
+        return self.key[-8:] if self.key else ""
 
     def __str__(self):
         return f"API Key for {self.user.username} (…{self.key_suffix()})"
@@ -73,7 +73,12 @@ class SusPerson(models.Model):
     player_id = models.CharField(max_length=32, primary_key=True, help_text="Player id from The Tower, pk")
     name = models.CharField(max_length=100, blank=True, null=True, help_text="Player's friendly name, e.g. common discord handle")
     notes = models.TextField(null=True, blank=True, max_length=1000, help_text="Additional comments")
-    shun = models.BooleanField(null=False, blank=False, default=False, help_text="Are they shunned from the Discord? If checked, user won't appear in leaderboards or earn tourney roles.")
+    shun = models.BooleanField(
+        null=False,
+        blank=False,
+        default=False,
+        help_text="Are they shunned from the Discord? If checked, user won't appear in leaderboards or earn tourney roles.",
+    )
     sus = models.BooleanField(
         null=False, blank=False, default=True, help_text="Is the person sus? If checked, they will be removed from the results on the public website."
     )

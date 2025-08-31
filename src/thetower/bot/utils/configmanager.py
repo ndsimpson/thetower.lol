@@ -21,8 +21,8 @@ class ConfigManager(BaseFileMonitor):
         return cls._instance
 
     def __init__(self):
-        if not hasattr(self, 'initialized'):
-            config_path = getenv('DISCORD_BOT_CONFIG')
+        if not hasattr(self, "initialized"):
+            config_path = getenv("DISCORD_BOT_CONFIG")
             if not config_path:
                 logger.error("DISCORD_BOT_CONFIG environment variable is not set")
                 sys.exit(1)
@@ -40,7 +40,7 @@ class ConfigManager(BaseFileMonitor):
     def load_config(self) -> None:
         """Load configuration from JSON file."""
         try:
-            with open(self.config_path, 'r') as f:
+            with open(self.config_path, "r") as f:
                 self.config = json.load(f)
             logger.info("Configuration loaded successfully")
         except Exception as e:
@@ -62,7 +62,7 @@ class ConfigManager(BaseFileMonitor):
                 for guild_id, guild_cogs in self.config["cogs"].items():
                     self.config["cogs"][guild_id] = self._sort_dict_keys(guild_cogs)
 
-            with open(self.config_path, 'w') as f:
+            with open(self.config_path, "w") as f:
                 json.dump(self.config, f, indent=4)
             logger.info("Configuration saved successfully")
         except Exception as e:
@@ -173,6 +173,7 @@ class ConfigManager(BaseFileMonitor):
 
     def start_monitoring(self):
         """Start monitoring the config file for changes."""
+
         class ConfigFileHandler(FileSystemEventHandler):
             def __init__(self, config_manager):
                 self.config_manager = config_manager
@@ -185,11 +186,7 @@ class ConfigManager(BaseFileMonitor):
                         logger.info("Config file modified, reloading...")
                         self.config_manager.load_config()
 
-        super().start_monitoring(
-            self.config_path.parent,
-            ConfigFileHandler(self),
-            recursive=False
-        )
+        super().start_monitoring(self.config_path.parent, ConfigFileHandler(self), recursive=False)
 
     def get_guild_id(self) -> int:
         """Get the guild ID."""

@@ -29,16 +29,11 @@ def bracket_analysis():
         return group.nlargest(n).iloc[-1] if len(group) >= n else None
 
     group_by_bracket = ldf.groupby("bracket").wave
-    stats_dict = {
-        f"Top {n}": group_by_bracket.apply(lambda x: get_top_n(x, n))
-        for n in [1, 4, 10, 15]
-    }
+    stats_dict = {f"Top {n}": group_by_bracket.apply(lambda x: get_top_n(x, n)) for n in [1, 4, 10, 15]}
 
     # Create stats dataframe with proper column names
     stats_df = pd.DataFrame(stats_dict).reset_index()
-    stats_df_melted = stats_df.melt(id_vars=['bracket'],
-                                    var_name='Position',
-                                    value_name='Waves')
+    stats_df_melted = stats_df.melt(id_vars=["bracket"], var_name="Position", value_name="Waves")
 
     # Create histogram using cached plot data
     plot_data = get_cached_plot_data(stats_df_melted)
@@ -49,18 +44,11 @@ def bracket_analysis():
         barmode="overlay",
         opacity=0.7,
         title="Distribution of Top Positions per Bracket",
-        labels={
-            "Waves": "Wave Reached",
-            "count": "Number of Brackets",
-            "Position": "Position"
-        },
+        labels={"Waves": "Wave Reached", "count": "Number of Brackets", "Position": "Position"},
         height=300,
     )
 
-    fig1.update_layout(
-        margin=dict(l=20, r=20, t=40, b=20),
-        legend=dict(yanchor="top", y=0.99, xanchor="right", x=0.99)
-    )
+    fig1.update_layout(margin=dict(l=20, r=20, t=40, b=20), legend=dict(yanchor="top", y=0.99, xanchor="right", x=0.99))
     st.plotly_chart(fig1, use_container_width=True)
 
     # Display bracket statistics in columns
@@ -68,25 +56,17 @@ def bracket_analysis():
 
     with cols[0]:
         st.write(f"Highest total waves: {bracket_stats['highest_total']}")
-        st.dataframe(
-            ldf[ldf.bracket == bracket_stats['highest_total']][["real_name", "wave", "datetime"]]
-        )
+        st.dataframe(ldf[ldf.bracket == bracket_stats["highest_total"]][["real_name", "wave", "datetime"]])
 
         st.write(f"Lowest total waves: {bracket_stats['lowest_total']}")
-        st.dataframe(
-            ldf[ldf.bracket == bracket_stats['lowest_total']][["real_name", "wave", "datetime"]]
-        )
+        st.dataframe(ldf[ldf.bracket == bracket_stats["lowest_total"]][["real_name", "wave", "datetime"]])
 
     with cols[1]:
         st.write(f"Highest median waves: {bracket_stats['highest_median']}")
-        st.dataframe(
-            ldf[ldf.bracket == bracket_stats['highest_median']][["real_name", "wave", "datetime"]]
-        )
+        st.dataframe(ldf[ldf.bracket == bracket_stats["highest_median"]][["real_name", "wave", "datetime"]])
 
         st.write(f"Lowest median waves: {bracket_stats['lowest_median']}")
-        st.dataframe(
-            ldf[ldf.bracket == bracket_stats['lowest_median']][["real_name", "wave", "datetime"]]
-        )
+        st.dataframe(ldf[ldf.bracket == bracket_stats["lowest_median"]][["real_name", "wave", "datetime"]])
 
     # Log execution time
     t2_stop = perf_counter()

@@ -22,11 +22,7 @@ def live_score():
     df, latest_time, bracket_creation_times = get_placement_analysis_data(league)
 
     # Player selection
-    selected_player = st.selectbox(
-        "Select player",
-        [""] + sorted(df["real_name"].unique()),
-        key=f"player_selector_{league}"
-    )
+    selected_player = st.selectbox("Select player", [""] + sorted(df["real_name"].unique()), key=f"player_selector_{league}")
     if not selected_player:
         return
 
@@ -50,12 +46,7 @@ def live_score():
     st.dataframe(
         results_df.drop(["Creation Time", "Position"], axis=1),
         hide_index=True,
-        column_config={
-            "Would Place": st.column_config.TextColumn(
-                "Would Place",
-                help="Player placement in bracket"
-            )
-        }
+        column_config={"Would Place": st.column_config.TextColumn("Would Place", help="Player placement in bracket")},
     )
 
     # Calculate player's actual position
@@ -69,10 +60,12 @@ def live_score():
     )
 
     # Create plot data
-    plot_df = pd.DataFrame({
-        "Creation Time": [bracket_creation_times[b] for b in results_df["Bracket"]],
-        "Placement": [int(p.split("/")[0]) for p in results_df["Would Place"]],
-    })
+    plot_df = pd.DataFrame(
+        {
+            "Creation Time": [bracket_creation_times[b] for b in results_df["Bracket"]],
+            "Placement": [int(p.split("/")[0]) for p in results_df["Would Place"]],
+        }
+    )
 
     # Create placement timeline plot
     fig = px.scatter(
@@ -96,11 +89,7 @@ def live_score():
     )
 
     # Update plot layout
-    fig.update_layout(
-        yaxis_title="Position",
-        height=400,
-        margin=dict(l=20, r=20, t=40, b=20)
-    )
+    fig.update_layout(yaxis_title="Position", height=400, margin=dict(l=20, r=20, t=40, b=20))
     fig.update_yaxes(autorange="reversed")
 
     st.plotly_chart(fig, use_container_width=True)

@@ -32,9 +32,9 @@ DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.sqlite3",
         "NAME": DATA_DIR / "tower.sqlite3",
-        'OPTIONS': {
-            'timeout': 60,  # Timeout in seconds
-        }
+        "OPTIONS": {
+            "timeout": 60,  # Timeout in seconds
+        },
     }
 }
 
@@ -182,10 +182,9 @@ LOGGING = {
 # Django Axes Configuration for Login Tracking
 AUTHENTICATION_BACKENDS = [
     # AxesStandaloneBackend should be the first backend in the AUTHENTICATION_BACKENDS list.
-    'axes.backends.AxesStandaloneBackend',
-
+    "axes.backends.AxesStandaloneBackend",
     # Django ModelBackend is the default authentication backend.
-    'django.contrib.auth.backends.ModelBackend',
+    "django.contrib.auth.backends.ModelBackend",
 ]
 
 # Axes settings for django-axes 8.0.0+
@@ -199,15 +198,15 @@ AXES_LOCKOUT_TEMPLATE = None  # Use default lockout template
 AXES_ENABLE_ADMIN = True  # Enable admin interface for axes
 
 # Modern django-axes configuration
-AXES_HANDLER = 'axes.handlers.database.AxesDatabaseHandler'  # Use database handler
-AXES_LOCKOUT_PARAMETERS = ['ip_address', 'username']  # Lock by combination of IP and username
+AXES_HANDLER = "axes.handlers.database.AxesDatabaseHandler"  # Use database handler
+AXES_LOCKOUT_PARAMETERS = ["ip_address", "username"]  # Lock by combination of IP and username
 
 # IP Address Detection for Proxies (CloudFlare + nginx configuration)
 # Modern django-axes 8.0.0+ IP detection settings
 AXES_IPWARE_PROXY_COUNT = 2  # CloudFlare + nginx = 2 proxies
 AXES_IPWARE_META_PRECEDENCE_ORDER = [
-    'HTTP_CF_CONNECTING_IP',  # CloudFlare's real IP header (most reliable)
-    'HTTP_X_FORWARDED_FOR',   # Standard forwarded header (may contain proxy chain)
-    'HTTP_X_REAL_IP',         # nginx real_ip module header
-    'REMOTE_ADDR',            # Fallback to direct connection
+    "HTTP_CF_CONNECTING_IP",  # CloudFlare's real IP header (most reliable)
+    "HTTP_X_FORWARDED_FOR",  # Standard forwarded header (may contain proxy chain)
+    "HTTP_X_REAL_IP",  # nginx real_ip module header
+    "REMOTE_ADDR",  # Fallback to direct connection
 ]

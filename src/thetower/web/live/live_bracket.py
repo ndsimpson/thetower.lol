@@ -63,16 +63,8 @@ def live_bracket():
     elif options.current_player_id:
         selected_player_id = options.current_player_id
     else:
-        selected_real_name = name_col.selectbox(
-            "Bracket of...",
-            [""] + sorted(df.real_name.unique()),
-            key=f"player_name_selector_{league}"
-        )
-        selected_player_id = id_col.selectbox(
-            "...or by player id",
-            [""] + sorted(df.player_id.unique()),
-            key=f"player_id_selector_{league}"
-        )
+        selected_real_name = name_col.selectbox("Bracket of...", [""] + sorted(df.real_name.unique()), key=f"player_name_selector_{league}")
+        selected_player_id = id_col.selectbox("...or by player id", [""] + sorted(df.player_id.unique()), key=f"player_id_selector_{league}")
 
         if not selected_real_name and not selected_player_id:
             # Add navigation buttons
@@ -84,17 +76,10 @@ def live_bracket():
 
             with curr_col:
                 selected_bracket_direct = st.selectbox(
-                    "Select Bracket",
-                    bracket_order,
-                    index=st.session_state[f"current_bracket_idx_{league}"],
-                    key=f"bracket_selector_{league}"
+                    "Select Bracket", bracket_order, index=st.session_state[f"current_bracket_idx_{league}"], key=f"bracket_selector_{league}"
                 )
                 if selected_bracket_direct != bracket_order[st.session_state[f"current_bracket_idx_{league}"]]:
-                    update_bracket_index(
-                        bracket_order.index(selected_bracket_direct),
-                        len(bracket_order) - 1,
-                        league
-                    )
+                    update_bracket_index(bracket_order.index(selected_bracket_direct), len(bracket_order) - 1, league)
 
             with next_col:
                 if st.button("Next Bracket →", key=f"next_{league}"):
@@ -133,29 +118,16 @@ def live_bracket():
 
     # Process display names and create visualization
     tdf = process_display_names(tdf)
-    fig = px.line(
-        tdf,
-        x="datetime",
-        y="wave",
-        color="display_name",
-        title="Live bracket score",
-        markers=True,
-        line_shape="linear"
-    )
+    fig = px.line(tdf, x="datetime", y="wave", color="display_name", title="Live bracket score", markers=True, line_shape="linear")
     fig.update_traces(mode="lines+markers")
-    fig.update_layout(
-        xaxis_title="Time",
-        yaxis_title="Wave",
-        legend_title="real_name",
-        hovermode="closest"
-    )
+    fig.update_layout(xaxis_title="Time", yaxis_title="Wave", legend_title="real_name", hovermode="closest")
     st.plotly_chart(fig, use_container_width=True)
 
     # Process and display latest data
     last_moment = tdf.datetime.max()
     # Create a copy and use loc for setting index
     ldf = tdf[tdf.datetime == last_moment].copy()
-    ldf.loc[:, 'datetime'] = pd.to_datetime(ldf['datetime'])
+    ldf.loc[:, "datetime"] = pd.to_datetime(ldf["datetime"])
     ldf = ldf.reset_index(drop=True)
     ldf.index = pd.RangeIndex(start=1, stop=len(ldf) + 1)
     ldf = process_display_names(ldf)
@@ -164,12 +136,7 @@ def live_bracket():
     display_df = ldf.loc[:, ["player_id", "name", "real_name", "wave", "datetime"]]
 
     # Create table HTML
-    st.write(
-        display_df.style
-        .format(make_player_url, subset=["player_id"])
-        .to_html(escape=False),
-        unsafe_allow_html=True
-    )
+    st.write(display_df.style.format(make_player_url, subset=["player_id"]).to_html(escape=False), unsafe_allow_html=True)
 
     # Generate comparison URLs
     url = f"https://{BASE_URL}/comparison?" + urlencode({"compare": player_ids}, doseq=True)

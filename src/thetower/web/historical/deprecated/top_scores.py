@@ -6,7 +6,9 @@ from thetower.backend.tourney_results.data import get_patches, get_sus_ids, load
 from thetower.backend.tourney_results.formatting import color_position__top, make_player_url
 from thetower.web.util import deprecated
 
-patches = sorted([patch for patch in get_patches() if patch.version_minor and patch.version_minor < 25], key=lambda patch: patch.start_date, reverse=True)
+patches = sorted(
+    [patch for patch in get_patches() if patch.version_minor and patch.version_minor < 25], key=lambda patch: patch.start_date, reverse=True
+)
 
 
 def compute_top(df, options: Options):
@@ -24,7 +26,9 @@ def compute_top(df, options: Options):
 
     overall_df = patch_df.sort_values("wave", ascending=False).reset_index(drop=True).iloc[:how_many_results_public_site]
     overall_df["ovr_pos"] = overall_df.index + 1
-    condensed_df = patch_df.sort_values("wave", ascending=False).drop_duplicates("id").reset_index(drop=True).iloc[:how_many_results_public_site_other]
+    condensed_df = (
+        patch_df.sort_values("wave", ascending=False).drop_duplicates("id").reset_index(drop=True).iloc[:how_many_results_public_site_other]
+    )
     condensed_df["ovr_pos"] = condensed_df.index + 1
 
     condensed_tbd = (

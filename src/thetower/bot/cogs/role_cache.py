@@ -13,9 +13,7 @@ from discord.ext import commands, tasks
 from thetower.bot.basecog import BaseCog
 
 
-class RoleCache(BaseCog,
-                name="Role Cache",
-                description="Cache for Discord role assignments."):
+class RoleCache(BaseCog, name="Role Cache", description="Cache for Discord role assignments."):
     """Cache for Discord role assignments.
 
     Maintains a cache of user roles to reduce API calls and improve performance
@@ -43,7 +41,7 @@ class RoleCache(BaseCog,
             "refresh_interval": (1800, "How often to refresh data (seconds, default 30 minutes)"),
             "staleness_threshold": (3600, "Maximum age before data is considered stale (seconds, default 1 hour)"),
             "save_interval": (300, "How often to save data to disk (seconds, default 5 minutes)"),
-            "cache_filename": ("role_cache.json", "Cache data filename")
+            "cache_filename": ("role_cache.json", "Cache data filename"),
         }
 
         # Initialize settings
@@ -56,10 +54,10 @@ class RoleCache(BaseCog,
 
     def _load_settings(self) -> None:
         """Load settings into instance variables."""
-        self.refresh_interval = self.get_setting('refresh_interval')
-        self.staleness_threshold = self.get_setting('staleness_threshold')
-        self.save_interval = self.get_setting('save_interval')
-        self.cache_filename = self.get_setting('cache_filename')
+        self.refresh_interval = self.get_setting("refresh_interval")
+        self.staleness_threshold = self.get_setting("staleness_threshold")
+        self.save_interval = self.get_setting("save_interval")
+        self.cache_filename = self.get_setting("cache_filename")
 
     @property
     def cache_file(self) -> Path:
@@ -73,11 +71,7 @@ class RoleCache(BaseCog,
                 # Prepare serializable data
                 tracker.update_status("Serializing cache data")
                 save_data = {
-                    guild_id: {
-                        str(user_id): data
-                        for user_id, data in guild_data.items()
-                    }
-                    for guild_id, guild_data in self.member_roles.items()
+                    guild_id: {str(user_id): data for user_id, data in guild_data.items()} for guild_id, guild_data in self.member_roles.items()
                 }
 
                 # Use BaseCog's utility to save data
@@ -100,11 +94,7 @@ class RoleCache(BaseCog,
             if save_data:
                 # Convert string user IDs back to ints
                 self.member_roles = {
-                    guild_id: {
-                        int(user_id): data
-                        for user_id, data in guild_data.items()
-                    }
-                    for guild_id, guild_data in save_data.items()
+                    guild_id: {int(user_id): data for user_id, data in guild_data.items()} for guild_id, guild_data in save_data.items()
                 }
                 self.logger.info(f"Loaded role cache with {len(self.member_roles)} guild entries")
                 return True
@@ -320,7 +310,7 @@ class RoleCache(BaseCog,
         # Store roles with explicit UTC timestamp
         self.member_roles[member.guild.id][member.id] = {
             "roles": [role.id for role in member.roles],
-            "updated_at": datetime.datetime.now(datetime.timezone.utc).timestamp()
+            "updated_at": datetime.datetime.now(datetime.timezone.utc).timestamp(),
         }
 
         # Mark data as modified using BaseCog's method
@@ -403,11 +393,7 @@ class RoleCache(BaseCog,
         """Display current role cache settings"""
         settings = self.get_all_settings()
 
-        embed = discord.Embed(
-            title="Role Cache Settings",
-            description="Current configuration for role caching system",
-            color=discord.Color.blue()
-        )
+        embed = discord.Embed(title="Role Cache Settings", description="Current configuration for role caching system", color=discord.Color.blue())
 
         for name, value in settings.items():
             # Format durations in a more readable way for time-based settings
@@ -430,11 +416,7 @@ class RoleCache(BaseCog,
             setting_name: Setting to change (refresh_interval, staleness_threshold, save_interval)
             value: New value for the setting (in seconds)
         """
-        valid_settings = [
-            "refresh_interval",
-            "staleness_threshold",
-            "save_interval"
-        ]
+        valid_settings = ["refresh_interval", "staleness_threshold", "save_interval"]
 
         if setting_name not in valid_settings:
             valid_settings_str = ", ".join(valid_settings)
@@ -446,11 +428,11 @@ class RoleCache(BaseCog,
                 return await ctx.send(f"Value for {setting_name} must be at least 60 seconds")
 
         # Update instance variables immediately
-        if setting_name == 'refresh_interval':
+        if setting_name == "refresh_interval":
             self.refresh_interval = value
-        elif setting_name == 'staleness_threshold':
+        elif setting_name == "staleness_threshold":
             self.staleness_threshold = value
-        elif setting_name == 'save_interval':
+        elif setting_name == "save_interval":
             self.save_interval = value
 
         # Save the setting
@@ -566,7 +548,7 @@ class RoleCache(BaseCog,
     async def show_status(self, ctx):
         """Display current operational status and statistics of the role cache system."""
         # Determine overall status
-        has_errors = hasattr(self, '_has_errors') and self._has_errors
+        has_errors = hasattr(self, "_has_errors") and self._has_errors
 
         if not self.is_ready:
             status_emoji = "⏳"
@@ -582,11 +564,7 @@ class RoleCache(BaseCog,
             embed_color = discord.Color.blue()
 
         # Create status embed
-        embed = discord.Embed(
-            title="Role Cache Status",
-            description=f"Current status: {status_emoji} {status_text}",
-            color=embed_color
-        )
+        embed = discord.Embed(title="Role Cache Status", description=f"Current status: {status_emoji} {status_text}", color=embed_color)
 
         # Add general cache statistics
         guild_count = len(self.member_roles)
@@ -601,59 +579,49 @@ class RoleCache(BaseCog,
 
         # Main statistics
         stats_fields = [
-            ("Cache Overview", [
-                f"**Guilds Cached**: {guild_count}",
-                f"**Members Cached**: {total_members}",
-                f"**Stale Entries**: {stale_count}",
-                f"**Status**: {'Ready' if self.is_ready else 'Building'}"
-            ]),
-            ("Configuration", [
-                f"**Refresh Interval**: {self.format_time_value(self.refresh_interval)}",
-                f"**Staleness Threshold**: {self.format_time_value(self.staleness_threshold)}",
-                f"**Save Interval**: {self.format_time_value(self.save_interval)}"
-            ])
+            (
+                "Cache Overview",
+                [
+                    f"**Guilds Cached**: {guild_count}",
+                    f"**Members Cached**: {total_members}",
+                    f"**Stale Entries**: {stale_count}",
+                    f"**Status**: {'Ready' if self.is_ready else 'Building'}",
+                ],
+            ),
+            (
+                "Configuration",
+                [
+                    f"**Refresh Interval**: {self.format_time_value(self.refresh_interval)}",
+                    f"**Staleness Threshold**: {self.format_time_value(self.staleness_threshold)}",
+                    f"**Save Interval**: {self.format_time_value(self.save_interval)}",
+                ],
+            ),
         ]
 
         for name, items in stats_fields:
-            embed.add_field(
-                name=name,
-                value="\n".join(items),
-                inline=False
-            )
+            embed.add_field(name=name, value="\n".join(items), inline=False)
 
         # Add cache file information
         cache_file = self.cache_file
         if cache_file.exists():
             size_kb = cache_file.stat().st_size / 1024
             modified = datetime.datetime.fromtimestamp(cache_file.stat().st_mtime)
-            embed.add_field(
-                name="Cache File",
-                value=f"Size: {size_kb:.1f} KB\nLast Modified: {modified.strftime('%Y-%m-%d %H:%M:%S')}",
-                inline=False
-            )
+            embed.add_field(name="Cache File", value=f"Size: {size_kb:.1f} KB\nLast Modified: {modified.strftime('%Y-%m-%d %H:%M:%S')}", inline=False)
 
         # Add active process information
-        active_process = getattr(self, '_active_process', None)
+        active_process = getattr(self, "_active_process", None)
         if active_process:
-            process_start = getattr(self, '_process_start_time', None)
+            process_start = getattr(self, "_process_start_time", None)
             if process_start:
                 time_since = (datetime.datetime.now() - process_start).total_seconds()
                 time_str = f"{int(time_since // 60)}m {int(time_since % 60)}s ago"
-                embed.add_field(
-                    name="Active Processes",
-                    value=f"🔄 {active_process} (started {time_str})",
-                    inline=False
-                )
+                embed.add_field(name="Active Processes", value=f"🔄 {active_process} (started {time_str})", inline=False)
 
         # Add last activity information
-        last_refresh = getattr(self, '_last_refresh_time', None)
+        last_refresh = getattr(self, "_last_refresh_time", None)
         if last_refresh:
             time_str = self.format_relative_time(last_refresh)
-            embed.add_field(
-                name="Last Activity",
-                value=f"Cache refreshed: {time_str}",
-                inline=False
-            )
+            embed.add_field(name="Last Activity", value=f"Cache refreshed: {time_str}", inline=False)
 
         # Add task tracking information
         self.add_task_status_fields(embed)
@@ -895,10 +863,7 @@ class RoleCache(BaseCog,
         cache_age = now - updated_at
 
         # Create embed
-        embed = discord.Embed(
-            title=f"Cached Roles for {member.display_name}",
-            color=discord.Color.blue()
-        )
+        embed = discord.Embed(title=f"Cached Roles for {member.display_name}", color=discord.Color.blue())
 
         # Get role names from IDs
         role_names = []
@@ -908,11 +873,7 @@ class RoleCache(BaseCog,
                 role_names.append(f"{role.name}")
 
         # Format embed fields
-        embed.add_field(
-            name="Roles",
-            value="\n".join(role_names) if role_names else "No roles",
-            inline=False
-        )
+        embed.add_field(name="Roles", value="\n".join(role_names) if role_names else "No roles", inline=False)
 
         # Add information about cache freshness
         hours, remainder = divmod(int(cache_age.total_seconds()), 3600)

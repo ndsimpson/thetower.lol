@@ -10,7 +10,7 @@ def compute_counts():
     options = get_options(links=False)
 
     # Get latest tournament result to check patch
-    latest_result = TourneyResult.objects.filter(public=True).order_by('-date').first()
+    latest_result = TourneyResult.objects.filter(public=True).order_by("-date").first()
     patch = date_to_patch(latest_result.date) if latest_result else None
 
     # Use patch-aware league selection
@@ -24,41 +24,23 @@ def compute_counts():
         #     "counts": [1, 10, 25, 50, 100, 200],
         #     "limit": 300
         # },
-        "Top 1000": {
-            "counts": [1, 10, 25, 50, 100, 200, 400, 600, 800, 1000],
-            "limit": 1100
-        },
-        "Top 2500": {
-            "counts": [1, 100, 250, 500, 750, 1000, 1500, 2000, 2500],
-            "limit": 2600
-        },
-        "Top 5000": {
-            "counts": [1, 100, 500, 1000, 2000, 2500, 3000, 4000, 5000],
-            "limit": 5100
-        }
+        "Top 1000": {"counts": [1, 10, 25, 50, 100, 200, 400, 600, 800, 1000], "limit": 1100},
+        "Top 2500": {"counts": [1, 100, 250, 500, 750, 1000, 1500, 2000, 2500], "limit": 2600},
+        "Top 5000": {"counts": [1, 100, 500, 1000, 2000, 2500, 3000, 4000, 5000], "limit": 5100},
     }
 
     # Create columns for controls
     range_col, bc_col, slid_col, transpose_col = st.columns([1, 1, 2, 2])
 
-    selected_range = range_col.selectbox(
-        "Range",
-        options=list(cutoff_ranges.keys()),
-        help="Select the range of positions to display"
-    )
+    selected_range = range_col.selectbox("Range", options=list(cutoff_ranges.keys()), help="Select the range of positions to display")
 
     # Add checkbox in transpose_col
-    untranspose = transpose_col.checkbox("Show dates as rows", value=False,
-                                         help="Switch between dates as columns or rows")
+    untranspose = transpose_col.checkbox("Show dates as rows", value=False, help="Switch between dates as columns or rows")
 
     # Only show BC selector when untransposed
     bc_display = "Hide"
     if untranspose:
-        bc_display = bc_col.selectbox(
-            "Battle Conditions",
-            ["Hide", "Short", "Full"],
-            help="How to display battle conditions"
-        )
+        bc_display = bc_col.selectbox("Battle Conditions", ["Hide", "Short", "Full"], help="How to display battle conditions")
 
     counts_for = cutoff_ranges[selected_range]["counts"]
     limit = cutoff_ranges[selected_range]["limit"]
@@ -94,8 +76,7 @@ def compute_counts():
             else:  # "Full"
                 result["bcs"] = "/".join([bc.name for bc in bcs])
 
-        result |= {f"Top {count_for}": waves[count_for - 1] if count_for <= len(waves) else 0
-                   for count_for in counts_for}
+        result |= {f"Top {count_for}": waves[count_for - 1] if count_for <= len(waves) else 0 for count_for in counts_for}
         results.append(result)
 
     to_be_displayed = pd.DataFrame(results).sort_values("date", ascending=False).reset_index(drop=True)
@@ -105,7 +86,7 @@ def compute_counts():
         st.dataframe(to_be_displayed, use_container_width=True, height=row_height, hide_index=True)
     else:
         # Existing transposed view
-        date_col = to_be_displayed['date']
+        date_col = to_be_displayed["date"]
 
         # Create visible headers and tooltips separately
         visible_headers = [str(date) for date in date_col]
@@ -117,12 +98,12 @@ def compute_counts():
             tooltips.append(tooltip)
 
         # Rest of transposed view logic
-        if 'bcs' in to_be_displayed.columns:
-            bcs_col = to_be_displayed['bcs']
-            transposed = to_be_displayed.drop(['date', 'bcs'], axis=1).T
-            transposed.insert(0, 'Battle Conditions', bcs_col)
+        if "bcs" in to_be_displayed.columns:
+            bcs_col = to_be_displayed["bcs"]
+            transposed = to_be_displayed.drop(["date", "bcs"], axis=1).T
+            transposed.insert(0, "Battle Conditions", bcs_col)
         else:
-            transposed = to_be_displayed.drop('date', axis=1).T
+            transposed = to_be_displayed.drop("date", axis=1).T
 
         # Set column names to just dates, with tooltips for hover
         transposed.columns = pd.Index(visible_headers, name=None)
@@ -131,10 +112,7 @@ def compute_counts():
             use_container_width=True,
             height=row_height,
             hide_index=False,
-            column_config={
-                header: {"help": tooltip}
-                for header, tooltip in zip(visible_headers, tooltips)
-            }
+            column_config={header: {"help": tooltip} for header, tooltip in zip(visible_headers, tooltips)},
         )
 
 

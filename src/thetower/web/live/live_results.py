@@ -33,11 +33,7 @@ def live_results():
 
     with cols[0]:
         st.write("Current result (ordered)")
-        st.dataframe(
-            ldf[["name", "real_name", "wave"]][:how_many_results_public_site],
-            height=700,
-            width=400
-        )
+        st.dataframe(ldf[["name", "real_name", "wave"]][:how_many_results_public_site], height=700, width=400)
 
     canvas = cols[0] if is_mobile else cols[1]
 
@@ -55,30 +51,18 @@ def live_results():
 
     if need_to_get_in:
         # Show count of players who need to join
-        canvas.write(
-            f"{not_joined_count} in the top {topx} need to join",
-            unsafe_allow_html=True
-        )
+        canvas.write(f"{not_joined_count} in the top {topx} need to join", unsafe_allow_html=True)
         # Filter to show only those who haven't joined from the top X
         top_x_df = pdf[:topx]
         display_df = top_x_df[~top_x_df["joined"]]
     else:
         # Show original message
-        color = ("green" if joined_sum / joined_tot >= 0.7
-                 else "orange" if joined_sum / joined_tot >= 0.5
-                 else "red")
-        canvas.write(
-            f"<font color='{color}'>{joined_sum}</font>/{topx} have already joined.",
-            unsafe_allow_html=True
-        )
+        color = "green" if joined_sum / joined_tot >= 0.7 else "orange" if joined_sum / joined_tot >= 0.5 else "red"
+        canvas.write(f"<font color='{color}'>{joined_sum}</font>/{topx} have already joined.", unsafe_allow_html=True)
         # Show all players in top X
         display_df = pdf[:topx]
 
-    canvas.dataframe(
-        display_df[["real_name", "wave_last", "joined"]],
-        height=600,
-        width=400
-    )
+    canvas.dataframe(display_df[["real_name", "wave_last", "joined"]], height=600, width=400)
 
     # Log execution time
     t2_stop = perf_counter()

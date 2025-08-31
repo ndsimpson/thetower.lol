@@ -10,7 +10,9 @@ from thetower.backend.tourney_results.data import get_patches, get_sus_ids, load
 from thetower.backend.tourney_results.models import TourneyResult
 from thetower.web.util import deprecated
 
-patches = sorted([patch for patch in get_patches() if patch.version_minor and patch.version_minor < 25], key=lambda patch: patch.start_date, reverse=True)
+patches = sorted(
+    [patch for patch in get_patches() if patch.version_minor and patch.version_minor < 25], key=lambda patch: patch.start_date, reverse=True
+)
 
 
 def compute_breakdown(options: Optional[Options] = None) -> None:
@@ -94,7 +96,8 @@ def compute_breakdown(options: Optional[Options] = None) -> None:
     for patch in selected_patches:
         non_sus_df = df[~df.id.isin(sus_ids)]
         patch_breakdown_datum = {
-            patch.wave_bottom: len(players) for patch, players in dict(non_sus_df[non_sus_df.patch == patch].groupby("name_role").real_name.unique()).items()
+            patch.wave_bottom: len(players)
+            for patch, players in dict(non_sus_df[non_sus_df.patch == patch].groupby("name_role").real_name.unique()).items()
         }
         patch_breakdown_data[patch] = patch_breakdown_datum
 

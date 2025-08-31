@@ -5,6 +5,7 @@ from discord.ext import commands
 
 def flexible_command(name=None, **kwargs):
     """Create a command that can function as prefix, slash, or both based on settings."""
+
     def decorator(func):
         @functools.wraps(func)
         async def wrapper(self, ctx, *args, **kwargs):
@@ -19,11 +20,13 @@ def flexible_command(name=None, **kwargs):
         command._flex_command_kwargs = kwargs
 
         return command
+
     return decorator
 
 
 def flexible_group(name=None, **kwargs):
     """Create a command group that can function as prefix, slash, or both based on settings."""
+
     def decorator(func):
         @functools.wraps(func)
         async def wrapper(self, ctx, *args, **kwargs):
@@ -38,6 +41,7 @@ def flexible_group(name=None, **kwargs):
         group._flex_command_kwargs = kwargs
 
         return group
+
     return decorator
 
 

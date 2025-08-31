@@ -58,7 +58,7 @@ def create_tourney_rows(tourney_result: TourneyResult) -> None:
         df["tourney_name"] = df["tourney_name"].astype("str")
         # df["tourney_name"] = df["tourney_name"].map(lambda x: x.strip())  # We're stripping white space on csv save so we shouldn't need this anymore.
         logging.info(f"There are {len(df.query('tourney_name.str.len() == 0'))} blank tourney names.")
-        df.loc[df['tourney_name'].str.len() == 0, 'tourney_name'] = df['id']
+        df.loc[df["tourney_name"].str.len() == 0, "tourney_name"] = df["id"]
 
     excluded_ids = get_sus_ids()
     positions = calculate_positions(df.id, df.index, df.wave, excluded_ids)
@@ -83,12 +83,7 @@ def create_tourney_rows(tourney_result: TourneyResult) -> None:
     TourneyRow.objects.bulk_create([TourneyRow(**data) for data in create_data])
 
 
-def calculate_positions(
-    ids: list[int],
-    indices: list[int],
-    waves: list[int],
-    exclude_ids: set[int]
-) -> list[int]:
+def calculate_positions(ids: list[int], indices: list[int], waves: list[int], exclude_ids: set[int]) -> list[int]:
     """Calculate positions for tournament participants.
 
     Args:
@@ -126,11 +121,7 @@ def calculate_positions(
     return positions
 
 
-def reposition(
-    tourney_result: TourneyResult,
-    testrun: bool = False,
-    verbose: bool = False
-) -> int:
+def reposition(tourney_result: TourneyResult, testrun: bool = False, verbose: bool = False) -> int:
     """Recalculates positions for tournament results and updates the database.
 
     Args:
@@ -158,8 +149,10 @@ def reposition(
         if obj.position != positions[index]:
             changes += 1
             if verbose:
-                logging.info(f"Player {obj.player_id} ({nicknames[index]}) at wave {waves[index]}: "
-                             f"Position changing from {obj.position} to {positions[index]}")
+                logging.info(
+                    f"Player {obj.player_id} ({nicknames[index]}) at wave {waves[index]}: "
+                    f"Position changing from {obj.position} to {positions[index]}"
+                )
             obj.position = positions[index]
             bulk_update_data.append(obj)
 
@@ -399,9 +392,6 @@ def load_battle_conditions() -> MappingProxyType:
     Load battle conditions from the database into an immutable dictionary.
     Returns a read-only dictionary with condition shortcuts as keys and names as values.
     """
-    BattleCondition = apps.get_model('tourney_results', 'BattleCondition')
-    conditions = {
-        condition.shortcut: condition.name
-        for condition in BattleCondition.objects.all()
-    }
+    BattleCondition = apps.get_model("tourney_results", "BattleCondition")
+    conditions = {condition.shortcut: condition.name for condition in BattleCondition.objects.all()}
     return MappingProxyType(conditions)

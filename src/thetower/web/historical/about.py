@@ -14,7 +14,9 @@ def compute_about(*args, **kwargs):
 
     st.write("If you have any questions of concerns regarding privacy, including opt outs, please contact fish@thetower.lol.")
 
-    st.write("DISCLAIMER:  This is a community run project.  All work is best effort and strictly voluntary.  Inclusion in the results isn't guaranteed and we make no warranties as to the site accuracy.")
+    st.write(
+        "DISCLAIMER:  This is a community run project.  All work is best effort and strictly voluntary.  Inclusion in the results isn't guaranteed and we make no warranties as to the site accuracy."
+    )
 
 
 compute_about()

@@ -40,40 +40,27 @@ class TourneyRoles(BaseCog, name="Tournament Roles"):
         # Define settings with descriptions
         settings_config = {
             # Core Settings
-            "league_hierarchy": (
-                ["Legend", "Champion", "Platinum", "Gold", "Silver", "Copper"],
-                "Hierarchy of leagues from highest to lowest"
-            ),
+            "league_hierarchy": (["Legend", "Champion", "Platinum", "Gold", "Silver", "Copper"], "Hierarchy of leagues from highest to lowest"),
             "roles_config": ({}, "Configuration of tournament roles"),
             "verified_role_id": (None, "Role ID required for tournament role eligibility"),
-
             # Update Settings
-            "update_interval": (
-                6 * 60 * 60,  # 6 hours in seconds
-                "How often to run automatic role updates"
-            ),
-            "role_update_cooldown": (
-                24 * 60 * 60,  # 24 hours in seconds
-                "Cooldown between manual role updates"
-            ),
+            "update_interval": (6 * 60 * 60, "How often to run automatic role updates"),  # 6 hours in seconds
+            "role_update_cooldown": (24 * 60 * 60, "Cooldown between manual role updates"),  # 24 hours in seconds
             "update_on_startup": (True, "Whether to update roles when bot starts"),
-
             # Processing Settings
             "process_batch_size": (50, "Number of users to process in each batch"),
             "process_delay": (5, "Seconds to wait between processing batches"),
             "error_retry_delay": (300, "Seconds to wait after error before retrying"),
-
             # Mode Settings
             "dry_run": (False, "Test mode - log changes without applying them"),
             "dry_run_limit": (100, "Maximum users to process in dry run mode"),
             "pause": (False, "Pause all role updates"),
             "debug_logging": (False, "Enable detailed debug logging"),
-
             # Logging Settings
             "log_channel_id": (None, "Channel ID for role update logs"),
             "log_batch_size": (10, "Number of log messages to batch before sending"),
             "immediate_logging": (True, "Send logs during updates vs only at end"),
-            "roles_cache_filename": ("tourney_roles.json", "Filename for cached role data")
+            "roles_cache_filename": ("tourney_roles.json", "Filename for cached role data"),
         }
 
         # Initialize settings
@@ -113,7 +100,7 @@ class TourneyRoles(BaseCog, name="Tournament Roles"):
                 "processed_users": self.processed_users,
                 "roles_assigned": self.roles_assigned,
                 "roles_removed": self.roles_removed,
-                "users_with_no_player_data": self.users_with_no_player_data
+                "users_with_no_player_data": self.users_with_no_player_data,
             }
 
             # Use BaseCog's utility to save data
@@ -247,7 +234,9 @@ class TourneyRoles(BaseCog, name="Tournament Roles"):
                             if channel:
                                 # Get dry run status
                                 dry_run = self.get_setting("dry_run")
-                                initial_message = "🔍 Starting automatic role update in DRY RUN mode..." if dry_run else "🔄 Starting automatic role update..."
+                                initial_message = (
+                                    "🔍 Starting automatic role update in DRY RUN mode..." if dry_run else "🔄 Starting automatic role update..."
+                                )
                                 message = await channel.send(f"{initial_message} This may take a while.")
 
                                 # Run the update with progress tracking
@@ -351,7 +340,7 @@ class TourneyRoles(BaseCog, name="Tournament Roles"):
 
                 # Process users in batches to avoid rate limits
                 for i in range(0, len(discord_ids), self.process_batch_size):
-                    batch = discord_ids[i:i + self.process_batch_size]
+                    batch = discord_ids[i : i + self.process_batch_size]
 
                     for discord_id in batch:
                         try:
@@ -361,7 +350,7 @@ class TourneyRoles(BaseCog, name="Tournament Roles"):
                                 continue
 
                             # Validate required fields
-                            if 'all_ids' not in player_data:
+                            if "all_ids" not in player_data:
                                 self.logger.debug(f"Missing all_ids for Discord ID {discord_id}")
                                 self.users_with_no_player_data += 1
                                 continue
@@ -381,9 +370,7 @@ class TourneyRoles(BaseCog, name="Tournament Roles"):
                             self.logger.debug(f"Processing user {discord_id} with player IDs: {player_ids}")
 
                             # Get player tournament participation data
-                            player_tournaments = await self.get_player_tournament_stats(
-                                tourney_stats_cog, player_ids
-                            )
+                            player_tournaments = await self.get_player_tournament_stats(tourney_stats_cog, player_ids)
 
                             # Get all role objects
                             roles_config = self.get_setting("roles_config", {})
@@ -467,8 +454,12 @@ class TourneyRoles(BaseCog, name="Tournament Roles"):
                     self.logger.info(f"Role update completed in {duration:.1f}s")
                     await self.add_log_message(f"✅ Role update completed in {duration:.1f}s")
 
-                self.logger.info(f"Stats: Processed {self.processed_users} users, {self.roles_assigned} roles assigned, {self.roles_removed} roles removed")
-                await self.add_log_message(f"📊 Stats: Processed {self.processed_users} users, {self.roles_assigned} roles assigned, {self.roles_removed} roles removed")
+                self.logger.info(
+                    f"Stats: Processed {self.processed_users} users, {self.roles_assigned} roles assigned, {self.roles_removed} roles removed"
+                )
+                await self.add_log_message(
+                    f"📊 Stats: Processed {self.processed_users} users, {self.roles_assigned} roles assigned, {self.roles_removed} roles removed"
+                )
 
                 # Send any final log messages
                 await self.flush_log_buffer()
@@ -512,16 +503,9 @@ class TourneyRoles(BaseCog, name="Tournament Roles"):
         # Initialize result dictionary with structure compatible with determine_best_role
         result = {
             "leagues": {},  # Stats by league
-            "latest_tournament": {
-                "placement": None,
-                "league": None,
-                "date": None
-            },
-            "latest_patch": {
-                "best_placement": float("inf"),
-                "max_wave": 0
-            },
-            "total_tourneys": 0
+            "latest_tournament": {"placement": None, "league": None, "date": None},
+            "latest_patch": {"best_placement": float("inf"), "max_wave": 0},
+            "total_tourneys": 0,
         }
 
         latest_tournament_date = None
@@ -542,7 +526,7 @@ class TourneyRoles(BaseCog, name="Tournament Roles"):
                             "position_at_best_wave": 0,
                             "total_tourneys": 0,
                             "avg_wave": 0,
-                            "avg_position": 0
+                            "avg_position": 0,
                         }
 
                     # Skip this league if no tournaments
@@ -561,13 +545,11 @@ class TourneyRoles(BaseCog, name="Tournament Roles"):
                         total_tourneys = prev_count + tourney_count
                         # Weighted average calculation
                         league_result["avg_wave"] = (
-                            (league_result["avg_wave"] * prev_count) +
-                            (league_stats.get("avg_wave", 0) * tourney_count)
+                            (league_result["avg_wave"] * prev_count) + (league_stats.get("avg_wave", 0) * tourney_count)
                         ) / total_tourneys
 
                         league_result["avg_position"] = (
-                            (league_result["avg_position"] * prev_count) +
-                            (league_stats.get("avg_position", 0) * tourney_count)
+                            (league_result["avg_position"] * prev_count) + (league_stats.get("avg_position", 0) * tourney_count)
                         ) / total_tourneys
                     else:
                         # First data for this league
@@ -601,7 +583,7 @@ class TourneyRoles(BaseCog, name="Tournament Roles"):
                             "league": league_name,
                             "wave": league_stats.get("latest_wave"),
                             "placement": league_stats.get("latest_position"),
-                            "date": latest_date
+                            "date": latest_date,
                         }
 
                     self.logger.debug(f"Player {player_id}: {tourney_count} tournaments in {league_name}, best wave: {best_wave}")
@@ -628,7 +610,7 @@ class TourneyRoles(BaseCog, name="Tournament Roles"):
         """
         try:
             # Dispatch start event
-            self.bot.dispatch('bot_role_update_start', member.id)
+            self.bot.dispatch("bot_role_update_start", member.id)
 
             # Check if verified role is required
             verified_role_id = self.get_setting("verified_role_id")
@@ -653,7 +635,9 @@ class TourneyRoles(BaseCog, name="Tournament Roles"):
                                 roles_removed += 1
                                 self.roles_removed += 1
                                 role_changes.append(f"-{role.name}")
-                                log_msg = f"{'Would remove' if dry_run else 'Removed'} {role.name} role from {member.name} ({member.id}) - not verified"
+                                log_msg = (
+                                    f"{'Would remove' if dry_run else 'Removed'} {role.name} role from {member.name} ({member.id}) - not verified"
+                                )
                                 self.logger.info(log_msg)
                             except Exception as e:
                                 self.logger.error(f"Error removing role {role.name} from {member.name}: {e}")
@@ -721,7 +705,7 @@ class TourneyRoles(BaseCog, name="Tournament Roles"):
             return roles_added, roles_removed, log_message
 
         finally:
-            self.bot.dispatch('bot_role_update_end', member.id)
+            self.bot.dispatch("bot_role_update_end", member.id)
 
     def determine_best_role(self, player_tournaments):
         """
@@ -747,8 +731,7 @@ class TourneyRoles(BaseCog, name="Tournament Roles"):
             return None
 
         # Get league hierarchy
-        league_hierarchy = self.get_setting("league_hierarchy",
-                                            ["Legend", "Champion", "Platinum", "Gold", "Silver", "Copper"])
+        league_hierarchy = self.get_setting("league_hierarchy", ["Legend", "Champion", "Platinum", "Gold", "Silver", "Copper"])
 
         if debug_logging:
             self.logger.info("==== ROLE DETERMINATION ANALYSIS ====")
@@ -756,8 +739,7 @@ class TourneyRoles(BaseCog, name="Tournament Roles"):
             self.logger.info(f"League hierarchy: {' > '.join(league_hierarchy)}")
 
         # Champion method: Latest tournament placement-based (highest priority)
-        champion_roles = {role_name: config for role_name, config in roles_config.items()
-                          if config.get('method') == 'Champion'}
+        champion_roles = {role_name: config for role_name, config in roles_config.items() if config.get("method") == "Champion"}
 
         if champion_roles:
             # Check if multiple "Current Champion" roles are configured
@@ -783,14 +765,16 @@ class TourneyRoles(BaseCog, name="Tournament Roles"):
 
                     if is_top_league:
                         for role_name, config in champion_roles.items():
-                            threshold = config.get('threshold', 1)
+                            threshold = config.get("threshold", 1)
                             if debug_logging:
                                 self.logger.info(f"Checking champion role '{role_name}' with threshold {threshold}")
 
                             if placement <= threshold:
                                 if debug_logging:
-                                    self.logger.info(f"✅ CHAMPION ROLE MATCH: '{role_name}' - player placed {placement} in {league} (threshold: {threshold})")
-                                return config.get('id')
+                                    self.logger.info(
+                                        f"✅ CHAMPION ROLE MATCH: '{role_name}' - player placed {placement} in {league} (threshold: {threshold})"
+                                    )
+                                return config.get("id")
                             elif debug_logging:
                                 self.logger.info(f"❌ Champion role '{role_name}' not matched - placement {placement} > threshold {threshold}")
                     elif debug_logging:
@@ -801,16 +785,14 @@ class TourneyRoles(BaseCog, name="Tournament Roles"):
                 self.logger.info("❌ Champion role not applied - no latest tournament data")
 
         # Placement method: Placement-based roles respecting league hierarchy
-        placement_roles = {role_name: config for role_name, config in roles_config.items()
-                           if config.get('method') == 'Placement'}
+        placement_roles = {role_name: config for role_name, config in roles_config.items() if config.get("method") == "Placement"}
 
         if placement_roles:
             if debug_logging:
                 self.logger.info(f"\nPLACEMENT METHOD: Checking {len(placement_roles)} placement roles")
 
             # Get the top league from the hierarchy
-            league_hierarchy = self.get_setting("league_hierarchy",
-                                                ["Legend", "Champion", "Platinum", "Gold", "Silver", "Copper"])
+            league_hierarchy = self.get_setting("league_hierarchy", ["Legend", "Champion", "Platinum", "Gold", "Silver", "Copper"])
             top_league = league_hierarchy[0] if league_hierarchy else None
 
             if debug_logging and top_league:
@@ -825,7 +807,7 @@ class TourneyRoles(BaseCog, name="Tournament Roles"):
                         self.logger.info(f"Role '{role_name}' starts with 'Top', assigning to top league: {top_league}")
                     league = top_league
                 else:
-                    league = config.get('league')
+                    league = config.get("league")
 
                 if league:
                     if league not in league_placement_roles:
@@ -843,33 +825,33 @@ class TourneyRoles(BaseCog, name="Tournament Roles"):
                     league_data = player_tournaments["leagues"][league]
                     best_position = league_data.get("best_position")
 
-                    if best_position and best_position != float('inf'):
+                    if best_position and best_position != float("inf"):
                         # Sort roles within this league by threshold (ascending)
-                        sorted_roles = sorted(league_placement_roles[league],
-                                              key=lambda x: x[1].get('threshold', float('inf')))
+                        sorted_roles = sorted(league_placement_roles[league], key=lambda x: x[1].get("threshold", float("inf")))
 
                         if debug_logging:
-                            role_thresholds = [(r[0], r[1].get('threshold')) for r in sorted_roles]
+                            role_thresholds = [(r[0], r[1].get("threshold")) for r in sorted_roles]
                             self.logger.info(f"Available roles in {league} (sorted by threshold): {role_thresholds}")
 
                         # Check if player qualifies for any role in this league
                         for role_name, config in sorted_roles:
-                            threshold = config.get('threshold', 100)
+                            threshold = config.get("threshold", 100)
                             if debug_logging:
                                 self.logger.info(f"Checking placement role '{role_name}' with threshold {threshold}")
 
                             if best_position <= threshold:
                                 if debug_logging:
-                                    self.logger.info(f"✅ PLACEMENT ROLE MATCH: '{role_name}' - player best position {best_position} in {league} (threshold: {threshold})")
-                                return config.get('id')
+                                    self.logger.info(
+                                        f"✅ PLACEMENT ROLE MATCH: '{role_name}' - player best position {best_position} in {league} (threshold: {threshold})"
+                                    )
+                                return config.get("id")
                             elif debug_logging:
                                 self.logger.info(f"❌ Placement role '{role_name}' not matched - position {best_position} > threshold {threshold}")
                     elif debug_logging:
                         self.logger.info(f"❌ No valid position data for {league}")
 
         # Wave method: Wave-based across all tournaments in latest patch
-        wave_roles = {role_name: config for role_name, config in roles_config.items()
-                      if config.get('method') == 'Wave'}
+        wave_roles = {role_name: config for role_name, config in roles_config.items() if config.get("method") == "Wave"}
 
         if wave_roles:
             if debug_logging:
@@ -886,7 +868,7 @@ class TourneyRoles(BaseCog, name="Tournament Roles"):
                 # Group roles by league
                 league_roles = {}
                 for role_name, config in wave_roles.items():
-                    league = config.get('league')
+                    league = config.get("league")
                     if league:
                         if league not in league_roles:
                             league_roles[league] = []
@@ -899,17 +881,15 @@ class TourneyRoles(BaseCog, name="Tournament Roles"):
 
                     if league in league_roles:
                         # Sort roles within this league by threshold (descending)
-                        sorted_roles = sorted(league_roles[league],
-                                              key=lambda x: x[1].get('threshold', 0),
-                                              reverse=True)
+                        sorted_roles = sorted(league_roles[league], key=lambda x: x[1].get("threshold", 0), reverse=True)
 
                         if debug_logging:
-                            role_thresholds = [(r[0], r[1].get('threshold')) for r in sorted_roles]
+                            role_thresholds = [(r[0], r[1].get("threshold")) for r in sorted_roles]
                             self.logger.info(f"Available roles in {league} (sorted by threshold desc): {role_thresholds}")
 
                         # Check if player qualifies for any role in this league
                         for role_name, config in sorted_roles:
-                            threshold = config.get('threshold', 0)
+                            threshold = config.get("threshold", 0)
                             if debug_logging:
                                 self.logger.info(f"Checking wave role '{role_name}' with threshold {threshold}")
 
@@ -919,8 +899,10 @@ class TourneyRoles(BaseCog, name="Tournament Roles"):
 
                             if league_max_wave >= threshold:
                                 if debug_logging:
-                                    self.logger.info(f"✅ WAVE ROLE MATCH: '{role_name}' - player max wave {league_max_wave} in {league} meets threshold of {threshold}")
-                                return config.get('id')
+                                    self.logger.info(
+                                        f"✅ WAVE ROLE MATCH: '{role_name}' - player max wave {league_max_wave} in {league} meets threshold of {threshold}"
+                                    )
+                                return config.get("id")
                             elif debug_logging:
                                 self.logger.info(f"❌ Wave role '{role_name}' not matched - wave {league_max_wave} < threshold {threshold}")
             elif debug_logging:
@@ -933,26 +915,17 @@ class TourneyRoles(BaseCog, name="Tournament Roles"):
 
         return None
 
-    @commands.group(
-        name="tourneyroles",
-        aliases=["tr"],
-        description="Tournament role management commands"
-    )
+    @commands.group(name="tourneyroles", aliases=["tr"], description="Tournament role management commands")
     async def tourneyroles_group(self, ctx):
         """Tournament role management commands."""
         if ctx.invoked_subcommand is None:
             await ctx.send_help(ctx.command)
 
-    @tourneyroles_group.command(
-        name="status",
-        description="Display operational status and information"
-    )
+    @tourneyroles_group.command(name="status", description="Display operational status and information")
     async def roles_status_command(self, ctx):
         """Show current status of the tournament roles system"""
         main_embed = discord.Embed(
-            title="Tournament Roles Status",
-            description="Current operational state and information",
-            color=discord.Color.blue()
+            title="Tournament Roles Status", description="Current operational state and information", color=discord.Color.blue()
         )
 
         # Determine status and color
@@ -985,11 +958,7 @@ class TourneyRoles(BaseCog, name="Tournament Roles"):
             status_value.append("⚠️ System has encountered errors")
         if self.get_setting("dry_run"):
             status_value.append("🔍 Running in dry run mode")
-        main_embed.add_field(
-            name="System State",
-            value="\n".join(status_value),
-            inline=False
-        )
+        main_embed.add_field(name="System State", value="\n".join(status_value), inline=False)
 
         # Dependencies field
         dependencies = []
@@ -997,11 +966,7 @@ class TourneyRoles(BaseCog, name="Tournament Roles"):
         tourney_stats_cog = self.bot.get_cog("Tourney Stats")
         dependencies.append(f"{'✅' if known_players_cog else '❌'} KnownPlayers")
         dependencies.append(f"{'✅' if tourney_stats_cog else '❌'} TourneyStats")
-        main_embed.add_field(
-            name="Dependencies",
-            value="\n".join(dependencies),
-            inline=False
-        )
+        main_embed.add_field(name="Dependencies", value="\n".join(dependencies), inline=False)
 
         # Last update info
         if self.last_full_update:
@@ -1049,18 +1014,11 @@ class TourneyRoles(BaseCog, name="Tournament Roles"):
         settings.append(f"Update Interval: {self.format_duration(self.update_interval)}")
         settings.append(f"Role Update Cooldown: {self.format_duration(self.role_update_cooldown)}")
         settings.append(f"Process Batch Size: {self.process_batch_size}")
-        main_embed.add_field(
-            name="Current Settings",
-            value="\n".join(settings),
-            inline=False
-        )
+        main_embed.add_field(name="Current Settings", value="\n".join(settings), inline=False)
 
         await ctx.send(embed=main_embed)
 
-    @tourneyroles_group.command(
-        name="pause",
-        description="Pause or unpause role updates"
-    )
+    @tourneyroles_group.command(name="pause", description="Pause or unpause role updates")
     async def pause_command(self, ctx):
         """Pause or unpause role updates."""
         current = self.get_setting("pause", False)
@@ -1072,11 +1030,7 @@ class TourneyRoles(BaseCog, name="Tournament Roles"):
         else:
             await ctx.send("▶️ Role updates have been resumed")
 
-    @tourneyroles_group.command(
-        name="refresh",
-        aliases=["reload"],
-        description="Refresh role assignments"
-    )
+    @tourneyroles_group.command(name="refresh", aliases=["reload"], description="Refresh role assignments")
     async def refresh_command(self, ctx):
         """Refresh/reload role assignments."""
         if self.currently_updating:
@@ -1106,20 +1060,14 @@ class TourneyRoles(BaseCog, name="Tournament Roles"):
 
         # Create main settings embed
         embed = discord.Embed(
-            title="Tournament Roles Settings",
-            description="Current configuration for tournament role assignment",
-            color=discord.Color.blue()
+            title="Tournament Roles Settings", description="Current configuration for tournament role assignment", color=discord.Color.blue()
         )
 
         # Process simple settings first (non-dictionary values)
-        simple_settings = {k: v for k, v in settings.items()
-                           if not isinstance(v, dict) and k != "league_hierarchy"}
+        simple_settings = {k: v for k, v in settings.items() if not isinstance(v, dict) and k != "league_hierarchy"}
 
         # Timing settings
-        timing_embed = discord.Embed(
-            title="Timing Settings",
-            color=discord.Color.blue()
-        )
+        timing_embed = discord.Embed(title="Timing Settings", color=discord.Color.blue())
 
         for name in ["update_interval", "role_update_cooldown", "process_delay", "error_retry_delay"]:
             if name in simple_settings:
@@ -1131,10 +1079,7 @@ class TourneyRoles(BaseCog, name="Tournament Roles"):
                 timing_embed.add_field(name=name, value=formatted_value, inline=True)
 
         # Flag settings
-        flag_embed = discord.Embed(
-            title="Operation Flags",
-            color=discord.Color.blue()
-        )
+        flag_embed = discord.Embed(title="Operation Flags", color=discord.Color.blue())
 
         for name in ["dry_run", "pause", "update_on_startup", "debug_logging"]:
             if name in simple_settings:
@@ -1151,10 +1096,7 @@ class TourneyRoles(BaseCog, name="Tournament Roles"):
             flag_embed.add_field(name="Immediate Logging", value=formatted_value, inline=True)
 
         # Process threshold settings
-        threshold_embed = discord.Embed(
-            title="Processing Settings",
-            color=discord.Color.blue()
-        )
+        threshold_embed = discord.Embed(title="Processing Settings", color=discord.Color.blue())
 
         for name in ["process_batch_size"]:
             if name in simple_settings:
@@ -1165,11 +1107,7 @@ class TourneyRoles(BaseCog, name="Tournament Roles"):
         if "league_hierarchy" in settings:
             league_hierarchy = settings["league_hierarchy"]
             league_str = " → ".join(league_hierarchy)
-            embed.add_field(
-                name="League Hierarchy (Highest to Lowest)",
-                value=f"```{league_str}```",
-                inline=False
-            )
+            embed.add_field(name="League Hierarchy (Highest to Lowest)", value=f"```{league_str}```", inline=False)
 
         # Handle roles config separately
         roles_embed = None
@@ -1178,9 +1116,7 @@ class TourneyRoles(BaseCog, name="Tournament Roles"):
             if roles_config:
                 # Create a separate embed for role configuration
                 roles_embed = discord.Embed(
-                    title="Tournament Role Configuration",
-                    description=f"{len(roles_config)} roles configured",
-                    color=discord.Color.gold()
+                    title="Tournament Role Configuration", description=f"{len(roles_config)} roles configured", color=discord.Color.gold()
                 )
 
                 # Group roles by method
@@ -1189,41 +1125,33 @@ class TourneyRoles(BaseCog, name="Tournament Roles"):
                 wave_roles = []
 
                 for role_name, config in roles_config.items():
-                    method = config.get('method', '')
-                    threshold = config.get('threshold', 0)
-                    role_id = config.get('id', '0')
+                    method = config.get("method", "")
+                    threshold = config.get("threshold", 0)
+                    role_id = config.get("id", "0")
                     role = ctx.guild.get_role(int(role_id)) if role_id else None
                     role_display = f"**{role.name}**" if role else f"(ID: {role_id})"
 
-                    if method == 'Champion':
+                    if method == "Champion":
                         champion_roles.append(f"• {role_name}: {role_display}")
-                    elif method == 'Placement':
+                    elif method == "Placement":
                         placement_roles.append(f"• {role_name}: {role_display} (Top {threshold})")
-                    elif method == 'Wave':
-                        league = config.get('league', 'Unknown')
+                    elif method == "Wave":
+                        league = config.get("league", "Unknown")
                         wave_roles.append(f"• {role_name}: {role_display} ({league} {threshold}+)")
 
                 # Add fields for each method
                 if champion_roles:
                     roles_embed.add_field(
-                        name="Champion Method: Tournament Winner Roles",
-                        value="\n".join(champion_roles) or "None configured",
-                        inline=False
+                        name="Champion Method: Tournament Winner Roles", value="\n".join(champion_roles) or "None configured", inline=False
                     )
 
                 if placement_roles:
                     roles_embed.add_field(
-                        name="Placement Method: Placement-Based Roles",
-                        value="\n".join(placement_roles) or "None configured",
-                        inline=False
+                        name="Placement Method: Placement-Based Roles", value="\n".join(placement_roles) or "None configured", inline=False
                     )
 
                 if wave_roles:
-                    roles_embed.add_field(
-                        name="Wave Method: Wave-Based Roles",
-                        value="\n".join(wave_roles) or "None configured",
-                        inline=False
-                    )
+                    roles_embed.add_field(name="Wave Method: Wave-Based Roles", value="\n".join(wave_roles) or "None configured", inline=False)
 
         # Add any remaining simple settings to the main embed
         for name, value in simple_settings.items():
@@ -1249,11 +1177,7 @@ class TourneyRoles(BaseCog, name="Tournament Roles"):
             else:
                 time_str = f"{time_since_update / 3600:.1f} hours ago"
 
-            embed.add_field(
-                name="Last Full Update",
-                value=f"{self.last_full_update.strftime('%Y-%m-%d %H:%M:%S')} UTC ({time_str})",
-                inline=False
-            )
+            embed.add_field(name="Last Full Update", value=f"{self.last_full_update.strftime('%Y-%m-%d %H:%M:%S')} UTC ({time_str})", inline=False)
 
         # Send the embeds - main settings first
         await ctx.send(embed=embed)
@@ -1269,8 +1193,7 @@ class TourneyRoles(BaseCog, name="Tournament Roles"):
             await ctx.send(embed=roles_embed)
 
     @tourneyroles_group.command(name="add_role")
-    async def add_role_command(self, ctx, role: discord.Role, method: str,
-                               threshold: int, league: str = None):
+    async def add_role_command(self, ctx, role: discord.Role, method: str, threshold: int, league: str = None):
         """
         Add a tournament role to be managed
 
@@ -1281,27 +1204,26 @@ class TourneyRoles(BaseCog, name="Tournament Roles"):
             league: League name (required for Wave method, optional for others)
         """
         method = method.title()
-        valid_methods = ['Champion', 'Placement', 'Wave']
+        valid_methods = ["Champion", "Placement", "Wave"]
         if method not in valid_methods:
             return await ctx.send(f"❌ Invalid method. Use {', '.join(valid_methods)}")
 
         # Validate league for Wave method
-        if method == 'Wave' and not league:
+        if method == "Wave" and not league:
             return await ctx.send("❌ League parameter is required for Wave method")
 
         # Get league hierarchy
-        league_hierarchy = self.get_setting("league_hierarchy",
-                                            ["Legend", "Champion", "Platinum", "Gold", "Silver", "Copper"])
+        league_hierarchy = self.get_setting("league_hierarchy", ["Legend", "Champion", "Platinum", "Gold", "Silver", "Copper"])
 
         # For Wave method, validate league is in hierarchy
-        if method == 'Wave' and league not in league_hierarchy:
+        if method == "Wave" and league not in league_hierarchy:
             league_list = ", ".join(league_hierarchy)
             return await ctx.send(f"❌ Invalid league. Must be one of: {league_list}")
 
         # Generate role name based on method
-        if method == 'Champion':
+        if method == "Champion":
             role_name = "Current Champion"
-        elif method == 'Placement':
+        elif method == "Placement":
             role_name = f"Top{threshold}"
         else:  # method == 'Wave'
             role_name = f"{league}{threshold}"
@@ -1314,13 +1236,9 @@ class TourneyRoles(BaseCog, name="Tournament Roles"):
             return await ctx.send(f"❌ Role with name '{role_name}' already exists")
 
         # Add new role configuration
-        roles_config[role_name] = {
-            'id': str(role.id),
-            'method': method,
-            'threshold': threshold
-        }
-        if method == 'Wave':
-            roles_config[role_name]['league'] = league
+        roles_config[role_name] = {"id": str(role.id), "method": method, "threshold": threshold}
+        if method == "Wave":
+            roles_config[role_name]["league"] = league
 
         # Save updated configuration
         self.set_setting("roles_config", roles_config)
@@ -1349,7 +1267,7 @@ class TourneyRoles(BaseCog, name="Tournament Roles"):
         self.mark_data_modified()
 
         # Get the actual role name for confirmation message
-        role_id = removed_config.get('id')
+        role_id = removed_config.get("id")
         role_obj = ctx.guild.get_role(int(role_id)) if role_id else None
         role_display = role_obj.name if role_obj else f"ID: {role_id}"
 
@@ -1365,9 +1283,7 @@ class TourneyRoles(BaseCog, name="Tournament Roles"):
             return await ctx.send("No tournament roles have been configured")
 
         embed = discord.Embed(
-            title="Tournament Roles Configuration",
-            description="Current roles managed by the tournament system",
-            color=discord.Color.blue()
+            title="Tournament Roles Configuration", description="Current roles managed by the tournament system", color=discord.Color.blue()
         )
 
         # Group roles by method
@@ -1376,21 +1292,21 @@ class TourneyRoles(BaseCog, name="Tournament Roles"):
         wave_roles = []
 
         for role_name, config in roles_config.items():
-            method = config.get('method')
-            threshold = config.get('threshold')
-            role_id = config.get('id')
+            method = config.get("method")
+            threshold = config.get("threshold")
+            role_id = config.get("id")
             role_obj = ctx.guild.get_role(int(role_id)) if role_id else None
             role_display = role_obj.name if role_obj else f"(ID: {role_id})"
 
             role_info = f"• **{role_name}** - {role_display}"
 
-            if method == 'Champion':
+            if method == "Champion":
                 champion_roles.append(role_info)
-            elif method == 'Placement':
+            elif method == "Placement":
                 # Store tuple of (threshold, formatted string) for sorting
                 placement_roles.append((threshold, f"{role_info} (Top {threshold})"))
             else:  # method == 'Wave'
-                league = config.get('league', 'Unknown')
+                league = config.get("league", "Unknown")
                 wave_roles.append(f"{role_info} ({league} wave {threshold}+)")
 
         # Sort placement roles by threshold numerically and extract display strings
@@ -1399,25 +1315,13 @@ class TourneyRoles(BaseCog, name="Tournament Roles"):
 
         # Add fields for each method
         if champion_roles:
-            embed.add_field(
-                name="Champion Method: Latest Tournament Winner",
-                value="\n".join(champion_roles),
-                inline=False
-            )
+            embed.add_field(name="Champion Method: Latest Tournament Winner", value="\n".join(champion_roles), inline=False)
 
         if placement_roles:
-            embed.add_field(
-                name="Placement Method: Placement-Based",
-                value="\n".join(placement_roles),
-                inline=False
-            )
+            embed.add_field(name="Placement Method: Placement-Based", value="\n".join(placement_roles), inline=False)
 
         if wave_roles:
-            embed.add_field(
-                name="Wave Method: Wave-Based",
-                value="\n".join(wave_roles),
-                inline=False
-            )
+            embed.add_field(name="Wave Method: Wave-Based", value="\n".join(wave_roles), inline=False)
 
         await ctx.send(embed=embed)
 
@@ -1430,7 +1334,7 @@ class TourneyRoles(BaseCog, name="Tournament Roles"):
             leagues: Comma-separated list of league names, in order from highest to lowest
         """
         # Parse league names from comma-separated string
-        league_hierarchy = [name.strip() for name in leagues.split(',')]
+        league_hierarchy = [name.strip() for name in leagues.split(",")]
 
         # Validate that we have at least one league
         if not league_hierarchy or not all(league_hierarchy):
@@ -1451,14 +1355,7 @@ class TourneyRoles(BaseCog, name="Tournament Roles"):
             setting_name: Setting to change (update_interval, role_update_cooldown, process_batch_size, process_delay, error_retry_delay, dry_run_limit)
             value: New value for the setting
         """
-        valid_settings = [
-            "update_interval",
-            "role_update_cooldown",
-            "process_batch_size",
-            "process_delay",
-            "error_retry_delay",
-            "dry_run_limit"
-        ]
+        valid_settings = ["update_interval", "role_update_cooldown", "process_batch_size", "process_delay", "error_retry_delay", "dry_run_limit"]
 
         if setting_name not in valid_settings:
             valid_settings_str = ", ".join(valid_settings)
@@ -1547,7 +1444,7 @@ class TourneyRoles(BaseCog, name="Tournament Roles"):
             "last_percentage": -1,
             "completed": False,
             "error": None,
-            "manual_update": manual_update
+            "manual_update": manual_update,
         }
 
         # Store progress data where update task can access it
@@ -1616,7 +1513,7 @@ class TourneyRoles(BaseCog, name="Tournament Roles"):
                 embed = discord.Embed(
                     title=f"{update_type} Tournament Roles Updated" + (" (DRY RUN)" if dry_run else ""),
                     description=f"Successfully updated roles in {duration_str} seconds",
-                    color=discord.Color.green()
+                    color=discord.Color.green(),
                 )
 
                 # Add stats
@@ -1628,7 +1525,7 @@ class TourneyRoles(BaseCog, name="Tournament Roles"):
                         f"**Roles Removed:** {self.roles_removed}\n"
                         f"**No Player Data:** {self.users_with_no_player_data}"
                     ),
-                    inline=False
+                    inline=False,
                 )
 
                 # Add timestamp
@@ -1700,10 +1597,7 @@ class TourneyRoles(BaseCog, name="Tournament Roles"):
             self.roles_removed = 0
 
             # Get tournament participation data
-            player_tournaments = await self.get_player_tournament_stats(
-                tourney_stats_cog,
-                player_data.get('all_ids', [])
-            )
+            player_tournaments = await self.get_player_tournament_stats(tourney_stats_cog, player_data.get("all_ids", []))
 
             # Get all role objects
             roles_config = self.get_setting("roles_config", {})
@@ -1718,9 +1612,7 @@ class TourneyRoles(BaseCog, name="Tournament Roles"):
                         self.logger.warning(f"Could not find role with ID {role_id} for '{role_name}'")
 
             # Update member's roles and get log message
-            roles_added, roles_removed, log_message = await self.update_member_roles(
-                user, player_tournaments, role_objects
-            )
+            roles_added, roles_removed, log_message = await self.update_member_roles(user, player_tournaments, role_objects)
 
             # If we have a log message, send it to the log channel
             if log_message:
@@ -1730,16 +1622,12 @@ class TourneyRoles(BaseCog, name="Tournament Roles"):
                 await self.flush_log_buffer()  # Force send the log message immediately
 
             # Create response embed
-            embed = discord.Embed(
-                title="Tournament Roles Updated",
-                description=f"Updated roles for {user.display_name}",
-                color=discord.Color.green()
-            )
+            embed = discord.Embed(title="Tournament Roles Updated", description=f"Updated roles for {user.display_name}", color=discord.Color.green())
 
             # Show their player data
-            primary_id = player_data.get('primary_id', 'None')
-            all_ids = player_data.get('all_ids', [])
-            id_list = f"✅ {primary_id}" if primary_id and primary_id != 'None' else "None"
+            primary_id = player_data.get("primary_id", "None")
+            all_ids = player_data.get("all_ids", [])
+            id_list = f"✅ {primary_id}" if primary_id and primary_id != "None" else "None"
             if len(all_ids) > 1:
                 other_ids = [pid for pid in all_ids if pid != primary_id]
                 if other_ids:
@@ -1747,11 +1635,7 @@ class TourneyRoles(BaseCog, name="Tournament Roles"):
                     if len(other_ids) > 3:
                         id_list += f" (+{len(other_ids) - 3} more)"
 
-            embed.add_field(
-                name="Player Data",
-                value=f"**Name:** {player_data.get('name', 'Unknown')}\n**Player IDs:** {id_list}",
-                inline=False
-            )
+            embed.add_field(name="Player Data", value=f"**Name:** {player_data.get('name', 'Unknown')}\n**Player IDs:** {id_list}", inline=False)
 
             # Add role changes
             dry_run = self.get_setting("dry_run")
@@ -1763,11 +1647,7 @@ class TourneyRoles(BaseCog, name="Tournament Roles"):
             if not changes:
                 changes.append("No role changes needed")
 
-            embed.add_field(
-                name="Role Changes" + (" (Dry Run)" if dry_run else ""),
-                value="\n".join(changes),
-                inline=False
-            )
+            embed.add_field(name="Role Changes" + (" (Dry Run)" if dry_run else ""), value="\n".join(changes), inline=False)
 
             # Add tournament stats if available
             if player_tournaments.get("total_tourneys", 0) > 0:
@@ -1783,11 +1663,7 @@ class TourneyRoles(BaseCog, name="Tournament Roles"):
                     stats.append(f"**Best Placement:** {patch['best_placement']}")
 
                 if stats:
-                    embed.add_field(
-                        name="Tournament Stats",
-                        value="\n".join(stats),
-                        inline=False
-                    )
+                    embed.add_field(name="Tournament Stats", value="\n".join(stats), inline=False)
 
             await message.edit(content=None, embed=embed)
 
@@ -1834,7 +1710,7 @@ class TourneyRoles(BaseCog, name="Tournament Roles"):
         else:
             emoji = "✅"
 
-        display_name = setting_name.replace('_', ' ').title()
+        display_name = setting_name.replace("_", " ").title()
         await ctx.send(f"{emoji} {display_name} is now {state}")
 
         # Log the change

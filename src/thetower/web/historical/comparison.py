@@ -122,7 +122,9 @@ def compute_comparison(player_id=None, canvas=st):
     else:
         patch_col, bc_col = canvas.columns([1, 1])
         patch = patch_col.selectbox("Limit results to a patch? (see side bar to change default)", graph_options)
-        filter_bcs = bc_col.multiselect("Filter by battle conditions?", sorted({bc for bcs in player_df.bcs for bc in bcs}, key=lambda bc: bc.shortcut))
+        filter_bcs = bc_col.multiselect(
+            "Filter by battle conditions?", sorted({bc for bcs in player_df.bcs for bc in bcs}, key=lambda bc: bc.shortcut)
+        )
 
     datas = [(sdf, player_id) for player_id, sdf in player_df.groupby("id") if len(sdf) >= 2]
     datas = filter_plot_datas(datas, patch, filter_bcs)
@@ -152,7 +154,7 @@ def compute_comparison(player_id=None, canvas=st):
     summary.set_index(keys="Name")
 
     # Escape any user-provided text in DataFrames
-    summary = escape_df_html(summary, ['Name'])
+    summary = escape_df_html(summary, ["Name"])
 
     if player_id:
         how_many_slider = canvas.slider(
@@ -356,9 +358,9 @@ def get_patch_df(df, player_df, patch):
 def filter_league(datas):
     # Get current patch from first dataset if available
     patch = None
-    if datas and len(datas) > 0 and not datas[0][0].empty and 'patch' in datas[0][0].columns:
+    if datas and len(datas) > 0 and not datas[0][0].empty and "patch" in datas[0][0].columns:
         try:
-            patch = datas[0][0]['patch'].iloc[0]
+            patch = datas[0][0]["patch"].iloc[0]
         except Exception as e:
             st.write(f"🔍 Debug: Error getting patch: {str(e)}")
 

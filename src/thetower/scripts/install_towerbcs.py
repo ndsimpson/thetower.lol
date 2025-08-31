@@ -30,31 +30,32 @@ def get_latest_version(repo_url=None):
         str or None: Latest version string (e.g., "1.0.0") or None if error
     """
     if repo_url is None:
-        repo_url = os.getenv('TOWERBCS_REPO_URL', 'https://github.com/ndsimpson/thetower.lol-bc-generator.git')
+        repo_url = os.getenv("TOWERBCS_REPO_URL", "https://github.com/ndsimpson/thetower.lol-bc-generator.git")
 
     try:
         # Quick git ls-remote call with minimal output
         result = subprocess.run(
-            ['git', 'ls-remote', '--tags', '--refs', repo_url],
+            ["git", "ls-remote", "--tags", "--refs", repo_url],
             capture_output=True,
             text=True,
             timeout=10,  # Fast timeout for quick response
-            check=True
+            check=True,
         )
 
         # Extract and parse version tags
         tags = []
-        for line in result.stdout.strip().split('\n'):
+        for line in result.stdout.strip().split("\n"):
             if line:
-                tag = line.split('/')[-1]  # Get tag name after refs/tags/
+                tag = line.split("/")[-1]  # Get tag name after refs/tags/
                 # Filter for semantic version tags (v1.2.3 or 1.2.3)
-                if re.match(r'^v?\d+\.\d+\.\d+.*', tag):
-                    clean_tag = tag.lstrip('v')  # Remove 'v' prefix if present
+                if re.match(r"^v?\d+\.\d+\.\d+.*", tag):
+                    clean_tag = tag.lstrip("v")  # Remove 'v' prefix if present
                     tags.append(clean_tag)
 
         # Sort by version and return latest
         if tags:
             from packaging import version
+
             latest = max(tags, key=lambda x: version.parse(x))
             return latest
         else:
@@ -76,7 +77,7 @@ def get_latest_version(repo_url=None):
         return None
 
 
-def get_installed_version(package_name='towerbcs'):
+def get_installed_version(package_name="towerbcs"):
     """
     Quickly get the installed version of a package.
 
@@ -164,19 +165,14 @@ class TowerBCSUpdater:
 
         try:
             # First uninstall if already installed
-            subprocess.run([
-                sys.executable, '-m', 'pip', 'uninstall',
-                self.package_name, '-y'
-            ], capture_output=True)
+            subprocess.run([sys.executable, "-m", "pip", "uninstall", self.package_name, "-y"], capture_output=True)
 
             # Install from git with force options if specified
-            install_cmd = [sys.executable, '-m', 'pip', 'install', url]
+            install_cmd = [sys.executable, "-m", "pip", "install", url]
             if force:
-                install_cmd.extend(['--force-reinstall', '--no-cache-dir'])
+                install_cmd.extend(["--force-reinstall", "--no-cache-dir"])
 
-            result = subprocess.run(
-                install_cmd, capture_output=True, text=True, check=True
-            )
+            result = subprocess.run(install_cmd, capture_output=True, text=True, check=True)
 
             if force:
                 print("Package force installed successfully!")
@@ -197,10 +193,17 @@ class TowerBCSUpdater:
         """Verify the package can be imported after installation."""
         try:
             print("Verifying installation...")
-            result = subprocess.run([
-                sys.executable, '-c',
-                f'import {self.package_name}; print(f"[OK] {self.package_name} imported successfully"); print(f"Version: {{{self.package_name}.__version__}}")'
-            ], capture_output=True, text=True, check=True, encoding='utf-8')
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    "-c",
+                    f'import {self.package_name}; print(f"[OK] {self.package_name} imported successfully"); print(f"Version: {{{self.package_name}.__version__}}")',
+                ],
+                capture_output=True,
+                text=True,
+                check=True,
+                encoding="utf-8",
+            )
 
             print(result.stdout)
             return True
@@ -279,7 +282,7 @@ class TowerBCSUpdater:
             print("Auto-update mode: Proceeding with update...")
         else:
             response = input(f"\nUpdate to version {latest_version}? (y/N): ")
-            do_update = response.lower() in ('y', 'yes')
+            do_update = response.lower() in ("y", "yes")
 
         if do_update:
             print("\nStarting update process...")
@@ -295,24 +298,18 @@ class TowerBCSUpdater:
 
 def main():
     parser = argparse.ArgumentParser(
-        description='Check and update towerbcs package',
-        epilog='Repository URL priority: --repo-url > TOWERBCS_REPO_URL env > built-in default\n\n'
-               'Special combinations:\n'
-               '  --force --check-only : Dry-run mode - show what force install would do without installing',
-        formatter_class=argparse.RawDescriptionHelpFormatter
+        description="Check and update towerbcs package",
+        epilog="Repository URL priority: --repo-url > TOWERBCS_REPO_URL env > built-in default\n\n"
+        "Special combinations:\n"
+        "  --force --check-only : Dry-run mode - show what force install would do without installing",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    parser.add_argument('--auto', action='store_true',
-                        help='Automatically update without prompting')
-    parser.add_argument('--check-only', action='store_true',
-                        help='Only check for updates, do not install (combine with --force for dry-run)')
-    parser.add_argument('--force', action='store_true',
-                        help='Force reinstall package (skip version checks, combine with --check-only for dry-run)')
-    parser.add_argument('--version-only', action='store_true',
-                        help='Only get latest version (fast, minimal output)')
-    parser.add_argument('--repo-url',
-                        help='Git repository URL (overrides environment and default)')
-    parser.add_argument('--package-name', default='towerbcs',
-                        help='Package name')
+    parser.add_argument("--auto", action="store_true", help="Automatically update without prompting")
+    parser.add_argument("--check-only", action="store_true", help="Only check for updates, do not install (combine with --force for dry-run)")
+    parser.add_argument("--force", action="store_true", help="Force reinstall package (skip version checks, combine with --check-only for dry-run)")
+    parser.add_argument("--version-only", action="store_true", help="Only get latest version (fast, minimal output)")
+    parser.add_argument("--repo-url", help="Git repository URL (overrides environment and default)")
+    parser.add_argument("--package-name", default="towerbcs", help="Package name")
 
     args = parser.parse_args()
 
@@ -321,10 +318,10 @@ def main():
         # Priority system for repo URL
         if args.repo_url:
             repo_url = args.repo_url
-        elif os.getenv('TOWERBCS_REPO_URL'):
-            repo_url = os.getenv('TOWERBCS_REPO_URL')
+        elif os.getenv("TOWERBCS_REPO_URL"):
+            repo_url = os.getenv("TOWERBCS_REPO_URL")
         else:
-            repo_url = 'https://github.com/ndsimpson/thetower.lol-bc-generator.git'
+            repo_url = "https://github.com/ndsimpson/thetower.lol-bc-generator.git"
 
         # Get versions quickly
         current_version = get_installed_version(args.package_name)
@@ -341,13 +338,13 @@ def main():
         # Command line specified (highest priority)
         repo_url = args.repo_url
         source = "command line"
-    elif os.getenv('TOWERBCS_REPO_URL'):
+    elif os.getenv("TOWERBCS_REPO_URL"):
         # Environment variable (medium priority)
-        repo_url = os.getenv('TOWERBCS_REPO_URL')
+        repo_url = os.getenv("TOWERBCS_REPO_URL")
         source = "environment variable"
     else:
         # Hardcoded default (lowest priority)
-        repo_url = 'https://github.com/ndsimpson/thetower.lol-bc-generator.git'
+        repo_url = "https://github.com/ndsimpson/thetower.lol-bc-generator.git"
         source = "default"
 
     print(f"Repository URL: {repo_url} (from {source})")
@@ -356,11 +353,7 @@ def main():
     updater = TowerBCSUpdater(repo_url, args.package_name)
 
     try:
-        success = updater.run_update_check(
-            auto_update=args.auto,
-            check_only=args.check_only,
-            force=args.force
-        )
+        success = updater.run_update_check(auto_update=args.auto, check_only=args.check_only, force=args.force)
 
         if success:
             print("\n[SUCCESS] Operation completed successfully!")

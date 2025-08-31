@@ -17,6 +17,7 @@ from thetower.bot.utils.decorators import flexible_command
 
 class AdvertisementType:
     """Constants for advertisement types."""
+
     GUILD: ClassVar[str] = "guild"
     MEMBER: ClassVar[str] = "member"
 
@@ -24,7 +25,7 @@ class AdvertisementType:
 class AdTypeSelection(View):
     """View with buttons to select advertisement type."""
 
-    def __init__(self, cog: 'UnifiedAdvertise') -> None:
+    def __init__(self, cog: "UnifiedAdvertise") -> None:
         """Initialize the view with a reference to the cog.
 
         Args:
@@ -67,7 +68,7 @@ class AdTypeSelection(View):
             item.disabled = True
         # Try to edit the original message with disabled buttons
         try:
-            if hasattr(self, 'message'):
+            if hasattr(self, "message"):
                 await self.message.edit(view=self)
         except discord.NotFound:
             pass  # Message might have been deleted
@@ -76,7 +77,7 @@ class AdTypeSelection(View):
 class GuildAdvertisementForm(Modal, title="Guild Advertisement Form"):
     """Modal form for collecting guild advertisement information."""
 
-    def __init__(self, cog: 'UnifiedAdvertise') -> None:
+    def __init__(self, cog: "UnifiedAdvertise") -> None:
         """Initialize the view with a reference to the cog.
 
         Args:
@@ -87,56 +88,31 @@ class GuildAdvertisementForm(Modal, title="Guild Advertisement Form"):
         self.notify = True
         self.interaction = None  # Store interaction object
 
-    guild_name = TextInput(
-        label="Guild Name",
-        placeholder="Enter your guild's name",
-        required=True,
-        max_length=100
-    )
+    guild_name = TextInput(label="Guild Name", placeholder="Enter your guild's name", required=True, max_length=100)
 
-    guild_id = TextInput(
-        label="Guild ID",
-        placeholder="Enter your guild's ID (e.g. A1B2C3)",
-        required=True,
-        min_length=6,
-        max_length=6
-    )
+    guild_id = TextInput(label="Guild ID", placeholder="Enter your guild's ID (e.g. A1B2C3)", required=True, min_length=6, max_length=6)
 
-    guild_leader = TextInput(
-        label="Guild Leader",
-        placeholder="Enter guild leader's name",
-        required=True,
-        max_length=100
-    )
+    guild_leader = TextInput(label="Guild Leader", placeholder="Enter guild leader's name", required=True, max_length=100)
 
-    member_count = TextInput(
-        label="Member Count",
-        placeholder="How many active members?",
-        required=True,
-        max_length=10
-    )
+    member_count = TextInput(label="Member Count", placeholder="How many active members?", required=True, max_length=10)
 
     description = TextInput(
-        label="Guild Description",
-        placeholder="Tell us about your guild...",
-        required=True,
-        max_length=1000,
-        style=discord.TextStyle.paragraph
+        label="Guild Description", placeholder="Tell us about your guild...", required=True, max_length=1000, style=discord.TextStyle.paragraph
     )
 
     async def on_submit(self, interaction: discord.Interaction) -> None:
         import time
+
         start_time = time.time()
         self.interaction = interaction  # Store interaction when form is submitted
         await self.cog._send_debug_message(f"Guild advertisement form submitted by user {interaction.user.id} ({interaction.user.name})")
 
         # Normalize and validate guild ID
         guild_id = self.cog._normalize_guild_id(self.guild_id.value)
-        if not re.match(r'^[A-Z0-9]{6}$', guild_id):
+        if not re.match(r"^[A-Z0-9]{6}$", guild_id):
             await self.cog._send_debug_message(f"Invalid guild ID format from user {interaction.user.id}: {guild_id}")
             await interaction.response.send_message(
-                "Guild ID must be exactly 6 characters and only contain letters A-Z and numbers 0-9.",
-                ephemeral=True
+                "Guild ID must be exactly 6 characters and only contain letters A-Z and numbers 0-9.", ephemeral=True
             )
             return
 
@@ -147,12 +123,7 @@ class GuildAdvertisementForm(Modal, title="Guild Advertisement Form"):
         user_id = interaction.user.id
         cooldown_start = time.time()
 
-        cooldown_check = await self.cog.check_cooldowns(
-            interaction,
-            user_id,
-            guild_id,
-            AdvertisementType.GUILD
-        )
+        cooldown_check = await self.cog.check_cooldowns(interaction, user_id, guild_id, AdvertisementType.GUILD)
         cooldown_time = time.time() - cooldown_start
         await self.cog._send_debug_message(f"Cooldown check completed in {cooldown_time:.2f}s for user {interaction.user.id}")
 
@@ -165,10 +136,7 @@ class GuildAdvertisementForm(Modal, title="Guild Advertisement Form"):
 
         # Create guild advertisement embed
         embed = discord.Embed(
-            title=self.guild_name.value,
-            description=self.description.value,
-            color=discord.Color.blue(),
-            timestamp=discord.utils.utcnow()
+            title=self.guild_name.value, description=self.description.value, color=discord.Color.blue(), timestamp=discord.utils.utcnow()
         )
 
         embed.set_author(name=f"Guild Ad by {interaction.user.name}", icon_url=interaction.user.avatar.url if interaction.user.avatar else None)
@@ -182,23 +150,22 @@ class GuildAdvertisementForm(Modal, title="Guild Advertisement Form"):
         await interaction.response.send_message(
             f"Thank you! Your {AdvertisementType.GUILD} advertisement is being posted. "
             f"It will remain visible for {self.cog.cooldown_hours} hours.",
-            ephemeral=True
+            ephemeral=True,
         )
 
         # Post advertisement and update cooldowns
         thread_title = f"[Guild] {self.guild_name.value} ({guild_id})"
         total_time = time.time() - start_time
-        await self.cog._send_debug_message(f"Guild form processing completed in {total_time:.2f}s, posting advertisement for user {interaction.user.id}")
+        await self.cog._send_debug_message(
+            f"Guild form processing completed in {total_time:.2f}s, posting advertisement for user {interaction.user.id}"
+        )
         await self.cog.post_advertisement(interaction, embed, thread_title, AdvertisementType.GUILD, guild_id, notify)
 
     async def on_timeout(self) -> None:
         """Handle form timeout."""
         try:
             if self.interaction:  # Only try to send message if we have an interaction
-                await self.interaction.response.send_message(
-                    "The form timed out. Please try submitting your advertisement again.",
-                    ephemeral=True
-                )
+                await self.interaction.response.send_message("The form timed out. Please try submitting your advertisement again.", ephemeral=True)
         except (discord.NotFound, discord.HTTPException):
             pass
 
@@ -210,12 +177,9 @@ class NotificationView(View):
 
     @discord.ui.select(
         placeholder="Would you like to be notified when your ad expires?",
-        options=[
-            discord.SelectOption(label="Yes", value="yes", emoji="✉️"),
-            discord.SelectOption(label="No", value="no", emoji="🔕")
-        ],
+        options=[discord.SelectOption(label="Yes", value="yes", emoji="✉️"), discord.SelectOption(label="No", value="no", emoji="🔕")],
         min_values=1,
-        max_values=1
+        max_values=1,
     )
     async def notify_select(self, interaction: discord.Interaction, select: discord.ui.Select):
         self.form.notify = select.values[0] == "yes"
@@ -225,7 +189,7 @@ class NotificationView(View):
 class MemberAdvertisementForm(Modal, title="Member Advertisement Form"):
     """Modal form for collecting member advertisement information."""
 
-    def __init__(self, cog: 'UnifiedAdvertise') -> None:
+    def __init__(self, cog: "UnifiedAdvertise") -> None:
         """Initialize the view with a reference to the cog.
 
         Args:
@@ -236,18 +200,10 @@ class MemberAdvertisementForm(Modal, title="Member Advertisement Form"):
         self.notify = True
         self.interaction = None  # Store interaction object
 
-    player_id = TextInput(
-        label="Player ID",
-        placeholder="Your player ID",
-        required=True,
-        max_length=50
-    )
+    player_id = TextInput(label="Player ID", placeholder="Your player ID", required=True, max_length=50)
 
     weekly_boxes = TextInput(
-        label="Weekly Box Count",
-        placeholder="How many weekly boxes do you usually clear? (out of 7)",
-        required=True,
-        max_length=10
+        label="Weekly Box Count", placeholder="How many weekly boxes do you usually clear? (out of 7)", required=True, max_length=10
     )
 
     additional_info = TextInput(
@@ -255,19 +211,16 @@ class MemberAdvertisementForm(Modal, title="Member Advertisement Form"):
         placeholder="What else should we know about you?",
         required=True,
         max_length=1000,
-        style=discord.TextStyle.paragraph
+        style=discord.TextStyle.paragraph,
     )
 
     async def on_submit(self, interaction: discord.Interaction) -> None:
         self.interaction = interaction  # Store interaction when form is submitted
         # Check if player ID is valid (only A-Z, 0-9)
         player_id = self.player_id.value.upper()
-        if not re.match(r'^[A-Z0-9]+$', player_id):
+        if not re.match(r"^[A-Z0-9]+$", player_id):
             self.cog.logger.warning(f"User {interaction.user.id} provided invalid player ID format: {player_id}")
-            await interaction.response.send_message(
-                "Player ID can only contain letters A-Z and numbers 0-9.",
-                ephemeral=True
-            )
+            await interaction.response.send_message("Player ID can only contain letters A-Z and numbers 0-9.", ephemeral=True)
             return
 
         # Process notification preference
@@ -276,22 +229,13 @@ class MemberAdvertisementForm(Modal, title="Member Advertisement Form"):
         # Check cooldowns before processing
         user_id = interaction.user.id
 
-        cooldown_check = await self.cog.check_cooldowns(
-            interaction,
-            user_id,
-            None,
-            AdvertisementType.MEMBER
-        )
+        cooldown_check = await self.cog.check_cooldowns(interaction, user_id, None, AdvertisementType.MEMBER)
 
         if not cooldown_check:
             return
 
         # Create member advertisement embed
-        embed = discord.Embed(
-            title=f"Player: {interaction.user.name}",
-            color=discord.Color.green(),
-            timestamp=discord.utils.utcnow()
-        )
+        embed = discord.Embed(title=f"Player: {interaction.user.name}", color=discord.Color.green(), timestamp=discord.utils.utcnow())
 
         embed.set_author(name=f"Submitted by {interaction.user.name}", icon_url=interaction.user.avatar.url if interaction.user.avatar else None)
 
@@ -307,7 +251,7 @@ class MemberAdvertisementForm(Modal, title="Member Advertisement Form"):
         await interaction.response.send_message(
             f"Thank you! Your {AdvertisementType.MEMBER} advertisement is being posted. "
             f"It will remain visible for {self.cog.cooldown_hours} hours.",
-            ephemeral=True
+            ephemeral=True,
         )
 
         # Post advertisement and update cooldowns
@@ -318,10 +262,7 @@ class MemberAdvertisementForm(Modal, title="Member Advertisement Form"):
         """Handle form timeout."""
         try:
             if self.interaction:  # Only try to send message if we have an interaction
-                await self.interaction.response.send_message(
-                    "The form timed out. Please try submitting your advertisement again.",
-                    ephemeral=True
-                )
+                await self.interaction.response.send_message("The form timed out. Please try submitting your advertisement again.", ephemeral=True)
         except (discord.NotFound, discord.HTTPException):
             pass
 
@@ -363,12 +304,12 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
                     thread_creation_timestamp = thread.created_at.isoformat()
 
                     if user_id != 0:
-                        self.cooldowns['users'][str(user_id)] = thread_creation_timestamp
+                        self.cooldowns["users"][str(user_id)] = thread_creation_timestamp
                         await self._send_debug_message(f"Updated user {user_id} cooldown to match orphaned thread {thread.id} creation time")
 
                     # For guild advertisements, also update guild cooldown
                     if ad_type == "guild" and guild_id:
-                        self.cooldowns['guilds'][guild_id] = thread_creation_timestamp
+                        self.cooldowns["guilds"][guild_id] = thread_creation_timestamp
                         await self._send_debug_message(f"Updated guild {guild_id} cooldown to match orphaned thread {thread.id} creation time")
             if new_orphans:
                 await self._save_pending_deletions()
@@ -423,7 +364,7 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
                     processed_threads.add(thread1.id)
 
                     # Check if other threads are similar to this one
-                    for j, thread2 in enumerate(user_threads[i + 1:], i + 1):
+                    for j, thread2 in enumerate(user_threads[i + 1 :], i + 1):
                         if thread2.id in processed_threads:
                             continue
 
@@ -437,19 +378,23 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
                 # Remove duplicates, keeping only the oldest or any pinned thread
                 for duplicate_group in duplicate_groups:
                     # Check if any threads in the group are pinned
-                    pinned_threads = [t for t in duplicate_group if hasattr(t, 'pinned') and t.pinned]
-                    unpinned_threads = [t for t in duplicate_group if not (hasattr(t, 'pinned') and t.pinned)]
+                    pinned_threads = [t for t in duplicate_group if hasattr(t, "pinned") and t.pinned]
+                    unpinned_threads = [t for t in duplicate_group if not (hasattr(t, "pinned") and t.pinned)]
 
                     if pinned_threads:
                         # If there are pinned threads, keep all pinned threads and delete all unpinned ones
                         keep_threads = pinned_threads
                         delete_threads = unpinned_threads
-                        await self._send_debug_message(f"Found duplicates with {len(pinned_threads)} pinned thread(s) from user {user_id}, keeping pinned, deleting {len(delete_threads)} unpinned")
+                        await self._send_debug_message(
+                            f"Found duplicates with {len(pinned_threads)} pinned thread(s) from user {user_id}, keeping pinned, deleting {len(delete_threads)} unpinned"
+                        )
                     else:
                         # No pinned threads, keep the oldest (first in sorted list)
                         keep_threads = [duplicate_group[0]]
                         delete_threads = duplicate_group[1:]
-                        await self._send_debug_message(f"Found {len(delete_threads)} duplicate threads from user {user_id}, keeping oldest: {keep_threads[0].id}")
+                        await self._send_debug_message(
+                            f"Found {len(delete_threads)} duplicate threads from user {user_id}, keeping oldest: {keep_threads[0].id}"
+                        )
 
                     for thread in delete_threads:
                         try:
@@ -458,10 +403,7 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
                             await self._send_debug_message(f"Deleted duplicate thread {thread.id}")
 
                             # Remove from pending deletions if it was there
-                            self.pending_deletions = [
-                                entry for entry in self.pending_deletions
-                                if entry[0] != thread.id
-                            ]
+                            self.pending_deletions = [entry for entry in self.pending_deletions if entry[0] != thread.id]
 
                         except Exception as e:
                             await self._send_debug_message(f"Error deleting duplicate thread {thread.id}: {e}")
@@ -483,13 +425,17 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
 
                         # Update user cooldown
                         if thread_user_id != 0:
-                            self.cooldowns['users'][str(thread_user_id)] = thread_creation_timestamp
-                            await self._send_debug_message(f"Updated user {thread_user_id} cooldown to match kept thread {keep_thread.id} creation time")
+                            self.cooldowns["users"][str(thread_user_id)] = thread_creation_timestamp
+                            await self._send_debug_message(
+                                f"Updated user {thread_user_id} cooldown to match kept thread {keep_thread.id} creation time"
+                            )
 
                         # Update guild cooldown for guild advertisements
                         if thread_ad_type == "guild" and thread_guild_id:
-                            self.cooldowns['guilds'][thread_guild_id] = thread_creation_timestamp
-                            await self._send_debug_message(f"Updated guild {thread_guild_id} cooldown to match kept thread {keep_thread.id} creation time")
+                            self.cooldowns["guilds"][thread_guild_id] = thread_creation_timestamp
+                            await self._send_debug_message(
+                                f"Updated guild {thread_guild_id} cooldown to match kept thread {keep_thread.id} creation time"
+                            )
 
             if duplicates_removed > 0:
                 await self._save_pending_deletions()
@@ -540,9 +486,9 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
             title2 = thread2.name.lower().strip()
 
             # Remove common bot-generated prefixes
-            for prefix in ['[guild]', '[member]']:
-                title1 = title1.replace(prefix, '').strip()
-                title2 = title2.replace(prefix, '').strip()
+            for prefix in ["[guild]", "[member]"]:
+                title1 = title1.replace(prefix, "").strip()
+                title2 = title2.replace(prefix, "").strip()
 
             # If titles are identical after cleaning, they're likely duplicates
             if title1 == title2:
@@ -556,7 +502,8 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
 
                 # Look for parentheses content (IDs)
                 import re
-                id_pattern = r'\(([^)]+)\)'
+
+                id_pattern = r"\(([^)]+)\)"
 
                 id1_match = re.search(id_pattern, title1)
                 id2_match = re.search(id_pattern, title2)
@@ -592,13 +539,11 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
             # Compare field values (the most reliable indicator for bot-generated content)
             if embed1.fields and embed2.fields:
                 # Create dictionaries of field name -> value for easier comparison
-                fields1 = {field.name.lower().strip(): field.value.lower().strip()
-                           for field in embed1.fields if field.name and field.value}
-                fields2 = {field.name.lower().strip(): field.value.lower().strip()
-                           for field in embed2.fields if field.name and field.value}
+                fields1 = {field.name.lower().strip(): field.value.lower().strip() for field in embed1.fields if field.name and field.value}
+                fields2 = {field.name.lower().strip(): field.value.lower().strip() for field in embed2.fields if field.name and field.value}
 
                 # Check for key identifying fields
-                key_fields = ['player id', 'guild id', 'guild name']
+                key_fields = ["player id", "guild id", "guild name"]
 
                 for key_field in key_fields:
                     if key_field in fields1 and key_field in fields2:
@@ -607,9 +552,10 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
 
                         # Remove markdown links if present: [TEXT](URL) -> TEXT
                         import re
-                        link_pattern = r'\[([^\]]+)\]\([^)]+\)'
-                        value1 = re.sub(link_pattern, r'\1', value1)
-                        value2 = re.sub(link_pattern, r'\1', value2)
+
+                        link_pattern = r"\[([^\]]+)\]\([^)]+\)"
+                        value1 = re.sub(link_pattern, r"\1", value1)
+                        value2 = re.sub(link_pattern, r"\1", value2)
 
                         # If key identifying fields match, it's a duplicate
                         if value1 == value2 and len(value1) > 0:
@@ -634,6 +580,7 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
 
         except Exception:
             return False
+
     """Combined cog for both guild and member advertisements.
 
     Provides functionality for posting, managing and moderating
@@ -653,7 +600,7 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
             "member_tag_id": (None, "Tag ID for member advertisements"),
             "guild_id": (None, "Guild ID for slash command registration"),
             "cooldown_filename": ("advertisement_cooldowns.json", "Filename for cooldown data"),
-            "pending_deletions_filename": ("advertisement_pending_deletions.pkl", "Filename for pending deletions")
+            "pending_deletions_filename": ("advertisement_pending_deletions.pkl", "Filename for pending deletions"),
         }
 
         # Initialize settings
@@ -662,7 +609,7 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
                 self.set_setting(name, value)
 
         # Initialize empty data structures (will be populated in cog_initialize)
-        self.cooldowns = {'users': {}, 'guilds': {}}
+        self.cooldowns = {"users": {}, "guilds": {}}
         self.pending_deletions = []
 
         # Store a reference to this cog
@@ -713,7 +660,7 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
                     self.check_deletions.start()
                 if not self.weekly_cleanup.is_running():
                     self.weekly_cleanup.start()
-                if not hasattr(self, 'orphaned_post_scan') or not self.orphaned_post_scan.is_running():
+                if not hasattr(self, "orphaned_post_scan") or not self.orphaned_post_scan.is_running():
                     self.orphaned_post_scan.start()
 
                 # 4. Update status variables
@@ -732,11 +679,11 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
     async def cog_unload(self) -> None:
         """Clean up when cog is unloaded."""
         # Cancel scheduled tasks
-        if hasattr(self, 'check_deletions'):
+        if hasattr(self, "check_deletions"):
             self.check_deletions.cancel()
-        if hasattr(self, 'weekly_cleanup'):
+        if hasattr(self, "weekly_cleanup"):
             self.weekly_cleanup.cancel()
-        if hasattr(self, 'orphaned_post_scan'):
+        if hasattr(self, "orphaned_post_scan"):
             self.orphaned_post_scan.cancel()
 
         # Force save any modified data
@@ -745,7 +692,7 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
             await self._save_pending_deletions()
 
         # Clear tasks by invalidating the tracker
-        if hasattr(self.task_tracker, 'clear_error_state'):
+        if hasattr(self.task_tracker, "clear_error_state"):
             self.task_tracker.clear_error_state()
 
         # Call parent implementation
@@ -783,11 +730,7 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
             embed_color = discord.Color.blue()
 
         # Create status embed
-        embed = discord.Embed(
-            title="Advertisement System Status",
-            description=f"Current status: {status_emoji} {status_text}",
-            color=embed_color
-        )
+        embed = discord.Embed(title="Advertisement System Status", description=f"Current status: {status_emoji} {status_text}", color=embed_color)
 
         # Add dependency information
         channel = self.bot.get_channel(self.advertise_channel_id)
@@ -800,18 +743,13 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
         # Add statistics
         embed.add_field(
             name="Statistics",
-            value=f"Operations completed: {self._operation_count}\n"
-            f"Pending deletions: {len(self.pending_deletions)}",
-            inline=False
+            value=f"Operations completed: {self._operation_count}\n" f"Pending deletions: {len(self.pending_deletions)}",
+            inline=False,
         )
 
         # Add last activity
         if self._last_operation_time:
-            embed.add_field(
-                name="Last Activity",
-                value=f"Last operation: {self.format_relative_time(self._last_operation_time)} ago",
-                inline=False
-            )
+            embed.add_field(name="Last Activity", value=f"Last operation: {self.format_relative_time(self._last_operation_time)} ago", inline=False)
 
         await ctx.send(embed=embed)
 
@@ -823,36 +761,22 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
             return
 
         embed = discord.Embed(
-            title="Advertisement Settings",
-            description="Current configuration for advertisement system",
-            color=discord.Color.blue()
+            title="Advertisement Settings", description="Current configuration for advertisement system", color=discord.Color.blue()
         )
 
         # Time Settings
-        embed.add_field(
-            name="Time Settings",
-            value=f"Advertisement Cooldown: {self.format_time_value(self.cooldown_hours * 3600)}",
-            inline=False
-        )
+        embed.add_field(name="Time Settings", value=f"Advertisement Cooldown: {self.format_time_value(self.cooldown_hours * 3600)}", inline=False)
 
         # Channel Settings
         advertise_channel = self.bot.get_channel(self.advertise_channel_id)
         channel_name = advertise_channel.name if advertise_channel else "Unknown"
-        embed.add_field(
-            name="Channel Settings",
-            value=f"Advertisement Channel: {channel_name} (ID: {self.advertise_channel_id})",
-            inline=False
-        )
+        embed.add_field(name="Channel Settings", value=f"Advertisement Channel: {channel_name} (ID: {self.advertise_channel_id})", inline=False)
 
         # Tag Settings
         guild_tag = "Not configured" if self.guild_tag_id is None else f"ID: {self.guild_tag_id}"
         member_tag = "Not configured" if self.member_tag_id is None else f"ID: {self.member_tag_id}"
 
-        embed.add_field(
-            name="Tag Settings",
-            value=f"Guild Tag: {guild_tag}\nMember Tag: {member_tag}",
-            inline=False
-        )
+        embed.add_field(name="Tag Settings", value=f"Guild Tag: {guild_tag}\nMember Tag: {member_tag}", inline=False)
 
         # Stats
         embed.add_field(
@@ -860,7 +784,7 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
             value=f"Active User Cooldowns: {len(self.cooldowns['users'])}\n"
             f"Active Guild Cooldowns: {len(self.cooldowns['guilds'])}\n"
             f"Pending Deletions: {len(self.pending_deletions)}",
-            inline=False
+            inline=False,
         )
 
         await ctx.send(embed=embed)
@@ -880,14 +804,11 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
                 "mod_channel_id": ("Channel for moderator notifications", int),
                 "guild_tag_id": ("Tag ID for guild advertisements", int),
                 "member_tag_id": ("Tag ID for member advertisements", int),
-                "guild_id": ("Guild ID for slash command registration", int)
+                "guild_id": ("Guild ID for slash command registration", int),
             }
 
             if setting_name not in valid_settings:
-                return await ctx.send(
-                    "❌ Invalid setting. Valid options:\n" +
-                    "\n".join([f"• `{k}` - {v[0]}" for k, v in valid_settings.items()])
-                )
+                return await ctx.send("❌ Invalid setting. Valid options:\n" + "\n".join([f"• `{k}` - {v[0]}" for k, v in valid_settings.items()]))
 
             # Convert value to correct type
             try:
@@ -941,11 +862,7 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
 
         # Send the response first, then debug messages
         response_start = time.time()
-        await interaction.response.send_message(
-            "What type of advertisement would you like to post?",
-            view=view,
-            ephemeral=True
-        )
+        await interaction.response.send_message("What type of advertisement would you like to post?", view=view, ephemeral=True)
         response_time = time.time() - response_start
 
         # Now send detailed debug messages after successful response
@@ -993,12 +910,7 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
 
         class DeleteSelect(Select):
             def __init__(self):
-                super().__init__(
-                    placeholder="Select an advertisement to delete",
-                    options=options,
-                    min_values=1,
-                    max_values=1
-                )
+                super().__init__(placeholder="Select an advertisement to delete", options=options, min_values=1, max_values=1)
 
             async def callback(self, select_interaction: discord.Interaction):
                 thread_id = int(self.values[0])
@@ -1007,10 +919,11 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
                     await thread.delete()
 
                     # Update tracking with new tuple structure
-                    self.view.cog.pending_deletions = [(t_id, t_time, t_author, t_notify)
-                                                       for t_id, t_time, t_author, t_notify
-                                                       in self.view.cog.pending_deletions
-                                                       if t_id != thread_id]
+                    self.view.cog.pending_deletions = [
+                        (t_id, t_time, t_author, t_notify)
+                        for t_id, t_time, t_author, t_notify in self.view.cog.pending_deletions
+                        if t_id != thread_id
+                    ]
                     await self.view.cog._save_pending_deletions()
 
                     await select_interaction.response.send_message("Advertisement deleted successfully.", ephemeral=True)
@@ -1024,9 +937,7 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
                 self.cog = cog
                 self.add_item(DeleteSelect())
 
-        await interaction.response.send_message("Select the advertisement you want to delete:",
-                                                view=DeleteView(self),
-                                                ephemeral=True)
+        await interaction.response.send_message("Select the advertisement you want to delete:", view=DeleteView(self), ephemeral=True)
 
     @discord.app_commands.command(name="advertisenotify", description="Toggle notification settings for your advertisement")
     async def notify_ad_slash(self, interaction: discord.Interaction) -> None:
@@ -1065,18 +976,14 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
                 label=name[:80],  # Shorter label to accommodate notification status
                 value=str(id),
                 description=f"Notifications {'enabled' if notify else 'disabled'}",
-                emoji="✉️" if notify else "🔕"
-            ) for id, name, notify in user_threads
+                emoji="✉️" if notify else "🔕",
+            )
+            for id, name, notify in user_threads
         ]
 
         class NotifySelect(Select):
             def __init__(self):
-                super().__init__(
-                    placeholder="Select an advertisement to modify notifications",
-                    options=options,
-                    min_values=1,
-                    max_values=1
-                )
+                super().__init__(placeholder="Select an advertisement to modify notifications", options=options, min_values=1, max_values=1)
 
             async def callback(self, select_interaction: discord.Interaction):
                 thread_id = int(self.values[0])
@@ -1102,10 +1009,7 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
 
                 # Confirm the change
                 new_state = "enabled" if not current_notify else "disabled"
-                await select_interaction.response.send_message(
-                    f"Notifications have been {new_state} for your advertisement.",
-                    ephemeral=True
-                )
+                await select_interaction.response.send_message(f"Notifications have been {new_state} for your advertisement.", ephemeral=True)
 
         class NotifyView(View):
             def __init__(self, cog: UnifiedAdvertise):
@@ -1113,11 +1017,7 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
                 self.cog = cog
                 self.add_item(NotifySelect())
 
-        await interaction.response.send_message(
-            "Select an advertisement to toggle notifications:",
-            view=NotifyView(self),
-            ephemeral=True
-        )
+        await interaction.response.send_message("Select an advertisement to toggle notifications:", view=NotifyView(self), ephemeral=True)
 
     # ====================
     # Owner Commands
@@ -1138,7 +1038,7 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
 
         try:
             # Extract channel and message IDs from URL
-            parts = message_url.split('/')
+            parts = message_url.split("/")
             if len(parts) < 7:
                 await ctx.send("Invalid message URL format. Expected: https://discord.com/channels/guild_id/channel_id/message_id")
                 return
@@ -1208,12 +1108,12 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
         try:
             timeout_type = timeout_type.lower()
 
-            if timeout_type not in ['user', 'guild']:
+            if timeout_type not in ["user", "guild"]:
                 await ctx.send("Invalid timeout type. Use 'user' or 'guild'.")
                 return
 
             # Map timeout type to the cooldowns dictionary key
-            cooldown_key = 'users' if timeout_type == 'user' else 'guilds'
+            cooldown_key = "users" if timeout_type == "user" else "guilds"
 
             # Check if the identifier exists in the cooldowns
             if identifier in self.cooldowns[cooldown_key]:
@@ -1239,10 +1139,10 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
 
         try:
             now = datetime.datetime.now()
-            if timeout_type and timeout_type.lower() in ['user', 'guild']:
+            if timeout_type and timeout_type.lower() in ["user", "guild"]:
                 sections = [f"{timeout_type.lower()}s"]
             else:
-                sections = ['users', 'guilds']
+                sections = ["users", "guilds"]
             messages = []
             current_msg = []
 
@@ -1258,9 +1158,9 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
                     elapsed = now - timestamp_dt
                     hours_left = self.cooldown_hours - (elapsed.total_seconds() / 3600)
 
-                    line = (f"- ID: `{item_id}`, " +
-                            (f"Time left: {hours_left:.1f} hours" if hours_left > 0
-                            else f"**⚠️ EXPIRED** ({abs(hours_left):.1f} hours ago)"))
+                    line = f"- ID: `{item_id}`, " + (
+                        f"Time left: {hours_left:.1f} hours" if hours_left > 0 else f"**⚠️ EXPIRED** ({abs(hours_left):.1f} hours ago)"
+                    )
 
                     # Check if adding this line would exceed Discord's limit
                     if sum(len(x) for x in current_msg) + len(line) > 1900:
@@ -1356,9 +1256,11 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
         if not await self._check_owner_dm(ctx):
             return
 
-        if not confirm or confirm.lower() != 'confirm':
-            await ctx.send("⚠️ This will delete ALL active advertisements and clear the pending deletions list.\n"
-                           "To confirm, use: `owner_delete_all_ads confirm`")
+        if not confirm or confirm.lower() != "confirm":
+            await ctx.send(
+                "⚠️ This will delete ALL active advertisements and clear the pending deletions list.\n"
+                "To confirm, use: `owner_delete_all_ads confirm`"
+            )
             return
 
         try:
@@ -1394,11 +1296,13 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
             await self._save_pending_deletions()
 
             # Send summary
-            await ctx.send(f"Operation complete:\n"
-                           f"• Processed {old_count} pending deletions\n"
-                           f"• Successfully deleted: {deleted_count} threads\n"
-                           f"• Errors encountered: {errors_count}\n"
-                           f"• Pending deletions list cleared")
+            await ctx.send(
+                f"Operation complete:\n"
+                f"• Processed {old_count} pending deletions\n"
+                f"• Successfully deleted: {deleted_count} threads\n"
+                f"• Errors encountered: {errors_count}\n"
+                f"• Pending deletions list cleared"
+            )
 
         except Exception as e:
             self.logger.error(f"Error in owner_delete_all_ads: {e}", exc_info=True)
@@ -1416,23 +1320,22 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
         if not await self._check_owner_dm(ctx):
             return
 
-        if not confirm or confirm.lower() != 'confirm':
-            await ctx.send("⚠️ This will clear ALL advertisement cooldowns for both users and guilds.\n"
-                           "To confirm, use: `owner_clear_all_timeouts confirm`")
+        if not confirm or confirm.lower() != "confirm":
+            await ctx.send(
+                "⚠️ This will clear ALL advertisement cooldowns for both users and guilds.\n" "To confirm, use: `owner_clear_all_timeouts confirm`"
+            )
             return
 
         try:
             # Store counts for reporting
-            user_count = len(self.cooldowns['users'])
-            guild_count = len(self.cooldowns['guilds'])
+            user_count = len(self.cooldowns["users"])
+            guild_count = len(self.cooldowns["guilds"])
 
             # Clear both cooldown dictionaries
-            self.cooldowns = {'users': {}, 'guilds': {}}
+            self.cooldowns = {"users": {}, "guilds": {}}
             await self._save_cooldowns()
 
-            await ctx.send(f"Successfully cleared all timeouts:\n"
-                           f"• Users cleared: {user_count}\n"
-                           f"• Guilds cleared: {guild_count}")
+            await ctx.send(f"Successfully cleared all timeouts:\n" f"• Users cleared: {user_count}\n" f"• Guilds cleared: {guild_count}")
 
         except Exception as e:
             self.logger.error(f"Error in owner_clear_all_timeouts: {e}", exc_info=True)
@@ -1486,7 +1389,7 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
                         # Try to get the thread
                         thread = await self.bot.fetch_channel(thread_id)
                         # Skip deletion if thread is pinned
-                        if hasattr(thread, 'pinned') and thread.pinned:
+                        if hasattr(thread, "pinned") and thread.pinned:
                             self.logger.info(f"Skipping deletion for pinned thread {thread_id}")
                             continue
 
@@ -1520,10 +1423,7 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
 
             # Remove processed entries
             if to_remove:
-                self.pending_deletions = [
-                    entry for entry in self.pending_deletions
-                    if entry[0] not in to_remove
-                ]
+                self.pending_deletions = [entry for entry in self.pending_deletions if entry[0] not in to_remove]
                 await self._save_pending_deletions()
 
     @check_deletions.before_loop
@@ -1558,7 +1458,7 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
         """Remove expired cooldowns from the cooldowns dictionary."""
         try:
             current_time = datetime.datetime.now()
-            sections = ['users', 'guilds']
+            sections = ["users", "guilds"]
             expired_count = 0
 
             for section in sections:
@@ -1586,14 +1486,11 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
         """Load cooldowns using BaseCog data management."""
         try:
             cooldowns_file = self.data_directory / self.cooldown_filename
-            data = await self.load_data(cooldowns_file, default={
-                'users': {},
-                'guilds': {}
-            })
+            data = await self.load_data(cooldowns_file, default={"users": {}, "guilds": {}})
             return data
         except Exception as e:
             self.logger.error(f"Error loading cooldowns: {e}")
-            return {'users': {}, 'guilds': {}}
+            return {"users": {}, "guilds": {}}
 
     async def _save_cooldowns(self) -> None:
         """Save cooldowns using BaseCog data management."""
@@ -1641,8 +1538,7 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
 
             # Convert datetime objects to ISO strings for serialization
             serializable_data = [
-                (thread_id, deletion_time.isoformat() if isinstance(deletion_time, datetime.datetime) else deletion_time,
-                 author_id, notify)
+                (thread_id, deletion_time.isoformat() if isinstance(deletion_time, datetime.datetime) else deletion_time, author_id, notify)
                 for thread_id, deletion_time, author_id, notify in self.pending_deletions
             ]
 
@@ -1670,8 +1566,7 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
                     embed = message.embeds[0]
 
                     # Create a dictionary of field names to values for easier lookup
-                    fields = {field.name.lower().strip(): field.value.strip()
-                              for field in embed.fields if field.name and field.value}
+                    fields = {field.name.lower().strip(): field.value.strip() for field in embed.fields if field.name and field.value}
 
                     # Determine advertisement type from embed title or fields
                     ad_type = "member"
@@ -1692,17 +1587,17 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
                         # Extract Discord user ID from "Posted by" field
                         posted_by = fields["posted by"]
                         # Format is typically "<@user_id>" or "username (user_id)"
-                        user_match = re.search(r'<@(\d+)>|(\d{17,19})', posted_by)
+                        user_match = re.search(r"<@(\d+)>|(\d{17,19})", posted_by)
                         if user_match:
                             user_id = int(user_match.group(1) or user_match.group(2))
                     elif "player id" in fields:
                         # For member ads, we might need to cross-reference the player ID
                         # But for now, fall back to thread owner
-                        user_id = getattr(thread, 'owner_id', 0) or 0
+                        user_id = getattr(thread, "owner_id", 0) or 0
 
                     if user_id == 0:
                         # Fallback to thread owner if we can't extract from embed
-                        user_id = getattr(thread, 'owner_id', 0) or 0
+                        user_id = getattr(thread, "owner_id", 0) or 0
 
                     return user_id, guild_id, ad_type
                 break
@@ -1710,7 +1605,7 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
             await self._send_debug_message(f"Error extracting user/guild info from thread {thread.id}: {e}")
 
         # Fallback values
-        return getattr(thread, 'owner_id', 0) or 0, "", "member"
+        return getattr(thread, "owner_id", 0) or 0, "", "member"
 
     def _normalize_guild_id(self, guild_id: str) -> str:
         """Normalize guild ID to ensure consistent handling.
@@ -1739,8 +1634,9 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
         # Always log to console as backup
         self.logger.info(message)
 
-    async def check_cooldowns(self, interaction: discord.Interaction, user_id: int, guild_id: Optional[str] = None,
-                              ad_type: Optional[str] = None) -> bool:
+    async def check_cooldowns(
+        self, interaction: discord.Interaction, user_id: int, guild_id: Optional[str] = None, ad_type: Optional[str] = None
+    ) -> bool:
         """Check if user or guild is on cooldown and handle the response.
 
         Args:
@@ -1757,8 +1653,8 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
             guild_id = self._normalize_guild_id(guild_id)
 
         # Check user cooldown
-        if str(user_id) in self.cooldowns['users']:
-            timestamp = self.cooldowns['users'][str(user_id)]
+        if str(user_id) in self.cooldowns["users"]:
+            timestamp = self.cooldowns["users"][str(user_id)]
             elapsed = (datetime.datetime.now() - datetime.datetime.fromisoformat(timestamp)).total_seconds()
 
             if elapsed < self.cooldown_hours * 3600:
@@ -1767,22 +1663,24 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
                 # Send notification to mod channel about bypass attempt
                 mod_channel = self.bot.get_channel(self.mod_channel_id)
                 if mod_channel:
-                    await mod_channel.send(f"⚠️ **Advertisement Cooldown Bypass Attempt**\n"
-                                           f"User: {interaction.user.name} (ID: {interaction.user.id})\n"
-                                           f"Type: User cooldown ({ad_type})\n"
-                                           f"Time remaining: {hours_left:.1f} hours")
+                    await mod_channel.send(
+                        f"⚠️ **Advertisement Cooldown Bypass Attempt**\n"
+                        f"User: {interaction.user.name} (ID: {interaction.user.id})\n"
+                        f"Type: User cooldown ({ad_type})\n"
+                        f"Time remaining: {hours_left:.1f} hours"
+                    )
 
                 await interaction.response.send_message(
                     f"You can only post one advertisement every {self.cooldown_hours} hours. "
                     f"Please try again in {hours_left:.1f} hours.\n"
                     f"If you attempt to bypass this limit, you will be banned from advertising.",
-                    ephemeral=True
+                    ephemeral=True,
                 )
                 return False
 
         # Check guild cooldown if applicable
-        if guild_id and guild_id in self.cooldowns['guilds']:
-            timestamp = self.cooldowns['guilds'][guild_id]
+        if guild_id and guild_id in self.cooldowns["guilds"]:
+            timestamp = self.cooldowns["guilds"][guild_id]
             elapsed = (datetime.datetime.now() - datetime.datetime.fromisoformat(timestamp)).total_seconds()
 
             if elapsed < self.cooldown_hours * 3600:
@@ -1791,23 +1689,26 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
                 # Send notification to mod channel about guild cooldown bypass attempt
                 mod_channel = self.bot.get_channel(self.mod_channel_id)
                 if mod_channel:
-                    await mod_channel.send(f"⚠️ **Guild Advertisement Cooldown Bypass Attempt**\n"
-                                           f"User: {interaction.user.name} (ID: {interaction.user.id})\n"
-                                           f"Guild ID: {guild_id}\n"
-                                           f"Time remaining: {hours_left:.1f} hours")
+                    await mod_channel.send(
+                        f"⚠️ **Guild Advertisement Cooldown Bypass Attempt**\n"
+                        f"User: {interaction.user.name} (ID: {interaction.user.id})\n"
+                        f"Guild ID: {guild_id}\n"
+                        f"Time remaining: {hours_left:.1f} hours"
+                    )
 
                 await interaction.response.send_message(
                     f"This guild was already advertised in the past {self.cooldown_hours} hours. "
                     f"Please try again in {hours_left:.1f} hours.\n"
                     f"If you attempt to bypass this limit, your guild will be banned from advertising.",
-                    ephemeral=True
+                    ephemeral=True,
                 )
                 return False
 
         return True
 
-    async def post_advertisement(self, interaction: discord.Interaction, embed: discord.Embed, thread_title: str,
-                                 ad_type: str, guild_id: Optional[str], notify: bool) -> None:
+    async def post_advertisement(
+        self, interaction: discord.Interaction, embed: discord.Embed, thread_title: str, ad_type: str, guild_id: Optional[str], notify: bool
+    ) -> None:
         """Post the advertisement as a thread in the forum channel.
 
         Args:
@@ -1819,6 +1720,7 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
             notify: Whether to notify the user when the ad expires
         """
         import time
+
         start_time = time.time()
         await self._send_debug_message(f"Starting post_advertisement for user {interaction.user.id} ({interaction.user.name}), type: {ad_type}")
 
@@ -1831,17 +1733,14 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
 
             if not channel:
                 await self._send_debug_message(f"❌ Advertisement channel not found: {self.advertise_channel_id}")
-                await interaction.followup.send(
-                    "There was an error posting your advertisement. Please contact @thedisasterfish.",
-                    ephemeral=True
-                )
+                await interaction.followup.send("There was an error posting your advertisement. Please contact @thedisasterfish.", ephemeral=True)
                 return
 
             # Now do the heavy work (initial response already sent by form)
             async with self.task_tracker.task_context("Posting Advertisement"):
                 # Determine which tag to apply based on advertisement type
                 applied_tags = []
-                if (ad_type == AdvertisementType.GUILD and self.guild_tag_id):
+                if ad_type == AdvertisementType.GUILD and self.guild_tag_id:
                     try:
                         # Find the tag object by ID
                         for tag in channel.available_tags:
@@ -1852,7 +1751,7 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
                         self.logger.error(f"Error finding guild tag: {e}")
                         self._has_errors = True
 
-                elif (ad_type == AdvertisementType.MEMBER and self.member_tag_id):
+                elif ad_type == AdvertisementType.MEMBER and self.member_tag_id:
                     try:
                         # Find the tag object by ID
                         for tag in channel.available_tags:
@@ -1870,24 +1769,26 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
                     content="",  # Empty content
                     embed=embed,
                     applied_tags=applied_tags,  # Apply the tags
-                    auto_archive_duration=1440  # Auto-archive after 24 hours
+                    auto_archive_duration=1440,  # Auto-archive after 24 hours
                 )
                 thread_create_time = time.time() - thread_create_start
                 await self._send_debug_message(f"Thread creation took {thread_create_time:.2f}s for user {interaction.user.id}")
 
                 thread = thread_with_message.thread
-                await self._send_debug_message(f"✅ Created advertisement thread: {thread.id} for user {interaction.user.id} ({interaction.user.name}), type: {ad_type}")
+                await self._send_debug_message(
+                    f"✅ Created advertisement thread: {thread.id} for user {interaction.user.id} ({interaction.user.name}), type: {ad_type}"
+                )
                 self._operation_count += 1
                 self._last_operation_time = datetime.datetime.now()
 
                 # Update cooldowns
                 cooldown_start = time.time()
                 current_time = datetime.datetime.now().isoformat()
-                self.cooldowns['users'][str(interaction.user.id)] = current_time
+                self.cooldowns["users"][str(interaction.user.id)] = current_time
 
                 # If it's a guild advertisement, also add guild cooldown
                 if guild_id:
-                    self.cooldowns['guilds'][guild_id] = current_time
+                    self.cooldowns["guilds"][guild_id] = current_time
 
                 await self._save_cooldowns()
                 cooldown_time = time.time() - cooldown_start
@@ -1902,7 +1803,9 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
                 await self._send_debug_message(f"Deletion scheduling took {schedule_time:.2f}s for user {interaction.user.id}")
 
                 total_time = time.time() - start_time
-                await self._send_debug_message(f"✅ Advertisement posting completed in {total_time:.2f}s for user {interaction.user.id} ({interaction.user.name})")
+                await self._send_debug_message(
+                    f"✅ Advertisement posting completed in {total_time:.2f}s for user {interaction.user.id} ({interaction.user.name})"
+                )
 
         except Exception as e:
             total_time = time.time() - start_time
@@ -1912,12 +1815,10 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
 
             # Try to send error message - use followup since initial response was already sent in form
             try:
-                await interaction.followup.send(
-                    "There was an error posting your advertisement. Please contact @thedisasterfish.",
-                    ephemeral=True
-                )
+                await interaction.followup.send("There was an error posting your advertisement. Please contact @thedisasterfish.", ephemeral=True)
             except Exception as response_error:
                 await self._send_debug_message(f"❌ Failed to send error response to user {interaction.user.id}: {str(response_error)}")
+
 
 # ====================
 # Cog Setup

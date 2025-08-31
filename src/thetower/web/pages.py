@@ -34,11 +34,11 @@ st.set_page_config(
 # Add supporter code message at the very top of sidebar first
 with st.sidebar:
     st.markdown(
-        '''<div style="text-align:center; margin-bottom:1em; font-size:0.9em; padding:0.5em; background-color:rgba(30,144,255,0.1); border-radius:0.5em; border:1px solid rgba(30,144,255,0.3);">
+        """<div style="text-align:center; margin-bottom:1em; font-size:0.9em; padding:0.5em; background-color:rgba(30,144,255,0.1); border-radius:0.5em; border:1px solid rgba(30,144,255,0.3);">
             <b>🐟 Support the fishy!</b><br>
             Use code <span style="color:#cd4b3d; font-weight:bold;">thedisasterfish</span> in the <a href="https://store.techtreegames.com/thetower/">TechTree Store</a>
-        </div>''',
-        unsafe_allow_html=True
+        </div>""",
+        unsafe_allow_html=True,
     )
 
 options = Options(links_toggle=True, default_graph=Graph.last_16.value, average_foreground=True)
@@ -129,12 +129,14 @@ if active_period:
     if rainenabled:
         makeitrain()
 
-st.html("""
+st.html(
+    """
 <style>
     .stMainBlockContainer {
         max-width:60rem;
     }
 </style>
-""")
+"""
+)
 
 pg.run()

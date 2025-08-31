@@ -9,6 +9,7 @@ from ...models import BattleCondition, TourneyResult
 # Graceful towerbcs import handling
 try:
     from towerbcs import TournamentPredictor, predict_future_tournament
+
     TOWERBCS_AVAILABLE = True
 except ImportError:
     TOWERBCS_AVAILABLE = False
@@ -21,34 +22,37 @@ except ImportError:
         def get_tournament_info(date):
             return None, date, 0
 
+
 logging.basicConfig(level=logging.INFO)
 
 
 class Command(BaseCommand):
-    help = 'Update battle conditions for tournament results after October 17, 2024'
+    help = "Update battle conditions for tournament results after October 17, 2024"
 
     def add_arguments(self, parser):
         parser.add_argument(
-            '--confirm',
-            action='store_true',
-            help='Actually update the database (default is dry-run)',
+            "--confirm",
+            action="store_true",
+            help="Actually update the database (default is dry-run)",
         )
         parser.add_argument(
-            '--verbose',
-            action='store_true',
-            help='Show all tournaments being processed, not just ones needing changes',
+            "--verbose",
+            action="store_true",
+            help="Show all tournaments being processed, not just ones needing changes",
         )
         parser.add_argument(
-            '--fix', '--change',
-            action='store_true',
-            dest='fix',
-            help='Show/fix mismatched conditions (requires --confirm to apply changes)',
+            "--fix",
+            "--change",
+            action="store_true",
+            dest="fix",
+            help="Show/fix mismatched conditions (requires --confirm to apply changes)",
         )
         parser.add_argument(
-            '--add', '--missing',
-            action='store_true',
-            dest='add',
-            help='Show/add missing conditions (requires --confirm to apply changes)',
+            "--add",
+            "--missing",
+            action="store_true",
+            dest="add",
+            help="Show/add missing conditions (requires --confirm to apply changes)",
         )
 
     def handle(self, *args, **options):
@@ -63,10 +67,10 @@ class Command(BaseCommand):
             )
             return
 
-        is_live = options['confirm']
-        is_verbose = options['verbose']
-        fix_mode = options['fix']
-        add_mode = options['add']
+        is_live = options["confirm"]
+        is_verbose = options["verbose"]
+        fix_mode = options["fix"]
+        add_mode = options["add"]
 
         # If neither mode is specified, show both
         if not fix_mode and not add_mode:
@@ -87,9 +91,7 @@ class Command(BaseCommand):
 
         start_date = datetime(2024, 10, 17).replace(tzinfo=ZoneInfo("UTC")).date()
 
-        tournaments = TourneyResult.objects.filter(
-            date__gt=start_date
-        ).order_by('date', 'league')
+        tournaments = TourneyResult.objects.filter(date__gt=start_date).order_by("date", "league")
 
         changes_needed = False
         changes_count = 0
@@ -97,17 +99,14 @@ class Command(BaseCommand):
 
         for tournament in tournaments:
             total_count += 1
-            tourney_date = datetime.combine(
-                tournament.date,
-                datetime.min.time()
-            ).replace(tzinfo=ZoneInfo("UTC"))
+            tourney_date = datetime.combine(tournament.date, datetime.min.time()).replace(tzinfo=ZoneInfo("UTC"))
 
             tourney_id, _, _ = TournamentPredictor.get_tournament_info(tourney_date)
             predicted_conditions = set(predict_future_tournament(tourney_id, tournament.league))
-            existing_conditions = set(tournament.conditions.values_list('name', flat=True))
+            existing_conditions = set(tournament.conditions.values_list("name", flat=True))
 
             # Normalize 'None' conditions
-            predicted_is_none = not predicted_conditions or predicted_conditions == {'None'} or predicted_conditions == {'none'}
+            predicted_is_none = not predicted_conditions or predicted_conditions == {"None"} or predicted_conditions == {"none"}
             existing_is_none = not existing_conditions
 
             # Skip if both are effectively "none"
@@ -155,20 +154,16 @@ class Command(BaseCommand):
 
         if changes_needed:
             if not is_live:
-                self.stdout.write(
-                    "\nRun with --confirm and --fix/--add to apply changes."
-                )
+                self.stdout.write("\nRun with --confirm and --fix/--add to apply changes.")
         else:
             self.stdout.write("\nNo changes needed.")
 
     def _update_conditions(self, tournament, conditions):
         """Update the tournament conditions"""
-        if not conditions or conditions == {'None'} or conditions == {'none'}:
+        if not conditions or conditions == {"None"} or conditions == {"none"}:
             tournament.conditions.clear()
             self.stdout.write("  ✓ Cleared all conditions")
         else:
-            condition_ids = BattleCondition.objects.filter(
-                name__in=conditions
-            ).values_list('id', flat=True)
+            condition_ids = BattleCondition.objects.filter(name__in=conditions).values_list("id", flat=True)
             tournament.conditions.set(condition_ids)
             self.stdout.write(f"  ✓ Updated conditions to: {conditions}")

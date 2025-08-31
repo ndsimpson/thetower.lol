@@ -92,7 +92,7 @@ class Results:
         to_be_displayed = to_be_displayed.reset_index(drop=True)
 
         # Early escape/sanitize names to prevent XSS
-        to_be_displayed = escape_df_html(to_be_displayed, ['real_name', 'tourney_name'])
+        to_be_displayed = escape_df_html(to_be_displayed, ["real_name", "tourney_name"])
 
         if current_page == 1:
             for position, medal in zip([1, 2, 3], [" 🥇", " 🥈", " 🥉"]):
@@ -102,8 +102,9 @@ class Results:
                     )
 
         def make_avatar(avatar_id):
-            all_avatars = {int(re.findall(r"\d+", item.name.split(".")[0])[0])
-                           for item in (Path("components") / "static" / "Tower_Skins").glob("*.*")}
+            all_avatars = {
+                int(re.findall(r"\d+", item.name.split(".")[0])[0]) for item in (Path("components") / "static" / "Tower_Skins").glob("*.*")
+            }
 
             if avatar_id == -1 or avatar_id not in all_avatars:
                 return ""
@@ -121,11 +122,13 @@ class Results:
 
             return f"<img src='./app/static/Tower_Relics/{all_relics[relic_id][1]}' width='32' title='{all_relics[relic_id][0]}, {all_relics[relic_id][2]} {all_relics[relic_id][3]}'>"
 
-        to_be_displayed["real_name"] = [sus_person if id_ in self.sus_ids else name for id_,
-                                        name in zip(to_be_displayed.id, to_be_displayed.real_name)]
+        to_be_displayed["real_name"] = [
+            sus_person if id_ in self.sus_ids else name for id_, name in zip(to_be_displayed.id, to_be_displayed.real_name)
+        ]
 
-        to_be_displayed["tourney_name"] = [strike(name) if id_ in self.sus_ids else name for id_,
-                                           name in zip(to_be_displayed.id, to_be_displayed.tourney_name)]
+        to_be_displayed["tourney_name"] = [
+            strike(name) if id_ in self.sus_ids else name for id_, name in zip(to_be_displayed.id, to_be_displayed.tourney_name)
+        ]
         to_be_displayed["avatar"] = to_be_displayed.avatar.map(make_avatar)
         to_be_displayed["relic"] = to_be_displayed.relic.map(make_relic)
 
@@ -140,13 +143,14 @@ class Results:
         common_data = list(self.dates)
 
         current_date_index = common_data.index(date)
-        previous_4_dates = common_data[current_date_index - 4: current_date_index][::-1]
+        previous_4_dates = common_data[current_date_index - 4 : current_date_index][::-1]
 
         prev_dfs = {date: self.df[self.df["date"] == date].reset_index(drop=True) for date in previous_4_dates}
 
         for date_iter, prev_df in prev_dfs.items():
-            to_be_displayed[date_iter] = [mini_df.iloc[0].wave if not (
-                mini_df := prev_df[prev_df.id == id_]).empty else 0 for id_ in to_be_displayed.id]
+            to_be_displayed[date_iter] = [
+                mini_df.iloc[0].wave if not (mini_df := prev_df[prev_df.id == id_]).empty else 0 for id_ in to_be_displayed.id
+            ]
 
         indices = ["#", "tourney_name", "real_name", *[date, *previous_4_dates], "✓", "id"]
 
@@ -180,20 +184,8 @@ class Results:
     def regular_preparation(self, to_be_displayed):
         indices = ["#", "⬡", "tourney_name", "real_name", "relic", "wave", "✓"]
 
-        def styling(row): return [
-            None,
-            None,
-            None,  # f"color: {filtered_df[filtered_df['position']==row['#']].name_role_color.iloc[0]}",
-            None,
-            None,
-            f"color: {self.df[self.df['position'] == row['#']].wave_role_color.iloc[0]}",
-            None,
-        ]
-
-        if self.hidden_features:
-            indices += ["id", "sus_me"]
-
-            def styling(row): return [
+        def styling(row):
+            return [
                 None,
                 None,
                 None,  # f"color: {filtered_df[filtered_df['position']==row['#']].name_role_color.iloc[0]}",
@@ -201,15 +193,30 @@ class Results:
                 None,
                 f"color: {self.df[self.df['position'] == row['#']].wave_role_color.iloc[0]}",
                 None,
-                None,
-                None,
             ]
+
+        if self.hidden_features:
+            indices += ["id", "sus_me"]
+
+            def styling(row):
+                return [
+                    None,
+                    None,
+                    None,  # f"color: {filtered_df[filtered_df['position']==row['#']].name_role_color.iloc[0]}",
+                    None,
+                    None,
+                    f"color: {self.df[self.df['position'] == row['#']].wave_role_color.iloc[0]}",
+                    None,
+                    None,
+                    None,
+                ]
 
         if self.hidden_features:
             to_be_displayed["sus_me"] = [self._make_sus_link(id, name) for id, name in zip(to_be_displayed.id, to_be_displayed.tourney_name)]
 
-        to_be_displayed = to_be_displayed[indices].style.apply(styling, axis=1).map(
-            color_position__top, subset=["#"]).map(am_i_sus, subset=["real_name"])
+        to_be_displayed = (
+            to_be_displayed[indices].style.apply(styling, axis=1).map(color_position__top, subset=["#"]).map(am_i_sus, subset=["real_name"])
+        )
 
         return to_be_displayed
 
@@ -244,7 +251,7 @@ def compute_results(options: Options):
 
     # Get currently selected patch from session state or default to latest
     patch = None
-    if 'selected_patch' in st.session_state:
+    if "selected_patch" in st.session_state:
         patch = st.session_state.selected_patch
 
     # Use patch-aware league selection

@@ -13,12 +13,12 @@ from .models import BattleCondition, Injection, NameDayWinner, PatchNew, Positio
 
 
 class PatchFilter(admin.SimpleListFilter):
-    title = 'patch'
-    parameter_name = 'patch'
+    title = "patch"
+    parameter_name = "patch"
 
     def lookups(self, request, model_admin):
         """Return a list of tuples for the filter sidebar."""
-        patches = PatchNew.objects.all().order_by('-version_minor', '-version_patch')
+        patches = PatchNew.objects.all().order_by("-version_minor", "-version_patch")
         return [(patch.pk, str(patch)) for patch in patches]
 
     def queryset(self, request, queryset):
@@ -26,10 +26,7 @@ class PatchFilter(admin.SimpleListFilter):
         if self.value():
             try:
                 patch = PatchNew.objects.get(pk=self.value())
-                return queryset.filter(
-                    date__gte=patch.start_date,
-                    date__lte=patch.end_date
-                )
+                return queryset.filter(date__gte=patch.start_date, date__lte=patch.end_date)
             except PatchNew.DoesNotExist:
                 return queryset
         return queryset
@@ -114,7 +111,9 @@ class TourneyRowAdmin(SimpleHistoryAdmin):
 
     def _known_player(self, obj):
         player_pk = PlayerId.objects.get(id=obj.player_id).player.id
-        return format_html(f"<a href='{BASE_ADMIN_URL}sus/knownplayer/{player_pk}/change/'>{BASE_ADMIN_URL}<br>sus/<br>knownplayer/{player_pk}/change/</a>")
+        return format_html(
+            f"<a href='{BASE_ADMIN_URL}sus/knownplayer/{player_pk}/change/'>{BASE_ADMIN_URL}<br>sus/<br>knownplayer/{player_pk}/change/</a>"
+        )
 
     list_filter = ["result__league", "result__date", "result__public", "avatar_id", "relic_id"]
 
@@ -155,13 +154,15 @@ class TourneyResultAdmin(SimpleHistoryAdmin):
         """Display the patch version for this tournament."""
         patch = obj.patch
         return str(patch) if patch else "Unknown"
+
     _patch.short_description = "Patch"
-    _patch.admin_order_field = 'date'  # Allow sorting by date as proxy for patch
+    _patch.admin_order_field = "date"  # Allow sorting by date as proxy for patch
 
     def mark_for_recalc(self, request, queryset):
         """Mark selected tournaments for recalculation"""
         count = queryset.update(needs_recalc=True, recalc_retry_count=0)
         self.message_user(request, f"Marked {count} tournaments for recalculation")
+
     mark_for_recalc.short_description = "Mark selected tournaments for recalculation"
     _conditions.short_description = "Battle Conditions"
 

@@ -348,7 +348,9 @@ def is_under_review(player_id: str):
 
 
 def is_support_flagged(player_id: str):
-    return SusPerson.objects.filter(player_id=player_id, soft_banned=True).exists() | SusPerson.objects.filter(player_id=player_id, banned=True).exists()
+    return (
+        SusPerson.objects.filter(player_id=player_id, soft_banned=True).exists() | SusPerson.objects.filter(player_id=player_id, banned=True).exists()
+    )
 
 
 def is_shun(player_id: str):
@@ -427,8 +429,9 @@ def get_tourneys(
 def get_details(rows: QuerySet[TourneyRow]) -> pd.DataFrame:
     rows = rows.prefetch_related("result")
 
-    df = pd.DataFrame(rows.values("player_id", "position", "nickname", "wave", "avatar_id",
-                      "relic_id", "result__date", "result__league", "result_id"))
+    df = pd.DataFrame(
+        rows.values("player_id", "position", "nickname", "wave", "avatar_id", "relic_id", "result__date", "result__league", "result_id")
+    )
     df = df.rename(
         columns={
             "player_id": "id",

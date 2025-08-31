@@ -23,7 +23,7 @@ def find_project_root():
     current_dir = os.getcwd()
 
     # Look for project markers
-    markers = ['pyproject.toml', 'setup.py', '.git', 'requirements.txt', 'README.md']
+    markers = ["pyproject.toml", "setup.py", ".git", "requirements.txt", "README.md"]
 
     # Walk up the directory tree
     check_dir = current_dir

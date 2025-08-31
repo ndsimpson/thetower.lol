@@ -62,13 +62,13 @@ def make_request(league):
     header = "player_id,name,avatar,relic,wave,bracket,tourney_number\n"
 
     csv_contents = header + csv_contents
-    df = pd.read_csv(io.StringIO(csv_contents.strip()), on_bad_lines='warn')
+    df = pd.read_csv(io.StringIO(csv_contents.strip()), on_bad_lines="warn")
     df["wave"] = df["wave"].astype(int)
     df = df.sort_values("wave", ascending=False)
     df["name"] = df["name"].map(lambda x: x.strip())
     df["bracket"] = df["bracket"].map(lambda x: x.strip())
     logging.info(f"There are {len(df.query('name.str.len() == 0'))} blank tourney names.")
-    df.loc[df['name'].str.len() == 0, 'name'] = df['player_id']
+    df.loc[df["name"].str.len() == 0, "name"] = df["player_id"]
     return df
 
 
@@ -83,6 +83,7 @@ def execute(league):
     try:
         # Import clear_cache here to avoid Django setup issues
         from ...web.live.data_ops import clear_cache
+
         clear_cache()
         logging.info("Successfully cleared Streamlit cache")
     except Exception as e:
