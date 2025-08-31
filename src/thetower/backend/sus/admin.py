@@ -1,13 +1,13 @@
-import logging
 import os
 
 # Admin for ApiKey
 from django.contrib import admin, messages
+from django.shortcuts import redirect
+from django.urls import path
 from django.utils.html import format_html
 from django.utils.safestring import mark_safe
 from django.utils.translation import gettext_lazy as _
 from simple_history.admin import SimpleHistoryAdmin
-from tqdm import tqdm
 
 from ..sus.models import KnownPlayer, PlayerId, SusPerson
 from .models import ApiKey
@@ -47,6 +47,29 @@ BASE_HIDDEN_URL = os.getenv("BASE_HIDDEN_URL")
 
 @admin.register(SusPerson)
 class SusPersonAdmin(SimpleHistoryAdmin):
+    change_form_template = "admin/sus/susperson/change_form.html"
+
+    def get_urls(self):
+        urls = super().get_urls()
+        custom_urls = [
+            path("<path:object_id>/requeue/", self.admin_site.admin_view(self.requeue_view), name="sus_susperson_requeue"),
+        ]
+        return custom_urls + urls
+
+    def requeue_view(self, request, object_id):
+        obj = self.get_object(request, object_id)
+        if obj is None:
+            self.message_user(request, _("Object not found."), level=messages.ERROR)
+            return redirect("..")
+
+        res = queue_recalculation_for_player(obj.player_id)
+        if res is None:
+            messages.warning(request, _(f"Failed to queue recalculation for player {obj.player_id}; please try the action on the list view."))
+        else:
+            messages.success(request, _(f"Queued recalculation for player {obj.player_id}."))
+
+        return redirect("..")
+
     def _link(self, obj):
         return format_html(
             f"<a href='https://{BASE_HIDDEN_URL}/player?player={obj.player_id}' target='_new'>https://{BASE_HIDDEN_URL}/player?player={obj.player_id}</a>"
@@ -99,6 +122,8 @@ class SusPersonAdmin(SimpleHistoryAdmin):
     def save_model(self, request, obj, form, change):
         player_id = obj.player_id
 
+        # debug logging removed
+
         # Check if sus or shun status changed (only these affect tournament positions)
         should_recalc = False
         if change:
@@ -113,35 +138,60 @@ class SusPersonAdmin(SimpleHistoryAdmin):
             # New object - always recalculate if sus or shun is True
             should_recalc = obj.sus or obj.shun
 
-        obj = super().save_model(request, obj, form, change)
+        try:
+            obj = super().save_model(request, obj, form, change)
+        except Exception:
+            # Re-raise so admin shows the 500 as before
+            raise
 
         # Only queue tournaments for recalculation if sus/shun status changed
         if should_recalc:
-            queue_recalculation_for_player(player_id)
+            affected = queue_recalculation_for_player(player_id)
+            # queue_recalculation_for_player returns None on failure
+            if affected is None:
+                messages.warning(request, _(f"Failed to queue recalculation for player {player_id}; please requeue manually."))
+
         return obj
 
 
 def queue_recalculation_for_player(player_id):
     """Mark all tournaments involving this player for recalculation"""
-    from .models import TourneyResult
+    from ..tourney_results.models import TourneyResult
 
-    # Mark affected tournaments as needing recalculation - FAST operation
-    affected_count = TourneyResult.objects.filter(rows__player_id=player_id).update(needs_recalc=True, recalc_retry_count=0)  # Reset retry count
+    # Testing switch: set FORCE_QUEUE_FAIL=1 in the environment to simulate a failure
+    # (useful to exercise admin warning UI without breaking production logic)
+    if os.environ.get("FORCE_QUEUE_FAIL") == "1":
+        return None
 
-    logging.info(f"Queued {affected_count} tournaments for recalculation (player: {player_id})")
+    try:
+        # Mark affected tournaments as needing recalculation - FAST operation
+        affected_count = TourneyResult.objects.filter(rows__player_id=player_id).update(needs_recalc=True, recalc_retry_count=0)  # Reset retry count
+        return affected_count
+    except Exception:
+        # Swallow exceptions - recalculation queuing should not block admin save
+        return None
 
 
-def recalc_all(player_id):
-    """Legacy function - kept for backwards compatibility but not used"""
-    from .models import TourneyResult, TourneyRow
-    from .tourney_utils import reposition
+def queue_recalculation_for_selected(modeladmin, request, queryset):
+    """Admin action: queue recalculation for selected SusPerson entries"""
+    count = 0
+    failed = []
+    for obj in queryset:
+        res = queue_recalculation_for_player(obj.player_id)
+        if res is None:
+            failed.append(obj.player_id)
+        else:
+            count += 1
 
-    all_results = TourneyResult.objects.filter(id__in=TourneyRow.objects.filter(player_id=player_id).values_list("result", flat=True))
+    if count:
+        messages.info(request, _("Queued recalculation for %d players.") % count)
+    if failed:
+        messages.warning(request, _("Failed to queue for: %s") % ", ".join(failed))
 
-    for res in tqdm(all_results):
-        reposition(res)
 
-    logging.info(f"Updated {player_id=}")
+# Register the action so it appears in the Django admin actions dropdown
+SusPersonAdmin.actions = [queue_recalculation_for_selected]
+queue_recalculation_for_selected.short_description = "Queue recalculation for selected players"
 
 
 class IdInline(admin.TabularInline):
