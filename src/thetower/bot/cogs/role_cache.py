@@ -1,8 +1,8 @@
 # Standard library
 import asyncio
 import datetime
-from pathlib import Path
 from collections import deque
+from pathlib import Path
 from typing import Optional
 
 # Third-party
@@ -170,7 +170,7 @@ class RoleCache(BaseCog,
         """Periodically refresh stale roles and clean up missing members."""
         try:
             # Skip if paused
-            if not self.is_paused:
+            if self.is_paused:
                 return
 
             async with self.task_tracker.task_context("Cache Refresh", "Starting refresh cycle") as tracker:
