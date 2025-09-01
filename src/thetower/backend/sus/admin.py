@@ -86,6 +86,8 @@ class SusPersonAdmin(SimpleHistoryAdmin):
         "sus",
         "soft_banned",
         "banned",
+        "api_ban",
+        "api_sus",
         "_link",
         "_modified",
     )
@@ -110,6 +112,8 @@ class SusPersonAdmin(SimpleHistoryAdmin):
         "sus",
         "soft_banned",
         "banned",
+        "api_ban",
+        "api_sus",
         "notes",
     )
 
@@ -118,6 +122,18 @@ class SusPersonAdmin(SimpleHistoryAdmin):
 
     def _modified(self, obj):
         return mark_safe(obj.modified.strftime("%Y-%m-%d<br>%H:%M:%S"))
+
+    def get_readonly_fields(self, request, obj=None):
+        # If this object was flagged by the API, prevent editing the canonical fields from the admin UI
+        ro = list(getattr(self, 'readonly_fields', []))
+        if obj is not None:
+            if getattr(obj, "api_ban", False):
+                ro.append("banned")
+            if getattr(obj, "api_sus", False):
+                ro.append("sus")
+            # Always make api_ban and api_sus readonly (only API should change these)
+            ro.extend(["api_ban", "api_sus"])
+        return ro
 
     def save_model(self, request, obj, form, change):
         player_id = obj.player_id

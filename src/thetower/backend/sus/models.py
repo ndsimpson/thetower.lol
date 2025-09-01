@@ -84,6 +84,9 @@ class SusPerson(models.Model):
     )
     soft_banned = models.BooleanField(null=False, blank=False, default=False, help_text="Soft-banned by Pog. For internal use.")
     banned = models.BooleanField(null=False, blank=False, default=False, help_text="Banned by support. For internal use.")
+    # Mark whether this ban/sus was set by the API. These are provenance flags only.
+    api_ban = models.BooleanField(null=False, blank=False, default=False, help_text="Was the ban set by the API?")
+    api_sus = models.BooleanField(null=False, blank=False, default=False, help_text="Was the sus flag set by the API?")
 
     created = models.DateTimeField(auto_now_add=datetime.datetime.now, null=False, editable=False, db_index=True)
     modified = models.DateTimeField(auto_now=datetime.datetime.now, null=False, editable=False)
@@ -92,3 +95,110 @@ class SusPerson(models.Model):
         ordering = ("-modified",)
 
     history = HistoricalRecords()
+
+    # Transient flag used to allow internal API-driven saves to bypass save-time protections
+    _allow_api_save = False
+
+    def mark_banned_by_api(self, api_user, api_key_obj=None, note=None):
+        """Set banned and provenance, append note with user and key suffix, and save."""
+        from django.utils import timezone
+        self.banned = True
+        self.api_ban = True
+        ts = timezone.now().astimezone(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        suffix = f" (API key …{api_key_obj.key_suffix()})" if api_key_obj else ""
+        who = getattr(api_user, "username", str(api_user))
+        action_note = f"API BANNED by {who}{suffix} at {ts}"
+        if note:
+            action_note += f" | {note}"
+        self.notes = (self.notes or "") + f"\n{action_note}"
+        self._allow_api_save = True
+        try:
+            self.save()
+        finally:
+            self._allow_api_save = False
+
+    def unban_by_api(self, api_user, api_key_obj=None, note=None):
+        """Clear banned and provenance when performed by API; append unban note."""
+        from django.utils import timezone
+
+        # Only allow unban via API if api_ban was previously set
+        if not self.api_ban:
+            from django.core.exceptions import PermissionDenied
+
+            raise PermissionDenied("Cannot unban: ban was not created by the API.")
+
+        self.banned = False
+        self.api_ban = False
+        ts = timezone.now().astimezone(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        suffix = f" (API key …{api_key_obj.key_suffix()})" if api_key_obj else ""
+        who = getattr(api_user, "username", str(api_user))
+        action_note = f"API UNBANNED by {who}{suffix} at {ts}"
+        if note:
+            action_note += f" | {note}"
+        self.notes = (self.notes or "") + f"\n{action_note}"
+        self._allow_api_save = True
+        try:
+            self.save()
+        finally:
+            self._allow_api_save = False
+
+    def mark_sus_by_api(self, api_user, api_key_obj=None, note=None):
+        from django.utils import timezone
+
+        self.sus = True
+        self.api_sus = True
+        ts = timezone.now().astimezone(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        suffix = f" (API key …{api_key_obj.key_suffix()})" if api_key_obj else ""
+        who = getattr(api_user, "username", str(api_user))
+        action_note = f"API SUSSED by {who}{suffix} at {ts}"
+        if note:
+            action_note += f" | {note}"
+        self.notes = (self.notes or "") + f"\n{action_note}"
+        self._allow_api_save = True
+        try:
+            self.save()
+        finally:
+            self._allow_api_save = False
+
+    def unsus_by_api(self, api_user, api_key_obj=None, note=None):
+        from django.core.exceptions import PermissionDenied
+        from django.utils import timezone
+
+        if not self.api_sus:
+            raise PermissionDenied("Cannot unsus: sus was not created by the API.")
+
+        self.sus = False
+        self.api_sus = False
+        ts = timezone.now().astimezone(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        suffix = f" (API key …{api_key_obj.key_suffix()})" if api_key_obj else ""
+        who = getattr(api_user, "username", str(api_user))
+        action_note = f"API UNSUSSED by {who}{suffix} at {ts}"
+        if note:
+            action_note += f" | {note}"
+        self.notes = (self.notes or "") + f"\n{action_note}"
+        self._allow_api_save = True
+        try:
+            self.save()
+        finally:
+            self._allow_api_save = False
+
+    def save(self, *args, **kwargs):
+        # Prevent manual unsetting of banned/sus when api_ban/api_sus is set.
+        if self.pk:
+            try:
+                original = SusPerson.objects.get(pk=self.pk)
+            except SusPerson.DoesNotExist:
+                original = None
+
+            if original is not None and not getattr(self, "_allow_api_save", False):
+                # If original was api-banned and still marked banned, but new instance clears banned => disallow
+                if original.api_ban and original.banned and (not self.banned):
+                    from django.core.exceptions import ValidationError
+
+                    raise ValidationError("Cannot manually unban a record created by the API.")
+                if original.api_sus and original.sus and (not self.sus):
+                    from django.core.exceptions import ValidationError
+
+                    raise ValidationError("Cannot manually unsus a record created by the API.")
+
+        return super().save(*args, **kwargs)

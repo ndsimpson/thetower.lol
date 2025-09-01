@@ -38,7 +38,7 @@ def log_api_request(api_key_user, player_id, action, success, note=None):
     log_path = os.path.join(str(data_dir), "api_requests.log")
     os.makedirs(os.path.dirname(log_path), exist_ok=True)
     with open(log_path, "a", encoding="utf-8") as f:
-        ts = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+        ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
         status_str = "SUCCESS" if success else "FAIL"
         note_str = note.replace("\n", " ") if note else ""
         f.write(f"{ts}\t{api_key_user}\t{player_id}\t{action}\t{status_str}\t{note_str}\n")
@@ -73,16 +73,18 @@ class BanPlayerAPI(APIView):
 
         try:
             sus_person, created = SusPerson.objects.get_or_create(player_id=player_id)
+            # Use SusPerson methods which enforce provenance rules and append structured notes
             if action == "ban":
-                sus_person.banned = True
-                action_note = f"Banned via API by {api_key_user} (API key …{api_key_obj.key_suffix()})"
+                sus_person.mark_banned_by_api(api_key_user, api_key_obj=api_key_obj, note=note)
             elif action == "sus":
-                sus_person.sus = True
-                action_note = f"Sussed via API by {api_key_user} (API key …{api_key_obj.key_suffix()})"
-            if note:
-                action_note += f" | Note: {note}"
-            sus_person.notes = (sus_person.notes or "") + f"\n{action_note}"
-            sus_person.save()
+                sus_person.mark_sus_by_api(api_key_user, api_key_obj=api_key_obj, note=note)
+            elif action == "unban":
+                sus_person.unban_by_api(api_key_user, api_key_obj=api_key_obj, note=note)
+            elif action == "unsus":
+                sus_person.unsus_by_api(api_key_user, api_key_obj=api_key_obj, note=note)
+            else:
+                log_api_request(api_key_user, player_id, action, False, note="Unknown action")
+                return Response({"detail": "Unknown action."}, status=status.HTTP_400_BAD_REQUEST)
             log_api_request(api_key_user, player_id, action, True, note=note)
             return Response({"detail": f"Player {player_id} marked as {action}."}, status=status.HTTP_200_OK)
         except Exception as e:
