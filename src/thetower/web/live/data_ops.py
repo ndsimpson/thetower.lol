@@ -1,11 +1,13 @@
+import datetime
 import logging
+import os
 from functools import wraps
 from pathlib import Path
 
 import pandas as pd
 import streamlit as st
 
-from thetower.backend.tourney_results.tourney_utils import get_full_brackets, get_live_df, include_shun_enabled
+from thetower.backend.tourney_results.tourney_utils import get_full_brackets, get_live_df, get_time, include_shun_enabled
 
 # Cache configuration
 CACHE_TTL_SECONDS = 300  # 5 minutes cache duration
@@ -304,3 +306,105 @@ def update_bracket_index(new_index, max_index, league):
 def clear_cache():
     """Clear all cached data in Streamlit"""
     st.cache_data.clear()
+
+
+def _parse_timestamp_from_filename(file_path: Path) -> datetime.datetime:
+    """
+    Parse datetime from filename without Django dependencies.
+
+    Args:
+        file_path: Path object containing timestamp in filename
+
+    Returns:
+        Parsed datetime object (timezone-naive, UTC)
+    """
+    return datetime.datetime.strptime(str(file_path.stem), "%Y-%m-%d__%H_%M")
+
+
+@cache_data_if_enabled(ttl=CACHE_TTL_SECONDS)
+def get_data_refresh_timestamp(league: str) -> datetime.datetime | None:
+    """
+    Get the timestamp of the most recent data refresh for the given league.
+
+    This represents when the data was last fetched from the external source,
+    taking into account both caching and the actual data file timestamps.
+
+    Args:
+        league: League identifier
+
+    Returns:
+        datetime object representing when data was last refreshed, or None if no data
+    """
+    try:
+        home = Path(os.getenv("HOME"))
+        live_path = home / "tourney" / "results_cache" / f"{league}_live"
+        
+        all_files = list(live_path.glob("*.csv"))
+        
+        # Filter out empty files
+        non_empty_files = [f for f in all_files if f.stat().st_size > 0]
+        
+        if not non_empty_files:
+            return None
+        
+        # Sort by timestamp in filename (not alphabetically)
+        def get_file_timestamp(file_path):
+            try:
+                return get_time(file_path)
+            except Exception:
+                # If we can't parse the timestamp, put it at the beginning
+                return datetime.datetime.min
+        
+        sorted_files = sorted(non_empty_files, key=get_file_timestamp)
+        
+        # Get the most recent file (chronologically latest)
+        last_file = sorted_files[-1]
+        
+        # Extract timestamp from filename
+        timestamp = get_time(last_file)
+        return timestamp
+
+    except Exception as e:
+        logging.warning(f"Failed to get data refresh timestamp for {league}: {e}")
+        return None
+
+
+def format_time_ago(timestamp: datetime.datetime) -> str:
+    """
+    Format a timestamp as a human-readable "time ago" string.
+
+    Args:
+        timestamp: datetime object to format (assumed to be UTC if timezone-naive)
+
+    Returns:
+        Human-readable string like "5 minutes ago", "2 hours ago", etc.
+    """
+    if not timestamp:
+        return "Unknown"
+
+    # Get current time in UTC
+    now = datetime.datetime.now(datetime.timezone.utc)
+
+    # If timestamp is timezone-naive, assume it's UTC
+    if timestamp.tzinfo is None:
+        timestamp = timestamp.replace(tzinfo=datetime.timezone.utc)
+
+    # Calculate time difference
+    time_diff = now - timestamp
+
+    if time_diff.days > 0:
+        if time_diff.days == 1:
+            return "1 day ago"
+        return f"{time_diff.days} days ago"
+    elif time_diff.seconds >= 3600:
+        hours = time_diff.seconds // 3600
+        if hours == 1:
+            return "1 hour ago"
+        return f"{hours} hours ago"
+    elif time_diff.seconds >= 60:
+        minutes = time_diff.seconds // 60
+        if minutes == 1:
+            return "1 minute ago"
+        return f"{minutes} minutes ago"
+    else:
+        return "Just now"

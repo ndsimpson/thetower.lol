@@ -10,7 +10,9 @@ import streamlit as st
 from thetower.backend.tourney_results.data import get_player_id_lookup
 from thetower.backend.tourney_results.formatting import BASE_URL, make_player_url
 from thetower.web.live.data_ops import (
+    format_time_ago,
     get_bracket_data,
+    get_data_refresh_timestamp,
     get_live_data,
     initialize_bracket_state,
     process_bracket_selection,
@@ -29,6 +31,14 @@ def live_bracket():
 
     # Use common UI setup
     options, league, is_mobile = setup_common_ui()
+
+    # Get data refresh timestamp
+    refresh_timestamp = get_data_refresh_timestamp(league)
+    if refresh_timestamp:
+        time_ago = format_time_ago(refresh_timestamp)
+        st.caption(f"📊 Data last refreshed: {time_ago} ({refresh_timestamp.strftime('%Y-%m-%d %H:%M:%S')} UTC)")
+    else:
+        st.caption("📊 Data refresh time: Unknown")
 
     # Get live data and process brackets
     try:

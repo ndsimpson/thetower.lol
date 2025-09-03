@@ -5,7 +5,15 @@ import pandas as pd
 import plotly.express as px
 import streamlit as st
 
-from thetower.web.live.data_ops import get_bracket_stats, get_cached_plot_data, get_processed_data, include_shun_enabled, require_tournament_data
+from thetower.web.live.data_ops import (
+    format_time_ago,
+    get_bracket_stats,
+    get_cached_plot_data,
+    get_data_refresh_timestamp,
+    get_processed_data,
+    include_shun_enabled,
+    require_tournament_data,
+)
 from thetower.web.live.ui_components import setup_common_ui
 
 
@@ -16,6 +24,14 @@ def bracket_analysis():
     t2_start = perf_counter()
 
     options, league, is_mobile = setup_common_ui()
+
+    # Get data refresh timestamp
+    refresh_timestamp = get_data_refresh_timestamp(league)
+    if refresh_timestamp:
+        time_ago = format_time_ago(refresh_timestamp)
+        st.caption(f"📊 Data last refreshed: {time_ago} ({refresh_timestamp.strftime('%Y-%m-%d %H:%M:%S')} UTC)")
+    else:
+        st.caption("📊 Data refresh time: Unknown")
 
     # Get processed data
     df, _, ldf, _, _ = get_processed_data(league, include_shun_enabled())

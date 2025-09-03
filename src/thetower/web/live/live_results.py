@@ -6,7 +6,7 @@ import streamlit as st
 from thetower.backend.tourney_results.constants import champ, how_many_results_public_site
 from thetower.backend.tourney_results.data import get_tourneys
 from thetower.backend.tourney_results.models import TourneyResult
-from thetower.web.live.data_ops import get_processed_data, include_shun_enabled, require_tournament_data
+from thetower.web.live.data_ops import format_time_ago, get_data_refresh_timestamp, get_processed_data, include_shun_enabled, require_tournament_data
 from thetower.web.live.ui_components import setup_common_ui
 
 
@@ -18,6 +18,14 @@ def live_results():
 
     # Use common UI setup
     options, league, is_mobile = setup_common_ui()
+
+    # Get data refresh timestamp
+    refresh_timestamp = get_data_refresh_timestamp(league)
+    if refresh_timestamp:
+        time_ago = format_time_ago(refresh_timestamp)
+        st.caption(f"📊 Data last refreshed: {time_ago} ({refresh_timestamp.strftime('%Y-%m-%d %H:%M:%S')} UTC)")
+    else:
+        st.caption("📊 Data refresh time: Unknown")
 
     # Get processed data
     df, tdf, ldf, _, _ = get_processed_data(league, include_shun_enabled())
