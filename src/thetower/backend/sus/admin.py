@@ -10,6 +10,9 @@ from django.utils.translation import gettext_lazy as _
 from simple_history.admin import SimpleHistoryAdmin
 
 from ..sus.models import KnownPlayer, PlayerId, SusPerson
+
+# Import custom User admin
+from . import user_admin  # noqa: F401 - This registers the custom User admin
 from .models import ApiKey
 
 
