@@ -183,8 +183,10 @@ LOGGING = {
 AUTHENTICATION_BACKENDS = [
     # AxesStandaloneBackend should be the first backend in the AUTHENTICATION_BACKENDS list.
     "axes.backends.AxesStandaloneBackend",
+    # Custom case-insensitive authentication backend
+    "thetower.backend.sus.backends.CaseInsensitiveModelBackend",
     # Django ModelBackend is the default authentication backend.
-    "django.contrib.auth.backends.ModelBackend",
+    # "django.contrib.auth.backends.ModelBackend",
 ]
 
 # Axes settings for django-axes 8.0.0+
