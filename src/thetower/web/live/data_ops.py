@@ -338,15 +338,15 @@ def get_data_refresh_timestamp(league: str) -> datetime.datetime | None:
     try:
         home = Path(os.getenv("HOME"))
         live_path = home / "tourney" / "results_cache" / f"{league}_live"
-        
+
         all_files = list(live_path.glob("*.csv"))
-        
+
         # Filter out empty files
         non_empty_files = [f for f in all_files if f.stat().st_size > 0]
-        
+
         if not non_empty_files:
             return None
-        
+
         # Sort by timestamp in filename (not alphabetically)
         def get_file_timestamp(file_path):
             try:
@@ -354,12 +354,12 @@ def get_data_refresh_timestamp(league: str) -> datetime.datetime | None:
             except Exception:
                 # If we can't parse the timestamp, put it at the beginning
                 return datetime.datetime.min
-        
+
         sorted_files = sorted(non_empty_files, key=get_file_timestamp)
-        
+
         # Get the most recent file (chronologically latest)
         last_file = sorted_files[-1]
-        
+
         # Extract timestamp from filename
         timestamp = get_time(last_file)
         return timestamp
