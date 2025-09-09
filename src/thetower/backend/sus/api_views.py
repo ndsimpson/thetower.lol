@@ -30,6 +30,8 @@ class APIKeyPermission(permissions.BasePermission):
             return False
         request.api_key_user = user
         request.api_key_obj = key_obj
+        # Set request.user for simple_history middleware to pick up
+        request.user = user
         return True
 
 
@@ -85,11 +87,6 @@ class BanPlayerAPI(APIView):
                 player_id=player_id,
                 defaults=defaults
             )
-
-            # Set history user for the creation if this is a new record
-            if created:
-                sus_person._history_user = api_key_user
-                sus_person.save()  # Save with the correct history user
 
             # Use SusPerson methods which enforce provenance rules and append structured notes
             if action == "ban":
