@@ -83,10 +83,15 @@ class BanPlayerAPI(APIView):
                 # For sus actions, use model default (sus=True)
                 defaults = {}
 
-            sus_person, created = SusPerson.objects.get_or_create(
-                player_id=player_id,
-                defaults=defaults
-            )
+            try:
+                sus_person = SusPerson.objects.get(player_id=player_id)
+                created = False
+            except SusPerson.DoesNotExist:
+                # Create new record with proper history user attribution
+                sus_person = SusPerson(player_id=player_id, **defaults)
+                sus_person._history_user = api_key_user
+                sus_person.save()
+                created = True
 
             # Use SusPerson methods which enforce provenance rules and append structured notes
             if action == "ban":
