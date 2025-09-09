@@ -129,13 +129,15 @@ class SusPersonAdmin(SimpleHistoryAdmin):
     def get_readonly_fields(self, request, obj=None):
         # If this object was flagged by the API, prevent editing the canonical fields from the admin UI
         ro = list(getattr(self, 'readonly_fields', []))
+        
+        # Always make api_ban and api_sus readonly (only API should change these)
+        ro.extend(["api_ban", "api_sus"])
+        
         if obj is not None:
             if getattr(obj, "api_ban", False):
                 ro.append("banned")
             if getattr(obj, "api_sus", False):
                 ro.append("sus")
-            # Always make api_ban and api_sus readonly (only API should change these)
-            ro.extend(["api_ban", "api_sus"])
         return ro
 
     def save_model(self, request, obj, form, change):
