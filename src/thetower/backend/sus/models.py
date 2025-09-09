@@ -104,6 +104,10 @@ class SusPerson(models.Model):
         from django.utils import timezone
         self.banned = True
         self.api_ban = True
+        # For API bans, explicitly set sus=False (override model default)
+        # unless sus was already explicitly set by API
+        if not self.api_sus:
+            self.sus = False
         ts = timezone.now().astimezone(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
         suffix = f" (API key …{api_key_obj.key_suffix()})" if api_key_obj else ""
         who = getattr(api_user, "username", str(api_user))
@@ -112,6 +116,8 @@ class SusPerson(models.Model):
             action_note += f" | {note}"
         self.notes = (self.notes or "") + f"\n{action_note}"
         self._allow_api_save = True
+        # Set history user for simple_history tracking
+        self._history_user = api_user
         try:
             self.save()
         finally:
@@ -137,6 +143,8 @@ class SusPerson(models.Model):
             action_note += f" | {note}"
         self.notes = (self.notes or "") + f"\n{action_note}"
         self._allow_api_save = True
+        # Set history user for simple_history tracking
+        self._history_user = api_user
         try:
             self.save()
         finally:
@@ -155,6 +163,8 @@ class SusPerson(models.Model):
             action_note += f" | {note}"
         self.notes = (self.notes or "") + f"\n{action_note}"
         self._allow_api_save = True
+        # Set history user for simple_history tracking
+        self._history_user = api_user
         try:
             self.save()
         finally:
@@ -177,6 +187,8 @@ class SusPerson(models.Model):
             action_note += f" | {note}"
         self.notes = (self.notes or "") + f"\n{action_note}"
         self._allow_api_save = True
+        # Set history user for simple_history tracking
+        self._history_user = api_user
         try:
             self.save()
         finally:
