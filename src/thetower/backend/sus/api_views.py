@@ -72,7 +72,25 @@ class BanPlayerAPI(APIView):
         api_key_obj = getattr(request, "api_key_obj", None)
 
         try:
-            sus_person, created = SusPerson.objects.get_or_create(player_id=player_id)
+            # Set appropriate defaults for API-created records based on action
+            defaults = {}
+            if action == "ban":
+                # For ban actions, override model default to start with sus=False
+                defaults = {"sus": False}
+            elif action == "sus":
+                # For sus actions, use model default (sus=True)
+                defaults = {}
+
+            sus_person, created = SusPerson.objects.get_or_create(
+                player_id=player_id,
+                defaults=defaults
+            )
+
+            # Set history user for the creation if this is a new record
+            if created:
+                sus_person._history_user = api_key_user
+                sus_person.save()  # Save with the correct history user
+
             # Use SusPerson methods which enforce provenance rules and append structured notes
             if action == "ban":
                 sus_person.mark_banned_by_api(api_key_user, api_key_obj=api_key_obj, note=note)

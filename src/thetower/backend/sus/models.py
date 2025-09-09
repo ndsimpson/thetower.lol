@@ -102,11 +102,11 @@ class SusPerson(models.Model):
     def mark_banned_by_api(self, api_user, api_key_obj=None, note=None):
         """Set banned and provenance, append note with user and key suffix, and save."""
         from django.utils import timezone
-        
+
         # Store original sus/shun status for recalculation check
         original_sus = self.sus
         original_shun = self.shun
-        
+
         self.banned = True
         self.api_ban = True
         # For API bans, explicitly set sus=False (override model default)
