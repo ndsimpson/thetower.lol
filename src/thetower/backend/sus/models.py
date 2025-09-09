@@ -102,6 +102,11 @@ class SusPerson(models.Model):
     def mark_banned_by_api(self, api_user, api_key_obj=None, note=None):
         """Set banned and provenance, append note with user and key suffix, and save."""
         from django.utils import timezone
+        
+        # Store original sus/shun status for recalculation check
+        original_sus = self.sus
+        original_shun = self.shun
+        
         self.banned = True
         self.api_ban = True
         # For API bans, explicitly set sus=False (override model default)
@@ -120,6 +125,9 @@ class SusPerson(models.Model):
         self._history_user = api_user
         try:
             self.save()
+            # Queue recalculation if sus or shun status changed
+            if original_sus != self.sus or original_shun != self.shun:
+                self._queue_recalculation()
         finally:
             self._allow_api_save = False
 
@@ -132,6 +140,10 @@ class SusPerson(models.Model):
             from django.core.exceptions import PermissionDenied
 
             raise PermissionDenied("Cannot unban: ban was not created by the API.")
+
+        # Store original sus/shun status for recalculation check
+        original_sus = self.sus
+        original_shun = self.shun
 
         self.banned = False
         self.api_ban = False
@@ -147,11 +159,18 @@ class SusPerson(models.Model):
         self._history_user = api_user
         try:
             self.save()
+            # Queue recalculation if sus or shun status changed
+            if original_sus != self.sus or original_shun != self.shun:
+                self._queue_recalculation()
         finally:
             self._allow_api_save = False
 
     def mark_sus_by_api(self, api_user, api_key_obj=None, note=None):
         from django.utils import timezone
+
+        # Store original sus/shun status for recalculation check
+        original_sus = self.sus
+        original_shun = self.shun
 
         self.sus = True
         self.api_sus = True
@@ -167,6 +186,9 @@ class SusPerson(models.Model):
         self._history_user = api_user
         try:
             self.save()
+            # Queue recalculation if sus or shun status changed
+            if original_sus != self.sus or original_shun != self.shun:
+                self._queue_recalculation()
         finally:
             self._allow_api_save = False
 
@@ -176,6 +198,10 @@ class SusPerson(models.Model):
 
         if not self.api_sus:
             raise PermissionDenied("Cannot unsus: sus was not created by the API.")
+
+        # Store original sus/shun status for recalculation check
+        original_sus = self.sus
+        original_shun = self.shun
 
         self.sus = False
         self.api_sus = False
@@ -191,6 +217,9 @@ class SusPerson(models.Model):
         self._history_user = api_user
         try:
             self.save()
+            # Queue recalculation if sus or shun status changed
+            if original_sus != self.sus or original_shun != self.shun:
+                self._queue_recalculation()
         finally:
             self._allow_api_save = False
 
@@ -214,3 +243,14 @@ class SusPerson(models.Model):
                     raise ValidationError("Cannot manually unsus a record created by the API.")
 
         return super().save(*args, **kwargs)
+
+    def _queue_recalculation(self):
+        """Queue recalculation for tournaments involving this player."""
+        try:
+            from ..tourney_results.models import TourneyResult
+            TourneyResult.objects.filter(rows__player_id=self.player_id).update(
+                needs_recalc=True, recalc_retry_count=0
+            )
+        except Exception:
+            # Swallow exceptions - recalculation queuing should not block API operations
+            pass
