@@ -70,7 +70,7 @@ class ValidationCog(commands.Cog):
             is_hex = self.only_made_of_hex(message.content)
             content_len = len(message.content)
             has_attachments = bool(message.attachments)
-            if 13 < content_len < 17 and has_attachments and is_hex:
+            if 12 < content_len < 17 and has_attachments and is_hex:
                 image_bytes = await message.attachments[0].read()
                 # Optionally, add OCR check here
                 # if not (await self.check_image(message.content, image_bytes)):
