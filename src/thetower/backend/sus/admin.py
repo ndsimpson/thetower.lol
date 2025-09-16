@@ -9,7 +9,7 @@ from django.utils.safestring import mark_safe
 from django.utils.translation import gettext_lazy as _
 from simple_history.admin import SimpleHistoryAdmin
 
-from ..sus.models import KnownPlayer, PlayerId, SusPerson
+from ..sus.models import KnownPlayer, ModerationRecord, PlayerId, SusPerson
 
 # Import custom User admin
 from . import user_admin  # noqa: F401 - This registers the custom User admin
@@ -240,3 +240,98 @@ class KnownPlayerAdmin(SimpleHistoryAdmin):
     list_editable = ("approved", "creator_code")
     search_fields = ("name", "discord_id", "creator_code", "ids__id")
     inlines = (IdInline,)
+
+
+@admin.register(ModerationRecord)
+class ModerationRecordAdmin(SimpleHistoryAdmin):
+    def _known_player_display(self, obj):
+        if obj.known_player:
+            return f"{obj.known_player.name} (ID: {obj.known_player.id})"
+        return "Unverified Player"
+
+    _known_player_display.short_description = "Known Player"
+
+    def _created_by_display(self, obj):
+        return obj.created_by_display
+
+    _created_by_display.short_description = "Created By"
+
+    def _resolved_by_display(self, obj):
+        return obj.resolved_by_display
+
+    _resolved_by_display.short_description = "Resolved By"
+
+    list_display = (
+        "tower_id",
+        "_known_player_display",
+        "moderation_type",
+        "status",
+        "source",
+        "created_at",
+        "_created_by_display",
+        "resolved_at",
+        "_resolved_by_display",
+    )
+
+    list_filter = (
+        "moderation_type",
+        "status",
+        "source",
+        "created_at",
+        "resolved_at",
+    )
+
+    search_fields = (
+        "tower_id",
+        "known_player__name",
+        "known_player__discord_id",
+        "reason",
+        "resolution_note",
+    )
+
+    readonly_fields = (
+        "created_at",
+        "resolved_at",
+        "known_player",  # Auto-linked, not directly editable
+        "created_by_discord_id",  # Only set by bot
+        "created_by_api_key",  # Only set by API
+        "resolved_by_discord_id",  # Only set by bot
+        "resolved_by_api_key",  # Only set by API
+    )
+
+    fieldsets = (
+        ("Player Information", {
+            "fields": ("tower_id", "known_player"),
+            "description": "Enter the Tower ID. If this player is verified (has a Discord account), they will be auto-linked."
+        }),
+        ("Moderation Details", {
+            "fields": ("moderation_type", "source", "status", "reason")
+        }),
+        ("Audit Trail", {
+            "fields": (
+                "created_at", "created_by", "created_by_discord_id", "created_by_api_key",
+                "resolved_at", "resolved_by", "resolved_by_discord_id", "resolved_by_api_key",
+                "resolution_note"
+            ),
+            "classes": ("collapse",)
+        }),
+    )
+
+    def get_queryset(self, request):
+        return super().get_queryset(request).select_related("known_player", "created_by", "resolved_by")
+
+    def save_model(self, request, obj, form, change):
+        if not change:  # New object
+            obj.created_by = request.user
+
+            # Auto-link to KnownPlayer if one exists for this tower_id
+            if obj.tower_id:
+                try:
+                    # Look for a KnownPlayer who has this tower_id
+                    player_id_obj = PlayerId.objects.select_related('player').get(id=obj.tower_id)
+                    obj.known_player = player_id_obj.player
+                except PlayerId.DoesNotExist:
+                    # No KnownPlayer has this tower_id - leave as unverified
+                    obj.known_player = None
+
+        super().save_model(request, obj, form, change)

@@ -12,8 +12,9 @@ from pathlib import Path
 import streamlit as st
 from django.db.models import Q
 
-from thetower.backend.sus.models import PlayerId, SusPerson
+from thetower.backend.sus.models import PlayerId
 from thetower.backend.tourney_results.constants import how_many_results_public_site
+from thetower.backend.tourney_results.data import get_banned_ids, get_soft_banned_ids, get_sus_ids
 from thetower.backend.tourney_results.models import TourneyRow
 from thetower.web.util import add_player_id, add_to_comparison
 
@@ -156,7 +157,10 @@ def compute_search(player=False, comparison=False):
     hidden_features = os.environ.get("HIDDEN_FEATURES")
 
     if not hidden_features:
-        excluded_player_ids = list(SusPerson.objects.filter(Q(sus=True) | Q(soft_banned=True) | Q(banned=True)).values_list("player_id", flat=True))
+        sus_ids = get_sus_ids()
+        banned_ids = get_banned_ids()
+        soft_banned_ids = get_soft_banned_ids()
+        excluded_player_ids = list(sus_ids.union(banned_ids).union(soft_banned_ids))
     else:
         excluded_player_ids = []
 

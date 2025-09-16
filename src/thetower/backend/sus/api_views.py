@@ -6,7 +6,7 @@ from rest_framework import permissions, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from .models import ApiKey, SusPerson
+from .models import ApiKey, ModerationRecord
 from .serializers import BanPlayerSerializer
 
 
@@ -25,8 +25,8 @@ class APIKeyPermission(permissions.BasePermission):
         key_obj.last_used_at = datetime.now(timezone.utc)
         key_obj.save(update_fields=["last_used_at"])
         user = key_obj.user
-        # Check user permission for changing SusPerson
-        if not user.has_perm("sus.change_susperson"):
+        # Check user permission for changing ModerationRecord
+        if not user.has_perm("sus.add_moderationrecord"):
             return False
         request.api_key_user = user
         request.api_key_obj = key_obj
@@ -63,7 +63,7 @@ class BanPlayerAPI(APIView):
 
         # Check permission again for extra safety (DRF best practice)
         user = getattr(request, "api_key_user", None)
-        if not user or not user.has_perm("sus.change_susperson"):
+        if not user or not user.has_perm("sus.add_moderationrecord"):
             log_api_request(user or "UNKNOWN", request.data.get("player_id", ""), request.data.get("action", ""), False, note="Permission denied")
             return Response({"detail": "Permission denied."}, status=status.HTTP_403_FORBIDDEN)
 
@@ -74,39 +74,53 @@ class BanPlayerAPI(APIView):
         api_key_obj = getattr(request, "api_key_obj", None)
 
         try:
-            # Set appropriate defaults for API-created records based on action
-            defaults = {}
-            if action == "ban":
-                # For ban actions, override model default to start with sus=False
-                defaults = {"sus": False}
-            elif action == "sus":
-                # For sus actions, use model default (sus=True)
-                defaults = {}
+            # Map API actions to ModerationRecord types
+            action_to_type = {
+                "ban": ModerationRecord.ModerationType.BAN,
+                "sus": ModerationRecord.ModerationType.SUS,
+                "unban": ModerationRecord.ModerationType.BAN,  # Will create inactive record
+                "unsus": ModerationRecord.ModerationType.SUS,  # Will create inactive record
+            }
 
-            try:
-                sus_person = SusPerson.objects.get(player_id=player_id)
-                created = False
-            except SusPerson.DoesNotExist:
-                # Create new record with proper history user attribution
-                sus_person = SusPerson(player_id=player_id, **defaults)
-                sus_person._history_user = api_key_user
-                sus_person.save()
-                created = True
-
-            # Use SusPerson methods which enforce provenance rules and append structured notes
-            if action == "ban":
-                sus_person.mark_banned_by_api(api_key_user, api_key_obj=api_key_obj, note=note)
-            elif action == "sus":
-                sus_person.mark_sus_by_api(api_key_user, api_key_obj=api_key_obj, note=note)
-            elif action == "unban":
-                sus_person.unban_by_api(api_key_user, api_key_obj=api_key_obj, note=note)
-            elif action == "unsus":
-                sus_person.unsus_by_api(api_key_user, api_key_obj=api_key_obj, note=note)
-            else:
+            if action not in action_to_type:
                 log_api_request(api_key_user, player_id, action, False, note="Unknown action")
                 return Response({"detail": "Unknown action."}, status=status.HTTP_400_BAD_REQUEST)
+
+            moderation_type = action_to_type[action]
+
+            # For unban/unsus actions, check if there's an active moderation to deactivate
+            if action in ["unban", "unsus"]:
+                active_records = ModerationRecord.objects.filter(
+                    tower_id=player_id,
+                    moderation_type=moderation_type,
+                    status=ModerationRecord.ModerationStatus.ACTIVE
+                )
+                if not active_records.exists():
+                    log_api_request(api_key_user, player_id, action, False, note=f"No active {moderation_type} record to deactivate")
+                    return Response({"detail": f"No active {moderation_type} record found for player {player_id}."}, status=status.HTTP_400_BAD_REQUEST)
+
+                # Deactivate existing records by creating an inactive record
+                ModerationRecord.create_for_api(
+                    tower_id=player_id,
+                    moderation_type=moderation_type,
+                    api_key=api_key_obj,
+                    reason=note,
+                    status=ModerationRecord.ModerationStatus.INACTIVE
+                )
+                action_desc = f"un{moderation_type.lower()}"
+            else:
+                # Create active moderation record
+                ModerationRecord.create_for_api(
+                    tower_id=player_id,
+                    moderation_type=moderation_type,
+                    api_key=api_key_obj,
+                    reason=note,
+                    status=ModerationRecord.ModerationStatus.ACTIVE
+                )
+                action_desc = moderation_type.lower()
+
             log_api_request(api_key_user, player_id, action, True, note=note)
-            return Response({"detail": f"Player {player_id} marked as {action}."}, status=status.HTTP_200_OK)
+            return Response({"detail": f"Player {player_id} marked as {action_desc}."}, status=status.HTTP_200_OK)
         except Exception as e:
             log_api_request(api_key_user, player_id, action, False, note=str(e))
             return Response({"detail": "Internal server error."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

@@ -8,11 +8,9 @@ import pandas as pd
 from asgiref.sync import sync_to_async
 from discord import app_commands
 from discord.ext import commands, tasks
-from django.db.models import Q
 
-from thetower.backend.sus.models import SusPerson
 from thetower.backend.tourney_results.constants import how_many_results_hidden_site, leagues, legend
-from thetower.backend.tourney_results.data import get_results_for_patch, get_tourneys
+from thetower.backend.tourney_results.data import get_results_for_patch, get_shun_ids, get_sus_ids, get_tourneys
 from thetower.backend.tourney_results.models import PatchNew as Patch
 from thetower.bot.basecog import BaseCog
 
@@ -222,10 +220,11 @@ class TourneyStats(BaseCog, name="Tourney Stats"):
                     # `include_shun_roles` — if present, shunned players are INCLUDED and
                     # therefore not added to the exclusion list.
                     if include_shun_roles_enabled():
-                        sus_qs = SusPerson.objects.filter(sus=True)
+                        sus_ids = await sync_to_async(get_sus_ids)()
                     else:
-                        sus_qs = SusPerson.objects.filter(Q(sus=True) | Q(shun=True))
-                    sus_ids = {item.player_id for item in await sync_to_async(list)(sus_qs)}
+                        sus_ids = await sync_to_async(get_sus_ids)()
+                        shun_ids = await sync_to_async(get_shun_ids)()
+                        sus_ids = sus_ids.union(shun_ids)
                     self.logger.info(f"Found {len(sus_ids)} excluded player IDs")
 
                     # Clear existing data if refreshing

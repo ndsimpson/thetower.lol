@@ -30,7 +30,7 @@ class Results:
         self.show_hist: Optional[bool] = None  # self.congrats_toggle = False
 
     def _make_sus_link(self, id, name):
-        return f"<a href='https://admin.thetower.lol/admin/sus/susperson/add/?player_id={id}&name={name}' target='_blank'>🔗 sus</a>"
+        return f"<a href='https://admin.thetower.lol/admin/sus/moderationrecord/add/?tower_id={id}&name={name}' target='_blank'>🔗 sus</a>"
 
     def _styler(self):
         # Get the path to the CSS file relative to this module

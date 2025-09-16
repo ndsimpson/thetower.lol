@@ -15,7 +15,7 @@ import streamlit as st
 from cachetools.func import ttl_cache
 from django.db.models import Q, QuerySet
 
-from ..sus.models import PlayerId, SusPerson
+from ..sus.models import ModerationRecord, PlayerId
 from .constants import (
     champ,
     data_folder_name_mapping,
@@ -335,54 +335,151 @@ def get_player_list(df):
 def get_sus_data():
     hidden_features = os.environ.get("HIDDEN_FEATURES")
 
-    if hidden_features:
-        qs = SusPerson.objects.filter(sus=True).values("name", "player_id", "sus", "banned", "notes").order_by("name")
-    else:
-        qs = SusPerson.objects.filter(sus=True).values("name", "player_id").order_by("name")
+    # Get unique tower_ids with active sus status
+    sus_tower_ids = set(ModerationRecord.objects.filter(
+        moderation_type=ModerationRecord.ModerationType.SUS,
+        status=ModerationRecord.ModerationStatus.ACTIVE
+    ).values_list('tower_id', flat=True))
 
-    return qs
+    if hidden_features:
+        # Build detailed data with moderation info
+        data = []
+        for tower_id in sus_tower_ids:
+            # Get name from any linked KnownPlayer record for this tower_id
+            name = tower_id  # Default fallback
+            try:
+                record_with_known_player = ModerationRecord.objects.filter(
+                    tower_id=tower_id,
+                    known_player__isnull=False
+                ).first()
+                if record_with_known_player and record_with_known_player.known_player:
+                    name = record_with_known_player.known_player.name
+            except Exception:
+                pass
+
+            # Check for other active moderation types for this player
+            banned = ModerationRecord.objects.filter(
+                tower_id=tower_id,
+                moderation_type=ModerationRecord.ModerationType.BAN,
+                status=ModerationRecord.ModerationStatus.ACTIVE
+            ).exists()
+
+            # Get reason from any sus record for this player
+            reason = ""
+            try:
+                sus_record = ModerationRecord.objects.filter(
+                    tower_id=tower_id,
+                    moderation_type=ModerationRecord.ModerationType.SUS,
+                    status=ModerationRecord.ModerationStatus.ACTIVE
+                ).first()
+                if sus_record:
+                    reason = sus_record.reason or ''
+            except Exception:
+                pass
+
+            data.append({
+                'name': name,
+                'player_id': tower_id,
+                'sus': True,  # Always true since we filtered for SUS tower_ids
+                'banned': banned,
+                'notes': reason
+            })
+
+        # Sort by name and return as QuerySet-like structure
+        return sorted(data, key=lambda x: x['name'] or '')
+    else:
+        # Simple name/player_id data
+        data = []
+        for tower_id in sus_tower_ids:
+            # Get name from any linked KnownPlayer record for this tower_id
+            name = tower_id  # Default fallback
+            try:
+                record_with_known_player = ModerationRecord.objects.filter(
+                    tower_id=tower_id,
+                    known_player__isnull=False
+                ).first()
+                if record_with_known_player and record_with_known_player.known_player:
+                    name = record_with_known_player.known_player.name
+            except Exception:
+                pass
+
+            data.append({
+                'name': name,
+                'player_id': tower_id
+            })
+
+        return sorted(data, key=lambda x: x['name'] or '')
 
 
 def is_under_review(player_id: str):
-    return SusPerson.objects.filter(player_id=player_id, shun=False, sus=False, soft_banned=False, banned=False)
+    # Under review means NO active moderation records for this player
+    return not ModerationRecord.objects.filter(
+        tower_id=player_id,
+        status=ModerationRecord.ModerationStatus.ACTIVE
+    ).exists()
 
 
 def is_support_flagged(player_id: str):
     return (
-        SusPerson.objects.filter(player_id=player_id, soft_banned=True).exists() | SusPerson.objects.filter(player_id=player_id, banned=True).exists()
+        ModerationRecord.objects.filter(
+            tower_id=player_id,
+            moderation_type=ModerationRecord.ModerationType.SOFT_BAN,
+            status=ModerationRecord.ModerationStatus.ACTIVE
+        ).exists() or
+        ModerationRecord.objects.filter(
+            tower_id=player_id,
+            moderation_type=ModerationRecord.ModerationType.BAN,
+            status=ModerationRecord.ModerationStatus.ACTIVE
+        ).exists()
     )
 
 
 def is_shun(player_id: str):
-    return SusPerson.objects.filter(player_id=player_id, shun=True).exists()
+    return ModerationRecord.objects.filter(
+        tower_id=player_id,
+        moderation_type=ModerationRecord.ModerationType.SHUN,
+        status=ModerationRecord.ModerationStatus.ACTIVE
+    ).exists()
 
 
 def is_sus(player_id: str):
-    return SusPerson.objects.filter(player_id=player_id, sus=True).exists()
+    return ModerationRecord.objects.filter(
+        tower_id=player_id,
+        moderation_type=ModerationRecord.ModerationType.SUS,
+        status=ModerationRecord.ModerationStatus.ACTIVE
+    ).exists()
 
 
 def is_soft_banned(player_id: str):
-    return SusPerson.objects.filter(player_id=player_id, soft_banned=True).exists()
+    return ModerationRecord.objects.filter(
+        tower_id=player_id,
+        moderation_type=ModerationRecord.ModerationType.SOFT_BAN,
+        status=ModerationRecord.ModerationStatus.ACTIVE
+    ).exists()
 
 
 def is_banned(player_id: str):
-    return SusPerson.objects.filter(player_id=player_id, banned=True).exists()
+    return ModerationRecord.objects.filter(
+        tower_id=player_id,
+        moderation_type=ModerationRecord.ModerationType.BAN,
+        status=ModerationRecord.ModerationStatus.ACTIVE
+    ).exists()
 
 
 def get_shun_ids():
-    return set(SusPerson.objects.filter(shun=True).values_list("player_id", flat=True))
+    return ModerationRecord.get_active_moderation_ids(ModerationRecord.ModerationType.SHUN)
 
 
 def get_sus_ids():
-    return set(SusPerson.objects.filter(sus=True).values_list("player_id", flat=True))
+    return ModerationRecord.get_active_moderation_ids(ModerationRecord.ModerationType.SUS)
 
 
 def get_banned_ids():
-    return set(SusPerson.objects.filter(banned=True).values_list("player_id", flat=True))
+    return ModerationRecord.get_active_moderation_ids(ModerationRecord.ModerationType.BAN)
 
 
 def get_soft_banned_ids():
-    return set(SusPerson.objects.filter(soft_banned=True).values_list("player_id", flat=True))
+    return ModerationRecord.get_active_moderation_ids(ModerationRecord.ModerationType.SOFT_BAN)
 
 
 def get_last_tourney(league=champ):

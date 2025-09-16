@@ -3,13 +3,13 @@ from datetime import timedelta
 
 import django
 
-os.environ.setdefault("DJANGO_SETTINGS_MODULE", "thetower.settings")
+os.environ.setdefault("DJANGO_SETTINGS_MODULE", "thetower.backend.towerdb.settings")
 django.setup()
 
 from django.utils import timezone
 
-from ..sus.models import SusPerson
-from .models import TourneyRow
+from thetower.backend.sus.models import ModerationRecord
+from thetower.backend.tourney_results.models import TourneyRow
 
 
 def analyze_shunned_participation():
@@ -20,16 +20,19 @@ def analyze_shunned_participation():
     three_months_ago = now - timedelta(days=90)
     six_months_ago = now - timedelta(days=180)
 
-    # Get shunned players
-    shunned_players = SusPerson.objects.filter(shun=True)
+    # Get unique shunned player tower_ids from ModerationRecord
+    shunned_tower_ids = set(ModerationRecord.objects.filter(
+        moderation_type='shun',
+        status='active'
+    ).values_list('tower_id', flat=True))
 
     print("\nShunned Players Tournament Participation:\n")
     print("Player ID                     Name                2 Weeks  1 Month  3 Months  6 Months  Total")
     print("-" * 95)
 
-    for player in shunned_players:
+    for tower_id in sorted(shunned_tower_ids):
         # Get base queryset for this player
-        player_rows = TourneyRow.objects.filter(player_id=player.player_id)
+        player_rows = TourneyRow.objects.filter(player_id=tower_id)
 
         # Count tournaments in each time period
         two_week_count = player_rows.filter(result__date__gte=two_weeks_ago).count()
@@ -38,9 +41,20 @@ def analyze_shunned_participation():
         six_month_count = player_rows.filter(result__date__gte=six_months_ago).count()
         total_count = player_rows.count()
 
-        name = player.name if player.name else "Unknown"
+        # Try to get name from any linked KnownPlayer record for this tower_id
+        name = "Unknown"
+        try:
+            record_with_known_player = ModerationRecord.objects.filter(
+                tower_id=tower_id,
+                known_player__isnull=False
+            ).first()
+            if record_with_known_player and record_with_known_player.known_player:
+                name = record_with_known_player.known_player.name or "Unknown"
+        except Exception:
+            pass
+
         print(
-            f"{player.player_id:<25} {name:<20} {two_week_count:>8} {one_month_count:>8} {three_month_count:>9} {six_month_count:>9} {total_count:>7}"
+            f"{tower_id:<25} {name:<20} {two_week_count:>8} {one_month_count:>8} {three_month_count:>9} {six_month_count:>9} {total_count:>7}"
         )
 
 
