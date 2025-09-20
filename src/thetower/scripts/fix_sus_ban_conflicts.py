@@ -101,38 +101,29 @@ def resolve_conflicts(conflicts):
     if not conflicts:
         return
 
+    print(f"\nResolving conflicts for {len(conflicts)} players...")
+
     for i, conflict in enumerate(conflicts, 1):
         tower_id = conflict['tower_id']
         player_name = conflict['player_name']
         sus_records = conflict['sus_records']
         ban_records = conflict['ban_records']
 
-        print(f"\nConflict {i}/{len(conflicts)}: {tower_id} ({player_name})")
-        print(f"  Will resolve {len(sus_records)} SUS record(s)")
-        print(f"  Will keep {len(ban_records)} BAN record(s) active")
+        print(f"  [{i}/{len(conflicts)}] Processing {tower_id} ({player_name})")
 
-        response = input("  Resolve these SUS records? [y/N/q to quit]: ").strip().lower()
+        # Resolve all SUS records for this player
+        for sus in sus_records:
+            sus.resolved_at = timezone.now()
+            # Append resolution info to existing reason instead of using resolution_note
+            resolution_info = "Automatically resolved due to conflicting ban record (script cleanup)"
+            if sus.reason:
+                sus.reason = f"{sus.reason}\n\nResolved: {resolution_info}"
+            else:
+                sus.reason = f"Resolved: {resolution_info}"
+            sus.save()
+            print(f"    ✅ Resolved SUS record ID {sus.pk}")
 
-        if response == 'q':
-            print("Quitting without further changes.")
-            break
-        elif response == 'y':
-            # Resolve all SUS records for this player
-            for sus in sus_records:
-                sus.resolved_at = timezone.now()
-                # Append resolution info to existing reason instead of using resolution_note
-                resolution_info = "Automatically resolved due to conflicting ban record (script cleanup)"
-                if sus.reason:
-                    sus.reason = f"{sus.reason}\n\nResolved: {resolution_info}"
-                else:
-                    sus.reason = f"Resolved: {resolution_info}"
-                sus.save()
-                print(f"    ✅ Resolved SUS record ID {sus.pk}")
-
-            print(f"    Resolved {len(sus_records)} SUS record(s) for {tower_id}")
-        else:
-            print("    Skipped.")
-        print()
+        print(f"    Resolved {len(sus_records)} SUS record(s), kept {len(ban_records)} BAN record(s) active")
 
 
 def main():
