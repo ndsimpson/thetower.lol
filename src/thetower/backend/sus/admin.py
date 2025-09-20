@@ -2,8 +2,6 @@ import os
 
 # Admin for ApiKey
 from django.contrib import admin, messages
-from django.shortcuts import redirect
-from django.urls import path
 from django.utils.html import format_html
 from django.utils.safestring import mark_safe
 from django.utils.translation import gettext_lazy as _
@@ -50,28 +48,15 @@ BASE_HIDDEN_URL = os.getenv("BASE_HIDDEN_URL")
 
 @admin.register(SusPerson)
 class SusPersonAdmin(SimpleHistoryAdmin):
+    """
+    READ-ONLY admin for legacy SusPerson model.
+    This model is deprecated - use ModerationRecord instead.
+    """
     change_form_template = "admin/sus/susperson/change_form.html"
 
     def get_urls(self):
-        urls = super().get_urls()
-        custom_urls = [
-            path("<path:object_id>/requeue/", self.admin_site.admin_view(self.requeue_view), name="sus_susperson_requeue"),
-        ]
-        return custom_urls + urls
-
-    def requeue_view(self, request, object_id):
-        obj = self.get_object(request, object_id)
-        if obj is None:
-            self.message_user(request, _("Object not found."), level=messages.ERROR)
-            return redirect("..")
-
-        res = queue_recalculation_for_player(obj.player_id)
-        if res is None:
-            messages.warning(request, _(f"Failed to queue recalculation for player {obj.player_id}; please try the action on the list view."))
-        else:
-            messages.success(request, _(f"Queued recalculation for player {obj.player_id}."))
-
-        return redirect("..")
+        # READ-ONLY: Remove requeue functionality since this model is deprecated
+        return super().get_urls()
 
     def _link(self, obj):
         return format_html(
@@ -95,14 +80,7 @@ class SusPersonAdmin(SimpleHistoryAdmin):
         "_modified",
     )
 
-    list_editable = (
-        "name",
-        "notes",
-        "shun",
-        "sus",
-        "soft_banned",
-        "banned",
-    )
+    list_editable = ()  # READ-ONLY: No inline editing allowed
 
     search_fields = (
         "player_id",
@@ -127,52 +105,33 @@ class SusPersonAdmin(SimpleHistoryAdmin):
         return mark_safe(obj.modified.strftime("%Y-%m-%d<br>%H:%M:%S"))
 
     def get_readonly_fields(self, request, obj=None):
-        # If this object was flagged by the API, prevent editing the canonical fields from the admin UI
-        ro = list(getattr(self, 'readonly_fields', []))
+        # READ-ONLY: Make all fields readonly - this model is deprecated
+        return [field.name for field in self.model._meta.fields]
 
-        # Always make api_ban and api_sus readonly (only API should change these)
-        ro.extend(["api_ban", "api_sus"])
+    def has_add_permission(self, request):
+        # READ-ONLY: Prevent adding new SusPerson records
+        return False
 
-        if obj is not None:
-            if getattr(obj, "api_ban", False):
-                ro.append("banned")
-            if getattr(obj, "api_sus", False):
-                ro.append("sus")
-        return ro
+    def has_delete_permission(self, request, obj=None):
+        # READ-ONLY: Prevent deleting SusPerson records (preserve for reference)
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        # Allow viewing but not changing
+        return True
+
+    def changelist_view(self, request, extra_context=None):
+        extra_context = extra_context or {}
+        extra_context['deprecation_message'] = (
+            "⚠️ SusPerson model is deprecated and read-only. "
+            "For new moderation actions, please use the ModerationRecord admin."
+        )
+        return super().changelist_view(request, extra_context)
 
     def save_model(self, request, obj, form, change):
-        player_id = obj.player_id
-
-        # debug logging removed
-
-        # Check if sus or shun status changed (only these affect tournament positions)
-        should_recalc = False
-        if change:
-            # Get the original object to compare values
-            try:
-                original = SusPerson.objects.get(pk=obj.pk)
-                should_recalc = original.sus != obj.sus or original.shun != obj.shun
-            except SusPerson.DoesNotExist:
-                # Shouldn't happen in change mode, but be safe
-                should_recalc = True
-        else:
-            # New object - always recalculate if sus or shun is True
-            should_recalc = obj.sus or obj.shun
-
-        try:
-            obj = super().save_model(request, obj, form, change)
-        except Exception:
-            # Re-raise so admin shows the 500 as before
-            raise
-
-        # Only queue tournaments for recalculation if sus/shun status changed
-        if should_recalc:
-            affected = queue_recalculation_for_player(player_id)
-            # queue_recalculation_for_player returns None on failure
-            if affected is None:
-                messages.warning(request, _(f"Failed to queue recalculation for player {player_id}; please requeue manually."))
-
-        return obj
+        # READ-ONLY: Prevent saving - this model is deprecated
+        messages.error(request, "SusPerson model is read-only. Please use ModerationRecord instead.")
+        return
 
 
 def queue_recalculation_for_player(player_id):
@@ -211,7 +170,7 @@ def queue_recalculation_for_selected(modeladmin, request, queryset):
 
 
 # Register the action so it appears in the Django admin actions dropdown
-SusPersonAdmin.actions = [queue_recalculation_for_selected]
+# REMOVED: SusPersonAdmin.actions - model is now read-only
 queue_recalculation_for_selected.short_description = "Queue recalculation for selected players"
 
 
@@ -324,6 +283,19 @@ class ModerationRecordAdmin(SimpleHistoryAdmin):
         return super().get_queryset(request).select_related("known_player", "created_by", "resolved_by")
 
     def save_model(self, request, obj, form, change):
+        # Store original state for comparison
+        original_affects_tournaments = False
+        if change and obj.pk:
+            try:
+                original = ModerationRecord.objects.get(pk=obj.pk)
+                # Check if the original record affected tournaments (sus/shun/ban)
+                original_affects_tournaments = (
+                    original.moderation_type in ['sus', 'shun', 'ban'] and
+                    original.resolved_at is None
+                )
+            except ModerationRecord.DoesNotExist:
+                pass
+
         if not change:  # New object
             obj.created_by = request.user
 
@@ -338,3 +310,26 @@ class ModerationRecordAdmin(SimpleHistoryAdmin):
                     obj.known_player = None
 
         super().save_model(request, obj, form, change)
+
+        # Check if we need to trigger tournament recalculation
+        # Sus, shun, and ban moderation types affect tournament positions
+        current_affects_tournaments = (
+            obj.moderation_type in ['sus', 'shun', 'ban'] and
+            obj.resolved_at is None  # Active moderation
+        )
+
+        # Trigger recalc if:
+        # 1. New active sus/shun/ban record, OR
+        # 2. Existing record changed from affecting tournaments to not affecting (resolved), OR
+        # 3. Existing record changed from not affecting to affecting (reactivated)
+        should_recalc = (
+            (not change and current_affects_tournaments) or  # New active sus/shun
+            (change and original_affects_tournaments != current_affects_tournaments)  # Status change
+        )
+
+        if should_recalc:
+            affected = queue_recalculation_for_player(obj.tower_id)
+            if affected is None:
+                messages.warning(request, _(f"Failed to queue recalculation for player {obj.tower_id}; please requeue manually."))
+            else:
+                messages.info(request, _(f"Queued tournament recalculation for {affected} tournaments involving player {obj.tower_id}."))

@@ -412,8 +412,8 @@ def get_sus_data():
 
 
 def is_under_review(player_id: str):
-    # Under review means NO active moderation records for this player
-    return not ModerationRecord.objects.filter(
+    # Under review means active moderation records for this player
+    return ModerationRecord.objects.filter(
         tower_id=player_id,
         resolved_at__isnull=True  # Active = not resolved
     ).exists()
