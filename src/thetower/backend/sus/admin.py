@@ -338,7 +338,6 @@ class ModerationRecordAdmin(SimpleHistoryAdmin):
         "known_player__name",
         "known_player__discord_id",
         "reason",
-        "resolution_note",
     )
 
     readonly_fields = (
@@ -458,10 +457,16 @@ class ModerationRecordAdmin(SimpleHistoryAdmin):
                     if existing_sus.reason and existing_sus.reason.strip():
                         sus_notes_to_copy.append(existing_sus.reason.strip())
 
+                    # Append resolution info to existing reason
+                    resolution_info = f"Automatically resolved due to ban escalation by {request.user.username}"
+                    if existing_sus.reason:
+                        existing_sus.reason = f"{existing_sus.reason}\n\n{resolution_info}"
+                    else:
+                        existing_sus.reason = resolution_info
+
                     # Resolve existing sus record before creating ban
                     existing_sus.resolved_at = timezone.now()
                     existing_sus.resolved_by = request.user
-                    existing_sus.resolution_note = f"Automatically resolved due to ban escalation by {request.user.username}"
                     existing_sus.save()
 
                     messages.success(

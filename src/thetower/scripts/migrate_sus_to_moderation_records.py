@@ -516,9 +516,15 @@ class ModerationMigrator:
 
                 if original:
                     original.resolve(
-                        resolved_by_user=event.get('history_user'),
-                        resolution_note="Resolved during migration from historical data"
+                        resolved_by_user=event.get('history_user')
                     )
+                    # Add resolution info to the reason field instead of resolution_note
+                    resolution_info = "Resolved during migration from historical data"
+                    if original.reason:
+                        original.reason = f"{original.reason}\n\nResolved: {resolution_info}"
+                    else:
+                        original.reason = f"Resolved: {resolution_info}"
+                    original.save()
                     logger.debug(f"Resolved {event['moderation_type']} for {event['player_id']}")
                 return None  # No new record created for resolution
 

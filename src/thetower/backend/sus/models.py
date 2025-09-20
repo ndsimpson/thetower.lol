@@ -200,12 +200,6 @@ class ModerationRecord(models.Model):
         max_length=1000,
         help_text="Reason for this moderation action"
     )
-    resolution_note = models.TextField(
-        null=True,
-        blank=True,
-        max_length=1000,
-        help_text="Note explaining the resolution"
-    )
 
     class Meta:
         ordering = ['-started_at']
@@ -227,14 +221,12 @@ class ModerationRecord(models.Model):
         status = "Active" if self.is_active else "Resolved"
         return f"{self.get_moderation_type_display()} - {player_info} ({status})"
 
-    def resolve(self, resolved_by_user=None, resolved_by_discord_id=None, resolved_by_api_key=None, resolution_note=None):
+    def resolve(self, resolved_by_user=None, resolved_by_discord_id=None, resolved_by_api_key=None):
         """Mark this moderation record as resolved"""
         self.resolved_at = timezone.now()
         self.resolved_by = resolved_by_user
         self.resolved_by_discord_id = resolved_by_discord_id
         self.resolved_by_api_key = resolved_by_api_key
-        if resolution_note:
-            self.resolution_note = resolution_note
         self.save()
 
     @property
@@ -385,9 +377,15 @@ class ModerationRecord(models.Model):
             else:
                 # Resolve any existing sus records first
                 if existing_sus:
+                    # Append resolution info to existing reason
+                    resolution_info = f"Automatically resolved due to ban escalation (API key: {api_key.key_suffix})"
+                    if existing_sus.reason:
+                        existing_sus.reason = f"{existing_sus.reason}\n\n{resolution_info}"
+                    else:
+                        existing_sus.reason = resolution_info
+
                     existing_sus.resolved_at = timezone.now()
                     existing_sus.resolved_by_api_key = api_key
-                    existing_sus.resolution_note = f"Automatically resolved due to ban escalation (API key: {api_key.key_suffix})"
                     existing_sus.save()
 
                 # Create new ban record

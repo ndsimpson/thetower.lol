@@ -101,9 +101,16 @@ class BanPlayerAPI(APIView):
 
                 # Resolve the active record(s)
                 for record in active_records:
+                    # Append resolution note to existing reason if provided
+                    if note:
+                        if record.reason:
+                            record.reason = f"{record.reason}\n\nResolved: {note}"
+                        else:
+                            record.reason = f"Resolved: {note}"
+                        record.save()
+
                     record.resolve(
-                        resolved_by_api_key=api_key_obj,
-                        resolution_note=note
+                        resolved_by_api_key=api_key_obj
                     )
                 action_desc = f"un{moderation_type.lower()}"
             else:

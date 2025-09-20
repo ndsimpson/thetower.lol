@@ -12,7 +12,7 @@ from collections import defaultdict
 import django
 
 # Add the backend to Python path so we can import Django settings
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src', 'thetower', 'backend'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'backend'))
 
 # Set up Django
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "towerdb.settings")
@@ -120,7 +120,12 @@ def resolve_conflicts(conflicts):
             # Resolve all SUS records for this player
             for sus in sus_records:
                 sus.resolved_at = timezone.now()
-                sus.resolution_note = "Automatically resolved due to conflicting ban record (script cleanup)"
+                # Append resolution info to existing reason instead of using resolution_note
+                resolution_info = "Automatically resolved due to conflicting ban record (script cleanup)"
+                if sus.reason:
+                    sus.reason = f"{sus.reason}\n\nResolved: {resolution_info}"
+                else:
+                    sus.reason = f"Resolved: {resolution_info}"
                 sus.save()
                 print(f"    ✅ Resolved SUS record ID {sus.pk}")
 
