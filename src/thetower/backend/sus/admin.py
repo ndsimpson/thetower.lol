@@ -312,19 +312,26 @@ class ModerationRecordAdmin(SimpleHistoryAdmin):
         # Base readonly fields that are always readonly
         readonly = list(self.readonly_fields)
 
-        # For non-superusers, make audit trail fields readonly
+        # For non-superusers, make audit trail fields and source readonly
         if not request.user.is_superuser:
-            audit_fields = [
+            protected_fields = [
+                "source",  # Only superusers can change the source
                 "created_by", "created_by_discord_id", "created_by_api_key",
                 "resolved_by", "resolved_by_discord_id", "resolved_by_api_key"
             ]
-            readonly.extend(audit_fields)
+            readonly.extend(protected_fields)
 
         return readonly
 
     def has_delete_permission(self, request, obj=None):
         # Restrict delete permissions - moderation records should be resolved, not deleted
         return request.user.is_superuser  # Only superusers can delete
+
+    def has_change_permission(self, request, obj=None):
+        # Allow viewing for all users, but restrict editing of API-created records
+        if obj and obj.source == 'api' and not request.user.is_superuser:
+            return False  # Non-superusers cannot edit API-created records
+        return True  # Allow editing for manual/bot records or superusers
 
     def delete_model(self, request, obj):
         # Trigger recalc before deletion if this was an active record affecting tournaments
