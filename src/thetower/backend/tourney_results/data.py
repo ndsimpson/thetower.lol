@@ -338,7 +338,7 @@ def get_sus_data():
     # Get unique tower_ids with active sus status
     sus_tower_ids = set(ModerationRecord.objects.filter(
         moderation_type=ModerationRecord.ModerationType.SUS,
-        status=ModerationRecord.ModerationStatus.ACTIVE
+        resolved_at__isnull=True  # Active = not resolved
     ).values_list('tower_id', flat=True))
 
     if hidden_features:
@@ -361,7 +361,7 @@ def get_sus_data():
             banned = ModerationRecord.objects.filter(
                 tower_id=tower_id,
                 moderation_type=ModerationRecord.ModerationType.BAN,
-                status=ModerationRecord.ModerationStatus.ACTIVE
+                resolved_at__isnull=True  # Active = not resolved
             ).exists()
 
             # Get reason from any sus record for this player
@@ -370,7 +370,7 @@ def get_sus_data():
                 sus_record = ModerationRecord.objects.filter(
                     tower_id=tower_id,
                     moderation_type=ModerationRecord.ModerationType.SUS,
-                    status=ModerationRecord.ModerationStatus.ACTIVE
+                    resolved_at__isnull=True  # Active = not resolved
                 ).first()
                 if sus_record:
                     reason = sus_record.reason or ''
@@ -415,7 +415,7 @@ def is_under_review(player_id: str):
     # Under review means NO active moderation records for this player
     return not ModerationRecord.objects.filter(
         tower_id=player_id,
-        status=ModerationRecord.ModerationStatus.ACTIVE
+        resolved_at__isnull=True  # Active = not resolved
     ).exists()
 
 
@@ -424,12 +424,12 @@ def is_support_flagged(player_id: str):
         ModerationRecord.objects.filter(
             tower_id=player_id,
             moderation_type=ModerationRecord.ModerationType.SOFT_BAN,
-            status=ModerationRecord.ModerationStatus.ACTIVE
+            resolved_at__isnull=True  # Active = not resolved
         ).exists() or
         ModerationRecord.objects.filter(
             tower_id=player_id,
             moderation_type=ModerationRecord.ModerationType.BAN,
-            status=ModerationRecord.ModerationStatus.ACTIVE
+            resolved_at__isnull=True  # Active = not resolved
         ).exists()
     )
 
@@ -438,7 +438,7 @@ def is_shun(player_id: str):
     return ModerationRecord.objects.filter(
         tower_id=player_id,
         moderation_type=ModerationRecord.ModerationType.SHUN,
-        status=ModerationRecord.ModerationStatus.ACTIVE
+        resolved_at__isnull=True  # Active = not resolved
     ).exists()
 
 
@@ -446,7 +446,7 @@ def is_sus(player_id: str):
     return ModerationRecord.objects.filter(
         tower_id=player_id,
         moderation_type=ModerationRecord.ModerationType.SUS,
-        status=ModerationRecord.ModerationStatus.ACTIVE
+        resolved_at__isnull=True  # Active = not resolved
     ).exists()
 
 
@@ -454,7 +454,7 @@ def is_soft_banned(player_id: str):
     return ModerationRecord.objects.filter(
         tower_id=player_id,
         moderation_type=ModerationRecord.ModerationType.SOFT_BAN,
-        status=ModerationRecord.ModerationStatus.ACTIVE
+        resolved_at__isnull=True  # Active = not resolved
     ).exists()
 
 
@@ -462,7 +462,7 @@ def is_banned(player_id: str):
     return ModerationRecord.objects.filter(
         tower_id=player_id,
         moderation_type=ModerationRecord.ModerationType.BAN,
-        status=ModerationRecord.ModerationStatus.ACTIVE
+        resolved_at__isnull=True  # Active = not resolved
     ).exists()
 
 

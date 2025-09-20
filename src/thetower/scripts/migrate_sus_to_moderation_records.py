@@ -26,6 +26,7 @@ from collections import defaultdict
 from typing import Dict, List, Optional
 
 import django
+from django.utils import timezone
 
 # Setup Django
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "thetower.backend.towerdb.settings")
@@ -216,19 +217,20 @@ class ModerationMigrator:
                 # Get all active moderation records for this player
                 active_records = ModerationRecord.objects.filter(
                     tower_id=player_id,
-                    status='active'
+                    resolved_at__isnull=True
                 )
 
-                # Deactivate all current records
-                deactivated = active_records.update(status='inactive')
+                # Resolve all current records
+                now = timezone.now()
+                deactivated = active_records.update(resolved_at=now)
                 if deactivated:
-                    logger.info(f"  Deactivated {deactivated} existing ModerationRecord entries")
+                    logger.info(f"  Resolved {deactivated} existing ModerationRecord entries")
 
                 # Create new record with correct type
                 ModerationRecord.objects.create(
                     tower_id=player_id,
                     moderation_type=correct_type,
-                    status='active',
+                    started_at=now,
                     reason="120 relics\nNo record on tower.lol",
                     created_by_api_key=None,
                     created_by=None,
@@ -240,9 +242,9 @@ class ModerationMigrator:
                 # Dry run
                 active_count = ModerationRecord.objects.filter(
                     tower_id=player_id,
-                    status='active'
+                    resolved_at__isnull=True
                 ).count()
-                logger.info(f"  [DRY RUN] Would deactivate {active_count} records and create 1 new {correct_type} record")
+                logger.info(f"  [DRY RUN] Would resolve {active_count} records and create 1 new {correct_type} record")
 
         logger.info(f"ModerationRecord corrections completed: {len(corrections_made)} corrections made")
         return corrections_made
@@ -509,7 +511,7 @@ class ModerationMigrator:
                 original = ModerationRecord.objects.filter(
                     tower_id=event['player_id'],
                     moderation_type=event['moderation_type'],
-                    status=ModerationRecord.ModerationStatus.ACTIVE
+                    resolved_at__isnull=True  # Active = not resolved
                 ).first()
 
                 if original:
@@ -526,7 +528,7 @@ class ModerationMigrator:
                 'known_player': known_player,
                 'moderation_type': event['moderation_type'],
                 'source': event['source'],
-                'status': ModerationRecord.ModerationStatus.ACTIVE,
+                'started_at': event['created_at'],
                 'reason': event['reason'],
                 'created_at': event['created_at'],
             }
@@ -620,7 +622,7 @@ class ModerationMigrator:
                 expected_types.append(ModerationRecord.ModerationType.SHUN)
 
             existing_types = set(moderation_records.filter(
-                status=ModerationRecord.ModerationStatus.ACTIVE
+                resolved_at__isnull=True  # Active = not resolved
             ).values_list('moderation_type', flat=True))
 
             missing_types = set(expected_types) - existing_types
@@ -654,6 +656,21 @@ class ModerationMigrator:
         else:
             print("✅ MIGRATION COMPLETED")
 
+    def clear_existing_moderation_records(self):
+        """Clear existing ModerationRecord data to avoid duplicates."""
+        logger.info("Clearing existing ModerationRecord data...")
+
+        if not self.dry_run:
+            count = ModerationRecord.objects.count()
+            if count > 0:
+                ModerationRecord.objects.all().delete()
+                logger.info(f"Deleted {count} existing ModerationRecord entries")
+            else:
+                logger.info("No existing ModerationRecord entries to delete")
+        else:
+            count = ModerationRecord.objects.count()
+            logger.info(f"[DRY RUN] Would delete {count} existing ModerationRecord entries")
+
     def run(self) -> bool:
         """Run the complete migration process."""
         logger.info(f"Starting migration (dry_run={self.dry_run})...")
@@ -662,26 +679,29 @@ class ModerationMigrator:
             # Step 1: Load caches
             self.load_caches()
 
-            # Step 2: Clean up data issues
+            # Step 2: Clear existing ModerationRecord data
+            self.clear_existing_moderation_records()
+
+            # Step 3: Clean up data issues
             self.cleanup_data_issues()
 
-            # Step 3: Analyze current data
+            # Step 4: Analyze current data
             analysis = self.analyze_current_data()
             logger.info(f"Analysis complete: {analysis['total_sus_records']} SusPerson records, "
                         f"{analysis['total_historical_records']} historical records")
 
-            # Step 4: Migrate all players
+            # Step 5: Migrate all players
             if not self.dry_run:
                 with transaction.atomic():
                     success = self.migrate_all_players()
             else:
                 success = self.migrate_all_players()
 
-            # Step 5: Fix ModerationRecord entries (post-migration corrections)
+            # Step 6: Fix ModerationRecord entries (post-migration corrections)
             if success:
                 self.fix_moderation_records()
 
-            # Step 6: Validate (only for real runs)
+            # Step 7: Validate (only for real runs)
             if not self.dry_run and success:
                 success = self.validate_migration()
 

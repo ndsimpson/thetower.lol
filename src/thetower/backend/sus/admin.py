@@ -261,13 +261,18 @@ class ModerationRecordAdmin(SimpleHistoryAdmin):
 
     _resolved_by_display.short_description = "Resolved By"
 
+    def _status_display(self, obj):
+        return "Active" if obj.is_active else "Resolved"
+
+    _status_display.short_description = "Status"
+
     list_display = (
         "tower_id",
         "_known_player_display",
         "moderation_type",
-        "status",
+        "_status_display",
         "source",
-        "created_at",
+        "started_at",
         "_created_by_display",
         "resolved_at",
         "_resolved_by_display",
@@ -275,9 +280,8 @@ class ModerationRecordAdmin(SimpleHistoryAdmin):
 
     list_filter = (
         "moderation_type",
-        "status",
         "source",
-        "created_at",
+        "started_at",
         "resolved_at",
     )
 
@@ -291,7 +295,6 @@ class ModerationRecordAdmin(SimpleHistoryAdmin):
 
     readonly_fields = (
         "created_at",
-        "resolved_at",
         "known_player",  # Auto-linked, not directly editable
         "created_by_discord_id",  # Only set by bot
         "created_by_api_key",  # Only set by API
@@ -305,12 +308,12 @@ class ModerationRecordAdmin(SimpleHistoryAdmin):
             "description": "Enter the Tower ID. If this player is verified (has a Discord account), they will be auto-linked."
         }),
         ("Moderation Details", {
-            "fields": ("moderation_type", "source", "status", "reason")
+            "fields": ("moderation_type", "source", "started_at", "resolved_at", "reason")
         }),
         ("Audit Trail", {
             "fields": (
                 "created_at", "created_by", "created_by_discord_id", "created_by_api_key",
-                "resolved_at", "resolved_by", "resolved_by_discord_id", "resolved_by_api_key",
+                "resolved_by", "resolved_by_discord_id", "resolved_by_api_key",
                 "resolution_note"
             ),
             "classes": ("collapse",)

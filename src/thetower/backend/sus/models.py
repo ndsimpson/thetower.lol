@@ -93,11 +93,11 @@ class ModerationRecord(models.Model):
         BOT = 'bot', 'Discord Bot'
         AUTOMATED = 'automated', 'Automated System'
 
-    # Moderation Status
-    class ModerationStatus(models.TextChoices):
-        ACTIVE = 'active', 'Active'
-        RESOLVED = 'resolved', 'Resolved'
-        SUPERSEDED = 'superseded', 'Superseded'
+    # Moderation timeline - using datetime fields instead of status
+    started_at = models.DateTimeField(
+        default=timezone.now,
+        help_text="When this moderation action began"
+    )
 
     # Core identification - hybrid linking approach
     known_player = models.ForeignKey(
@@ -125,12 +125,6 @@ class ModerationRecord(models.Model):
         choices=ModerationSource.choices,
         default=ModerationSource.MANUAL,
         help_text="Source of the moderation action"
-    )
-    status = models.CharField(
-        max_length=20,
-        choices=ModerationStatus.choices,
-        default=ModerationStatus.ACTIVE,
-        help_text="Current status of this moderation action"
     )
 
     # Audit trail - dual attribution system
@@ -214,26 +208,27 @@ class ModerationRecord(models.Model):
     )
 
     class Meta:
-        ordering = ['-created_at']
+        ordering = ['-started_at']
         indexes = [
             # Fast tower_id lookups for tournament filtering
-            models.Index(fields=['tower_id', 'status']),
-            models.Index(fields=['tower_id', 'moderation_type', 'status']),
+            models.Index(fields=['tower_id', 'resolved_at']),
+            models.Index(fields=['tower_id', 'moderation_type', 'resolved_at']),
             # Known player lookups
-            models.Index(fields=['known_player', 'status']),
+            models.Index(fields=['known_player', 'resolved_at']),
             # Source and type filtering
             models.Index(fields=['source', 'moderation_type']),
             # Time-based queries
+            models.Index(fields=['started_at']),
             models.Index(fields=['created_at']),
         ]
 
     def __str__(self):
         player_info = f"{self.known_player.name}" if self.known_player else f"Tower ID {self.tower_id}"
-        return f"{self.get_moderation_type_display()} - {player_info} ({self.get_status_display()})"
+        status = "Active" if self.is_active else "Resolved"
+        return f"{self.get_moderation_type_display()} - {player_info} ({status})"
 
     def resolve(self, resolved_by_user=None, resolved_by_discord_id=None, resolved_by_api_key=None, resolution_note=None):
         """Mark this moderation record as resolved"""
-        self.status = self.ModerationStatus.RESOLVED
         self.resolved_at = timezone.now()
         self.resolved_by = resolved_by_user
         self.resolved_by_discord_id = resolved_by_discord_id
@@ -241,6 +236,16 @@ class ModerationRecord(models.Model):
         if resolution_note:
             self.resolution_note = resolution_note
         self.save()
+
+    @property
+    def is_active(self):
+        """Check if this moderation is currently active (not resolved)"""
+        return self.resolved_at is None
+
+    @property
+    def is_resolved(self):
+        """Check if this moderation has been resolved"""
+        return self.resolved_at is not None
 
     @property
     def created_by_display(self):
@@ -307,7 +312,7 @@ class ModerationRecord(models.Model):
         """Get tower_ids with active moderation of specified type"""
         return set(cls.objects.filter(
             moderation_type=moderation_type,
-            status=cls.ModerationStatus.ACTIVE
+            resolved_at__isnull=True  # Active = not resolved
         ).values_list('tower_id', flat=True))
 
     history = HistoricalRecords()

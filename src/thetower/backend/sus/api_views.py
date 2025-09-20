@@ -88,34 +88,31 @@ class BanPlayerAPI(APIView):
 
             moderation_type = action_to_type[action]
 
-            # For unban/unsus actions, check if there's an active moderation to deactivate
+            # For unban/unsus actions, check if there's an active moderation to resolve
             if action in ["unban", "unsus"]:
                 active_records = ModerationRecord.objects.filter(
                     tower_id=player_id,
                     moderation_type=moderation_type,
-                    status=ModerationRecord.ModerationStatus.ACTIVE
+                    resolved_at__isnull=True  # Active = not resolved
                 )
                 if not active_records.exists():
-                    log_api_request(api_key_user, player_id, action, False, note=f"No active {moderation_type} record to deactivate")
+                    log_api_request(api_key_user, player_id, action, False, note=f"No active {moderation_type} record to resolve")
                     return Response({"detail": f"No active {moderation_type} record found for player {player_id}."}, status=status.HTTP_400_BAD_REQUEST)
 
-                # Deactivate existing records by creating an inactive record
-                ModerationRecord.create_for_api(
-                    tower_id=player_id,
-                    moderation_type=moderation_type,
-                    api_key=api_key_obj,
-                    reason=note,
-                    status=ModerationRecord.ModerationStatus.INACTIVE
-                )
+                # Resolve the active record(s)
+                for record in active_records:
+                    record.resolve(
+                        resolved_by_api_key=api_key_obj,
+                        resolution_note=note
+                    )
                 action_desc = f"un{moderation_type.lower()}"
             else:
-                # Create active moderation record
+                # Create new active moderation record
                 ModerationRecord.create_for_api(
                     tower_id=player_id,
                     moderation_type=moderation_type,
                     api_key=api_key_obj,
-                    reason=note,
-                    status=ModerationRecord.ModerationStatus.ACTIVE
+                    reason=note
                 )
                 action_desc = moderation_type.lower()
 
