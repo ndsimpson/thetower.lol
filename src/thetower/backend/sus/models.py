@@ -297,15 +297,153 @@ class ModerationRecord(models.Model):
 
     @classmethod
     def create_for_api(cls, tower_id, moderation_type, api_key, reason=None, **kwargs):
-        """Create a moderation record from API"""
-        return cls.objects.create(
+        """Create a moderation record from API with comprehensive business logic"""
+        from django.utils import timezone
+
+        # Get existing active records for this player
+        existing_active = cls.objects.filter(
             tower_id=tower_id,
-            moderation_type=moderation_type,
-            source=cls.ModerationSource.API,
-            created_by_api_key=api_key,
-            reason=reason,
-            **kwargs
+            resolved_at__isnull=True  # Only active records
         )
+
+        existing_sus = existing_active.filter(moderation_type='sus').first()
+        existing_ban = existing_active.filter(moderation_type='ban').first()
+        existing_same_type = existing_active.filter(moderation_type=moderation_type).first()
+
+        if moderation_type == 'sus':
+            # API SUS creation rules
+            if existing_sus:
+                if existing_sus.source == 'api':
+                    # Already sus by API - return success message
+                    return {
+                        'record': existing_sus,
+                        'created': False,
+                        'message': f"Player {tower_id} is already marked as suspicious by API"
+                    }
+                else:
+                    # Manual sus exists - reinforce with API
+                    api_note = f"Reinforced by API (key: {api_key.key_suffix})"
+                    if existing_sus.reason and "Reinforced by API" not in existing_sus.reason:
+                        existing_sus.reason = f"{existing_sus.reason}\n{api_note}"
+                    elif not existing_sus.reason:
+                        existing_sus.reason = api_note
+
+                    # Update to API source
+                    existing_sus.source = cls.ModerationSource.API
+                    existing_sus.created_by_api_key = api_key
+                    existing_sus.save()
+
+                    return {
+                        'record': existing_sus,
+                        'created': False,
+                        'message': f"Reinforced existing manual sus record for player {tower_id} with API"
+                    }
+            else:
+                # No existing sus - create new
+                new_record = cls.objects.create(
+                    tower_id=tower_id,
+                    moderation_type=moderation_type,
+                    source=cls.ModerationSource.API,
+                    created_by_api_key=api_key,
+                    reason=reason,
+                    **kwargs
+                )
+                return {
+                    'record': new_record,
+                    'created': True,
+                    'message': f"Created new sus record for player {tower_id}"
+                }
+
+        elif moderation_type == 'ban':
+            # API BAN creation rules
+            if existing_ban:
+                if existing_ban.source == 'api':
+                    # Already banned by API - return success message
+                    return {
+                        'record': existing_ban,
+                        'created': False,
+                        'message': f"Player {tower_id} is already banned by API"
+                    }
+                else:
+                    # Manual ban exists - reinforce with API
+                    api_note = f"Reinforced by API (key: {api_key.key_suffix})"
+                    if existing_ban.reason and "Reinforced by API" not in existing_ban.reason:
+                        existing_ban.reason = f"{existing_ban.reason}\n{api_note}"
+                    elif not existing_ban.reason:
+                        existing_ban.reason = api_note
+
+                    # Update to API source
+                    existing_ban.source = cls.ModerationSource.API
+                    existing_ban.created_by_api_key = api_key
+                    existing_ban.save()
+
+                    return {
+                        'record': existing_ban,
+                        'created': False,
+                        'message': f"Reinforced existing manual ban record for player {tower_id} with API"
+                    }
+            else:
+                # Resolve any existing sus records first
+                if existing_sus:
+                    existing_sus.resolved_at = timezone.now()
+                    existing_sus.resolved_by_api_key = api_key
+                    existing_sus.resolution_note = f"Automatically resolved due to ban escalation (API key: {api_key.key_suffix})"
+                    existing_sus.save()
+
+                # Create new ban record
+                new_record = cls.objects.create(
+                    tower_id=tower_id,
+                    moderation_type=moderation_type,
+                    source=cls.ModerationSource.API,
+                    created_by_api_key=api_key,
+                    reason=reason,
+                    **kwargs
+                )
+
+                message = f"Created new ban record for player {tower_id}"
+                if existing_sus:
+                    message += " and resolved existing sus record"
+
+                return {
+                    'record': new_record,
+                    'created': True,
+                    'message': message
+                }
+
+        else:
+            # Other moderation types (shun, soft_ban, etc.)
+            if existing_same_type:
+                # Reinforce existing record
+                api_note = f"Reinforced by API (key: {api_key.key_suffix})"
+                if existing_same_type.reason and "Reinforced by API" not in existing_same_type.reason:
+                    existing_same_type.reason = f"{existing_same_type.reason}\n{api_note}"
+                elif not existing_same_type.reason:
+                    existing_same_type.reason = api_note
+
+                existing_same_type.source = cls.ModerationSource.API
+                existing_same_type.created_by_api_key = api_key
+                existing_same_type.save()
+
+                return {
+                    'record': existing_same_type,
+                    'created': False,
+                    'message': f"Reinforced existing {moderation_type} record for player {tower_id} with API"
+                }
+            else:
+                # Create new record
+                new_record = cls.objects.create(
+                    tower_id=tower_id,
+                    moderation_type=moderation_type,
+                    source=cls.ModerationSource.API,
+                    created_by_api_key=api_key,
+                    reason=reason,
+                    **kwargs
+                )
+                return {
+                    'record': new_record,
+                    'created': True,
+                    'message': f"Created new {moderation_type} record for player {tower_id}"
+                }
 
     @classmethod
     def get_active_moderation_ids(cls, moderation_type):

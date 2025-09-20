@@ -1,7 +1,10 @@
 import os
 
+from django import forms
+
 # Admin for ApiKey
 from django.contrib import admin, messages
+from django.core.exceptions import ValidationError
 from django.shortcuts import redirect
 from django.urls import path
 from django.utils.html import format_html
@@ -14,6 +17,62 @@ from ..sus.models import KnownPlayer, ModerationRecord, PlayerId, SusPerson
 # Import custom User admin
 from . import user_admin  # noqa: F401 - This registers the custom User admin
 from .models import ApiKey
+
+
+class ModerationRecordForm(forms.ModelForm):
+    class Meta:
+        model = ModerationRecord
+        fields = '__all__'
+
+    def clean(self):
+        cleaned_data = super().clean()
+        tower_id = cleaned_data.get('tower_id')
+        moderation_type = cleaned_data.get('moderation_type')
+        source = cleaned_data.get('source')
+
+        # Only validate for new records that are not API-created
+        if not self.instance.pk and tower_id and moderation_type and source != 'api':
+            # Get existing active records for this player
+            existing_active = ModerationRecord.objects.filter(
+                tower_id=tower_id,
+                resolved_at__isnull=True  # Only active records
+            )
+
+            existing_sus = existing_active.filter(moderation_type='sus').first()
+            existing_ban = existing_active.filter(moderation_type='ban').first()
+            existing_same_type = existing_active.filter(moderation_type=moderation_type).first()
+
+            if moderation_type == 'sus':
+                # Manual SUS creation rules
+                if existing_sus:
+                    raise ValidationError(
+                        f'A sus record already exists for player {tower_id}. '
+                        f'Please go to the ModerationRecord list and find record ID {existing_sus.pk} to edit it.'
+                    )
+                elif existing_ban:
+                    raise ValidationError(
+                        f'Player {tower_id} is already banned. Cannot create sus record for banned player. '
+                        f'Please go to the ModerationRecord list and find record ID {existing_ban.pk} to view the ban.'
+                    )
+
+            elif moderation_type == 'ban':
+                # Manual BAN creation rules
+                if existing_ban:
+                    raise ValidationError(
+                        f'A ban record already exists for player {tower_id}. '
+                        f'Please go to the ModerationRecord list and find record ID {existing_ban.pk} to edit it.'
+                    )
+                # Note: We'll handle sus resolution in save_model since it requires database writes
+
+            else:
+                # Other moderation types (shun, soft_ban, etc.)
+                if existing_same_type:
+                    raise ValidationError(
+                        f'An active {moderation_type} record already exists for player {tower_id}. '
+                        f'Please go to the ModerationRecord list and find record ID {existing_same_type.pk} to edit it.'
+                    )
+
+        return cleaned_data
 
 
 @admin.register(ApiKey)
@@ -205,6 +264,8 @@ class KnownPlayerAdmin(SimpleHistoryAdmin):
 
 @admin.register(ModerationRecord)
 class ModerationRecordAdmin(SimpleHistoryAdmin):
+    form = ModerationRecordForm
+
     def get_urls(self):
         urls = super().get_urls()
         custom_urls = [
@@ -342,6 +403,27 @@ class ModerationRecordAdmin(SimpleHistoryAdmin):
 
         super().delete_model(request, obj)
 
+    def delete_queryset(self, request, queryset):
+        """Handle bulk delete operations from admin interface"""
+        # Trigger recalc for all affected players before bulk deletion
+        affected_players = set()
+        for obj in queryset:
+            if obj.moderation_type in ['sus', 'shun', 'ban'] and obj.resolved_at is None:
+                affected_players.add(obj.tower_id)
+
+        # Trigger recalculation for each affected player
+        total_affected = 0
+        for tower_id in affected_players:
+            affected = queue_recalculation_for_player(tower_id)
+            if affected:
+                total_affected += affected
+
+        if total_affected:
+            messages.info(request, f"Triggered tournament recalculation for {len(affected_players)} player(s) before bulk deletion ({total_affected} tournaments affected)")
+
+        # Perform the actual bulk deletion
+        super().delete_queryset(request, queryset)
+
     def save_model(self, request, obj, form, change):
         # Store original state for comparison
         original_affects_tournaments = False
@@ -358,6 +440,44 @@ class ModerationRecordAdmin(SimpleHistoryAdmin):
 
         if not change:  # New object
             obj.created_by = request.user
+
+            # Handle ban escalation logic (resolve sus when creating ban)
+            if obj.tower_id and obj.moderation_type == 'ban':
+                from django.utils import timezone
+
+                # Get existing active sus records
+                existing_sus_records = ModerationRecord.objects.filter(
+                    tower_id=obj.tower_id,
+                    moderation_type='sus',
+                    resolved_at__isnull=True
+                )
+
+                sus_notes_to_copy = []
+                for existing_sus in existing_sus_records:
+                    # Collect sus notes before resolving
+                    if existing_sus.reason and existing_sus.reason.strip():
+                        sus_notes_to_copy.append(existing_sus.reason.strip())
+
+                    # Resolve existing sus record before creating ban
+                    existing_sus.resolved_at = timezone.now()
+                    existing_sus.resolved_by = request.user
+                    existing_sus.resolution_note = f"Automatically resolved due to ban escalation by {request.user.username}"
+                    existing_sus.save()
+
+                    messages.success(
+                        request,
+                        f"Resolved existing sus record for player {obj.tower_id} due to ban escalation."
+                    )
+
+                # Copy sus notes into ban reason
+                if sus_notes_to_copy:
+                    existing_reason = obj.reason or ""
+                    sus_notes_section = "Previous sus notes:\n\n" + "\n\n".join(sus_notes_to_copy)
+
+                    if existing_reason.strip():
+                        obj.reason = f"{existing_reason}\n\n{sus_notes_section}"
+                    else:
+                        obj.reason = sus_notes_section
 
             # Auto-link to KnownPlayer if one exists for this tower_id
             if obj.tower_id:
@@ -464,4 +584,5 @@ def resolve_moderation_records(modeladmin, request, queryset):
 # Register the actions for ModerationRecord admin
 ModerationRecordAdmin.actions = [queue_recalculation_for_moderation_records, resolve_moderation_records]
 queue_recalculation_for_moderation_records.short_description = "Queue tournament recalculation for selected players"
+resolve_moderation_records.short_description = "Resolve selected moderation records"
 resolve_moderation_records.short_description = "Resolve selected moderation records"
