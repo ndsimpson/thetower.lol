@@ -2,6 +2,8 @@ import os
 
 # Admin for ApiKey
 from django.contrib import admin, messages
+from django.shortcuts import redirect
+from django.urls import path
 from django.utils.html import format_html
 from django.utils.safestring import mark_safe
 from django.utils.translation import gettext_lazy as _
@@ -203,6 +205,27 @@ class KnownPlayerAdmin(SimpleHistoryAdmin):
 
 @admin.register(ModerationRecord)
 class ModerationRecordAdmin(SimpleHistoryAdmin):
+    def get_urls(self):
+        urls = super().get_urls()
+        custom_urls = [
+            path("<path:object_id>/requeue/", self.admin_site.admin_view(self.requeue_view), name="sus_moderationrecord_requeue"),
+        ]
+        return custom_urls + urls
+
+    def requeue_view(self, request, object_id):
+        obj = self.get_object(request, object_id)
+        if obj is None:
+            self.message_user(request, _("Object not found."), level=messages.ERROR)
+            return redirect("..")
+
+        res = queue_recalculation_for_player(obj.tower_id)
+        if res is None:
+            messages.warning(request, _(f"Failed to queue recalculation for player {obj.tower_id}; please try the action on the list view."))
+        else:
+            messages.success(request, _(f"Queued recalculation for player {obj.tower_id} ({res} tournaments)."))
+
+        return redirect("..")
+
     def _known_player_display(self, obj):
         if obj.known_player:
             return f"{obj.known_player.name} (ID: {obj.known_player.id})"
@@ -225,13 +248,18 @@ class ModerationRecordAdmin(SimpleHistoryAdmin):
 
     _status_display.short_description = "Status"
 
+    def _notes_display(self, obj):
+        return obj.reason or "-"
+
+    _notes_display.short_description = "Notes"
+
     list_display = (
         "tower_id",
         "_known_player_display",
         "moderation_type",
         "_status_display",
         "source",
-        "started_at",
+        "created_at",
         "_created_by_display",
         "resolved_at",
         "_resolved_by_display",
@@ -240,7 +268,7 @@ class ModerationRecordAdmin(SimpleHistoryAdmin):
     list_filter = (
         "moderation_type",
         "source",
-        "started_at",
+        "created_at",
         "resolved_at",
     )
 
@@ -255,6 +283,8 @@ class ModerationRecordAdmin(SimpleHistoryAdmin):
     readonly_fields = (
         "created_at",
         "known_player",  # Auto-linked, not directly editable
+        "_created_by_display",  # Read-only combo field
+        "_resolved_by_display",  # Read-only combo field
         "created_by_discord_id",  # Only set by bot
         "created_by_api_key",  # Only set by API
         "resolved_by_discord_id",  # Only set by bot
@@ -262,18 +292,14 @@ class ModerationRecordAdmin(SimpleHistoryAdmin):
     )
 
     fieldsets = (
-        ("Player Information", {
-            "fields": ("tower_id", "known_player"),
-            "description": "Enter the Tower ID. If this player is verified (has a Discord account), they will be auto-linked."
-        }),
         ("Moderation Details", {
-            "fields": ("moderation_type", "source", "started_at", "resolved_at", "reason")
+            "fields": ("tower_id", "known_player", "moderation_type", "source", "created_at", "_created_by_display", "resolved_at", "_resolved_by_display", "reason"),
+            "description": "Enter the Tower ID. If this player is verified (has a Discord account), they will be auto-linked."
         }),
         ("Audit Trail", {
             "fields": (
-                "created_at", "created_by", "created_by_discord_id", "created_by_api_key",
-                "resolved_by", "resolved_by_discord_id", "resolved_by_api_key",
-                "resolution_note"
+                "created_by", "created_by_discord_id", "created_by_api_key",
+                "resolved_by", "resolved_by_discord_id", "resolved_by_api_key"
             ),
             "classes": ("collapse",)
         }),
@@ -281,6 +307,33 @@ class ModerationRecordAdmin(SimpleHistoryAdmin):
 
     def get_queryset(self, request):
         return super().get_queryset(request).select_related("known_player", "created_by", "resolved_by")
+
+    def get_readonly_fields(self, request, obj=None):
+        # Base readonly fields that are always readonly
+        readonly = list(self.readonly_fields)
+
+        # For non-superusers, make audit trail fields readonly
+        if not request.user.is_superuser:
+            audit_fields = [
+                "created_by", "created_by_discord_id", "created_by_api_key",
+                "resolved_by", "resolved_by_discord_id", "resolved_by_api_key"
+            ]
+            readonly.extend(audit_fields)
+
+        return readonly
+
+    def has_delete_permission(self, request, obj=None):
+        # Restrict delete permissions - moderation records should be resolved, not deleted
+        return request.user.is_superuser  # Only superusers can delete
+
+    def delete_model(self, request, obj):
+        # Trigger recalc before deletion if this was an active record affecting tournaments
+        if obj.moderation_type in ['sus', 'shun', 'ban'] and obj.resolved_at is None:
+            affected = queue_recalculation_for_player(obj.tower_id)
+            if affected:
+                messages.info(request, f"Triggered tournament recalculation before deleting record for {obj.tower_id}")
+
+        super().delete_model(request, obj)
 
     def save_model(self, request, obj, form, change):
         # Store original state for comparison
@@ -333,3 +386,75 @@ class ModerationRecordAdmin(SimpleHistoryAdmin):
                 messages.warning(request, _(f"Failed to queue recalculation for player {obj.tower_id}; please requeue manually."))
             else:
                 messages.info(request, _(f"Queued tournament recalculation for {affected} tournaments involving player {obj.tower_id}."))
+
+
+def queue_recalculation_for_moderation_records(modeladmin, request, queryset):
+    """Admin action: queue recalculation for selected ModerationRecord entries"""
+    count = 0
+    failed = []
+    processed_players = set()  # Avoid duplicate processing for same player
+
+    for obj in queryset:
+        # Only process each player once, even if multiple records selected
+        if obj.tower_id in processed_players:
+            continue
+        processed_players.add(obj.tower_id)
+
+        res = queue_recalculation_for_player(obj.tower_id)
+        if res is None:
+            failed.append(obj.tower_id)
+        else:
+            count += 1
+
+    if count:
+        messages.info(request, _("Queued recalculation for %d players.") % count)
+    if failed:
+        messages.warning(request, _("Failed to queue for: %s") % ", ".join(failed))
+
+
+def resolve_moderation_records(modeladmin, request, queryset):
+    """Admin action: resolve selected active ModerationRecord entries"""
+    from django.utils import timezone
+
+    resolved_count = 0
+    already_resolved = 0
+    players_to_recalc = set()
+
+    for obj in queryset:
+        if obj.resolved_at is None:  # Only resolve active records
+            # Check if this record affects tournaments before resolving
+            if obj.moderation_type in ['sus', 'shun', 'ban']:
+                players_to_recalc.add(obj.tower_id)
+
+            obj.resolved_at = timezone.now()
+            obj.resolved_by = request.user
+            obj.save()
+            resolved_count += 1
+        else:
+            already_resolved += 1
+
+    # Trigger recalculation for affected players
+    recalc_success = 0
+    recalc_failed = []
+    for player_id in players_to_recalc:
+        res = queue_recalculation_for_player(player_id)
+        if res is None:
+            recalc_failed.append(player_id)
+        else:
+            recalc_success += 1
+
+    # User feedback
+    if resolved_count:
+        messages.success(request, _("Resolved %d moderation records.") % resolved_count)
+    if already_resolved:
+        messages.info(request, _("%d records were already resolved.") % already_resolved)
+    if recalc_success:
+        messages.info(request, _("Triggered tournament recalculation for %d players.") % recalc_success)
+    if recalc_failed:
+        messages.warning(request, _("Failed to queue recalculation for: %s") % ", ".join(recalc_failed))
+
+
+# Register the actions for ModerationRecord admin
+ModerationRecordAdmin.actions = [queue_recalculation_for_moderation_records, resolve_moderation_records]
+queue_recalculation_for_moderation_records.short_description = "Queue tournament recalculation for selected players"
+resolve_moderation_records.short_description = "Resolve selected moderation records"
