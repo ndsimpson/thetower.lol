@@ -92,6 +92,8 @@ if hidden_features:
         st.Page("admin/duplicate_tournaments.py", title="Duplicate Tournament Entries", icon="🔍", url_path="duplicates"),
         st.Page("admin/service_status.py", title="Service Status", icon="🔧", url_path="services"),
         st.Page("admin/codebase_status.py", title="Codebase Status", icon="📦", url_path="codebase"),
+        st.Page("admin/sus_moderation.py", title="Sus Moderation Records", icon="🚫", url_path="susmoderation"),
+        st.Page("admin/multiple_moderation.py", title="Multiple Moderation Records", icon="⚠️", url_path="multiplemoderation"),
     ]
 
 
