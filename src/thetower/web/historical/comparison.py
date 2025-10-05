@@ -21,6 +21,7 @@ from thetower.backend.tourney_results.constants import (
 )
 from thetower.backend.tourney_results.data import get_details, get_patches, get_sus_ids
 from thetower.backend.tourney_results.formatting import BASE_URL, make_player_url
+from thetower.backend.tourney_results.models import BattleCondition
 from thetower.backend.tourney_results.models import PatchNew as Patch
 from thetower.backend.tourney_results.models import TourneyResult, TourneyRow
 from thetower.backend.tourney_results.tourney_utils import get_live_df
@@ -122,8 +123,10 @@ def compute_comparison(player_id=None, canvas=st):
     else:
         patch_col, bc_col = canvas.columns([1, 1])
         patch = patch_col.selectbox("Limit results to a patch? (see side bar to change default)", graph_options)
+        # Get all available battle conditions from the database, not just those in current results
+        all_battle_conditions = sorted(BattleCondition.objects.all(), key=lambda bc: bc.shortcut)
         filter_bcs = bc_col.multiselect(
-            "Filter by battle conditions?", sorted({bc for bcs in player_df.bcs for bc in bcs}, key=lambda bc: bc.shortcut)
+            "Filter by battle conditions?", all_battle_conditions, format_func=lambda bc: f"{bc.name} ({bc.shortcut})"
         )
 
     datas = [(sdf, player_id) for player_id, sdf in player_df.groupby("id") if len(sdf) >= 2]
