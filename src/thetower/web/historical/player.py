@@ -61,7 +61,7 @@ def compute_player_lookup():
         options.current_player = player_id
 
     if options.current_player is not None:
-        st.button("Search for another player?", on_click=search_for_new)
+        st.button("Search for another player?", on_click=search_for_new, key="player_search_for_new")
 
     if options.current_player is None:
         compute_search(player=True, comparison=False)
