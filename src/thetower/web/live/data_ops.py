@@ -308,19 +308,6 @@ def clear_cache():
     st.cache_data.clear()
 
 
-def _parse_timestamp_from_filename(file_path: Path) -> datetime.datetime:
-    """
-    Parse datetime from filename without Django dependencies.
-
-    Args:
-        file_path: Path object containing timestamp in filename
-
-    Returns:
-        Parsed datetime object (timezone-naive, UTC)
-    """
-    return datetime.datetime.strptime(str(file_path.stem), "%Y-%m-%d__%H_%M")
-
-
 @cache_data_if_enabled(ttl=CACHE_TTL_SECONDS)
 def get_data_refresh_timestamp(league: str) -> datetime.datetime | None:
     """

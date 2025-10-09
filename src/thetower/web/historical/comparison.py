@@ -12,12 +12,8 @@ from thetower.backend.sus.models import KnownPlayer, PlayerId
 from thetower.backend.tourney_results.constants import (
     Graph,
     champ,
-    colors_017,
-    colors_018,
     how_many_results_public_site,
     leagues,
-    stratas_boundaries,
-    stratas_boundaries_018,
 )
 from thetower.backend.tourney_results.data import get_details, get_patches, get_sus_ids
 from thetower.backend.tourney_results.formatting import BASE_URL, make_player_url
@@ -331,23 +327,6 @@ def enrich_plot(fig, max_, min_, pd_datas):
             showarrow=True,
             arrowhead=1,
         )
-
-
-def handle_patch_colors(df, patch, player_df):
-    if isinstance(patch, Patch):
-        patch_df = player_df[player_df.patch == patch]
-
-        if patch.version_minor >= 18:
-            colors, stratas = colors_018, stratas_boundaries_018
-        else:
-            colors, stratas = colors_017, stratas_boundaries
-    elif patch == Graph.last_16.value:
-        patch_df = player_df[player_df.date.isin(df.date.unique()[-16:])]
-        colors, stratas = colors_018, stratas_boundaries_018
-    else:
-        patch_df = player_df
-        colors, stratas = colors_018, stratas_boundaries_018
-    return colors, patch_df, stratas
 
 
 def get_patch_df(df, player_df, patch):
