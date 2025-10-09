@@ -98,7 +98,7 @@ def compute_comparison(player_id=None, canvas=st):
         if st.session_state.get("bracket_comparison"):
             canvas.info(f"Showing comparison for all players in the same live bracket as player ID: {st.session_state.bracket_player_id}")
 
-        search_for_new = canvas.button("Search for another player?", on_click=search_for_new)
+        search_for_new = canvas.button("Search for another player?", on_click=search_for_new, key="comparison_search_for_new")
 
         canvas.code(f"https://{BASE_URL}/comparison?" + urlencode({"compare": users}, doseq=True))
 
@@ -167,11 +167,11 @@ def compute_comparison(player_id=None, canvas=st):
             len(users),
             value=[0, len(users)],
         )
-    summary = summary.iloc[how_many_slider[0] : how_many_slider[1] + 1]
+        summary = summary.iloc[how_many_slider[0] : how_many_slider[1] + 1]
 
-    narrowed_ids = summary["Search term"]
-    # Renumber the index for the sliced subset to start at 1
-    summary.index = range(1, len(summary) + 1)
+        narrowed_ids = summary["Search term"]
+        # Renumber the index for the sliced subset to start at 1
+        summary.index = range(1, len(summary) + 1)
 
     for data, _ in datas:
         data["real_name"] = data["real_name"].mode().iloc[0]
