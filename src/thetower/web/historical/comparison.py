@@ -159,6 +159,8 @@ def compute_comparison(player_id=None, canvas=st):
 
     # Escape any user-provided text in DataFrames
     summary = escape_df_html(summary, ["Name"])
+    # Ensure how_many_slider is always defined to avoid UnboundLocalError later
+    how_many_slider = None
 
     if player_id:
         how_many_slider = canvas.slider(
