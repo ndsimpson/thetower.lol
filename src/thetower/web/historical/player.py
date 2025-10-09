@@ -31,8 +31,7 @@ from thetower.backend.tourney_results.data import (
     is_under_review,
 )
 from thetower.backend.tourney_results.formatting import BASE_URL, color_position
-from thetower.backend.tourney_results.models import PatchNew as Patch
-from thetower.backend.tourney_results.models import TourneyRow
+from thetower.backend.tourney_results.models import PatchNew as Patch, TourneyRow, BattleCondition
 from thetower.backend.tourney_results.tourney_utils import check_all_live_entry
 from thetower.web.historical.search import compute_search
 from thetower.web.util import escape_df_html, get_options
@@ -116,8 +115,12 @@ def compute_player_lookup():
     ]
     patch_col, average_col = graph_tab.columns([1, 1])
     patch = patch_col.selectbox("Limit results to a patch? (see side bar to change default)", graph_options)
+    # Use the full set of BattleCondition objects (like /comparison) so users can select any BC
+    all_battle_conditions = sorted(BattleCondition.objects.all(), key=lambda bc: bc.shortcut)
     filter_bcs = patch_col.multiselect(
-        "Filter by battle conditions?", sorted({bc for bcs in player_df.bcs for bc in bcs}, key=lambda bc: bc.shortcut)
+        "Filter by battle conditions?",
+        all_battle_conditions,
+        format_func=lambda bc: f"{bc.name} ({bc.shortcut})",
     )
     rolling_average = average_col.slider("Use rolling average for results from how many tourneys?", min_value=1, max_value=10, value=5)
 
@@ -182,7 +185,21 @@ def compute_player_lookup():
         )
 
     player_df = player_df.rename({"tourney_name": "name", "position": "#"}, axis=1)
-    raw_data_tab.dataframe(dataframe_styler(player_df), use_container_width=True, height=800)
+    # Allow filtering the full results data by battle conditions (same control as /comparison)
+    all_battle_conditions = sorted(BattleCondition.objects.all(), key=lambda bc: bc.shortcut)
+    raw_filter_bcs = raw_data_tab.multiselect(
+        "Filter full results by battle conditions?",
+        all_battle_conditions,
+        format_func=lambda bc: f"{bc.name} ({bc.shortcut})",
+    )
+
+    if raw_filter_bcs:
+        sbcs = set(raw_filter_bcs)
+        filtered_player_df = player_df[player_df.bcs.map(lambda table_bcs: sbcs & set(table_bcs) == sbcs)].copy()
+    else:
+        filtered_player_df = player_df
+
+    raw_data_tab.dataframe(dataframe_styler(filtered_player_df), use_container_width=True, height=800)
 
     small_df = player_df.loc[:9]
     info_tab.write(
