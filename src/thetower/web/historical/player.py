@@ -31,7 +31,9 @@ from thetower.backend.tourney_results.data import (
     is_under_review,
 )
 from thetower.backend.tourney_results.formatting import BASE_URL, color_position
-from thetower.backend.tourney_results.models import PatchNew as Patch, TourneyRow, BattleCondition
+from thetower.backend.tourney_results.models import BattleCondition
+from thetower.backend.tourney_results.models import PatchNew as Patch
+from thetower.backend.tourney_results.models import TourneyRow
 from thetower.backend.tourney_results.tourney_utils import check_all_live_entry
 from thetower.web.historical.search import compute_search
 from thetower.web.util import escape_df_html, get_options
@@ -185,7 +187,12 @@ def compute_player_lookup():
         )
 
     player_df = player_df.rename({"tourney_name": "name", "position": "#"}, axis=1)
-    # Allow filtering the full results data by battle conditions (same control as /comparison)
+    # Allow limiting the full results to a patch and filtering by battle conditions (match graph_tab /comparison)
+    patches_options = sorted([patch for patch in get_patches() if patch.version_minor], key=lambda patch: patch.start_date, reverse=True)
+    raw_graph_options = [options.default_graph.value] + [value for value in list(Graph.__members__.keys()) + patches_options if value != options.default_graph.value]
+
+    raw_patch = raw_data_tab.selectbox("Limit results to a patch? (see side bar to change default)", raw_graph_options)
+
     all_battle_conditions = sorted(BattleCondition.objects.all(), key=lambda bc: bc.shortcut)
     raw_filter_bcs = raw_data_tab.multiselect(
         "Filter full results by battle conditions?",
@@ -193,11 +200,21 @@ def compute_player_lookup():
         format_func=lambda bc: f"{bc.name} ({bc.shortcut})",
     )
 
+    # Start from the full player_df and apply patch filter then BC filter
+    raw_filtered_df = player_df
+
+    # Apply patch filtering similar to get_patch_df behavior in comparison.py
+    if isinstance(raw_patch, Patch):
+        raw_filtered_df = raw_filtered_df[raw_filtered_df.patch == raw_patch]
+    elif raw_patch == Graph.last_16.value:
+        qs = set(TourneyRow.objects.filter(result__league=Graph.__members__[options.default_graph.name] if hasattr(options, 'default_graph') else None).values_list('result__date', flat=True)[:16])
+        raw_filtered_df = raw_filtered_df[raw_filtered_df.date.isin(qs)]
+
     if raw_filter_bcs:
         sbcs = set(raw_filter_bcs)
-        filtered_player_df = player_df[player_df.bcs.map(lambda table_bcs: sbcs & set(table_bcs) == sbcs)].copy()
+        filtered_player_df = raw_filtered_df[raw_filtered_df.bcs.map(lambda table_bcs: sbcs & set(table_bcs) == sbcs)].copy()
     else:
-        filtered_player_df = player_df
+        filtered_player_df = raw_filtered_df
 
     raw_data_tab.dataframe(dataframe_styler(filtered_player_df), use_container_width=True, height=800)
 
@@ -471,5 +488,7 @@ def handle_sus_or_banned_ids(info_tab, player_id):
         elif is_under_review(player_id):
             info_tab.warning("This player is under review.")
 
+
+compute_player_lookup()
 
 compute_player_lookup()
