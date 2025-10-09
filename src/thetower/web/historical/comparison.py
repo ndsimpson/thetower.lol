@@ -154,7 +154,8 @@ def compute_comparison(player_id=None, canvas=st):
         ],
         columns=["Name", "total PB", "Median", "No. tourneys", "Stdev", "Lowest score", "Search term"],
     )
-    summary.set_index(keys="Name")
+    # Use a 1-based numeric index for display (instead of starting at 0)
+    summary.index = range(1, len(summary) + 1)
 
     # Escape any user-provided text in DataFrames
     summary = escape_df_html(summary, ["Name"])
@@ -166,10 +167,11 @@ def compute_comparison(player_id=None, canvas=st):
             len(users),
             value=[0, len(users)],
         )
-        summary = summary.iloc[how_many_slider[0] : how_many_slider[1] + 1]
+    summary = summary.iloc[how_many_slider[0] : how_many_slider[1] + 1]
 
-        narrowed_ids = summary["Search term"]
-        summary.index = summary.index + 1
+    narrowed_ids = summary["Search term"]
+    # Renumber the index for the sliced subset to start at 1
+    summary.index = range(1, len(summary) + 1)
 
     for data, _ in datas:
         data["real_name"] = data["real_name"].mode().iloc[0]
