@@ -116,13 +116,14 @@ def compute_player_lookup():
         value for value in list(Graph.__members__.keys()) + patches_options if value != options.default_graph.value
     ]
     patch_col, average_col = graph_tab.columns([1, 1])
-    patch = patch_col.selectbox("Limit results to a patch? (see side bar to change default)", graph_options)
+    patch = patch_col.selectbox("Limit results to a patch? (see side bar to change default)", graph_options, key="player_graph_patch")
     # Use the full set of BattleCondition objects (like /comparison) so users can select any BC
     all_battle_conditions = sorted(BattleCondition.objects.all(), key=lambda bc: bc.shortcut)
     filter_bcs = patch_col.multiselect(
         "Filter by battle conditions?",
         all_battle_conditions,
         format_func=lambda bc: f"{bc.name} ({bc.shortcut})",
+        key="player_graph_filter_bcs",
     )
     rolling_average = average_col.slider("Use rolling average for results from how many tourneys?", min_value=1, max_value=10, value=5)
 
@@ -191,13 +192,14 @@ def compute_player_lookup():
     patches_options = sorted([patch for patch in get_patches() if patch.version_minor], key=lambda patch: patch.start_date, reverse=True)
     raw_graph_options = [options.default_graph.value] + [value for value in list(Graph.__members__.keys()) + patches_options if value != options.default_graph.value]
 
-    raw_patch = raw_data_tab.selectbox("Limit results to a patch? (see side bar to change default)", raw_graph_options)
+    raw_patch = raw_data_tab.selectbox("Limit results to a patch? (see side bar to change default)", raw_graph_options, key="player_raw_patch")
 
     all_battle_conditions = sorted(BattleCondition.objects.all(), key=lambda bc: bc.shortcut)
     raw_filter_bcs = raw_data_tab.multiselect(
         "Filter full results by battle conditions?",
         all_battle_conditions,
         format_func=lambda bc: f"{bc.name} ({bc.shortcut})",
+        key="player_raw_filter_bcs",
     )
 
     # Start from the full player_df and apply patch filter then BC filter
