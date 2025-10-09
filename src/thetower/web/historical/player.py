@@ -492,5 +492,3 @@ def handle_sus_or_banned_ids(info_tab, player_id):
 
 
 compute_player_lookup()
-
-compute_player_lookup()
