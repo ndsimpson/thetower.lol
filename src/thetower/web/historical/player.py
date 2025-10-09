@@ -205,12 +205,12 @@ def compute_player_lookup():
     # Start from the full player_df and apply patch filter then BC filter
     raw_filtered_df = player_df
 
-    # Apply patch filtering similar to get_patch_df behavior in comparison.py
+    # Apply patch filtering similar to handle_colors_dependant_on_patch
     if isinstance(raw_patch, Patch):
         raw_filtered_df = raw_filtered_df[raw_filtered_df.patch == raw_patch]
     elif raw_patch == Graph.last_16.value:
-        qs = set(TourneyRow.objects.filter(result__league=Graph.__members__[options.default_graph.name] if hasattr(options, 'default_graph') else None).values_list('result__date', flat=True)[:16])
-        raw_filtered_df = raw_filtered_df[raw_filtered_df.date.isin(qs)]
+        # Get the last 16 tournament dates from this player's own data
+        raw_filtered_df = raw_filtered_df[raw_filtered_df.date.isin(sorted(player_df.date.unique())[-16:])]
 
     if raw_filter_bcs:
         sbcs = set(raw_filter_bcs)
