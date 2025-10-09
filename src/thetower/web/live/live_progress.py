@@ -84,7 +84,6 @@ def live_progress():
         height=400,
         margin=dict(l=20, r=20, t=40, b=20),
     )
-    fig.add_hline(y=2500, line_dash="dot", line_color="green")
     st.plotly_chart(fig, use_container_width=True)
 
     # Log execution time
