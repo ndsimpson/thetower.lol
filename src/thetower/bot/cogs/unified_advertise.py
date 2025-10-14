@@ -1655,7 +1655,14 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
         # Check user cooldown
         if str(user_id) in self.cooldowns["users"]:
             timestamp = self.cooldowns["users"][str(user_id)]
-            elapsed = (datetime.datetime.now() - datetime.datetime.fromisoformat(timestamp)).total_seconds()
+            # Parse the stored timestamp
+            stored_time = datetime.datetime.fromisoformat(timestamp)
+            # Convert to UTC if needed and make timezone-aware for consistent comparison
+            if stored_time.tzinfo is None:
+                # Assume naive timestamps are UTC
+                stored_time = stored_time.replace(tzinfo=datetime.timezone.utc)
+            current_time = datetime.datetime.now(datetime.timezone.utc)
+            elapsed = (current_time - stored_time).total_seconds()
 
             if elapsed < self.cooldown_hours * 3600:
                 hours_left = self.cooldown_hours - (elapsed / 3600)
@@ -1681,7 +1688,14 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
         # Check guild cooldown if applicable
         if guild_id and guild_id in self.cooldowns["guilds"]:
             timestamp = self.cooldowns["guilds"][guild_id]
-            elapsed = (datetime.datetime.now() - datetime.datetime.fromisoformat(timestamp)).total_seconds()
+            # Parse the stored timestamp
+            stored_time = datetime.datetime.fromisoformat(timestamp)
+            # Convert to UTC if needed and make timezone-aware for consistent comparison
+            if stored_time.tzinfo is None:
+                # Assume naive timestamps are UTC
+                stored_time = stored_time.replace(tzinfo=datetime.timezone.utc)
+            current_time = datetime.datetime.now(datetime.timezone.utc)
+            elapsed = (current_time - stored_time).total_seconds()
 
             if elapsed < self.cooldown_hours * 3600:
                 hours_left = self.cooldown_hours - (elapsed / 3600)
@@ -1783,7 +1797,7 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
 
                 # Update cooldowns
                 cooldown_start = time.time()
-                current_time = datetime.datetime.now().isoformat()
+                current_time = datetime.datetime.now(datetime.timezone.utc).isoformat()
                 self.cooldowns["users"][str(interaction.user.id)] = current_time
 
                 # If it's a guild advertisement, also add guild cooldown
