@@ -4,7 +4,7 @@ from typing import Optional
 from pydantic import BaseModel
 
 how_many_results_hidden_site = 60000
-how_many_results_public_site = 10000
+how_many_results_public_site = 25000
 how_many_results_public_site_other = 500
 how_many_results_legacy = 200
 
