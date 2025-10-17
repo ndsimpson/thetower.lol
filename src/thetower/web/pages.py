@@ -94,6 +94,7 @@ if hidden_features:
         st.Page("admin/codebase_status.py", title="Codebase Status", icon="📦", url_path="codebase"),
         st.Page("admin/sus_moderation.py", title="Sus Moderation Records", icon="🚫", url_path="susmoderation"),
         st.Page("admin/multiple_moderation.py", title="Multiple Moderation Records", icon="⚠️", url_path="multiplemoderation"),
+        st.Page("admin/bc_mismatch.py", title="BC Mismatch Analysis", icon="⚖️", url_path="bcmismatch"),
     ]
 
 
