@@ -68,6 +68,11 @@ def restart_get_results(modeladmin, request, queryset):
     subprocess.call("systemctl restart get_results", shell=True)
 
 
+@admin.action(description="Restart recalc worker")
+def restart_recalc_worker(modeladmin, request, queryset):
+    subprocess.call("systemctl restart tower-recalc_worker", shell=True)
+
+
 @admin.action(description="Publicize")
 def publicize(modeladmin, request, queryset):
     for item in queryset:
@@ -177,6 +182,7 @@ class TourneyResultAdmin(SimpleHistoryAdmin):
         restart_thetower_bot,
         restart_import_results,
         restart_get_results,
+        restart_recalc_worker,
         generate_summary,
     ]
 
