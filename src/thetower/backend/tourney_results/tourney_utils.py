@@ -15,7 +15,7 @@ from django.db.models import Q
 
 # Local imports
 from .constants import champ, leagues, legend
-from .data import get_player_id_lookup, get_shun_ids, get_sus_ids, get_tourneys
+from .data import get_banned_ids, get_player_id_lookup, get_shun_ids, get_sus_ids, get_tourneys
 from .models import Injection, PromptTemplate, TourneyResult, TourneyRow
 
 # Initialize logging
@@ -72,8 +72,8 @@ def create_tourney_rows(tourney_result: TourneyResult) -> None:
         logging.info(f"There are {len(df.query('tourney_name.str.len() == 0'))} blank tourney names.")
         df.loc[df["tourney_name"].str.len() == 0, "tourney_name"] = df["id"]
 
-    # Exclude sus IDs, and exclude shun IDs unless the include_shun flag file exists
-    excluded_ids = get_sus_ids()
+    # Exclude sus IDs, banned IDs, and exclude shun IDs unless the include_shun flag file exists
+    excluded_ids = get_sus_ids() | get_banned_ids()
     if not include_shun_enabled():
         excluded_ids = excluded_ids | get_shun_ids()
     positions = calculate_positions(df.id, df.index, df.wave, excluded_ids)
@@ -154,8 +154,8 @@ def reposition(tourney_result: TourneyResult, testrun: bool = False, verbose: bo
     waves = [datum[1] for datum in bulk_data]
     nicknames = [datum[2] for datum in bulk_data]
 
-    # Exclude sus IDs, and exclude shun IDs unless the include_shun flag file exists
-    excluded_ids = get_sus_ids()
+    # Exclude sus IDs, banned IDs, and exclude shun IDs unless the include_shun flag file exists
+    excluded_ids = get_sus_ids() | get_banned_ids()
     if not include_shun_enabled():
         excluded_ids = excluded_ids | get_shun_ids()
     positions = calculate_positions(ids, indexes, waves, excluded_ids)
