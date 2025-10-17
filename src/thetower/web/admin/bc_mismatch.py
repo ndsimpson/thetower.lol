@@ -40,20 +40,22 @@ if not TOWERBCS_AVAILABLE:
 
 
 # Function to get tourney_id for a given date
-# This is a placeholder - need to implement proper tourney_id calculation
+# Replace placeholder with actual implementation using TournamentPredictor
 def get_tourney_id_for_date(date):
-    # Placeholder: assume tourney_id starts from some base
-    # Need to implement proper logic based on how tourney_ids are assigned
-    base_date = pd.Timestamp('2022-01-01')  # Example base date
-    days_diff = (date - base_date).days
-    # Assume tournaments every 3 days or whatever the schedule is
-    # This needs to be adjusted based on actual tournament scheduling
-    tourney_id = days_diff // 3 + 1  # Placeholder calculation
+    # date: datetime.date
+    # Convert to datetime for predictor
+    from datetime import datetime
+    input_dt = datetime(date.year, date.month, date.day)
+    tourney_id, _, _ = TournamentPredictor.get_tournament_info(input_dt)
     return tourney_id
 
 
+# Minimum date for BC prediction (towerbcs predictor starts on 2024-10-19)
+MIN_PREDICTION_DATE = pd.Timestamp('2024-10-19').date()
+
+
 # Get all tournaments
-tournaments = TourneyResult.objects.filter(public=True).order_by('date', 'league')
+tournaments = TourneyResult.objects.filter(public=True, date__gte=MIN_PREDICTION_DATE).order_by('date', 'league')
 
 mismatches = []
 total_checked = 0
@@ -61,12 +63,17 @@ total_checked = 0
 with st.spinner("Analyzing battle conditions..."):
     for tournament in tournaments:
         total_checked += 1
+        # Skip copper league since it has no battle conditions
+        if tournament.league.lower() == 'copper':
+            continue
 
-        # Get stored conditions
-        stored_bcs = set(tournament.conditions.values_list('shortcut', flat=True))
+        # Get stored conditions by full name
+        stored_bcs = set(tournament.conditions.values_list('name', flat=True))
 
         # Predict conditions
         try:
+            if tournament.date < MIN_PREDICTION_DATE:
+                continue  # Skip tournaments before the prediction cutoff
             tourney_id = get_tourney_id_for_date(tournament.date)
             predicted_bcs = set(predict_future_tournament(tourney_id, tournament.league))
         except Exception as e:
@@ -82,7 +89,7 @@ with st.spinner("Analyzing battle conditions..."):
                 'stored_bcs': ', '.join(sorted(stored_bcs)),
                 'predicted_bcs': ', '.join(sorted(predicted_bcs)),
                 'missing_in_db': ', '.join(sorted(predicted_bcs - stored_bcs)),
-                'extra_in_db': ', '.join(sorted(stored_bcs - predicted_bcs))
+                'extra_in_db': ', '.join(sorted(stored_bcs - predicted_bcs)),
             }
             mismatches.append(mismatch_info)
 
@@ -131,6 +138,7 @@ if mismatches:
 else:
     st.success("✅ No battle condition mismatches found!")
 
-st.markdown("---")
-st.markdown("*Note: Tourney ID calculation is currently a placeholder and may need adjustment based on actual tournament scheduling.*")
-st.markdown("*Note: Tourney ID calculation is currently a placeholder and may need adjustment based on actual tournament scheduling.*")
+    st.markdown("---")
+    st.markdown(
+        f"*Note: Only tournaments from {MIN_PREDICTION_DATE} onwards are analyzed. Tournament IDs are derived using the towerbcs predictor scheduling logic.*"
+    )
