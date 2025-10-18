@@ -295,6 +295,11 @@ def compute_player_lookup():
 
     filtered_player_df = raw_filtered_df
 
+    # Rename columns to match what dataframe_styler expects
+    filtered_player_df = filtered_player_df.rename({"tourney_name": "name", "position": "#"}, axis=1)
+    # Add the battle column that's expected by dataframe_styler
+    filtered_player_df["battle"] = [" / ".join([bc.shortcut for bc in bcs]) for bcs in filtered_player_df.bcs]
+
     raw_data_tab.dataframe(dataframe_styler(filtered_player_df), use_container_width=True, height=800)
 
     small_df = player_df.loc[:9]
