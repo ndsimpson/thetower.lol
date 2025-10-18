@@ -17,7 +17,6 @@ from thetower.backend.tourney_results.constants import (
     colors_017,
     colors_018,
     how_many_results_public_site,
-    leagues,
     stratas_boundaries,
     stratas_boundaries_018,
 )
@@ -67,7 +66,7 @@ def compute_player_lookup():
         compute_search(player=True, comparison=False)
         exit()
 
-    info_tab, graph_tab, raw_data_tab, patch_tab = st.tabs(["Info", "Tourney performance graph", "Full results data", "Patch best"])
+    info_tab, graph_tab, multi_league_tab, raw_data_tab, patch_tab = st.tabs(["Info", "Tourney performance graph", "Multi-League Chart", "Full results data", "Patch best"])
 
     player_ids = PlayerId.objects.filter(id=options.current_player)
     print(f"{player_ids=} {options.current_player=}")
@@ -109,6 +108,9 @@ def compute_player_lookup():
     # Apply HTML escaping before styling or displaying
     player_df = escape_df_html(player_df, ["real_name", "tourney_name"])
 
+    # Keep a copy of the full unfiltered data for multi-league chart
+    full_player_df = player_df.copy()
+
     draw_info_tab(info_tab, user, player_id, player_df, hidden_features)
 
     patches_options = sorted([patch for patch in get_patches() if patch.version_minor], key=lambda patch: patch.start_date, reverse=True)
@@ -125,7 +127,19 @@ def compute_player_lookup():
         format_func=lambda bc: f"{bc.name} ({bc.shortcut})",
         key="player_graph_filter_bcs",
     )
-    rolling_average = average_col.slider("Use rolling average for results from how many tourneys?", min_value=1, max_value=10, value=5)
+
+    # Get available leagues for this player, ordered by league hierarchy (highest to lowest)
+    from thetower.backend.tourney_results.constants import leagues
+    unique_leagues = player_df.league.unique() if not player_df.empty else []
+    available_leagues = [league for league in leagues if league in unique_leagues]
+    filter_leagues = patch_col.multiselect(
+        "Filter by leagues?",
+        available_leagues,
+        default=[available_leagues[0]] if available_leagues else [],  # Default to top league only
+        key="player_graph_filter_leagues",
+    )
+
+    rolling_average = average_col.slider("Use rolling average for results from how many tourneys?", min_value=1, max_value=10, value=5, key="rolling_average")
 
     colors, patch_df, stratas = handle_colors_dependant_on_patch(patch, player_df)
 
@@ -134,8 +148,12 @@ def compute_player_lookup():
         patch_df = patch_df[patch_df.bcs.map(lambda table_bcs: sbcs & set(table_bcs) == sbcs)]
         player_df = player_df[player_df.bcs.map(lambda table_bcs: sbcs & set(table_bcs) == sbcs)]
 
+    # Apply league filtering
+    if filter_leagues:
+        patch_df = patch_df[patch_df.league.isin(filter_leagues)]
+        player_df = player_df[player_df.league.isin(filter_leagues)]
+
     tbdf = patch_df.reset_index(drop=True)
-    tbdf = filter_lower_leagues(tbdf)
     tbdf.index = tbdf.index + 1
     tbdf["average"] = tbdf.wave.rolling(rolling_average, min_periods=1, center=True).mean().astype(int)
     tbdf["position_average"] = tbdf.position.rolling(rolling_average, min_periods=1, center=True).mean().astype(int)
@@ -144,19 +162,63 @@ def compute_player_lookup():
     if len(tbdf) > 1:
         pos_col, tweak_col = graph_tab.columns([1, 1])
 
-        graph_position_instead = pos_col.checkbox("Graph position instead")
-        average_foreground = tweak_col.checkbox("Average in the foreground?", value=False)
+        graph_position_instead = pos_col.checkbox("Graph position instead", key="graph_position_instead")
+        average_foreground = tweak_col.checkbox("Average in the foreground?", value=False, key="average_foreground")
         fig = make_subplots(specs=[[{"secondary_y": True}]])
 
         if not graph_position_instead:
-            handle_not_graph_position_instead(average_foreground, colors, fig, rolling_average, stratas, tbdf)
+            handle_not_graph_position_instead(average_foreground, colors, fig, rolling_average, stratas, tbdf, multi_league=False)
         else:
-            handle_is_graph_position(average_foreground, fig, rolling_average, tbdf)
+            handle_is_graph_position(average_foreground, fig, rolling_average, tbdf, multi_league=False)
 
         handle_start_date_loop(fig, graph_position_instead, tbdf)
         fig.update_layout(hovermode="x unified")
 
         graph_tab.plotly_chart(fig)
+
+    # Multi-League Chart Tab
+    multi_league_patch_col, multi_league_average_col = multi_league_tab.columns([1, 1])
+    # For multi-league chart, default to "all" patches to show all leagues
+    multi_league_graph_options = ["all"] + [value for value in list(Graph.__members__.keys()) + patches_options if value != "all"]
+    multi_league_patch = multi_league_patch_col.selectbox("Limit results to a patch? (see side bar to change default)", multi_league_graph_options, index=0, key="player_multi_league_patch")
+    # Use the full set of BattleCondition objects (like /comparison) so users can select any BC
+    multi_league_filter_bcs = multi_league_patch_col.multiselect(
+        "Filter by battle conditions?",
+        all_battle_conditions,
+        format_func=lambda bc: f"{bc.name} ({bc.shortcut})",
+        key="player_multi_league_filter_bcs",
+    )
+    multi_league_rolling_average = multi_league_average_col.slider("Use rolling average for results from how many tourneys?", min_value=1, max_value=10, value=5, key="multi_league_rolling_average")
+
+    multi_league_colors, multi_league_patch_df, multi_league_stratas = handle_colors_dependant_on_patch(multi_league_patch, full_player_df)
+
+    if multi_league_filter_bcs:
+        sbcs = set(multi_league_filter_bcs)
+        multi_league_patch_df = multi_league_patch_df[multi_league_patch_df.bcs.map(lambda table_bcs: sbcs & set(table_bcs) == sbcs)]
+        # Don't filter player_df here as we want all data for multi-league view
+
+    multi_league_tbdf = multi_league_patch_df.reset_index(drop=True)
+    multi_league_tbdf.index = multi_league_tbdf.index + 1
+    multi_league_tbdf["average"] = multi_league_tbdf.wave.rolling(multi_league_rolling_average, min_periods=1, center=True).mean().astype(int)
+    multi_league_tbdf["position_average"] = multi_league_tbdf.position.rolling(multi_league_rolling_average, min_periods=1, center=True).mean().astype(int)
+    multi_league_tbdf["bcs"] = multi_league_tbdf.bcs.map(lambda bc_qs: " / ".join([bc.shortcut for bc in bc_qs]))
+
+    if len(multi_league_tbdf) > 1:
+        multi_league_pos_col, multi_league_tweak_col = multi_league_tab.columns([1, 1])
+
+        multi_league_graph_position_instead = multi_league_pos_col.checkbox("Graph position instead", key="multi_league_position")
+        multi_league_average_foreground = multi_league_tweak_col.checkbox("Average in the foreground?", value=False, key="multi_league_average_foreground")
+        multi_league_fig = make_subplots(specs=[[{"secondary_y": True}]])
+
+        if not multi_league_graph_position_instead:
+            handle_not_graph_position_instead(multi_league_average_foreground, multi_league_colors, multi_league_fig, multi_league_rolling_average, multi_league_stratas, multi_league_tbdf, multi_league=True)
+        else:
+            handle_is_graph_position(multi_league_average_foreground, multi_league_fig, multi_league_rolling_average, multi_league_tbdf, multi_league=True)
+
+        handle_start_date_loop(multi_league_fig, multi_league_graph_position_instead, multi_league_tbdf)
+        multi_league_fig.update_layout(hovermode="x unified")
+
+        multi_league_tab.plotly_chart(multi_league_fig)
 
     additional_column = ["league"] if "league" in tbdf.columns else []
     additional_format = [None] if "league" in tbdf.columns else []
@@ -229,17 +291,6 @@ def compute_player_lookup():
     write_for_each_patch(patch_tab, player_df)
 
     player_id = player_df.iloc[0].id
-
-
-def filter_lower_leagues(df):
-    leagues_in = set(df.league)
-
-    for league in leagues:
-        if league in leagues_in:
-            break
-
-    df = df[df.league == league]
-    return df
 
 
 def draw_info_tab(info_tab, user, player_id, player_df, hidden_features):
@@ -411,18 +462,57 @@ def handle_start_date_loop(fig, graph_position_instead, tbdf):
         )
 
 
-def handle_is_graph_position(average_foreground, fig, rolling_average, tbdf):
+def handle_is_graph_position(average_foreground, fig, rolling_average, tbdf, multi_league=False):
     foreground_kwargs = {}
     background_kwargs = dict(line_dash="dot", line_color="#FF4B4B", opacity=0.6)
-    fig.add_trace(
-        go.Scatter(
-            x=tbdf.date,
-            y=tbdf.position,
-            name="Tourney position",
-            **foreground_kwargs if not average_foreground else background_kwargs,
-        ),
-        secondary_y=True,
-    )
+
+    # Define league styles with unique colors
+    league_styles = {
+        "Legend": {"color": "#FFD700", "symbol": "diamond"},
+        "Champion": {"color": "#C0C0C0", "symbol": "square"},
+        "Platinum": {"color": "#E5E4E2", "symbol": "triangle-up"},
+        "Gold": {"color": "#FFA500", "symbol": "circle"},
+        "Silver": {"color": "#808080", "symbol": "diamond-open"},
+        "Copper": {"color": "#B87333", "symbol": "square-open"},
+    }
+
+    # Check if we have multiple leagues and multi_league mode is enabled
+    unique_leagues = tbdf.league.unique()
+    if len(unique_leagues) > 1 and multi_league:
+        # Create separate traces for each league
+        for league in unique_leagues:
+            league_data = tbdf[tbdf.league == league]
+            if not league_data.empty:
+                style = league_styles.get(league, {"color": "#FF4B4B", "symbol": "circle"})
+                fig.add_trace(
+                    go.Scatter(
+                        x=league_data.date,
+                        y=league_data.position,
+                        name=f"{league} position",
+                        mode="markers+lines",
+                        marker=dict(
+                            size=8,
+                            opacity=0.8,
+                            color=style["color"],
+                            symbol=style["symbol"]
+                        ),
+                        line=dict(width=2, color=style["color"]),
+                        **foreground_kwargs if not average_foreground else background_kwargs,
+                    ),
+                    secondary_y=True,
+                )
+    else:
+        # Single league - use original behavior
+        fig.add_trace(
+            go.Scatter(
+                x=tbdf.date,
+                y=tbdf.position,
+                name="Tourney position",
+                **foreground_kwargs if not average_foreground else background_kwargs,
+            ),
+            secondary_y=True,
+        )
+
     fig.add_trace(
         go.Scatter(
             x=tbdf.date,
@@ -435,21 +525,61 @@ def handle_is_graph_position(average_foreground, fig, rolling_average, tbdf):
     fig.update_yaxes(secondary_y=True, range=[tbdf.position.max() + 20, 0])
 
 
-def handle_not_graph_position_instead(average_foreground, colors, fig, rolling_average, stratas, tbdf):
+def handle_not_graph_position_instead(average_foreground, colors, fig, rolling_average, stratas, tbdf, multi_league=False):
     foreground_kwargs = {}
     background_kwargs = dict(line_dash="dot", line_color="#888", opacity=0.6)
-    fig.add_trace(
-        go.Scatter(
-            x=tbdf.date,
-            y=tbdf.wave,
-            name="Wave (left axis)",
-            customdata=tbdf.bcs,
-            hovertemplate="%{y}, BC: %{customdata}",
-            marker=dict(size=7, opacity=1),
-            line=dict(width=2, color="#FF4B4B"),
-            **foreground_kwargs if not average_foreground else background_kwargs,
+
+    # Define league styles with unique colors
+    league_styles = {
+        "Legend": {"color": "#FFD700", "symbol": "diamond"},
+        "Champion": {"color": "#C0C0C0", "symbol": "square"},
+        "Platinum": {"color": "#E5E4E2", "symbol": "triangle-up"},
+        "Gold": {"color": "#FFA500", "symbol": "circle"},
+        "Silver": {"color": "#808080", "symbol": "diamond-open"},
+        "Copper": {"color": "#B87333", "symbol": "square-open"},
+    }
+
+    # Check if we have multiple leagues and multi_league mode is enabled
+    unique_leagues = tbdf.league.unique()
+    if len(unique_leagues) > 1 and multi_league:
+        # Create separate traces for each league
+        for league in unique_leagues:
+            league_data = tbdf[tbdf.league == league]
+            if not league_data.empty:
+                style = league_styles.get(league, {"color": "#FF4B4B", "symbol": "circle"})
+                fig.add_trace(
+                    go.Scatter(
+                        x=league_data.date,
+                        y=league_data.wave,
+                        name=f"{league} waves",
+                        customdata=league_data.bcs,
+                        hovertemplate="%{y}, BC: %{customdata}",
+                        mode="markers+lines",
+                        marker=dict(
+                            size=8,
+                            opacity=0.8,
+                            color=style["color"],
+                            symbol=style["symbol"]
+                        ),
+                        line=dict(width=2, color=style["color"]),
+                        **foreground_kwargs if not average_foreground else background_kwargs,
+                    )
+                )
+    else:
+        # Single league - use original behavior
+        fig.add_trace(
+            go.Scatter(
+                x=tbdf.date,
+                y=tbdf.wave,
+                name="Wave (left axis)",
+                customdata=tbdf.bcs,
+                hovertemplate="%{y}, BC: %{customdata}",
+                marker=dict(size=7, opacity=1),
+                line=dict(width=2, color="#FF4B4B"),
+                **foreground_kwargs if not average_foreground else background_kwargs,
+            )
         )
-    )
+
     fig.add_trace(
         go.Scatter(
             x=tbdf.date,
