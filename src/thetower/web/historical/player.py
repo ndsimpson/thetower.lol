@@ -254,7 +254,7 @@ def compute_player_lookup():
     patches_options = sorted([patch for patch in get_patches() if patch.version_minor], key=lambda patch: patch.start_date, reverse=True)
     raw_graph_options = [options.default_graph.value] + [value for value in list(Graph.__members__.keys()) + patches_options if value != options.default_graph.value]
 
-    raw_patch = raw_data_tab.selectbox("Limit results to a patch? (see side bar to change default)", raw_graph_options, key="player_raw_patch")
+    raw_patch = raw_data_tab.selectbox("Limit results to a patch?", raw_graph_options, index=1, key="player_raw_patch")
 
     all_battle_conditions = sorted(BattleCondition.objects.all(), key=lambda bc: bc.shortcut)
     raw_filter_bcs = raw_data_tab.multiselect(
@@ -266,7 +266,7 @@ def compute_player_lookup():
 
     # Get available leagues for this player, ordered by league hierarchy (highest to lowest)
     from thetower.backend.tourney_results.constants import leagues
-    unique_leagues = player_df.league.unique() if not player_df.empty else []
+    unique_leagues = full_player_df.league.unique() if not full_player_df.empty else []
     available_leagues = [league for league in leagues if league in unique_leagues]
     raw_filter_leagues = raw_data_tab.multiselect(
         "Filter full results by leagues?",
