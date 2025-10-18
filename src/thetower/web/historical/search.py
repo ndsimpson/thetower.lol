@@ -19,10 +19,16 @@ from thetower.backend.tourney_results.models import TourneyRow
 from thetower.web.util import add_player_id, add_to_comparison
 
 
-def search_players_optimized(search_term, excluded_player_ids, page=20):
+def search_players_optimized(search_term, excluded_player_ids, page=20, force_player_id_search=False):
     """
     Optimized search function that combines all searches into unified queries.
     Returns results prioritized by relevance.
+
+    Args:
+        search_term: The term to search for
+        excluded_player_ids: Player IDs to exclude from results
+        page: Maximum number of results to return
+        force_player_id_search: If True, always search player IDs regardless of content
     """
     search_term = search_term.strip()
     if not search_term:
@@ -32,7 +38,7 @@ def search_players_optimized(search_term, excluded_player_ids, page=20):
 
     # Check if this looks like a player ID search (mostly hex characters)
     hex_chars = sum(1 for c in search_term.upper() if c in "ABCDEF0123456789")
-    is_player_id_search = (
+    is_player_id_search = force_player_id_search or (
         len(search_term.replace(" ", "")) >= 6  # Require at least 6 characters for player ID searches
         and hex_chars / len(search_term.replace(" ", "")) > 0.7  # Mostly hex characters
     )
@@ -168,12 +174,23 @@ def compute_search(player=False, comparison=False):
     real_name_part = name_col.text_input("Enter part of the player name")
     player_id_part = id_col.text_input("Enter part of the player_id to be queried")
 
-    # Determine which search to perform
+    # Determine which search to perform and what type
     search_term = ""
+    force_player_id_search = False
+
     if real_name_part.strip():
         search_term = real_name_part.strip()
+        force_player_id_search = False  # Name search
     elif player_id_part.strip():
         search_term = player_id_part.strip()
+        force_player_id_search = True   # Force player ID search when using ID box
+
+    # Check for short player ID searches that might be ambiguous
+    if search_term and force_player_id_search:
+        clean_term = search_term.replace(" ", "")
+        if len(clean_term) < 3:
+            st.warning("⚠️ Player ID searches require at least 3 characters.")
+            return []
 
     # Check for short player ID searches that might be ambiguous
     if search_term:
@@ -191,11 +208,12 @@ def compute_search(player=False, comparison=False):
 
     # Debug output
     if search_term:
-        st.write(f"🔍 Searching for: '{search_term}'")
+        search_type = "Player ID" if force_player_id_search else "Name"
+        st.write(f"🔍 Searching for '{search_term}' as {search_type}")
 
     if search_term:
-        # Use the optimized search function
-        nickname_ids = search_players_optimized(search_term, excluded_player_ids, page)
+        # Use the optimized search function with the appropriate search type
+        nickname_ids = search_players_optimized(search_term, excluded_player_ids, page, force_player_id_search)
         st.write(f"📊 Found {len(nickname_ids)} raw results")
     else:
         nickname_ids = []
