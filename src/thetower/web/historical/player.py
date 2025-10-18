@@ -66,7 +66,7 @@ def compute_player_lookup():
         compute_search(player=True, comparison=False)
         exit()
 
-    info_tab, graph_tab, multi_league_tab, raw_data_tab, patch_tab = st.tabs(["Info", "Tourney performance graph", "Multi-League Chart", "Full results data", "Patch best"])
+    info_tab, graph_tab, multi_league_tab, raw_data_tab, patch_tab = st.tabs(["Info", "Tourney performance graph", "Multi-League Graph", "Full results data", "Patch best"])
 
     player_ids = PlayerId.objects.filter(id=options.current_player)
     print(f"{player_ids=} {options.current_player=}")
