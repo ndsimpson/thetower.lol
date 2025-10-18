@@ -264,7 +264,18 @@ def compute_player_lookup():
         key="player_raw_filter_bcs",
     )
 
-    # Start from the full player_df and apply patch filter then BC filter
+    # Get available leagues for this player, ordered by league hierarchy (highest to lowest)
+    from thetower.backend.tourney_results.constants import leagues
+    unique_leagues = player_df.league.unique() if not player_df.empty else []
+    available_leagues = [league for league in leagues if league in unique_leagues]
+    raw_filter_leagues = raw_data_tab.multiselect(
+        "Filter full results by leagues?",
+        available_leagues,
+        default=available_leagues,  # Default to ALL leagues for full results
+        key="player_raw_filter_leagues",
+    )
+
+    # Start from the full player_df and apply patch filter then BC filter then league filter
     raw_filtered_df = player_df
 
     # Apply patch filtering similar to handle_colors_dependant_on_patch
@@ -276,9 +287,13 @@ def compute_player_lookup():
 
     if raw_filter_bcs:
         sbcs = set(raw_filter_bcs)
-        filtered_player_df = raw_filtered_df[raw_filtered_df.bcs.map(lambda table_bcs: sbcs & set(table_bcs) == sbcs)].copy()
-    else:
-        filtered_player_df = raw_filtered_df
+        raw_filtered_df = raw_filtered_df[raw_filtered_df.bcs.map(lambda table_bcs: sbcs & set(table_bcs) == sbcs)]
+
+    # Apply league filtering
+    if raw_filter_leagues:
+        raw_filtered_df = raw_filtered_df[raw_filtered_df.league.isin(raw_filter_leagues)]
+
+    filtered_player_df = raw_filtered_df
 
     raw_data_tab.dataframe(dataframe_styler(filtered_player_df), use_container_width=True, height=800)
 
