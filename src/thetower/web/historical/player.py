@@ -118,7 +118,7 @@ def compute_player_lookup():
         value for value in list(Graph.__members__.keys()) + patches_options if value != options.default_graph.value
     ]
     patch_col, average_col = graph_tab.columns([1, 1])
-    patch = patch_col.selectbox("Limit results to a patch? (see side bar to change default)", graph_options, key="player_graph_patch")
+    patch = patch_col.selectbox("Limit results to a patch?", graph_options, key="player_graph_patch")
     # Use the full set of BattleCondition objects (like /comparison) so users can select any BC
     all_battle_conditions = sorted(BattleCondition.objects.all(), key=lambda bc: bc.shortcut)
     filter_bcs = patch_col.multiselect(
@@ -180,7 +180,7 @@ def compute_player_lookup():
     multi_league_patch_col, multi_league_average_col = multi_league_tab.columns([1, 1])
     # For multi-league chart, default to "all" patches to show all leagues
     multi_league_graph_options = ["all"] + [value for value in list(Graph.__members__.keys()) + patches_options if value != "all"]
-    multi_league_patch = multi_league_patch_col.selectbox("Limit results to a patch? (see side bar to change default)", multi_league_graph_options, index=0, key="player_multi_league_patch")
+    multi_league_patch = multi_league_patch_col.selectbox("Limit results to a patch?", multi_league_graph_options, index=0, key="player_multi_league_patch")
     # Use the full set of BattleCondition objects (like /comparison) so users can select any BC
     multi_league_filter_bcs = multi_league_patch_col.multiselect(
         "Filter by battle conditions?",
@@ -271,7 +271,7 @@ def compute_player_lookup():
     raw_filter_leagues = raw_data_tab.multiselect(
         "Filter full results by leagues?",
         available_leagues,
-        default=available_leagues,  # Default to ALL leagues for full results
+        default=[],  # Default to no leagues selected (no filtering)
         key="player_raw_filter_leagues",
     )
 
@@ -300,9 +300,10 @@ def compute_player_lookup():
     # Add the battle column that's expected by dataframe_styler
     filtered_player_df["battle"] = [" / ".join([bc.shortcut for bc in bcs]) for bcs in filtered_player_df.bcs]
 
-    raw_data_tab.dataframe(dataframe_styler(filtered_player_df), use_container_width=True, height=800)
+    raw_data_tab.dataframe(dataframe_styler(filtered_player_df), use_oncontainer_width=True, height=800)
 
-    small_df = player_df.loc[:9]
+    small_df = full_player_df.loc[:9].rename({"tourney_name": "name", "position": "#"}, axis=1)
+    small_df["battle"] = [" / ".join([bc.shortcut for bc in bcs]) for bcs in small_df.bcs]
     info_tab.write(
         '<div style="overflow-x:auto;">' + dataframe_styler(small_df).to_html(escape=False) + "</div>",
         unsafe_allow_html=True,
