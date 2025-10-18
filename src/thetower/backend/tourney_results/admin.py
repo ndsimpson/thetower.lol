@@ -11,6 +11,22 @@ from simple_history.admin import SimpleHistoryAdmin
 from ..sus.models import PlayerId
 from .models import BattleCondition, Injection, NameDayWinner, PatchNew, PositionRole, PromptTemplate, RainPeriod, Role, TourneyResult, TourneyRow
 
+# Graceful towerbcs import handling
+try:
+    from towerbcs import TournamentPredictor, predict_future_tournament
+
+    TOWERBCS_AVAILABLE = True
+except ImportError:
+    TOWERBCS_AVAILABLE = False
+
+    def predict_future_tournament(tourney_id, league):
+        return []
+
+    class TournamentPredictor:
+        @staticmethod
+        def get_tournament_info(date):
+            return None, date, 0
+
 
 class PatchFilter(admin.SimpleListFilter):
     title = "patch"
@@ -93,6 +109,60 @@ def update_summary(queryset):
 def generate_summary(modeladmin, request, queryset):
     thread = threading.Thread(target=update_summary, args=(queryset,))
     thread.start()
+
+
+@admin.action(description="Regenerate battle conditions")
+def regenerate_battle_conditions(modeladmin, request, queryset):
+    """Regenerate battle conditions for selected tournaments using towerbcs predictions."""
+    if not TOWERBCS_AVAILABLE:
+        modeladmin.message_user(
+            request,
+            "Error: towerbcs package is not available. Cannot regenerate battle conditions.",
+            level="ERROR"
+        )
+        return
+
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    updated_count = 0
+    error_count = 0
+
+    for tournament in queryset:
+        try:
+            # Get tournament ID from date
+            tourney_date = datetime.combine(tournament.date, datetime.min.time()).replace(tzinfo=ZoneInfo("UTC"))
+            tourney_id, _, _ = TournamentPredictor.get_tournament_info(tourney_date)
+
+            # Predict conditions
+            predicted_conditions = set(predict_future_tournament(tourney_id, tournament.league))
+
+            # Update tournament conditions
+            if not predicted_conditions or predicted_conditions == {"None"} or predicted_conditions == {"none"}:
+                tournament.conditions.clear()
+            else:
+                condition_ids = BattleCondition.objects.filter(name__in=predicted_conditions).values_list("id", flat=True)
+                tournament.conditions.set(condition_ids)
+
+            tournament.save()
+            updated_count += 1
+
+        except Exception as e:
+            logger.error(f"Error regenerating battle conditions for {tournament}: {e}")
+            error_count += 1
+
+    if updated_count > 0:
+        modeladmin.message_user(
+            request,
+            f"Successfully regenerated battle conditions for {updated_count} tournament(s)."
+        )
+
+    if error_count > 0:
+        modeladmin.message_user(
+            request,
+            f"Failed to regenerate battle conditions for {error_count} tournament(s). Check logs for details.",
+            level="WARNING"
+        )
 
 
 @admin.register(TourneyRow)
@@ -184,6 +254,7 @@ class TourneyResultAdmin(SimpleHistoryAdmin):
         restart_get_results,
         restart_recalc_worker,
         generate_summary,
+        regenerate_battle_conditions,
     ]
 
 
