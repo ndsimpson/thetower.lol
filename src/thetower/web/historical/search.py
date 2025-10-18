@@ -33,18 +33,15 @@ def search_players_optimized(search_term, excluded_player_ids, page=20):
     # Check if this looks like a player ID search (mostly hex characters)
     hex_chars = sum(1 for c in search_term.upper() if c in "ABCDEF0123456789")
     is_player_id_search = (
-        len(search_term.replace(" ", "")) >= 12  # Player IDs are long
+        len(search_term.replace(" ", "")) >= 6  # Require at least 6 characters for player ID searches
         and hex_chars / len(search_term.replace(" ", "")) > 0.7  # Mostly hex characters
     )
 
     if is_player_id_search:
         # Player ID search - unified query
         match_conditions = Q()
-        for i, fragment in enumerate(fragments):
-            if i == 0:
-                match_conditions &= Q(player_id__istartswith=fragment)
-            else:
-                match_conditions &= Q(player_id__icontains=fragment)
+        for fragment in fragments:
+            match_conditions &= Q(player_id__icontains=fragment)
 
         # Single query for player ID search with grouping
         results = list(
@@ -177,6 +174,20 @@ def compute_search(player=False, comparison=False):
         search_term = real_name_part.strip()
     elif player_id_part.strip():
         search_term = player_id_part.strip()
+
+    # Check for short player ID searches that might be ambiguous
+    if search_term:
+        clean_term = search_term.replace(" ", "")
+        hex_chars = sum(1 for c in clean_term.upper() if c in "ABCDEF0123456789")
+        is_short_hex_search = (
+            len(clean_term) < 6
+            and len(clean_term) >= 3
+            and hex_chars / len(clean_term) > 0.7
+        )
+
+        if is_short_hex_search:
+            st.warning(f"⚠️ Short hexadecimal searches (like '{search_term}') are ambiguous. Please use at least 6 characters for player ID searches, or search by player name instead.")
+            return []
 
     # Debug output
     if search_term:
