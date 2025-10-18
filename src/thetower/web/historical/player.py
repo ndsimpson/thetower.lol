@@ -300,7 +300,7 @@ def compute_player_lookup():
     # Add the battle column that's expected by dataframe_styler
     filtered_player_df["battle"] = [" / ".join([bc.shortcut for bc in bcs]) for bcs in filtered_player_df.bcs]
 
-    raw_data_tab.dataframe(dataframe_styler(filtered_player_df), use_oncontainer_width=True, height=800)
+    raw_data_tab.dataframe(dataframe_styler(filtered_player_df), use_container_width=True, height=800)
 
     small_df = full_player_df.loc[:9].rename({"tourney_name": "name", "position": "#"}, axis=1)
     small_df["battle"] = [" / ".join([bc.shortcut for bc in bcs]) for bcs in small_df.bcs]
