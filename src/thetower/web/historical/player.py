@@ -465,18 +465,16 @@ def handle_start_date_loop(fig, graph_position_instead, tbdf):
 def handle_is_graph_position(average_foreground, fig, rolling_average, tbdf, multi_league=False):
     foreground_kwargs = {}
     background_kwargs = dict(line_dash="dot", line_color="#FF4B4B", opacity=0.6)
-
-    # Define league styles with unique colors
+    
+    # Define league styles with distinct colors for better separation
     league_styles = {
         "Legend": {"color": "#FFD700", "symbol": "diamond"},
-        "Champion": {"color": "#C0C0C0", "symbol": "square"},
-        "Platinum": {"color": "#E5E4E2", "symbol": "triangle-up"},
-        "Gold": {"color": "#FFA500", "symbol": "circle"},
-        "Silver": {"color": "#808080", "symbol": "diamond-open"},
-        "Copper": {"color": "#B87333", "symbol": "square-open"},
-    }
-
-    # Check if we have multiple leagues and multi_league mode is enabled
+        "Champion": {"color": "#FF1493", "symbol": "square"},
+        "Platinum": {"color": "#00BFFF", "symbol": "triangle-up"},
+        "Gold": {"color": "#FF6347", "symbol": "circle"},
+        "Silver": {"color": "#32CD32", "symbol": "diamond-open"},
+        "Copper": {"color": "#8B4513", "symbol": "square-open"},
+    }    # Check if we have multiple leagues and multi_league mode is enabled
     unique_leagues = tbdf.league.unique()
     if len(unique_leagues) > 1 and multi_league:
         # Create separate traces for each league
@@ -528,18 +526,16 @@ def handle_is_graph_position(average_foreground, fig, rolling_average, tbdf, mul
 def handle_not_graph_position_instead(average_foreground, colors, fig, rolling_average, stratas, tbdf, multi_league=False):
     foreground_kwargs = {}
     background_kwargs = dict(line_dash="dot", line_color="#888", opacity=0.6)
-
-    # Define league styles with unique colors
+    
+    # Define league styles with distinct colors for better separation
     league_styles = {
         "Legend": {"color": "#FFD700", "symbol": "diamond"},
-        "Champion": {"color": "#C0C0C0", "symbol": "square"},
-        "Platinum": {"color": "#E5E4E2", "symbol": "triangle-up"},
-        "Gold": {"color": "#FFA500", "symbol": "circle"},
-        "Silver": {"color": "#808080", "symbol": "diamond-open"},
-        "Copper": {"color": "#B87333", "symbol": "square-open"},
-    }
-
-    # Check if we have multiple leagues and multi_league mode is enabled
+        "Champion": {"color": "#FF1493", "symbol": "square"},
+        "Platinum": {"color": "#00BFFF", "symbol": "triangle-up"},
+        "Gold": {"color": "#FF6347", "symbol": "circle"},
+        "Silver": {"color": "#32CD32", "symbol": "diamond-open"},
+        "Copper": {"color": "#8B4513", "symbol": "square-open"},
+    }    # Check if we have multiple leagues and multi_league mode is enabled
     unique_leagues = tbdf.league.unique()
     if len(unique_leagues) > 1 and multi_league:
         # Create separate traces for each league
