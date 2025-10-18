@@ -257,6 +257,85 @@ class TourneyResultAdmin(SimpleHistoryAdmin):
         regenerate_battle_conditions,
     ]
 
+    def regenerate_bcs_button(self, obj):
+        """Display a button to regenerate battle conditions for this tournament."""
+        if not TOWERBCS_AVAILABLE:
+            return "towerbcs not available"
+
+        url = f"{self.get_admin_url('regenerate_bcs', obj.pk)}"
+        return format_html(
+            '<a class="button" href="{}" style="background: #417690; color: white; padding: 5px 10px; text-decoration: none; border-radius: 3px;">Regenerate BCs</a>',
+            url
+        )
+
+    regenerate_bcs_button.short_description = "Regenerate Battle Conditions"
+    regenerate_bcs_button.allow_tags = True
+
+    readonly_fields = ("regenerate_bcs_button",)
+
+    fieldsets = (
+        (None, {
+            'fields': ('league', 'date', 'result_file', 'public', 'conditions', 'overview')
+        }),
+        ('Recalculation', {
+            'fields': ('needs_recalc', 'last_recalc_at', 'recalc_retry_count', 'regenerate_bcs_button'),
+            'classes': ('collapse',),
+        }),
+    )
+
+    def get_admin_url(self, action, obj_id):
+        """Generate admin URL for custom actions."""
+        from django.urls import reverse
+        return reverse(f'admin:{self.model._meta.app_label}_{self.model._meta.model_name}_{action}', args=[obj_id])
+
+    def get_urls(self):
+        """Add custom URLs for admin actions."""
+        from django.urls import path
+        urls = super().get_urls()
+        custom_urls = [
+            path(
+                '<path:object_id>/regenerate_bcs/',
+                self.admin_site.admin_view(self.regenerate_bcs_view),
+                name=f'{self.model._meta.app_label}_{self.model._meta.model_name}_regenerate_bcs',
+            ),
+        ]
+        return custom_urls + urls
+
+    def regenerate_bcs_view(self, request, object_id):
+        """View to regenerate battle conditions for a single tournament."""
+        obj = self.get_object(request, object_id)
+
+        if not TOWERBCS_AVAILABLE:
+            self.message_user(request, "Error: towerbcs package is not available.", level="ERROR")
+            return self.response_change(request, obj)
+
+        try:
+            # Get tournament ID from date
+            from datetime import datetime
+            from zoneinfo import ZoneInfo
+
+            tourney_date = datetime.combine(obj.date, datetime.min.time()).replace(tzinfo=ZoneInfo("UTC"))
+            tourney_id, _, _ = TournamentPredictor.get_tournament_info(tourney_date)
+
+            # Predict conditions
+            predicted_conditions = set(predict_future_tournament(tourney_id, obj.league))
+
+            # Update tournament conditions
+            if not predicted_conditions or predicted_conditions == {"None"} or predicted_conditions == {"none"}:
+                obj.conditions.clear()
+            else:
+                condition_ids = BattleCondition.objects.filter(name__in=predicted_conditions).values_list("id", flat=True)
+                obj.conditions.set(condition_ids)
+
+            obj.save()
+            self.message_user(request, "Battle conditions regenerated successfully.")
+
+        except Exception as e:
+            logger.error(f"Error regenerating battle conditions for {obj}: {e}")
+            self.message_user(request, f"Error regenerating battle conditions: {e}", level="ERROR")
+
+        return self.response_change(request, obj)
+
 
 @admin.register(PatchNew)
 class PatchNewAdmin(SimpleHistoryAdmin):
