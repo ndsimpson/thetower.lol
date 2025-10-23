@@ -1366,8 +1366,8 @@ class TourneyRoles(BaseCog, name="Tournament Roles"):
             if value < 300:  # Minimum 5 minutes for main intervals
                 return await ctx.send(f"Value for {setting_name} must be at least 300 seconds (5 minutes)")
         elif setting_name == "process_delay":
-            if value < 1 or value > 30:
-                return await ctx.send(f"Value for {setting_name} must be between 1 and 30 seconds")
+            if value < 0 or value > 30:
+                return await ctx.send(f"Value for {setting_name} must be between 0 and 30 seconds")
         elif setting_name == "error_retry_delay":
             if value < 60 or value > 1800:
                 return await ctx.send(f"Value for {setting_name} must be between 60 and 1800 seconds (1-30 minutes)")
