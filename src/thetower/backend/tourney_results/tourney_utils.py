@@ -353,6 +353,61 @@ def get_full_brackets(df: pd.DataFrame) -> tuple[list[str], list[str]]:
     return bracket_order, fullish_brackets
 
 
+def get_latest_live_df(league: str, shun: bool = False) -> pd.DataFrame:
+    """Load only the latest non-empty live tournament CSV for a league.
+
+    This is a slimmer alternative to `get_live_df` when callers only need the
+    most recent snapshot (for example: a quick membership check).
+
+    Args:
+        league: League identifier
+        shun: If True, only exclude suspicious IDs, otherwise exclude both suspicious and shunned
+
+    Returns:
+        DataFrame containing data from the latest non-empty CSV
+
+    Raises:
+        ValueError: If no current tournament data is available
+    """
+    t1_start = perf_counter()
+    home = Path(os.getenv("HOME"))
+    live_path = home / "tourney" / "results_cache" / f"{league}_live"
+
+    all_files = sorted(live_path.glob("*.csv"))
+    non_empty_files = [f for f in all_files if f.stat().st_size > 0]
+
+    if not non_empty_files:
+        raise ValueError("No current data, wait until the tourney day")
+
+    last_file = non_empty_files[-1]
+    last_date = get_time(last_file)
+
+    try:
+        df = pd.read_csv(last_file)
+    except Exception as e:
+        logging.warning(f"Failed to read latest live file {last_file}: {e}")
+        raise ValueError("No current data, wait until the tourney day")
+
+    if df.empty:
+        raise ValueError("No current data, wait until the tourney day")
+
+    df["datetime"] = last_date
+
+    lookup = get_player_id_lookup()
+    df["real_name"] = [lookup.get(id, name) for id, name in zip(df.player_id, df.name)]
+    df["real_name"] = df["real_name"].astype(str)
+
+    if shun:
+        excluded_ids = get_sus_ids()
+    else:
+        excluded_ids = get_sus_ids() | get_shun_ids()
+    df = df[~df.player_id.isin(excluded_ids)]
+    df = df.reset_index(drop=True)
+    t1_stop = perf_counter()
+    logging.debug(f"get_latest_live_df({league}) took {t1_stop - t1_start}")
+    return df
+
+
 def check_live_entry(league: str, player_id: str) -> bool:
     """Check if player has entered live tournament.
 
@@ -367,8 +422,8 @@ def check_live_entry(league: str, player_id: str) -> bool:
     logging.info(f"Checking live entry for player {player_id} in {league} league")
 
     try:
-        # Get raw data first
-        df = get_live_df(league, True)
+        # Use the latest non-empty snapshot only (faster and sufficient for membership checks)
+        df = get_latest_live_df(league, True)
 
         # Use our local bracket filtering
         _, fullish_brackets = get_full_brackets(df)
