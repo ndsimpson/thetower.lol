@@ -1772,6 +1772,36 @@ class TourneyRoles(BaseCog, name="Tournament Roles"):
         # Mark settings as modified
         self.mark_data_modified()
 
+    @tourneyroles_group.command(name="stop_update")
+    async def stop_update_command(self, ctx):
+        """Stop any ongoing role update"""
+        if not self.currently_updating:
+            return await ctx.send("❌ No role update is currently in progress")
+
+        if not hasattr(self, 'update_task') or not self.update_task or self.update_task.done():
+            return await ctx.send("❌ No active update task found")
+
+        try:
+            # Cancel the background task
+            self.update_task.cancel()
+
+            # Reset the updating flag
+            self.currently_updating = False
+
+            # Update progress if it exists
+            if hasattr(self, 'update_progress') and self.update_progress:
+                self.update_progress["completed"] = True
+                self.update_progress["error"] = "Update cancelled by user"
+
+            await ctx.send("🛑 Role update has been cancelled")
+
+            # Log the cancellation
+            self.logger.info(f"Role update cancelled by {ctx.author}")
+
+        except Exception as e:
+            self.logger.error(f"Error cancelling update: {e}")
+            await ctx.send(f"❌ Error cancelling update: {str(e)}")
+
     @tourneyroles_group.command(name="set_verified_role")
     async def set_verified_role_command(self, ctx, role: discord.Role = None):
         """
