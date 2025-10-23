@@ -220,7 +220,7 @@ def compute_player_lookup():
 
     raw_data_tab.dataframe(dataframe_styler(filtered_player_df), use_container_width=True, height=800)
 
-    small_df = player_df.loc[:9]
+    small_df = player_df.loc[:10]
     info_tab.write(
         '<div style="overflow-x:auto;">' + dataframe_styler(small_df).to_html(escape=False) + "</div>",
         unsafe_allow_html=True,
