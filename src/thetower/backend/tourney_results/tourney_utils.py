@@ -408,22 +408,27 @@ def get_latest_live_df(league: str, shun: bool = False) -> pd.DataFrame:
     return df
 
 
-def check_live_entry(league: str, player_id: str) -> bool:
+def check_live_entry(league: str, player_id: str, fast: bool = False) -> bool:
     """Check if player has entered live tournament.
 
     Args:
         league: League identifier
         player_id: Player ID to check
+        fast: If True, use only latest checkpoint for speed. If False, use full recent data for accuracy.
 
     Returns:
         True if player has entered, False otherwise
     """
     t1_start = perf_counter()
-    logging.info(f"Checking live entry for player {player_id} in {league} league")
+    logging.info(f"Checking live entry for player {player_id} in {league} league (fast={fast})")
 
     try:
-        # Use the latest non-empty snapshot only (faster and sufficient for membership checks)
-        df = get_latest_live_df(league, True)
+        if fast:
+            # Use the latest non-empty snapshot only (faster)
+            df = get_latest_live_df(league, True)
+        else:
+            # Use the same data loading as the live bracket view for consistency
+            df = get_live_df(league, True)
 
         # Use our local bracket filtering
         _, fullish_brackets = get_full_brackets(df)
@@ -433,7 +438,7 @@ def check_live_entry(league: str, player_id: str) -> bool:
         player_found = player_id in filtered_df.player_id.values
 
         t1_stop = perf_counter()
-        logging.debug(f"check_live_entry({league}, {player_id}) took {t1_stop - t1_start:.3f} seconds")
+        logging.debug(f"check_live_entry({league}, {player_id}, fast={fast}) took {t1_stop - t1_start:.3f} seconds")
         return player_found
 
     except (IndexError, ValueError):
@@ -451,7 +456,7 @@ def check_all_live_entry(player_id: str) -> bool:
     """
     t1_start = perf_counter()
     for league in leagues:
-        if check_live_entry(league, player_id):
+        if check_live_entry(league, player_id, fast=True):
             t1_stop = perf_counter()
             logging.debug(f"check_all_live_entry({player_id}) took {t1_stop - t1_start}")
             return True
