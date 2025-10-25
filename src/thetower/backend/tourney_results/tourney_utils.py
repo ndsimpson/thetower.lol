@@ -280,7 +280,7 @@ def get_live_df(league: str, shun: bool = False) -> pd.DataFrame:
     home = Path(os.getenv("HOME"))
     live_path = home / "tourney" / "results_cache" / f"{league}_live"
 
-    all_files = sorted(live_path.glob("*.csv"))
+    all_files = sorted(live_path.glob("*.csv"), key=get_time)
 
     # Filter out empty files
     non_empty_files = [f for f in all_files if f.stat().st_size > 0]
@@ -373,7 +373,7 @@ def get_latest_live_df(league: str, shun: bool = False) -> pd.DataFrame:
     home = Path(os.getenv("HOME"))
     live_path = home / "tourney" / "results_cache" / f"{league}_live"
 
-    all_files = sorted(live_path.glob("*.csv"))
+    all_files = sorted(live_path.glob("*.csv"), key=get_time)
     non_empty_files = [f for f in all_files if f.stat().st_size > 0]
 
     if not non_empty_files:
@@ -414,7 +414,8 @@ def check_live_entry(league: str, player_id: str, fast: bool = False) -> bool:
     Args:
         league: League identifier
         player_id: Player ID to check
-        fast: If True, use only latest checkpoint for speed. If False, use full recent data for accuracy.
+        fast: If True, use only latest checkpoint (sufficient for participation checking since players persist in checkpoints).
+              If False, use full recent data (for detailed bracket analysis).
 
     Returns:
         True if player has entered, False otherwise
@@ -424,7 +425,7 @@ def check_live_entry(league: str, player_id: str, fast: bool = False) -> bool:
 
     try:
         if fast:
-            # Use the latest non-empty snapshot only (faster)
+            # Use the latest checkpoint only (efficient for participation checking)
             df = get_latest_live_df(league, True)
         else:
             # Use the same data loading as the live bracket view for consistency
