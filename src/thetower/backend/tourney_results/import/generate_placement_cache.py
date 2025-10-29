@@ -333,13 +333,20 @@ def main():
         execute_once()
         return
 
-    # otherwise schedule a recurring job every 30 minutes like import_results
-    schedule.every(30).minutes.do(execute_once)
-    logging.info("Scheduled placement cache generation every 30 minutes")
+    # run once immediately so the long-running process kicks off work
+    # as soon as it starts, then fall into scheduled runs on :01 and :31
+    # (this follows the schedule usage in get_live_results.py)
+    execute_once()
+
+    # schedule at :01 and :31 each hour (30-minute cycles anchored to the clock)
+    schedule.every().hour.at(":01").do(execute_once)
+    schedule.every().hour.at(":31").do(execute_once)
+    logging.info("Scheduled placement cache generation on :01 and :31 each hour")
 
     while True:
         n = schedule.idle_seconds()
         if n is None:
+            # no jobs scheduled? sleep a short while and re-evaluate
             n = 60
         logging.debug(f"Sleeping {n} seconds")
         time.sleep(min(n, 60))
@@ -347,5 +354,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
     main()
