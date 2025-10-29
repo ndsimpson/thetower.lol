@@ -244,6 +244,12 @@ def service_status_page():
             "service": "tower-recalc_worker",
             "restart_allowed": True,
         },
+        "generate_live_bracket_cache": {
+            "name": "Live Bracket Cache",
+            "description": "Generates and maintains the live bracket cache used by live views",
+            "service": "generate_live_bracket_cache",
+            "restart_allowed": True,
+        },
     }
 
     # Refresh controls

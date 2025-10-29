@@ -84,6 +84,11 @@ def restart_get_results(modeladmin, request, queryset):
     subprocess.call("systemctl restart get_results", shell=True)
 
 
+@admin.action(description="Restart live bracket cache generator")
+def restart_generate_live_bracket_cache(modeladmin, request, queryset):
+    subprocess.call("systemctl restart generate_live_bracket_cache", shell=True)
+
+
 @admin.action(description="Restart recalc worker")
 def restart_recalc_worker(modeladmin, request, queryset):
     subprocess.call("systemctl restart tower-recalc_worker", shell=True)
@@ -252,6 +257,7 @@ class TourneyResultAdmin(SimpleHistoryAdmin):
         restart_thetower_bot,
         restart_import_results,
         restart_get_results,
+        restart_generate_live_bracket_cache,
         restart_recalc_worker,
         generate_summary,
         regenerate_battle_conditions,
