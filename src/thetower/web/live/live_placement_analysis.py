@@ -1,3 +1,4 @@
+import datetime
 import logging
 from time import perf_counter
 
@@ -5,7 +6,12 @@ import pandas as pd
 import plotly.express as px
 import streamlit as st
 
-from thetower.web.live.data_ops import analyze_wave_placement, get_placement_analysis_data, require_tournament_data
+from thetower.web.live.data_ops import (
+    analyze_wave_placement,
+    format_time_ago,
+    get_placement_analysis_data,
+    require_tournament_data,
+)
 from thetower.web.live.ui_components import setup_common_ui
 
 
@@ -18,8 +24,35 @@ def live_score():
     # Use common UI setup
     options, league, is_mobile = setup_common_ui()
 
-    # Get placement analysis data
-    df, latest_time, bracket_creation_times = get_placement_analysis_data(league)
+    # Get placement analysis data (plus tourney start date)
+    df, latest_time, bracket_creation_times, tourney_start_date = get_placement_analysis_data(league)
+
+    # Show tourney start date so users know which tourney the cache is for
+    try:
+        st.caption(f"Tourney start date: {tourney_start_date}")
+    except Exception:
+        st.write(f"Tourney start date: {tourney_start_date}")
+
+    # Show data refresh info similar to other live pages
+    try:
+        ts = latest_time
+        if ts is None:
+            refresh_text = "Unknown"
+            ts_display = "Unknown"
+        else:
+            # Make timezone explicit: show UTC timestamp
+            if ts.tzinfo is None:
+                ts_utc = ts.replace(tzinfo=datetime.timezone.utc)
+            else:
+                ts_utc = ts.astimezone(datetime.timezone.utc)
+
+            refresh_text = format_time_ago(ts_utc)
+            ts_display = ts_utc.strftime("%Y-%m-%d %H:%M:%S UTC")
+
+        st.caption(f"📊 Data last refreshed: {refresh_text} ({ts_display})")
+    except Exception:
+        # Don't break the page for display issues
+        pass
 
     # Player selection
     selected_player = st.selectbox("Select player", [""] + sorted(df["real_name"].unique()), key=f"player_selector_{league}")

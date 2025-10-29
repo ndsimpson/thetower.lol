@@ -1,4 +1,5 @@
 import datetime
+import json
 import logging
 import os
 from functools import wraps
@@ -7,7 +8,13 @@ from pathlib import Path
 import pandas as pd
 import streamlit as st
 
-from thetower.backend.tourney_results.tourney_utils import get_full_brackets, get_live_df, get_time, include_shun_enabled
+from thetower.backend.tourney_results.tourney_utils import (
+    get_full_brackets,
+    get_latest_live_df,
+    get_live_df,
+    get_time,
+    include_shun_enabled,
+)
 
 # Cache configuration
 CACHE_TTL_SECONDS = 300  # 5 minutes cache duration
@@ -143,22 +150,118 @@ def get_placement_analysis_data(league: str):
     """
     # Respect filesystem flag: if include_shun file exists, include shunned players.
     include_shun = include_shun_enabled()
-    df = get_live_data(league, include_shun)
 
-    # Use the shared bracket filtering logic
-    _, fullish_brackets = get_full_brackets(df)
-    df = df[df.bracket.isin(fullish_brackets)]
+    # Try to use per-tourney cache placed alongside live snapshots.
+    try:
+        home = Path(os.getenv("HOME"))
+        logging.info(f"get_placement_analysis_data: HOME={home!s}")
+        live_path = home / "tourney" / "results_cache" / f"{league}_live"
+        logging.info(f"get_placement_analysis_data: live_path={live_path}")
 
-    # Cast real_name to string
-    df["real_name"] = df["real_name"].astype("str")
+        all_files = sorted([p for p in live_path.glob("*.csv") if p.stat().st_size > 0], key=get_time)
+        logging.info(f"get_placement_analysis_data: found {len(all_files)} non-empty CSV snapshots in {live_path}")
 
-    # Get latest time point
-    latest_time = df["datetime"].max()
+        if all_files:
+            last_file = all_files[-1]
+            logging.info(f"get_placement_analysis_data: last_file={last_file}")
+            last_time = get_time(last_file)
+            tourney_date = last_time.date().isoformat()
+            logging.info(f"get_placement_analysis_data: last_time={last_time}, initial tourney_date={tourney_date}")
 
-    # Get bracket creation times
-    bracket_creation_times = {bracket: df[df["bracket"] == bracket]["datetime"].min() for bracket in df["bracket"].unique()}
+            # Placement cache files are written using the tourney start date.
+            # Snapshots can cross midnight; try only today and yesterday as
+            # candidates so we limit the lookback window to 2 days total.
+            candidate_dates = [last_time.date() - datetime.timedelta(days=delta) for delta in range(0, 2)]
+            cache_file = None
+            found_date = None
+            for cand in candidate_dates:
+                cand_name = cand.isoformat()
+                cand_file = live_path / f"{cand_name}_placement_cache.json"
+                logging.info(f"get_placement_analysis_data: checking candidate cache {cand_file}")
+                if cand_file.exists():
+                    cache_file = cand_file
+                    found_date = cand_name
+                    logging.info(f"get_placement_analysis_data: selected cache_file={cache_file} for tourney start {found_date}")
+                    break
 
-    return df, latest_time, bracket_creation_times
+            if cache_file:
+                logging.info(f"get_placement_analysis_data: cache_file exists: {cache_file}")
+                try:
+                    payload_text = cache_file.read_text(encoding="utf8")
+                    logging.info(f"get_placement_analysis_data: cache_file size={len(payload_text)} bytes")
+                    payload = json.loads(payload_text)
+
+                    payload_include_shun = payload.get("include_shun")
+                    logging.info(f"get_placement_analysis_data: payload include_shun={payload_include_shun}, desired include_shun={include_shun}")
+
+                    # only accept cache if include_shun matches what we're using
+                    if payload_include_shun == include_shun:
+                        # Ensure the cache was generated against the latest snapshot.
+                        # If the cache refers to a different snapshot than the
+                        # latest available CSV, refuse to use it and surface a
+                        # friendly message so the UI doesn't mix stale cache
+                        # metadata with newer CSVs.
+                        payload_snapshot = payload.get("snapshot_iso")
+                        if payload_snapshot:
+                            try:
+                                payload_snapshot_name = Path(payload_snapshot).name
+                            except Exception:
+                                payload_snapshot_name = str(payload_snapshot)
+                        else:
+                            payload_snapshot_name = None
+
+                        last_snapshot_name = last_file.name
+                        logging.info(f"get_placement_analysis_data: payload snapshot name={payload_snapshot_name}, latest snapshot name={last_snapshot_name}")
+
+                        if payload_snapshot_name != last_snapshot_name:
+                            logging.warning(
+                                "get_placement_analysis_data: cache snapshot does not match latest CSV; refusing to use stale cache"
+                            )
+                            # Surface an actionable message to the UI via ValueError
+                            raise ValueError(
+                                "Live Placement Analysis is lagging behind live data.  Please wait while we catch up."
+                            )
+                        # Parse bracket_creation_times (stored as ISO strings) back to datetimes
+                        raw_times = payload.get("bracket_creation_times", {}) or {}
+                        bracket_creation_times = {
+                            br: (datetime.datetime.fromisoformat(ts) if isinstance(ts, str) else ts)
+                            for br, ts in raw_times.items()
+                        }
+                        logging.info(f"get_placement_analysis_data: parsed {len(bracket_creation_times)} bracket_creation_times from cache")
+
+                        # Load only latest snapshot to build the live DataFrame for analysis
+                        df_latest = get_latest_live_df(league, include_shun)
+                        logging.info(f"get_placement_analysis_data: df_latest.shape={getattr(df_latest, 'shape', None)}")
+
+                        # compute fullish brackets from latest snapshot
+                        bracket_counts = dict(df_latest.groupby("bracket").player_id.unique().map(lambda player_ids: len(player_ids)))
+                        fullish_brackets = [bracket for bracket, count in bracket_counts.items() if count >= 28]
+                        logging.info(f"get_placement_analysis_data: found {len(fullish_brackets)} fullish_brackets (>=28 players)")
+
+                        df = df_latest[df_latest.bracket.isin(fullish_brackets)].copy()
+                        df["real_name"] = df["real_name"].astype("str")
+                        latest_time = df["datetime"].max()
+                        logging.info(f"get_placement_analysis_data: filtered df.shape={getattr(df, 'shape', None)}, latest_time={latest_time}")
+
+                        logging.info(f"Using placement cache for {league} {tourney_date}")
+                        # Return the tourney start date (the cache is keyed by start date)
+                        tourney_start_date = found_date or tourney_date
+                        return df, latest_time, bracket_creation_times, tourney_start_date
+                    else:
+                        logging.info("get_placement_analysis_data: cache include_shun mismatch; rejecting cache")
+                except Exception:
+                    logging.exception(f"Failed to read/parse placement cache {cache_file}; will fall back to raising ValueError")
+            else:
+                logging.info(f"get_placement_analysis_data: cache_file does not exist: {cache_file}")
+
+    except Exception:
+        logging.exception("Failed to check placement cache path or list snapshots; will fall back to raising ValueError")
+
+    # If we reach here, no placement cache was available or it was invalid.
+    # Per product decision: do not fall back to on-the-fly aggregation. Let the
+    # caller handle a missing cache (the Streamlit page will show a friendly
+    # message via the require_tournament_data decorator).
+    raise ValueError("Placement cache not available yet; try again later")
 
 
 def analyze_wave_placement(df, wave_to_analyze, latest_time):
@@ -270,8 +373,14 @@ def require_tournament_data(func):
     def wrapper(*args, **kwargs):
         try:
             return func(*args, **kwargs)
-        except (IndexError, ValueError):
-            return handle_no_data()
+        except (IndexError, ValueError) as e:
+            # Show a helpful message from the exception (e.g., cache missing)
+            try:
+                st.info(str(e))
+            except Exception:
+                # Fallback to generic handler if Streamlit is not available
+                return handle_no_data()
+            return None
 
     return wrapper
 
