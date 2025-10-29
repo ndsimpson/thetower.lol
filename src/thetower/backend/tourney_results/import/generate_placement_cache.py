@@ -35,11 +35,9 @@ from thetower.backend.tourney_results.tourney_utils import get_time
 logging.basicConfig(level=logging.INFO)
 
 # Configuration
-HOME = Path(os.getenv("HOME", "C:/data"))
-LIVE_BASE = HOME / "tourney" / "results_cache"
+LIVE_BASE = Path.home() / "tourney" / "results_cache"
 # place caches in the existing results_cache directory (requested):
 # cache files will be written under LIVE_BASE to keep them alongside snapshots
-# e.g. C:/data/tourney/results_cache/Legend_2024-10-23_placement_cache.json
 CACHE_BASE = LIVE_BASE
 GAP_HOURS = 42
 
