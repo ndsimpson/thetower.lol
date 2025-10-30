@@ -7,7 +7,7 @@ Gracefully handles Windows development environments.
 
 import platform
 import subprocess
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, Tuple
 
 import streamlit as st
@@ -81,11 +81,18 @@ def get_service_start_time(service_name: str) -> Optional[str]:
                     if timestamp_str.startswith(("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")):
                         timestamp_str = " ".join(timestamp_str.split()[1:])
 
-                    # Parse the datetime
+                    # Parse the datetime (systemctl gives e.g. "2024-08-20 14:30:15 UTC")
                     dt = datetime.strptime(timestamp_str, "%Y-%m-%d %H:%M:%S %Z")
 
-                    # Calculate how long ago this was
-                    now = datetime.utcnow()
+                    # Ensure the parsed datetime is timezone-aware. If the
+                    # parsed object is naive, assume UTC (systemctl emits UTC
+                    # in our deployments).
+                    if dt.tzinfo is None:
+                        dt = dt.replace(tzinfo=timezone.utc)
+
+                    # Calculate how long ago this was using a timezone-aware
+                    # now in UTC.
+                    now = datetime.now(timezone.utc)
                     time_diff = now - dt
 
                     if time_diff.days > 0:
@@ -111,6 +118,47 @@ def get_service_start_time(service_name: str) -> Optional[str]:
 
     except (subprocess.TimeoutExpired, subprocess.CalledProcessError, FileNotFoundError):
         return "Unavailable"
+
+
+def get_service_logs(service_name: str, lines: int = 8) -> str:
+    """
+    Get the last `lines` of console output for a service from journalctl.
+
+    Returns a plaintext string suitable for showing in a code block. On
+    Windows or when journalctl is unavailable, returns a friendly message.
+    """
+    if is_windows():
+        return "Development Mode - logs unavailable"
+
+    try:
+        # Try by unit name as provided. If that yields nothing, try with
+        # a .service suffix as some deployments use that explicitly.
+        result = subprocess.run(
+            ["journalctl", "-u", service_name, "-n", str(lines), "--no-pager", "-o", "short-iso"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+
+        output = (result.stdout or "").strip()
+
+        if not output:
+            # Try with explicit .service suffix
+            result = subprocess.run(
+                ["journalctl", "-u", f"{service_name}.service", "-n", str(lines), "--no-pager", "-o", "short-iso"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            output = (result.stdout or "").strip()
+
+        if not output:
+            return "No logs found"
+
+        return output
+
+    except (subprocess.TimeoutExpired, subprocess.CalledProcessError, FileNotFoundError):
+        return "Logs unavailable"
 
 
 def get_status_color(active_state: str, sub_state: str) -> str:
@@ -258,8 +306,11 @@ def service_status_page():
         if st.button("🔄 Refresh Now"):
             st.rerun()
     with col2:
-        utc_time = datetime.utcnow().strftime("%H:%M:%S")
+        utc_time = datetime.now(timezone.utc).strftime("%H:%M:%S")
         st.markdown(f"*Last updated: {utc_time} UTC*")
+
+    # How many log lines to show for each service
+    log_lines = st.slider("Log lines to show in service status", min_value=1, max_value=50, value=8)
 
     st.markdown("---")
 
@@ -368,6 +419,16 @@ def service_status_page():
                                 else:
                                     st.error(f"❌ Failed to {action_text} {config['name']}")
 
+        # Show recent console logs in an expander
+        try:
+            logs = get_service_logs(config["service"], lines=log_lines)
+        except Exception:
+            logs = "Logs unavailable"
+
+        with st.expander(f"📝 Recent logs ({config['name']})"):
+            # Use code block for preserved formatting
+            st.code(logs)
+
         st.markdown("---")
 
     # Summary section
@@ -428,7 +489,9 @@ def service_status_page():
 
             from datetime import timedelta
 
-            from django.utils import timezone
+            # Import django timezone under a different name to avoid
+            # shadowing the module-level `timezone` name used above.
+            from django.utils import timezone as dj_timezone
 
             from thetower.backend.tourney_results.models import TourneyResult
 
@@ -437,7 +500,7 @@ def service_status_page():
             failed_count = TourneyResult.objects.filter(needs_recalc=True, recalc_retry_count__gte=3).count()
 
             # Get recent processing stats (last 24h)
-            yesterday = timezone.now() - timedelta(days=1)
+            yesterday = dj_timezone.now() - timedelta(days=1)
             recent_processed = TourneyResult.objects.filter(last_recalc_at__gte=yesterday).count()
 
             col1, col2, col3 = st.columns(3)
