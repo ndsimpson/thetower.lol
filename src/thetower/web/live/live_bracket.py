@@ -9,6 +9,7 @@ import streamlit as st
 
 from thetower.backend.tourney_results.data import get_player_id_lookup
 from thetower.backend.tourney_results.formatting import BASE_URL, make_player_url
+from thetower.backend.tourney_results.shun_config import include_shun_enabled_for
 from thetower.web.live.data_ops import (
     format_time_ago,
     get_bracket_data,
@@ -37,12 +38,20 @@ def live_bracket():
     if refresh_timestamp:
         time_ago = format_time_ago(refresh_timestamp)
         st.caption(f"📊 Data last refreshed: {time_ago} ({refresh_timestamp.strftime('%Y-%m-%d %H:%M:%S')} UTC)")
+        # Indicate whether shunned players are included for this page
+        try:
+            include_shun = include_shun_enabled_for("live_bracket")
+            st.caption(f"🔍 Including shunned players: {'Yes' if include_shun else 'No'}")
+        except Exception:
+            # Don't break the page if the shun config can't be read
+            pass
     else:
         st.caption("📊 Data refresh time: Unknown")
 
     # Get live data and process brackets
     try:
-        df = get_live_data(league, True)
+        include_shun = include_shun_enabled_for("live_bracket")
+        df = get_live_data(league, include_shun)
         bracket_order, fullish_brackets = get_bracket_data(df)
         df = df[df.bracket.isin(fullish_brackets)].copy()  # no sniping
 

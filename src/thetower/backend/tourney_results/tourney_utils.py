@@ -17,21 +17,10 @@ from django.db.models import Q
 from .constants import champ, leagues, legend
 from .data import get_banned_ids, get_player_id_lookup, get_shun_ids, get_sus_ids, get_tourneys
 from .models import Injection, PromptTemplate, TourneyResult, TourneyRow
+from .shun_config import include_shun_enabled_for
 
 # Initialize logging
 logging.basicConfig(level=logging.INFO)
-
-
-def include_shun_enabled() -> bool:
-    """Filesystem flag: if `include_shun` exists in the repository root, include shunned players.
-
-    Returns:
-        True if the flag file exists (shunned players are INCLUDED), False otherwise
-        (shunned players are excluded).
-    """
-    # Project root is four parents up from src/thetower/backend/...
-    repo_root = Path(__file__).resolve().parents[4]
-    return (repo_root / "include_shun").exists()
 
 
 def create_tourney_rows(tourney_result: TourneyResult) -> None:
@@ -72,9 +61,11 @@ def create_tourney_rows(tourney_result: TourneyResult) -> None:
         logging.info(f"There are {len(df.query('tourney_name.str.len() == 0'))} blank tourney names.")
         df.loc[df["tourney_name"].str.len() == 0, "tourney_name"] = df["id"]
 
-    # Exclude sus IDs, banned IDs, and exclude shun IDs unless the include_shun flag file exists
+    # Exclude suspicious and banned IDs. Also exclude shunned IDs unless the
+    # per-operation shun flag (configured via include_shun.json) allows inclusion.
+    # for create_tourney_rows is enabled.
     excluded_ids = get_sus_ids() | get_banned_ids()
-    if not include_shun_enabled():
+    if not include_shun_enabled_for("create_tourney_rows"):
         excluded_ids = excluded_ids | get_shun_ids()
     positions = calculate_positions(df.id, df.index, df.wave, excluded_ids)
 
@@ -154,9 +145,11 @@ def reposition(tourney_result: TourneyResult, testrun: bool = False, verbose: bo
     waves = [datum[1] for datum in bulk_data]
     nicknames = [datum[2] for datum in bulk_data]
 
-    # Exclude sus IDs, banned IDs, and exclude shun IDs unless the include_shun flag file exists
+    # Exclude suspicious and banned IDs. Also exclude shunned IDs unless the
+    # per-operation shun flag (configured via include_shun.json) allows inclusion.
+    # for reposition is enabled.
     excluded_ids = get_sus_ids() | get_banned_ids()
-    if not include_shun_enabled():
+    if not include_shun_enabled_for("reposition"):
         excluded_ids = excluded_ids | get_shun_ids()
     positions = calculate_positions(ids, indexes, waves, excluded_ids)
 

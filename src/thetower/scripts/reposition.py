@@ -15,7 +15,8 @@ from thetower.backend.tourney_results.data import get_shun_ids, get_sus_ids
 
 # Local imports
 from thetower.backend.tourney_results.models import TourneyResult, TourneyRow
-from thetower.backend.tourney_results.tourney_utils import include_shun_enabled, reposition
+from thetower.backend.tourney_results.shun_config import include_shun_enabled_for
+from thetower.backend.tourney_results.tourney_utils import reposition
 
 # Initialize logging
 logging.basicConfig(level=logging.INFO)
@@ -41,7 +42,7 @@ def view_broken_results():
 
     # Get the excluded player IDs; respect filesystem flag
     excluded_ids = get_sus_ids()
-    if not include_shun_enabled():
+    if not include_shun_enabled_for("reposition"):
         excluded_ids = excluded_ids | get_shun_ids()
 
     # Query for TourneyRows

@@ -5,13 +5,13 @@ import pandas as pd
 import plotly.express as px
 import streamlit as st
 
+from thetower.backend.tourney_results.shun_config import include_shun_enabled_for
 from thetower.web.live.data_ops import (
     format_time_ago,
     get_bracket_stats,
     get_cached_plot_data,
     get_data_refresh_timestamp,
     get_processed_data,
-    include_shun_enabled,
     require_tournament_data,
 )
 from thetower.web.live.ui_components import setup_common_ui
@@ -30,11 +30,18 @@ def bracket_analysis():
     if refresh_timestamp:
         time_ago = format_time_ago(refresh_timestamp)
         st.caption(f"📊 Data last refreshed: {time_ago} ({refresh_timestamp.strftime('%Y-%m-%d %H:%M:%S')} UTC)")
+        # Indicate whether shunned players are included for this page
+        try:
+            include_shun = include_shun_enabled_for("live_bracket_analysis")
+            st.caption(f"🔍 Including shunned players: {'Yes' if include_shun else 'No'}")
+        except Exception:
+            pass
     else:
         st.caption("📊 Data refresh time: Unknown")
 
     # Get processed data
-    df, _, ldf, _, _ = get_processed_data(league, include_shun_enabled())
+    include_shun = include_shun_enabled_for("live_bracket_analysis")
+    df, _, ldf, _, _ = get_processed_data(league, include_shun)
 
     # Get bracket statistics
     bracket_stats = get_bracket_stats(ldf)

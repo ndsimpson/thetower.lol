@@ -30,6 +30,7 @@ from thetower.backend.tourney_results.constants import leagues
 
 # used to map player_id -> real display name for caches
 from thetower.backend.tourney_results.data import get_player_id_lookup
+from thetower.backend.tourney_results.shun_config import include_shun_enabled_for
 from thetower.backend.tourney_results.tourney_utils import get_time
 
 logging.basicConfig(level=logging.INFO)
@@ -320,13 +321,19 @@ def process_tourney_group(league: str, group: list[Path], include_shun: bool = F
 
 def execute_once():
     logging.info("Starting placement cache generation run")
+    # Read current desired include_shun value for placement analysis so we
+    # generate caches that match the UI configuration. This ensures that when
+    # include_shun is flipped in `include_shun.json` the generator will produce
+    # a cache with the matching payload and the consumer will accept it.
+    include_shun = include_shun_enabled_for("live_placement")
+    logging.info(f"Placement cache generation: include_shun={include_shun}")
     for league in leagues:
         try:
             snaps = list_live_snapshots(league)
             groups = group_snapshots_into_tourneys(snaps)
             logging.info(f"Found {len(groups)} tourney groups for league {league}")
             for group in groups:
-                process_tourney_group(league, group, include_shun=False)
+                process_tourney_group(league, group, include_shun=include_shun)
         except Exception:
             logging.exception(f"Failed processing league {league}")
     logging.info("Placement cache generation run complete")

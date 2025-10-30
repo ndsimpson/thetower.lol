@@ -8,11 +8,11 @@ import streamlit as st
 from thetower.backend.tourney_results.constants import champ
 from thetower.backend.tourney_results.data import get_tourneys
 from thetower.backend.tourney_results.models import TourneyResult
+from thetower.backend.tourney_results.shun_config import include_shun_enabled_for
 from thetower.web.live.data_ops import (
     format_time_ago,
     get_data_refresh_timestamp,
     get_processed_data,
-    include_shun_enabled,
     process_display_names,
     require_tournament_data,
 )
@@ -33,11 +33,18 @@ def live_progress():
     if refresh_timestamp:
         time_ago = format_time_ago(refresh_timestamp)
         st.caption(f"📊 Data last refreshed: {time_ago} ({refresh_timestamp.strftime('%Y-%m-%d %H:%M:%S')} UTC)")
+        # Indicate whether shunned players are included for this page
+        try:
+            include_shun = include_shun_enabled_for("live_progress")
+            st.caption(f"🔍 Including shunned players: {'Yes' if include_shun else 'No'}")
+        except Exception:
+            pass
     else:
         st.caption("📊 Data refresh time: Unknown")
 
     # Get processed data
-    df, tdf, ldf, first_moment, last_moment = get_processed_data(league, include_shun_enabled())
+    include_shun = include_shun_enabled_for("live_progress")
+    df, tdf, ldf, first_moment, last_moment = get_processed_data(league, include_shun)
 
     # Process display names for better visualization
     tdf = process_display_names(tdf)

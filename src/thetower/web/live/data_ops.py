@@ -8,12 +8,12 @@ from pathlib import Path
 import pandas as pd
 import streamlit as st
 
+from thetower.backend.tourney_results.shun_config import include_shun_enabled_for
 from thetower.backend.tourney_results.tourney_utils import (
     get_full_brackets,
     get_latest_live_df,
     get_live_df,
     get_time,
-    include_shun_enabled,
 )
 
 # Cache configuration
@@ -148,8 +148,9 @@ def get_placement_analysis_data(league: str):
         - Latest time
         - Bracket creation times dict
     """
-    # Respect filesystem flag: if include_shun file exists, include shunned players.
-    include_shun = include_shun_enabled()
+    # Respect filesystem/JSON flag for this page: include shunned players when
+    # configured for the live_placement page (uses cached JSON with TTL).
+    include_shun = include_shun_enabled_for("live_placement")
 
     # Try to use per-tourney cache placed alongside live snapshots.
     try:

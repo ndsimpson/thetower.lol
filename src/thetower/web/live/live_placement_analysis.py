@@ -6,6 +6,7 @@ import pandas as pd
 import plotly.express as px
 import streamlit as st
 
+from thetower.backend.tourney_results.shun_config import include_shun_enabled_for
 from thetower.web.live.data_ops import (
     analyze_wave_placement,
     format_time_ago,
@@ -50,6 +51,12 @@ def live_score():
             ts_display = ts_utc.strftime("%Y-%m-%d %H:%M:%S UTC")
 
         st.caption(f"📊 Data last refreshed: {refresh_text} ({ts_display})")
+        # Indicate whether shunned players are included for this page
+        try:
+            include_shun = include_shun_enabled_for("live_placement")
+            st.caption(f"🔍 Including shunned players: {'Yes' if include_shun else 'No'}")
+        except Exception:
+            pass
     except Exception:
         # Don't break the page for display issues
         pass

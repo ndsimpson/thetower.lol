@@ -38,3 +38,4 @@ env/
 venv/
 ENV/
 thetower.lol.code-workspace
+include_shun.json

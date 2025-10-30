@@ -5,7 +5,8 @@ import streamlit as st
 from thetower.backend.tourney_results.constants import champ, how_many_results_public_site
 from thetower.backend.tourney_results.data import get_tourneys
 from thetower.backend.tourney_results.models import TourneyResult
-from thetower.backend.tourney_results.tourney_utils import get_live_df, include_shun_enabled
+from thetower.backend.tourney_results.shun_config import include_shun_enabled_for
+from thetower.backend.tourney_results.tourney_utils import get_live_df
 from thetower.web.util import get_league_selection, get_options
 
 
@@ -27,7 +28,8 @@ def live_score():
 
     tab = st
     try:
-        df = get_data(league, include_shun_enabled())
+        include_shun = include_shun_enabled_for("live_score")
+        df = get_data(league, include_shun)
     except (IndexError, ValueError):
         tab.info("No current data, wait until the tourney day")
         return
