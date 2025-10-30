@@ -35,7 +35,13 @@ from thetower.backend.tourney_results.tourney_utils import get_time
 logging.basicConfig(level=logging.INFO)
 
 # Configuration
-LIVE_BASE = Path.home() / "tourney" / "results_cache"
+# Resolve HOME defensively: prefer explicit env var, fall back to Path.home()
+_home_env = os.getenv("HOME")
+HOME = Path(_home_env) if _home_env else Path.home()
+# Allow an explicit override for the live results base (useful for dev/debug)
+LIVE_BASE = Path(os.getenv("LIVE_RESULTS_BASE") or (HOME / "tourney" / "results_cache"))
+# Log resolved paths early to aid debugging when run under different envs
+logging.info(f"Resolved HOME env: {_home_env!r}, HOME Path: {HOME}, LIVE_BASE: {LIVE_BASE}")
 # place caches in the existing results_cache directory (requested):
 # cache files will be written under LIVE_BASE to keep them alongside snapshots
 CACHE_BASE = LIVE_BASE
@@ -63,10 +69,14 @@ def atomic_write(path: Path, data: dict):
 def list_live_snapshots(league: str):
     """List non-empty live snapshot CSVs for a league, sorted chronologically."""
     live_dir = LIVE_BASE / f"{league}_live"
+    logging.debug(f"Checking live dir for league {league}: {live_dir}")
     if not live_dir.exists():
+        logging.debug(f"Live dir missing for league {league}: {live_dir}")
         return []
     files = [p for p in live_dir.glob("*.csv") if p.stat().st_size > 0]
     files_sorted = sorted(files, key=get_time)
+    if not files_sorted:
+        logging.debug(f"No non-empty CSV snapshots found for league {league} in {live_dir}")
     return files_sorted
 
 
