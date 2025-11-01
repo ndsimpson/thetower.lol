@@ -1,4 +1,5 @@
 import logging
+import os
 from time import perf_counter
 
 import pandas as pd
@@ -30,12 +31,14 @@ def bracket_analysis():
     if refresh_timestamp:
         time_ago = format_time_ago(refresh_timestamp)
         st.caption(f"📊 Data last refreshed: {time_ago} ({refresh_timestamp.strftime('%Y-%m-%d %H:%M:%S')} UTC)")
-        # Indicate whether shunned players are included for this page
-        try:
-            include_shun = include_shun_enabled_for("live_bracket_analysis")
-            st.caption(f"🔍 Including shunned players: {'Yes' if include_shun else 'No'}")
-        except Exception:
-            pass
+        # Indicate whether shunned players are included for this page (only on hidden site)
+        hidden_features = os.environ.get("HIDDEN_FEATURES")
+        if hidden_features:
+            try:
+                include_shun = include_shun_enabled_for("live_bracket_analysis")
+                st.caption(f"🔍 Including shunned players: {'Yes' if include_shun else 'No'}")
+            except Exception:
+                pass
     else:
         st.caption("📊 Data refresh time: Unknown")
 
