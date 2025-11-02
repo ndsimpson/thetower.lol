@@ -46,70 +46,76 @@ options = Options(links_toggle=True, default_graph=Graph.last_16.value, average_
 if st.session_state.get("options") is None:
     st.session_state.options = options
 
-overview_pages = [
+home_info_pages = [
     st.Page("historical/overview.py", title="Overview", icon="🏠", url_path="overview"),
     st.Page("historical/about.py", title="About", icon="👴", url_path="about"),
 ]
 
-live_pages = [
-    # st.Page("live/live_score.py", title="Live Scores", icon="⏱️", url_path="live"),
+current_tournament_pages = [
     st.Page("live/bcs.py", title="Battle Conditions", icon="🔮", url_path="bcs"),
     st.Page("live/live_progress.py", title="Live Progress", icon="⏱️", url_path="liveprogress"),
     st.Page("live/live_results.py", title="Live Results", icon="📋", url_path="liveresults"),
-    st.Page("live/live_bracket_analysis.py", title="Live Bracket Analysis", icon="📉", url_path="livebracketanalysis"),
-    st.Page("live/live_placement_analysis.py", title="Live Placement Analysis", icon="📈", url_path="liveplacement"),
-    st.Page("live/live_bracket.py", title="Live Bracket view", icon="🔠", url_path="livebracketview"),
+    st.Page("live/live_bracket.py", title="Live Bracket View", icon="🔠", url_path="livebracketview"),
 ]
 
-individual_pages = [
+live_analytics_pages = [
+    st.Page("live/live_bracket_analysis.py", title="Live Bracket Analysis", icon="📉", url_path="livebracketanalysis"),
+    st.Page("live/live_placement_analysis.py", title="Live Placement Analysis", icon="📈", url_path="liveplacement"),
+]
+
+player_statistics_pages = [
     st.Page("historical/player.py", title="Individual Player Stats", icon="⛹️", url_path="player"),
     st.Page("historical/comparison.py", title="Player Comparison", icon="🔃", url_path="comparison"),
     st.Page("historical/namechangers.py", title="Namechangers", icon="💩", url_path="namechangers"),
 ]
 
-league_pages = [
+historical_data_pages = [
     st.Page("historical/results.py", title="League Standings", icon="🐳", url_path="results"),
-    # st.Page(partial(compute_results, league=champ, options=options), title="Results Champions", icon="🏆", url_path="champ"),
-    # st.Page(partial(compute_results, league=plat, options=options), title="Results Platinum", icon="📉", url_path="platinum"),
-    # st.Page(partial(compute_results, league=gold, options=options), title="Results Gold", icon="🥇", url_path="gold"),
-    # st.Page(partial(compute_results, league=silver, options=options), title="Results Silver", icon="🥈", url_path="silver"),
-    # st.Page(partial(compute_results, league=copper, options=options), title="Results Copper", icon="🥉", url_path="copper"),
-    st.Page("historical/counts.py", title="Wave cutoff (counts)", icon="🐈", url_path="counts"),
+    st.Page("historical/counts.py", title="Wave Cutoffs", icon="🐈", url_path="counts"),
     st.Page("historical/winners.py", title="Winners", icon="🔥", url_path="winners"),
 ]
 
-deprecated_pages = [
+archive_pages = [
     st.Page("historical/deprecated/top_scores.py", title="Top Scores", icon="🤑", url_path="top"),
     st.Page("historical/deprecated/breakdown.py", title="Breakdown", icon="🪁", url_path="breakdown"),
     st.Page("historical/deprecated/various.py", title="Relics and Avatars", icon="👽", url_path="relics"),
-    st.Page("historical/deprecated/fallen_defenders.py", title="Fallen defenders", icon="🪦", url_path="fallen"),
+    st.Page("historical/deprecated/fallen_defenders.py", title="Fallen Defenders", icon="🪦", url_path="fallen"),
 ]
 
 # Hidden admin pages (only available when HIDDEN_FEATURES env var is set)
-admin_pages = []
+admin_system_health_pages = []
+admin_moderation_pages = []
+
 if hidden_features:
-    admin_pages = [
-        st.Page("admin/duplicate_tournaments.py", title="Duplicate Tournament Entries", icon="🔍", url_path="duplicates"),
+    admin_system_health_pages = [
         st.Page("admin/service_status.py", title="Service Status", icon="🔧", url_path="services"),
         st.Page("admin/codebase_status.py", title="Codebase Status", icon="📦", url_path="codebase"),
-        st.Page("admin/shun_admin.py", title="Shun List Status", icon="🛑", url_path="shunadmin"),
-        st.Page("admin/sus_moderation.py", title="Sus Moderation Records", icon="🚫", url_path="susmoderation"),
-        st.Page("admin/multiple_moderation.py", title="Multiple Moderation Records", icon="⚠️", url_path="multiplemoderation"),
+    ]
+
+    admin_moderation_pages = [
+        st.Page("admin/shun_admin.py", title="Shun List Management", icon="🛑", url_path="shunadmin"),
+        st.Page("admin/sus_moderation.py", title="Sus Moderation", icon="🚫", url_path="susmoderation"),
+        st.Page("admin/multiple_moderation.py", title="Multiple Moderation", icon="⚠️", url_path="multiplemoderation"),
+        st.Page("admin/league_progression.py", title="League Progression", icon="📈", url_path="leagueprogression"),
+        st.Page("admin/duplicate_tournaments.py", title="Duplicate Tournaments", icon="🔍", url_path="duplicates"),
         st.Page("admin/bc_mismatch.py", title="BC Mismatch Analysis", icon="⚖️", url_path="bcmismatch"),
-        st.Page("admin/league_progression.py", title="League Progression Analysis", icon="📈", url_path="leagueprogression"),
     ]
 
 
 page_dict = {}
-page_dict["Overview"] = overview_pages
-page_dict["Live Standings"] = live_pages
-page_dict["Individual Data"] = individual_pages
-page_dict["League Data"] = league_pages
-page_dict["Deprecated"] = deprecated_pages
+page_dict["Home & Info"] = home_info_pages
+page_dict["Current Tournament"] = current_tournament_pages
+page_dict["Live Analytics"] = live_analytics_pages
+page_dict["Player Statistics"] = player_statistics_pages
+page_dict["Historical Data"] = historical_data_pages
+page_dict["Archive"] = archive_pages
 
 # Add admin pages only for hidden features
-if hidden_features and admin_pages:
-    page_dict["Admin"] = admin_pages
+if hidden_features:
+    if admin_system_health_pages:
+        page_dict["Admin - System Health"] = admin_system_health_pages
+    if admin_moderation_pages:
+        page_dict["Admin - Moderation"] = admin_moderation_pages
 
 pg = st.navigation(page_dict)
 
