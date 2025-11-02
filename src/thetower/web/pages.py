@@ -96,6 +96,7 @@ if hidden_features:
         st.Page("admin/sus_moderation.py", title="Sus Moderation Records", icon="🚫", url_path="susmoderation"),
         st.Page("admin/multiple_moderation.py", title="Multiple Moderation Records", icon="⚠️", url_path="multiplemoderation"),
         st.Page("admin/bc_mismatch.py", title="BC Mismatch Analysis", icon="⚖️", url_path="bcmismatch"),
+        st.Page("admin/league_progression.py", title="League Progression Analysis", icon="📈", url_path="leagueprogression"),
     ]
 
 
