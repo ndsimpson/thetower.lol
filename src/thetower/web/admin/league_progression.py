@@ -261,7 +261,7 @@ def main():
                     'Tourney Nick': details.get('latest_nickname', 'Unknown'),
                     'Latest Tourney': details.get('latest_date', 'Unknown'),
                     'Total Tourneys': details.get('tourney_count', 0),
-                    'Sus': '🚨 SUS' if is_sus else '',
+                    'Status': '🚨 SUS' if is_sus else f"<a href='https://admin.thetower.lol/admin/sus/moderationrecord/add/?tower_id={player_id}&moderation_type=sus' target='_blank'>🔗 sus me</a>",
                     'Player Link': player_url
                 })
 
@@ -282,7 +282,7 @@ def main():
             )
 
             # Reorder columns for display
-            final_display_df = display_df[['Player ID Link', 'Real Name', 'Tourney Nick', 'Latest Tourney', 'Total Tourneys', 'Sus']]
+            final_display_df = display_df[['Player ID Link', 'Real Name', 'Tourney Nick', 'Latest Tourney', 'Total Tourneys', 'Status']]
 
             process_time = time.time() - process_start
             print(f"[{time.strftime('%H:%M:%S')}] Data processing completed in {process_time:.2f} seconds")
