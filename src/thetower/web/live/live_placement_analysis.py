@@ -219,6 +219,13 @@ def live_score():
         trendline_options=dict(frac=0.2),
     )
 
+    # Update the legend names for the scatter plot and trendline
+    fig.data[0].name = "Average Placement"
+    fig.data[0].showlegend = True
+    if len(fig.data) > 1:  # Trendline trace exists
+        fig.data[1].name = "Lowess Trendline"
+        fig.data[1].showlegend = True
+
     # Add best case scenario line
     fig.add_scatter(
         x=plot_df["Creation Time"],
