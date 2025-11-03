@@ -338,13 +338,6 @@ def draw_info_tab(info_tab, user, player_id, player_df, hidden_features):
         live_col2.markdown(f'<div style="{center_style}"><a href="{comparison_url}" style="{button_style}">Bracket Comparison</a></div>', unsafe_allow_html=True)
         live_col3.markdown(f'<div style="{center_style}"><a href="{placement_url}" style="{button_style}">Placement Analysis</a></div>', unsafe_allow_html=True)
 
-        # Show the raw URLs for copying in an expander
-        with st.expander("Copy URLs"):
-            st.code(player_url, language="text")
-            st.code(bracket_url, language="text")
-            st.code(comparison_url, language="text")
-            st.code(placement_url, language="text")
-
 
 def write_for_each_patch(patch_tab, player_df):
     wave_data = []
