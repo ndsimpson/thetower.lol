@@ -11,6 +11,7 @@ from thetower.backend.tourney_results.shun_config import include_shun_enabled_fo
 from thetower.web.live.data_ops import (
     analyze_wave_placement,
     format_time_ago,
+    get_data_refresh_timestamp,
     get_placement_analysis_data,
     require_tournament_data,
 )
@@ -26,6 +27,27 @@ def live_score():
     # Use common UI setup
     options, league, is_mobile = setup_common_ui()
 
+    # Show data refresh and shun status upfront so users see it even if cache isn't ready
+    try:
+        refresh_timestamp = get_data_refresh_timestamp(league)
+        if refresh_timestamp:
+            time_ago = format_time_ago(refresh_timestamp)
+            st.caption(f"📊 Data last refreshed: {time_ago} ({refresh_timestamp.strftime('%Y-%m-%d %H:%M:%S')} UTC)")
+        else:
+            st.caption("📊 Data refresh time: Unknown")
+
+        # Indicate whether shunned players are included for this page (only on hidden site)
+        hidden_features = os.environ.get("HIDDEN_FEATURES")
+        if hidden_features:
+            try:
+                include_shun = include_shun_enabled_for("live_placement_cache")
+                st.caption(f"🔍 Including shunned players: {'Yes' if include_shun else 'No'}")
+            except Exception:
+                pass
+    except Exception:
+        # Don't break the page for display issues
+        pass
+
     # Get placement analysis data (plus tourney start date)
     df, latest_time, bracket_creation_times, tourney_start_date = get_placement_analysis_data(league)
 
@@ -35,31 +57,24 @@ def live_score():
     except Exception:
         st.write(f"Tourney start date: {tourney_start_date}")
 
-    # Show data refresh info similar to other live pages
+    # (Optional) If we didn't have a refresh timestamp earlier, show fallback based on latest_time
     try:
-        ts = latest_time
-        if ts is None:
-            refresh_text = "Unknown"
-            ts_display = "Unknown"
-        else:
-            # Make timezone explicit: show UTC timestamp
-            if ts.tzinfo is None:
-                ts_utc = ts.replace(tzinfo=datetime.timezone.utc)
+        if not refresh_timestamp:
+            ts = latest_time
+            if ts is None:
+                refresh_text = "Unknown"
+                ts_display = "Unknown"
             else:
-                ts_utc = ts.astimezone(datetime.timezone.utc)
+                # Make timezone explicit: show UTC timestamp
+                if ts.tzinfo is None:
+                    ts_utc = ts.replace(tzinfo=datetime.timezone.utc)
+                else:
+                    ts_utc = ts.astimezone(datetime.timezone.utc)
 
-            refresh_text = format_time_ago(ts_utc)
-            ts_display = ts_utc.strftime("%Y-%m-%d %H:%M:%S UTC")
+                refresh_text = format_time_ago(ts_utc)
+                ts_display = ts_utc.strftime("%Y-%m-%d %H:%M:%S UTC")
 
-        st.caption(f"📊 Data last refreshed: {refresh_text} ({ts_display})")
-        # Indicate whether shunned players are included for this page (only on hidden site)
-        hidden_features = os.environ.get("HIDDEN_FEATURES")
-        if hidden_features:
-            try:
-                include_shun = include_shun_enabled_for("live_placement_cache")
-                st.caption(f"🔍 Including shunned players: {'Yes' if include_shun else 'No'}")
-            except Exception:
-                pass
+            st.caption(f"📊 Data last refreshed: {refresh_text} ({ts_display})")
     except Exception:
         # Don't break the page for display issues
         pass
