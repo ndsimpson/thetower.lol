@@ -8,7 +8,6 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 from natsort import natsorted
-from plotly.subplots import make_subplots
 
 from thetower.backend.sus.models import PlayerId
 from thetower.backend.tourney_results.constants import (
@@ -67,7 +66,7 @@ def compute_player_lookup():
         compute_search(player=True, comparison=False)
         exit()
 
-    info_tab, graph_tab, raw_data_tab, patch_tab = st.tabs(["Info", "Tourney performance graph", "Full results data", "Patch best"])
+    info_tab, league_graph_tab, raw_data_tab, patch_tab = st.tabs(["Info", "Performance Graph", "Full results data", "Patch best"])
 
     player_ids = PlayerId.objects.filter(id=options.current_player)
     print(f"{player_ids=} {options.current_player=}")
@@ -111,57 +110,6 @@ def compute_player_lookup():
 
     draw_info_tab(info_tab, user, player_id, player_df, hidden_features)
 
-    patches_options = sorted([patch for patch in get_patches() if patch.version_minor], key=lambda patch: patch.start_date, reverse=True)
-    graph_options = [options.default_graph.value] + [
-        value for value in list(Graph.__members__.keys()) + patches_options if value != options.default_graph.value
-    ]
-    patch_col, average_col = graph_tab.columns([1, 1])
-    patch = patch_col.selectbox("Limit results to a patch? (see side bar to change default)", graph_options, key="player_graph_patch")
-    # Use the full set of BattleCondition objects (like /comparison) so users can select any BC
-    all_battle_conditions = sorted(BattleCondition.objects.all(), key=lambda bc: bc.shortcut)
-    filter_bcs = patch_col.multiselect(
-        "Filter by battle conditions?",
-        all_battle_conditions,
-        format_func=lambda bc: f"{bc.name} ({bc.shortcut})",
-        key="player_graph_filter_bcs",
-    )
-    rolling_average = average_col.slider("Use rolling average for results from how many tourneys?", min_value=1, max_value=10, value=5)
-
-    colors, patch_df, stratas = handle_colors_dependant_on_patch(patch, player_df)
-
-    if filter_bcs:
-        sbcs = set(filter_bcs)
-        patch_df = patch_df[patch_df.bcs.map(lambda table_bcs: sbcs & set(table_bcs) == sbcs)]
-        player_df = player_df[player_df.bcs.map(lambda table_bcs: sbcs & set(table_bcs) == sbcs)]
-
-    tbdf = patch_df.reset_index(drop=True)
-    tbdf = filter_lower_leagues(tbdf)
-    tbdf.index = tbdf.index + 1
-    tbdf["average"] = tbdf.wave.rolling(rolling_average, min_periods=1, center=True).mean().astype(int)
-    tbdf["position_average"] = tbdf.position.rolling(rolling_average, min_periods=1, center=True).mean().astype(int)
-    tbdf["bcs"] = tbdf.bcs.map(lambda bc_qs: " / ".join([bc.shortcut for bc in bc_qs]))
-
-    if len(tbdf) > 1:
-        pos_col, tweak_col = graph_tab.columns([1, 1])
-
-        graph_position_instead = pos_col.checkbox("Graph position instead")
-        average_foreground = tweak_col.checkbox("Average in the foreground?", value=False)
-        fig = make_subplots(specs=[[{"secondary_y": True}]])
-
-        if not graph_position_instead:
-            handle_not_graph_position_instead(average_foreground, colors, fig, rolling_average, stratas, tbdf)
-        else:
-            handle_is_graph_position(average_foreground, fig, rolling_average, tbdf)
-
-        handle_start_date_loop(fig, graph_position_instead, tbdf)
-        fig.update_layout(hovermode="x unified")
-
-        graph_tab.plotly_chart(fig)
-
-    additional_column = ["league"] if "league" in tbdf.columns else []
-    additional_format = [None] if "league" in tbdf.columns else []
-
-    player_df["average"] = player_df.wave.rolling(rolling_average, min_periods=1, center=True).mean().astype(int)
     player_df = player_df.reset_index(drop=True)
     player_df.index = player_df.index + 1
     player_df["battle"] = [" / ".join([bc.shortcut for bc in bcs]) for bcs in player_df.bcs]
@@ -171,7 +119,7 @@ def compute_player_lookup():
         # Convert patch objects to strings
         df_copy["patch"] = df_copy["patch"].apply(str)
         return (
-            df_copy[["name", "wave", "#", "date", "patch", "battle"] + additional_column]
+            df_copy[["name", "wave", "#", "date", "patch", "battle"]]
             .style.apply(
                 lambda row: [
                     None,
@@ -180,8 +128,7 @@ def compute_player_lookup():
                     None,
                     None,
                     None,
-                ]
-                + additional_format,
+                ],
                 axis=1,
             )
             .map(color_position, subset=["#"])
@@ -219,6 +166,84 @@ def compute_player_lookup():
         filtered_player_df = raw_filtered_df
 
     raw_data_tab.dataframe(dataframe_styler(filtered_player_df), use_container_width=True, height=800)
+
+    # Performance Graph Tab
+    league_patch = league_graph_tab.selectbox("Limit results to a patch? (see side bar to change default)", raw_graph_options, key="player_league_patch")
+
+    all_battle_conditions = sorted(BattleCondition.objects.all(), key=lambda bc: bc.shortcut)
+    league_filter_bcs = league_graph_tab.multiselect(
+        "Filter by battle conditions?",
+        all_battle_conditions,
+        format_func=lambda bc: f"{bc.name} ({bc.shortcut})",
+        key="player_league_filter_bcs",
+    )
+
+    league_select = league_graph_tab.multiselect(
+        "Select leagues to display (leave empty for all)",
+        leagues,
+        key="player_league_select",
+    )
+
+    league_graph_position = league_graph_tab.checkbox("Graph position instead of wave", key="league_graph_position")
+
+    show_patch_lines = league_graph_tab.checkbox("Show patch start lines", key="show_patch_lines")
+
+    rolling_average = league_graph_tab.slider("Use rolling average for results from how many tourneys?", min_value=1, max_value=10, value=5, key="league_rolling_average")
+
+    league_filtered_df = player_df
+
+    if isinstance(league_patch, Patch):
+        league_filtered_df = league_filtered_df[league_filtered_df.patch == league_patch]
+    elif league_patch == Graph.last_16.value:
+        league_filtered_df = league_filtered_df[league_filtered_df.date.isin(sorted(player_df.date.unique())[-16:])]
+
+    if league_filter_bcs:
+        sbcs = set(league_filter_bcs)
+        league_filtered_df = league_filtered_df[league_filtered_df.bcs.map(lambda table_bcs: sbcs & set(table_bcs) == sbcs)].copy()
+
+    selected_leagues = league_select if league_select else leagues
+
+    fig = go.Figure()
+    colors = ['#CD7F32', '#C0C0C0', '#FFD700', '#E5E4E2', '#B9F2FF', '#FF6347', '#8A2BE2']  # Colors for leagues: Bronze to Grandmaster
+
+    y_col = 'position' if league_graph_position else 'wave'
+
+    for i, league in enumerate(leagues):
+        if league in selected_leagues:
+            league_data = league_filtered_df[league_filtered_df.league == league].sort_values('date')
+            if not league_data.empty:
+                league_data = league_data.copy()
+                league_data['average'] = league_data[y_col].rolling(rolling_average, min_periods=1, center=True).mean()
+                fig.add_trace(go.Scatter(
+                    x=league_data.date,
+                    y=league_data[y_col],
+                    mode='lines+markers',
+                    name=f"{league} - actual",
+                    line=dict(color=colors[i] if i < len(colors) else None)
+                ))
+                fig.add_trace(go.Scatter(
+                    x=league_data.date,
+                    y=league_data['average'],
+                    mode='lines',
+                    name=f"{league} - {rolling_average} avg",
+                    line=dict(color=colors[i] if i < len(colors) else None, dash='dot')
+                ))
+
+    y_title = "Position" if league_graph_position else "Wave"
+    fig.update_layout(
+        title=f"{y_title} Progression by League",
+        xaxis_title="Date",
+        yaxis_title=y_title,
+        hovermode="x unified"
+    )
+
+    if league_graph_position:
+        fig.update_yaxes(autorange="reversed")  # Position 1 is best
+
+    if show_patch_lines:
+        handle_start_date_loop(fig, league_graph_position, league_filtered_df)
+
+    league_graph_tab.plotly_chart(fig)
 
     small_df = player_df.loc[:10]
     info_tab.write(
@@ -412,57 +437,6 @@ def handle_start_date_loop(fig, graph_position_instead, tbdf):
             showarrow=True,
             arrowhead=1,
         )
-
-
-def handle_is_graph_position(average_foreground, fig, rolling_average, tbdf):
-    foreground_kwargs = {}
-    background_kwargs = dict(line_dash="dot", line_color="#FF4B4B", opacity=0.6)
-    fig.add_trace(
-        go.Scatter(
-            x=tbdf.date,
-            y=tbdf.position,
-            name="Tourney position",
-            **foreground_kwargs if not average_foreground else background_kwargs,
-        ),
-        secondary_y=True,
-    )
-    fig.add_trace(
-        go.Scatter(
-            x=tbdf.date,
-            y=tbdf.position_average,
-            name=f"{rolling_average} tourney moving average",
-            **foreground_kwargs if average_foreground else background_kwargs,
-        ),
-        secondary_y=True,
-    )
-    fig.update_yaxes(secondary_y=True, range=[tbdf.position.max() + 20, 0])
-
-
-def handle_not_graph_position_instead(average_foreground, colors, fig, rolling_average, stratas, tbdf):
-    foreground_kwargs = {}
-    background_kwargs = dict(line_dash="dot", line_color="#888", opacity=0.6)
-    fig.add_trace(
-        go.Scatter(
-            x=tbdf.date,
-            y=tbdf.wave,
-            name="Wave (left axis)",
-            customdata=tbdf.bcs,
-            hovertemplate="%{y}, BC: %{customdata}",
-            marker=dict(size=7, opacity=1),
-            line=dict(width=2, color="#FF4B4B"),
-            **foreground_kwargs if not average_foreground else background_kwargs,
-        )
-    )
-    fig.add_trace(
-        go.Scatter(
-            x=tbdf.date,
-            y=tbdf.average,
-            name=f"{rolling_average} tourney moving average",
-            **foreground_kwargs if average_foreground else background_kwargs,
-        )
-    )
-
-    fig.update_layout(legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
 
 
 def handle_colors_dependant_on_patch(patch, player_df):
