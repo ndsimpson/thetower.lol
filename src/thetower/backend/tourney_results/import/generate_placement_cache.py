@@ -47,6 +47,8 @@ logging.info(f"Resolved HOME env: {_home_env!r}, HOME Path: {HOME}, LIVE_BASE: {
 # cache files will be written under LIVE_BASE to keep them alongside snapshots
 CACHE_BASE = LIVE_BASE
 GAP_HOURS = 42
+# Cache schema versioning: bump when the on-disk JSON structure changes
+SCHEMA_VERSION = 2  # v2 introduces precomputed quantile_data
 
 
 def atomic_write(path: Path, data: dict):
@@ -262,7 +264,19 @@ def process_tourney_group(league: str, group: list[Path], include_shun: bool = F
             bracket_times = payload.get("bracket_creation_times", {}) or {}
             player_index = payload.get("player_index", {}) or {}
             existing_snapshot_iso = payload.get("snapshot_iso")
-            if payload.get("include_shun") != include_shun:
+            # If schema is outdated, force a full regeneration so new fields are present
+            try:
+                existing_schema = int(payload.get("schema_version", 1))
+            except Exception:
+                existing_schema = 1
+            if existing_schema < SCHEMA_VERSION:
+                logging.info(
+                    f"Outdated cache schema (v{existing_schema} < v{SCHEMA_VERSION}) for {league} {tourney_date}; forcing full regen"
+                )
+                last_processed_iso = None
+                bracket_times = {}
+                player_index = {}
+            elif payload.get("include_shun") != include_shun:
                 logging.info(f"include_shun changed for {league} {tourney_date}; forcing full regen")
                 last_processed_iso = None
                 bracket_times = {}
@@ -312,6 +326,7 @@ def process_tourney_group(league: str, group: list[Path], include_shun: bool = F
 
             # Persist progress after each snapshot to make the generator resumable
             payload = {
+                "schema_version": SCHEMA_VERSION,
                 "tourney_date": tourney_date,
                 # snapshot_iso and last_processed_iso are full snapshot path strings
                 "snapshot_iso": last_processed_iso,
@@ -384,6 +399,7 @@ def process_tourney_group(league: str, group: list[Path], include_shun: bool = F
                 logging.exception(f"Failed to calculate quantiles for {league} {tourney_date}")
 
         payload = {
+            "schema_version": SCHEMA_VERSION,
             "tourney_date": tourney_date,
             "snapshot_iso": last_processed_iso,
             "last_processed_iso": last_processed_iso,
