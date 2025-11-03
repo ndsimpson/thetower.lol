@@ -102,6 +102,10 @@ def compute_player_lookup():
         st.error(f"No results found for the player {player_id}.")
         return
 
+    # Add player info to Performance Graph and Patch best tabs
+    league_graph_tab.markdown(f"**Player:** {escape(player_df.iloc[0].real_name)} (ID: {player_df.iloc[0].id})")
+    patch_tab.markdown(f"**Player:** {escape(player_df.iloc[0].real_name)} (ID: {player_df.iloc[0].id})")
+
     player_df = player_df.sort_values("date", ascending=False)
     user = player_df["real_name"][0]
 
@@ -403,10 +407,10 @@ def write_for_each_patch(patch_tab, player_df):
         axis=1,
     )
 
-    patch_tab.write("Best wave per patch")
+    patch_tab.markdown("**Best wave per patch**")
     patch_tab.dataframe(wave_tbdf)
 
-    patch_tab.write("Best position per patch")
+    patch_tab.markdown("**Best position per patch**")
     patch_tab.dataframe(position_tbdf)
 
 
