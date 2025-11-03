@@ -2,7 +2,6 @@ import logging
 import os
 from pathlib import Path
 from time import perf_counter
-from urllib.parse import urlencode
 
 import pandas as pd
 import plotly.express as px
@@ -161,8 +160,6 @@ def live_bracket():
     # Create table HTML
     st.write(display_df.style.format(make_player_url, subset=["player_id"]).to_html(escape=False), unsafe_allow_html=True)
 
-    # Generate comparison URLs
-    url = f"https://{BASE_URL}/comparison?" + urlencode({"compare": player_ids}, doseq=True)
     css_path = Path(__file__).parent.parent / "static" / "styles" / "style.css"
     with open(css_path, "r") as infile:
         table_styling = f"<style>{infile.read()}</style>"
@@ -171,10 +168,9 @@ def live_bracket():
     # Display comparison links
     comparison_container = st.container()
     with comparison_container:
-        st.write(f'<a href="{url}">See comparison (old way)</a>', unsafe_allow_html=True)
         if player_ids:
             bracket_url = f"https://{BASE_URL}/comparison?bracket_player={player_ids[0]}"
-            st.write(f'<a href="{bracket_url}">See comparison (new way)</a>', unsafe_allow_html=True)
+            st.write(f'<a href="{bracket_url}">See comparison</a>', unsafe_allow_html=True)
 
     # Log execution time
     t2_stop = perf_counter()
