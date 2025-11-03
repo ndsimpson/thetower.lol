@@ -7,7 +7,6 @@ import pandas as pd
 import plotly.express as px
 import streamlit as st
 
-from thetower.backend.tourney_results.formatting import BASE_URL
 from thetower.backend.tourney_results.shun_config import include_shun_enabled_for
 from thetower.web.live.data_ops import (
     analyze_wave_placement,
