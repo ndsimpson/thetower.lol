@@ -13,7 +13,7 @@ from thetower.backend.tourney_results.shun_config import (
 PAGE_KEYS = {
     "live_bracket",
     "comparison",
-    "live_placement",
+    "live_placement_cache",  # Used by live_placement_analysis and live_quantile_analysis
     "live_score",
     "live_results",
     "live_progress",
@@ -44,6 +44,8 @@ def main() -> None:
           process. In multi-process deployments each process will have its own cache.
         - You can invalidate the in-process cache (so the next access reloads from disk),
           or force a reload.
+        - The key `live_placement_cache` controls shun behavior for BOTH
+          "Live Placement Analysis" and "Live Quantile Analysis" pages.
         """
     )
 

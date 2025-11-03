@@ -163,6 +163,77 @@ def build_player_index_from_df(df: pd.DataFrame) -> dict:
     return res
 
 
+def calculate_quantiles_for_cache(df: pd.DataFrame) -> dict:
+    """
+    Pre-compute quantile data for placement analysis.
+
+    Calculates wave requirement quantiles for specific placement ranks across
+    all brackets. This data is used by the live quantile analysis page.
+
+    Args:
+        df: DataFrame with columns: bracket, wave (at minimum)
+
+    Returns:
+        Dictionary with structure:
+        {
+            "ranks": [1, 2, 4, 6, 8, 10, 12, 15, 24],
+            "quantiles": [0.05, 0.10, 0.25, 0.50, 0.75, 0.90, 0.95],
+            "data": {
+                "1": {"0.05": wave, "0.10": wave, ...},
+                "2": {...},
+                ...
+            }
+        }
+    """
+    ranks = [1, 2, 4, 6, 8, 10, 12, 15, 24]
+    quantiles = [0.05, 0.10, 0.25, 0.50, 0.75, 0.90, 0.95]
+
+    if df is None or df.empty:
+        return {"ranks": ranks, "quantiles": quantiles, "data": {}}
+
+    if "bracket" not in df.columns or "wave" not in df.columns:
+        logging.warning("Missing bracket or wave column for quantile calculation")
+        return {"ranks": ranks, "quantiles": quantiles, "data": {}}
+
+    results = {}
+
+    try:
+        for rank in ranks:
+            waves_at_rank = []
+
+            # Collect wave values for this rank across all brackets
+            for bracket in df["bracket"].unique():
+                bracket_df = df[df["bracket"] == bracket]
+                sorted_bracket = bracket_df.sort_values("wave", ascending=False)
+
+                # Only include brackets with enough players for this rank
+                if len(sorted_bracket) >= rank:
+                    wave_at_rank = sorted_bracket.iloc[rank - 1]["wave"]
+                    # Ensure it's a valid number
+                    if pd.notna(wave_at_rank):
+                        waves_at_rank.append(float(wave_at_rank))
+
+            # Calculate quantiles for this rank
+            if waves_at_rank:
+                wave_series = pd.Series(waves_at_rank)
+                rank_quantiles = {}
+                for q in quantiles:
+                    try:
+                        rank_quantiles[str(q)] = float(wave_series.quantile(q))
+                    except Exception:
+                        rank_quantiles[str(q)] = None
+                results[str(rank)] = rank_quantiles
+            else:
+                # No valid data for this rank
+                results[str(rank)] = {str(q): None for q in quantiles}
+
+    except Exception:
+        logging.exception("Failed to calculate quantiles")
+        return {"ranks": ranks, "quantiles": quantiles, "data": {}}
+
+    return {"ranks": ranks, "quantiles": quantiles, "data": results}
+
+
 def process_tourney_group(league: str, group: list[Path], include_shun: bool = False):
     """Process a single tourney group (chronological list of snapshot Paths).
 
@@ -303,6 +374,15 @@ def process_tourney_group(league: str, group: list[Path], include_shun: bool = F
 
             player_index = build_player_index_from_df(df_latest)
 
+        # Calculate quantile data from the latest snapshot for quantile analysis page
+        quantile_data = {}
+        if df_latest is not None and not df_latest.empty:
+            try:
+                quantile_data = calculate_quantiles_for_cache(df_latest)
+                logging.info(f"Calculated quantile data for {league} {tourney_date}")
+            except Exception:
+                logging.exception(f"Failed to calculate quantiles for {league} {tourney_date}")
+
         payload = {
             "tourney_date": tourney_date,
             "snapshot_iso": last_processed_iso,
@@ -311,6 +391,7 @@ def process_tourney_group(league: str, group: list[Path], include_shun: bool = F
             "generated_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
             "bracket_creation_times": bracket_times,
             "player_index": player_index,
+            "quantile_data": quantile_data,
             "meta": {"num_brackets": len(bracket_times), "num_players": len(player_index)},
         }
         atomic_write(cache_file, payload)
@@ -321,11 +402,12 @@ def process_tourney_group(league: str, group: list[Path], include_shun: bool = F
 
 def execute_once():
     logging.info("Starting placement cache generation run")
-    # Read current desired include_shun value for placement analysis so we
+    # Read current desired include_shun value for placement cache pages so we
     # generate caches that match the UI configuration. This ensures that when
     # include_shun is flipped in `include_shun.json` the generator will produce
     # a cache with the matching payload and the consumer will accept it.
-    include_shun = include_shun_enabled_for("live_placement")
+    # This setting is used by both live_placement_analysis and live_quantile_analysis pages.
+    include_shun = include_shun_enabled_for("live_placement_cache")
     logging.info(f"Placement cache generation: include_shun={include_shun}")
     for league in leagues:
         try:

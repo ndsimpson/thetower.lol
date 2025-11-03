@@ -148,9 +148,9 @@ def get_placement_analysis_data(league: str):
         - Latest time
         - Bracket creation times dict
     """
-    # Respect filesystem/JSON flag for this page: include shunned players when
-    # configured for the live_placement page (uses cached JSON with TTL).
-    include_shun = include_shun_enabled_for("live_placement")
+    # Respect filesystem/JSON flag: include shunned players when configured
+    # for live_placement_cache (shared by live_placement_analysis and live_quantile_analysis)
+    include_shun = include_shun_enabled_for("live_placement_cache")
 
     # Try to use per-tourney cache placed alongside live snapshots.
     try:
@@ -357,6 +357,127 @@ def get_bracket_stats(df):
         "lowest_total": group_by_bracket.sum().sort_values(ascending=True).index[0],
         "lowest_median": group_by_bracket.median().sort_values(ascending=True).index[0],
     }
+
+
+@cache_data_if_enabled(ttl=CACHE_TTL_SECONDS)
+def get_quantile_analysis_data(league: str):
+    """
+    Get pre-computed quantile data for placement analysis.
+
+    Args:
+        league: League identifier
+
+    Returns:
+        Tuple containing:
+        - quantile_df: DataFrame with columns: rank, quantile, waves
+        - tourney_start_date: Tournament start date string
+        - latest_time: Latest timestamp from the data
+    """
+    # Respect filesystem/JSON flag: shared setting for all placement cache pages
+    include_shun = include_shun_enabled_for("live_placement_cache")
+
+    # Try to use per-tourney cache placed alongside live snapshots
+    try:
+        home = Path(os.getenv("HOME"))
+        logging.info(f"get_quantile_analysis_data: HOME={home!s}")
+        live_path = home / "tourney" / "results_cache" / f"{league}_live"
+        logging.info(f"get_quantile_analysis_data: live_path={live_path}")
+
+        all_files = sorted([p for p in live_path.glob("*.csv") if p.stat().st_size > 0], key=get_time)
+        logging.info(f"get_quantile_analysis_data: found {len(all_files)} non-empty CSV snapshots in {live_path}")
+
+        if all_files:
+            last_file = all_files[-1]
+            logging.info(f"get_quantile_analysis_data: last_file={last_file}")
+            last_time = get_time(last_file)
+            tourney_date = last_time.date().isoformat()
+            logging.info(f"get_quantile_analysis_data: last_time={last_time}, initial tourney_date={tourney_date}")
+
+            # Try current date and yesterday for cache file
+            candidate_dates = [last_time.date() - datetime.timedelta(days=delta) for delta in range(0, 2)]
+            cache_file = None
+            found_date = None
+            for cand in candidate_dates:
+                cand_name = cand.isoformat()
+                cand_file = live_path / f"{cand_name}_placement_cache.json"
+                logging.info(f"get_quantile_analysis_data: checking candidate cache {cand_file}")
+                if cand_file.exists():
+                    cache_file = cand_file
+                    found_date = cand_name
+                    logging.info(f"get_quantile_analysis_data: selected cache_file={cache_file} for tourney start {found_date}")
+                    break
+
+            if cache_file:
+                logging.info(f"get_quantile_analysis_data: cache_file exists: {cache_file}")
+                try:
+                    payload_text = cache_file.read_text(encoding="utf8")
+                    logging.info(f"get_quantile_analysis_data: cache_file size={len(payload_text)} bytes")
+                    payload = json.loads(payload_text)
+
+                    payload_include_shun = payload.get("include_shun")
+                    logging.info(f"get_quantile_analysis_data: payload include_shun={payload_include_shun}, desired include_shun={include_shun}")
+
+                    # Only accept cache if include_shun matches
+                    if payload_include_shun == include_shun:
+                        # Check if cache has quantile data
+                        quantile_data = payload.get("quantile_data")
+                        if not quantile_data or not quantile_data.get("data"):
+                            logging.warning("get_quantile_analysis_data: cache exists but has no quantile_data")
+                            raise ValueError("Quantile analysis cache is being generated. Please wait a moment and refresh.")
+
+                        # Verify cache snapshot matches latest
+                        payload_snapshot = payload.get("snapshot_iso")
+                        if payload_snapshot:
+                            try:
+                                payload_snapshot_name = Path(payload_snapshot).name
+                            except Exception:
+                                payload_snapshot_name = str(payload_snapshot)
+                        else:
+                            payload_snapshot_name = None
+
+                        last_snapshot_name = last_file.name
+                        logging.info(f"get_quantile_analysis_data: payload snapshot name={payload_snapshot_name}, latest snapshot name={last_snapshot_name}")
+
+                        if payload_snapshot_name != last_snapshot_name:
+                            logging.warning("get_quantile_analysis_data: cache snapshot does not match latest CSV")
+                            raise ValueError("Quantile analysis is catching up with live data. Please wait a moment and refresh.")
+
+                        # Convert quantile data to DataFrame
+                        data = quantile_data.get("data", {})
+
+                        results = []
+                        for rank_str, rank_quantiles in data.items():
+                            rank = int(rank_str)
+                            for q_str, wave_value in rank_quantiles.items():
+                                q = float(q_str)
+                                if wave_value is not None:
+                                    results.append({"rank": rank, "quantile": q, "waves": wave_value})
+
+                        if not results:
+                            logging.warning("get_quantile_analysis_data: quantile_data exists but no valid results")
+                            raise ValueError("Quantile analysis cache is empty. Please wait for data generation.")
+
+                        quantile_df = pd.DataFrame(results)
+
+                        # Get latest timestamp from a quick CSV read
+                        df_latest = get_latest_live_df(league, include_shun)
+                        latest_time = df_latest["datetime"].max()
+
+                        tourney_start_date = found_date or tourney_date
+                        logging.info(f"Using quantile cache for {league} {tourney_start_date}")
+                        return quantile_df, tourney_start_date, latest_time
+                    else:
+                        logging.info("get_quantile_analysis_data: cache include_shun mismatch; rejecting cache")
+                except Exception:
+                    logging.exception(f"Failed to read/parse quantile cache {cache_file}")
+            else:
+                logging.info("get_quantile_analysis_data: cache_file does not exist")
+
+    except Exception:
+        logging.exception("Failed to check quantile cache path or list snapshots")
+
+    # No cache available - show friendly message
+    raise ValueError("Quantile analysis cache not available yet. Please wait for cache generation and try again later.")
 
 
 def handle_no_data():

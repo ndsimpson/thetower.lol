@@ -56,7 +56,7 @@ def live_score():
         hidden_features = os.environ.get("HIDDEN_FEATURES")
         if hidden_features:
             try:
-                include_shun = include_shun_enabled_for("live_placement")
+                include_shun = include_shun_enabled_for("live_placement_cache")
                 st.caption(f"🔍 Including shunned players: {'Yes' if include_shun else 'No'}")
             except Exception:
                 pass

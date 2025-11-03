@@ -61,6 +61,7 @@ current_tournament_pages = [
 live_analytics_pages = [
     st.Page("live/live_bracket_analysis.py", title="Live Bracket Analysis", icon="📉", url_path="livebracketanalysis"),
     st.Page("live/live_placement_analysis.py", title="Live Placement Analysis", icon="📈", url_path="liveplacement"),
+    st.Page("live/live_quantile_analysis.py", title="Live Quantile Analysis", icon="📊", url_path="livequantile"),
 ]
 
 player_statistics_pages = [
