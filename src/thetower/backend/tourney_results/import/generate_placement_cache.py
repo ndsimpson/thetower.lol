@@ -54,7 +54,7 @@ def atomic_write(path: Path, data: dict):
     fd, tmp = tempfile.mkstemp(dir=str(path.parent))
     try:
         with os.fdopen(fd, "w", encoding="utf8") as f:
-            json.dump(data, f, ensure_ascii=False)
+            json.dump(data, f, ensure_ascii=False, indent=4)  # Added indent=4 for pretty-printing
             f.flush()
             os.fsync(f.fileno())
         os.replace(tmp, str(path))
