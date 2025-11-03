@@ -104,7 +104,7 @@ def live_score():
 
     # Player selection with two input methods
     st.markdown("### Select Player")
-    name_col, id_col = st.columns([2, 1])
+    name_col, id_col = st.columns([2, 1] if not is_mobile else [1])
 
     # Get unique players sorted by display name
     unique_players = sorted(df["display_name"].unique())
@@ -244,7 +244,7 @@ def live_score():
     )
 
     # Update plot layout
-    fig.update_layout(yaxis_title="Position", height=400, margin=dict(l=20, r=20, t=40, b=20))
+    fig.update_layout(yaxis_title="Position", height=400, margin=dict(l=20, r=20, t=40, b=20), legend=dict(orientation="h" if is_mobile else "v"))
     fig.update_yaxes(autorange="reversed")
 
     st.plotly_chart(fig, use_container_width=True)
