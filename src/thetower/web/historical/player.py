@@ -206,7 +206,7 @@ def compute_player_lookup():
     fig = go.Figure()
     colors = ['#CD7F32', '#C0C0C0', '#FFD700', '#E5E4E2', '#B9F2FF', '#FF6347', '#8A2BE2']  # Colors for leagues: Bronze to Grandmaster
 
-    y_col = 'position' if league_graph_position else 'wave'
+    y_col = '#' if league_graph_position else 'wave'
 
     for i, league in enumerate(leagues):
         if league in selected_leagues:
@@ -432,7 +432,7 @@ def handle_start_date_loop(fig, graph_position_instead, tbdf):
         fig.add_vline(x=start, line_width=3, line_dash="dash", line_color="#888", opacity=0.4)
         fig.add_annotation(
             x=start,
-            y=(tbdf.position.min() + 10 * (index % 5)) if graph_position_instead else (tbdf.wave.max() - 150 * (index % 5 + 1)),
+            y=(tbdf['#'].min() + 10 * (index % 5)) if graph_position_instead else (tbdf.wave.max() - 150 * (index % 5 + 1)),
             text=f"Patch {name}{interim} start",
             showarrow=True,
             arrowhead=1,
