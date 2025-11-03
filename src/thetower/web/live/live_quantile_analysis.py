@@ -78,21 +78,35 @@ def quantile_analysis():
         title="Wave Requirements by Placement (Quantile Curves)",
         labels={"quantile": "Quantile", "waves": "Waves Required", "rank": "Placement"},
         line_shape="spline",
+        markers=True,
     )
 
     # Format x-axis as percentage
     fig.update_xaxes(tickformat=".0%", range=[0, 1])
 
     # Customize layout
+    # Add a bit of headroom so unified hover labels and top markers aren't clipped
+    try:
+        min_waves = float(quantile_df["waves"].min())
+        max_waves = float(quantile_df["waves"].max())
+        y_min = max(0.0, min_waves * 0.98)
+        y_max = max_waves * 1.05
+        fig.update_yaxes(range=[y_min, y_max])
+    except Exception:
+        # Fall back to autorange if anything goes wrong
+        pass
+
     fig.update_layout(
         hovermode="x unified",
         legend=dict(title=dict(text="Placement"), orientation="h", y=-0.2, x=0.5, xanchor="center"),
-        height=600,
-        margin=dict(l=20, r=20, t=60, b=20),
+        height=720,
+        margin=dict(l=20, r=20, t=80, b=40),
     )
 
     # Add hover template for better tooltips
     fig.update_traces(
+        mode="lines+markers",
+        marker=dict(size=6),
         hovertemplate="<b>Rank %{fullData.name}</b><br>" + "Quantile: %{x:.0%}<br>" + "Waves: %{y:.0f}<br>" + "<extra></extra>"
     )
 
