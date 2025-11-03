@@ -7,12 +7,14 @@ import pandas as pd
 import plotly.express as px
 import streamlit as st
 
+from thetower.backend.tourney_results.formatting import BASE_URL
 from thetower.backend.tourney_results.shun_config import include_shun_enabled_for
 from thetower.web.live.data_ops import (
     analyze_wave_placement,
     format_time_ago,
     get_data_refresh_timestamp,
     get_placement_analysis_data,
+    process_display_names,
     require_tournament_data,
 )
 from thetower.web.live.ui_components import setup_common_ui
@@ -51,6 +53,9 @@ def live_score():
     # Get placement analysis data (plus tourney start date)
     df, latest_time, bracket_creation_times, tourney_start_date = get_placement_analysis_data(league)
 
+    # Process display names to handle duplicates
+    df = process_display_names(df)
+
     # Show tourney start date so users know which tourney the cache is for
     try:
         st.caption(f"Tourney start date: {tourney_start_date}")
@@ -79,13 +84,58 @@ def live_score():
         # Don't break the page for display issues
         pass
 
-    # Player selection
-    selected_player = st.selectbox("Select player", [""] + sorted(df["real_name"].unique()), key=f"player_selector_{league}")
+    # Check for query parameters
+    query_player_id = st.query_params.get("player_id")
+    query_player_name = st.query_params.get("player")
+
+    # Initialize selected_player from query params or session state
+    initial_player = None
+    if query_player_id:
+        # Find player by player_id
+        matching_players = df[df["player_id"] == query_player_id]
+        if not matching_players.empty:
+            initial_player = matching_players.iloc[0]["display_name"]
+    elif query_player_name:
+        # Find player by name (check both real_name and display_name)
+        matching_players = df[
+            (df["real_name"].str.lower() == query_player_name.lower()) | (df["display_name"].str.lower() == query_player_name.lower())
+        ]
+        if not matching_players.empty:
+            initial_player = matching_players.iloc[0]["display_name"]
+
+    # Player selection with two input methods
+    st.markdown("### Select Player")
+    name_col, id_col = st.columns([2, 1])
+
+    # Get unique players sorted by display name
+    unique_players = sorted(df["display_name"].unique())
+
+    with name_col:
+        selected_player = st.selectbox(
+            "Search by player name",
+            [""] + unique_players,
+            index=(unique_players.index(initial_player) + 1) if initial_player and initial_player in unique_players else 0,
+            key=f"player_selector_{league}",
+        )
+
+    with id_col:
+        player_id_input = st.text_input("Or enter Player ID", value=query_player_id or "", key=f"player_id_input_{league}")
+
+    # Handle player_id input
+    if player_id_input and not selected_player:
+        matching_players = df[df["player_id"] == player_id_input]
+        if not matching_players.empty:
+            selected_player = matching_players.iloc[0]["display_name"]
+        else:
+            st.error(f"Player ID '{player_id_input}' not found in current tournament data.")
+            return
+
     if not selected_player:
+        st.info("👆 Please select a player or enter a Player ID to analyze placement")
         return
 
     # Get the player's highest wave
-    wave_to_analyze = df[df.real_name == selected_player].wave.max()
+    wave_to_analyze = df[df.display_name == selected_player].wave.max()
     st.write(f"Analyzing placement for {selected_player}'s highest wave: {wave_to_analyze}")
 
     # Analyze placements
@@ -140,12 +190,12 @@ def live_score():
     )
 
     # Calculate player's actual position
-    player_bracket = df[df["real_name"] == selected_player]["bracket"].iloc[0]
+    player_bracket = df[df["display_name"] == selected_player]["bracket"].iloc[0]
     player_creation_time = bracket_creation_times[player_bracket]
     player_position = (
         df[(df["bracket"] == player_bracket) & (df["datetime"] == latest_time)]
         .sort_values("wave", ascending=False)
-        .index.get_loc(df[(df["bracket"] == player_bracket) & (df["datetime"] == latest_time) & (df["real_name"] == selected_player)].index[0])
+        .index.get_loc(df[(df["bracket"] == player_bracket) & (df["datetime"] == latest_time) & (df["display_name"] == selected_player)].index[0])
         + 1
     )
 
