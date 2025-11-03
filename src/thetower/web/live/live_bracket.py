@@ -176,12 +176,6 @@ def live_bracket():
             bracket_url = f"https://{BASE_URL}/comparison?bracket_player={player_ids[0]}"
             st.write(f'<a href="{bracket_url}">See comparison (new way)</a>', unsafe_allow_html=True)
 
-    # Show URLs for copying
-    with st.expander("Copy URL"):
-        st.code(url)
-        if player_ids:
-            st.code(f"https://{BASE_URL}/comparison?bracket_player={player_ids[0]}")
-
     # Log execution time
     t2_stop = perf_counter()
     logging.info(f"Full live_bracket for {league} took {t2_stop - t2_start}")
