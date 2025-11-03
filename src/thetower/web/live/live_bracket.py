@@ -169,7 +169,17 @@ def live_bracket():
     comparison_container = st.container()
     with comparison_container:
         if player_ids:
-            bracket_url = f"https://{BASE_URL}/comparison?bracket_player={player_ids[0]}"
+            # Use selected player ID if available, otherwise find ID for selected name, otherwise first player
+            if selected_player_id:
+                comparison_player_id = selected_player_id
+            elif selected_real_name:
+                # Find player ID for the selected name
+                selected_player_data = tdf[tdf.real_name == selected_real_name]
+                comparison_player_id = selected_player_data.player_id.iloc[0] if not selected_player_data.empty else player_ids[0]
+            else:
+                # Bracket navigation - use first player
+                comparison_player_id = player_ids[0]
+            bracket_url = f"https://{BASE_URL}/comparison?bracket_player={comparison_player_id}"
             st.write(f'<a href="{bracket_url}">See comparison</a>', unsafe_allow_html=True)
 
     # Log execution time
