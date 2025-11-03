@@ -104,7 +104,13 @@ def live_score():
 
     # Player selection with two input methods
     st.markdown("### Select Player")
-    name_col, id_col = st.columns([2, 1] if not is_mobile else [1])
+    if is_mobile:
+        # In mobile view, stack inputs vertically
+        name_col = st.container()
+        id_col = st.container()
+    else:
+        # In desktop view, use side-by-side columns
+        name_col, id_col = st.columns([2, 1])
 
     # Get unique players sorted by display name
     unique_players = sorted(df["display_name"].unique())
