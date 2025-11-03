@@ -250,20 +250,24 @@ def draw_info_tab(info_tab, user, player_id, player_df, hidden_features):
     player_url = f"https://{BASE_URL}/player?" + urlencode({"player": player_id}, doseq=True)
     bracket_url = f"https://{BASE_URL}/livebracketview?" + urlencode({"player_id": player_id}, doseq=True)
     comparison_url = f"https://{BASE_URL}/comparison?bracket_player={player_id}"
+    placement_url = f"https://{BASE_URL}/liveplacement?player_id={player_id}"
 
-    # Create three columns for the links
-    link1_col, link2_col, link3_col = link_container.columns(3)
+    # Player Profile link
+    link_container.write(f'<a href="{player_url}">🔗 Player Profile</a>', unsafe_allow_html=True)
 
-    # Display links in columns (side by side)
-    link1_col.write(f'<a href="{player_url}">🔗 Player Profile</a>', unsafe_allow_html=True)
-    link2_col.write(f'<a href="{bracket_url}">🔗 Live Bracket View</a>', unsafe_allow_html=True)
-    link3_col.write(f'<a href="{comparison_url}">🔗 Live Bracket Player Comparison</a>', unsafe_allow_html=True)
+    # Live links section
+    link_container.markdown("**Live:**")
+    live_col1, live_col2, live_col3 = link_container.columns(3)
+    live_col1.write(f'<a href="{bracket_url}">Bracket View</a>', unsafe_allow_html=True)
+    live_col2.write(f'<a href="{comparison_url}">Bracket Comparison</a>', unsafe_allow_html=True)
+    live_col3.write(f'<a href="{placement_url}">Placement Analysis</a>', unsafe_allow_html=True)
 
     # Show the raw URLs for copying in an expander
     with st.expander("Copy URLs"):
         st.code(player_url, language="text")
         st.code(bracket_url, language="text")
         st.code(comparison_url, language="text")
+        st.code(placement_url, language="text")
 
     # Continue with the rest of the info tab content
     handle_sus_or_banned_ids(info_tab, player_id)
