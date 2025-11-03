@@ -84,12 +84,37 @@ def live_score():
     # Sort by creation time initially
     results_df = results_df.sort_values("Creation Time")
 
-    st.write(f"Analysis for wave {wave_to_analyze} (ordered by bracket creation time):")
-    # Display dataframe with custom sorting
+    # Group by checkpoints (30-minute intervals) and calculate averages
+    results_df["Checkpoint"] = results_df["Creation Time"].dt.floor("30min")
+    checkpoint_df = results_df.groupby("Checkpoint").agg({
+        "Position": "mean",
+        "Top Wave": "mean",
+        "Median Wave": "mean",
+        "Players Above": "mean",
+        "Bracket": "count"  # Count of brackets per checkpoint
+    }).round(1).reset_index()
+
+    # Rename columns for display
+    checkpoint_df = checkpoint_df.rename(columns={
+        "Position": "Avg Placement",
+        "Top Wave": "Avg Top Wave",
+        "Median Wave": "Avg Median Wave",
+        "Players Above": "Avg Players Above",
+        "Bracket": "Brackets"
+    })
+
+    # Keep original datetime format for checkpoint display
+    checkpoint_df["Checkpoint"] = checkpoint_df["Checkpoint"].dt.strftime("%Y-%m-%d %H:%M:%S")
+
+    st.write(f"Analysis for wave {wave_to_analyze} (averaged by 30-minute checkpoints):")
+    # Display condensed dataframe
     st.dataframe(
-        results_df.drop(["Position"], axis=1),
+        checkpoint_df,
         hide_index=True,
-        column_config={"Would Place": st.column_config.TextColumn("Would Place", help="Player placement in bracket")},
+        column_config={
+            "Avg Placement": st.column_config.NumberColumn("Avg Placement", help="Average placement position across brackets in this checkpoint"),
+            "Brackets": st.column_config.NumberColumn("Brackets", help="Number of brackets in this checkpoint")
+        },
     )
 
     # Calculate player's actual position
@@ -102,21 +127,17 @@ def live_score():
         + 1
     )
 
-    # Create plot data
-    plot_df = pd.DataFrame(
-        {
-            "Creation Time": [bracket_creation_times[b] for b in results_df["Bracket"]],
-            "Placement": [int(p.split("/")[0]) for p in results_df["Would Place"]],
-        }
-    )
+    # Create plot data using checkpoint averages
+    plot_df = checkpoint_df.copy()
+    plot_df["Creation Time"] = pd.to_datetime(checkpoint_df["Checkpoint"])
 
     # Create placement timeline plot
     fig = px.scatter(
         plot_df,
         x="Creation Time",
-        y="Placement",
-        title=f"Placement Timeline for {wave_to_analyze} waves",
-        labels={"Creation Time": "Bracket Creation Time", "Placement": "Would Place Position"},
+        y="Avg Placement",
+        title=f"Average Placement Timeline for {wave_to_analyze} waves",
+        labels={"Creation Time": "Checkpoint Time", "Avg Placement": "Average Placement Position"},
         trendline="lowess",
         trendline_options=dict(frac=0.2),
     )
