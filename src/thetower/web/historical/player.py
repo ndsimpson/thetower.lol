@@ -66,7 +66,7 @@ def compute_player_lookup():
         compute_search(player=True, comparison=False)
         exit()
 
-    info_tab, league_graph_tab, raw_data_tab, patch_tab = st.tabs(["Info", "Performance Graph", "Full results data", "Patch best"])
+    info_tab, league_graph_tab, patch_tab = st.tabs(["Overview", "Performance Graph", "Patch best"])
 
     player_ids = PlayerId.objects.filter(id=options.current_player)
     print(f"{player_ids=} {options.current_player=}")
@@ -119,11 +119,12 @@ def compute_player_lookup():
         # Convert patch objects to strings
         df_copy["patch"] = df_copy["patch"].apply(str)
         return (
-            df_copy[["name", "wave", "#", "date", "patch", "battle"]]
+            df_copy[["name", "wave", "#", "date", "patch", "battle", "league"]]
             .style.apply(
                 lambda row: [
                     None,
                     f"color: {player_df[player_df['date'] == row.date].wave_role_color.iloc[0]}",
+                    None,
                     None,
                     None,
                     None,
@@ -139,10 +140,10 @@ def compute_player_lookup():
     patches_options = sorted([patch for patch in get_patches() if patch.version_minor], key=lambda patch: patch.start_date, reverse=True)
     raw_graph_options = [options.default_graph.value] + [value for value in list(Graph.__members__.keys()) + patches_options if value != options.default_graph.value]
 
-    raw_patch = raw_data_tab.selectbox("Limit results to a patch? (see side bar to change default)", raw_graph_options, key="player_raw_patch")
+    raw_patch = info_tab.selectbox("Limit results to a patch? (see side bar to change default)", raw_graph_options, key="player_raw_patch")
 
     all_battle_conditions = sorted(BattleCondition.objects.all(), key=lambda bc: bc.shortcut)
-    raw_filter_bcs = raw_data_tab.multiselect(
+    raw_filter_bcs = info_tab.multiselect(
         "Filter full results by battle conditions?",
         all_battle_conditions,
         format_func=lambda bc: f"{bc.name} ({bc.shortcut})",
@@ -165,10 +166,19 @@ def compute_player_lookup():
     else:
         filtered_player_df = raw_filtered_df
 
-    raw_data_tab.dataframe(dataframe_styler(filtered_player_df), use_container_width=True, height=800)
+    filtered_player_df = filtered_player_df.reset_index(drop=True)
+    filtered_player_df.index = filtered_player_df.index + 1
+
+    info_tab.dataframe(dataframe_styler(filtered_player_df), use_container_width=True, height=610)
 
     # Performance Graph Tab
-    league_patch = league_graph_tab.selectbox("Limit results to a patch? (see side bar to change default)", raw_graph_options, key="player_league_patch")
+    col1, col2 = league_graph_tab.columns(2)
+    league_patch = col1.selectbox("Limit results to a patch?", raw_graph_options, key="player_league_patch")
+    league_select = col2.multiselect(
+        "Select leagues to display (leave empty for all)",
+        leagues,
+        key="player_league_select",
+    )
 
     all_battle_conditions = sorted(BattleCondition.objects.all(), key=lambda bc: bc.shortcut)
     league_filter_bcs = league_graph_tab.multiselect(
@@ -178,15 +188,9 @@ def compute_player_lookup():
         key="player_league_filter_bcs",
     )
 
-    league_select = league_graph_tab.multiselect(
-        "Select leagues to display (leave empty for all)",
-        leagues,
-        key="player_league_select",
-    )
-
-    league_graph_position = league_graph_tab.checkbox("Graph position instead of wave", key="league_graph_position")
-
-    show_patch_lines = league_graph_tab.checkbox("Show patch start lines", key="show_patch_lines")
+    col3, col4 = league_graph_tab.columns(2)
+    league_graph_position = col3.checkbox("Graph position instead of wave", key="league_graph_position")
+    show_patch_lines = col4.checkbox("Show patch start lines", key="show_patch_lines")
 
     rolling_average = league_graph_tab.slider("Use rolling average for results from how many tourneys?", min_value=1, max_value=10, value=5, key="league_rolling_average")
 
@@ -244,12 +248,6 @@ def compute_player_lookup():
         handle_start_date_loop(fig, league_graph_position, league_filtered_df)
 
     league_graph_tab.plotly_chart(fig)
-
-    small_df = player_df.loc[:10]
-    info_tab.write(
-        '<div style="overflow-x:auto;">' + dataframe_styler(small_df).to_html(escape=False) + "</div>",
-        unsafe_allow_html=True,
-    )
 
     write_for_each_patch(patch_tab, player_df)
 
