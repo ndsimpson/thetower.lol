@@ -87,7 +87,7 @@ def live_score():
     st.write(f"Analysis for wave {wave_to_analyze} (ordered by bracket creation time):")
     # Display dataframe with custom sorting
     st.dataframe(
-        results_df.drop(["Creation Time", "Position"], axis=1),
+        results_df.drop(["Position"], axis=1),
         hide_index=True,
         column_config={"Would Place": st.column_config.TextColumn("Would Place", help="Player placement in bracket")},
     )

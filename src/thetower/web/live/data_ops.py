@@ -280,7 +280,6 @@ def analyze_wave_placement(df, wave_to_analyze, latest_time):
     results = []
     for bracket in sorted(df["bracket"].unique()):
         bracket_df = df[df["bracket"] == bracket]
-        start_time = bracket_df["datetime"].min()
         last_bracket_df = bracket_df[bracket_df["datetime"] == latest_time].sort_values("wave", ascending=False)
 
         better_or_equal = last_bracket_df[last_bracket_df["wave"] > wave_to_analyze].shape[0]
@@ -294,7 +293,6 @@ def analyze_wave_placement(df, wave_to_analyze, latest_time):
                 "Top Wave": last_bracket_df["wave"].max(),
                 "Median Wave": int(last_bracket_df["wave"].median()),
                 "Players Above": better_or_equal,
-                "Start Time": start_time,
             }
         )
 
