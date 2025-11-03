@@ -99,23 +99,28 @@ def live_score():
     # Sort by creation time initially
     results_df = results_df.sort_values("Creation Time")
 
-    # Group by checkpoints (30-minute intervals) and calculate averages
+    # Group by checkpoints (30-minute intervals) and calculate averages, min, and max
     results_df["Checkpoint"] = results_df["Creation Time"].dt.floor("30min")
     checkpoint_df = results_df.groupby("Checkpoint").agg({
-        "Position": "mean",
+        "Position": ["mean", "min", "max"],
         "Top Wave": "mean",
         "Median Wave": "mean",
         "Players Above": "mean",
         "Bracket": "count"  # Count of brackets per checkpoint
     }).round(1).reset_index()
 
+    # Flatten multi-level column names
+    checkpoint_df.columns = ['_'.join(col).strip('_') if col[1] else col[0] for col in checkpoint_df.columns.values]
+
     # Rename columns for display
     checkpoint_df = checkpoint_df.rename(columns={
-        "Position": "Avg Placement",
-        "Top Wave": "Avg Top Wave",
-        "Median Wave": "Avg Median Wave",
-        "Players Above": "Avg Players Above",
-        "Bracket": "Brackets"
+        "Position_mean": "Avg Placement",
+        "Position_min": "Best Case",
+        "Position_max": "Worst Case",
+        "Top Wave_mean": "Avg Top Wave",
+        "Median Wave_mean": "Avg Median Wave",
+        "Players Above_mean": "Avg Players Above",
+        "Bracket_count": "Brackets"
     })
 
     # Keep original datetime format for checkpoint display
@@ -128,6 +133,8 @@ def live_score():
         hide_index=True,
         column_config={
             "Avg Placement": st.column_config.NumberColumn("Avg Placement", help="Average placement position across brackets in this checkpoint"),
+            "Best Case": st.column_config.NumberColumn("Best Case", help="Best (lowest) placement position in this checkpoint"),
+            "Worst Case": st.column_config.NumberColumn("Worst Case", help="Worst (highest) placement position in this checkpoint"),
             "Brackets": st.column_config.NumberColumn("Brackets", help="Number of brackets in this checkpoint")
         },
     )
@@ -157,14 +164,34 @@ def live_score():
         trendline_options=dict(frac=0.2),
     )
 
+    # Add best case scenario line
+    fig.add_scatter(
+        x=plot_df["Creation Time"],
+        y=plot_df["Best Case"],
+        mode="lines",
+        line=dict(color="green", width=2, dash="dash"),
+        name="Best Case",
+        showlegend=True,
+    )
+
+    # Add worst case scenario line
+    fig.add_scatter(
+        x=plot_df["Creation Time"],
+        y=plot_df["Worst Case"],
+        mode="lines",
+        line=dict(color="red", width=2, dash="dash"),
+        name="Worst Case",
+        showlegend=True,
+    )
+
     # Add player's actual position marker
     fig.add_scatter(
         x=[player_creation_time],
         y=[player_position],
         mode="markers",
-        marker=dict(symbol="x", size=15, color="red"),
+        marker=dict(symbol="x", size=15, color="purple"),
         name="Actual Position",
-        showlegend=False,
+        showlegend=True,
     )
 
     # Update plot layout
