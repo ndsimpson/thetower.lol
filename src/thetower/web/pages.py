@@ -27,7 +27,7 @@ st.set_page_config(
     layout="centered",
     initial_sidebar_state="auto",
     menu_items={
-        "Get Help": "https://discord.com/channels/850137217828388904/1299774861908115559",
+        "Get Help": "https://discord.com/channels/850137217828388904/1361353523601867034",
     },
 )
 
