@@ -243,31 +243,11 @@ def filter_lower_leagues(df):
 
 
 def draw_info_tab(info_tab, user, player_id, player_df, hidden_features):
-    # Create a container for all link-related content
-    link_container = info_tab.container()
-
     # Generate URLs
     player_url = f"https://{BASE_URL}/player?" + urlencode({"player": player_id}, doseq=True)
     bracket_url = f"https://{BASE_URL}/livebracketview?" + urlencode({"player_id": player_id}, doseq=True)
     comparison_url = f"https://{BASE_URL}/comparison?bracket_player={player_id}"
     placement_url = f"https://{BASE_URL}/liveplacement?player_id={player_id}"
-
-    # Player Profile link
-    link_container.write(f'<a href="{player_url}">🔗 Player Profile</a>', unsafe_allow_html=True)
-
-    # Live links section
-    link_container.markdown("**Live:**")
-    live_col1, live_col2, live_col3 = link_container.columns(3)
-    live_col1.write(f'<a href="{bracket_url}">Bracket View</a>', unsafe_allow_html=True)
-    live_col2.write(f'<a href="{comparison_url}">Bracket Comparison</a>', unsafe_allow_html=True)
-    live_col3.write(f'<a href="{placement_url}">Placement Analysis</a>', unsafe_allow_html=True)
-
-    # Show the raw URLs for copying in an expander
-    with st.expander("Copy URLs"):
-        st.code(player_url, language="text")
-        st.code(bracket_url, language="text")
-        st.code(comparison_url, language="text")
-        st.code(placement_url, language="text")
 
     # Continue with the rest of the info tab content
     handle_sus_or_banned_ids(info_tab, player_id)
@@ -276,8 +256,9 @@ def draw_info_tab(info_tab, user, player_id, player_df, hidden_features):
     real_name = escape(player_df.iloc[0].real_name)
 
     if hidden_features:
-        info_tab.write(
-            f"<a href='https://admin.thetower.lol/admin/sus/moderationrecord/add/?tower_id={player_df.iloc[0].id}&moderation_type=sus' target='_blank'>🔗 sus me</a>",
+        sus_button_style = "display: inline-block; padding: 8px 16px; background-color: #FFA500; color: white; text-align: center; text-decoration: none; border-radius: 4px; font-weight: 500;"
+        info_tab.markdown(
+            f"<div style='text-align: right; margin-bottom: 1rem;'><a href='https://admin.thetower.lol/admin/sus/moderationrecord/add/?tower_id={player_df.iloc[0].id}&moderation_type=sus' target='_blank' style='{sus_button_style}'>🔗 sus me</a></div>",
             unsafe_allow_html=True,
         )
 
@@ -317,9 +298,27 @@ def draw_info_tab(info_tab, user, player_id, player_df, hidden_features):
         pass
 
     info_tab.write(
-        f"<table class='top'><tr><td>{avatar_string}</td><td><div style='font-size: 30px'><span style='vertical-align: middle;'>{real_name}</span></div><div style='font-size: 15px'>ID: {player_df.iloc[0].id}</div><div style='font-size: 15px'>Joined the recent tourney {tourney_join}</div>{creator_code}</td><td>{relic_url}</td></tr></table>",
+        f"<table class='top'><tr><td>{avatar_string}</td><td><div style='font-size: 30px'><span style='vertical-align: middle;'>{real_name}</span></div><div style='font-size: 15px'>ID: {player_df.iloc[0].id} <a href='{player_url}' style='text-decoration: none;'>🔗</a></div><div style='font-size: 15px'>Joined the recent tourney {tourney_join}</div>{creator_code}</td><td>{relic_url}</td></tr></table>",
         unsafe_allow_html=True,
     )
+
+    # Show live links only if player joined the recent tourney
+    if check_all_live_entry(player_df.iloc[0].id):
+        live_col1, live_col2, live_col3 = info_tab.columns(3)
+
+        button_style = "display: inline-block; padding: 8px 16px; background-color: #FF4B4B; color: white; text-align: center; text-decoration: none; border-radius: 4px; font-weight: 500;"
+        center_style = "text-align: center; margin-bottom: 1rem;"
+
+        live_col1.markdown(f'<div style="{center_style}"><a href="{bracket_url}" style="{button_style}">Bracket View</a></div>', unsafe_allow_html=True)
+        live_col2.markdown(f'<div style="{center_style}"><a href="{comparison_url}" style="{button_style}">Bracket Comparison</a></div>', unsafe_allow_html=True)
+        live_col3.markdown(f'<div style="{center_style}"><a href="{placement_url}" style="{button_style}">Placement Analysis</a></div>', unsafe_allow_html=True)
+
+        # Show the raw URLs for copying in an expander
+        with st.expander("Copy URLs"):
+            st.code(player_url, language="text")
+            st.code(bracket_url, language="text")
+            st.code(comparison_url, language="text")
+            st.code(placement_url, language="text")
 
 
 def write_for_each_patch(patch_tab, player_df):
