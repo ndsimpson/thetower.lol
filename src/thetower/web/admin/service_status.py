@@ -316,7 +316,7 @@ def service_status_page():
         st.markdown(f"*Last updated: {utc_time} UTC*")
 
     # How many log lines to show for each service
-    log_lines = st.slider("Log lines to show in service status", min_value=1, max_value=50, value=8)
+    log_lines = st.slider("Log lines to show in service status", min_value=1, max_value=50, value=15)
 
     st.markdown("---")
 
