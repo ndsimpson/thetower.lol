@@ -292,6 +292,12 @@ def service_status_page():
             "service": "tower-recalc_worker",
             "restart_allowed": True,
         },
+        "tower-zendesk_queue": {
+            "name": "Zendesk Queue Worker",
+            "description": "Background worker for creating Zendesk tickets from moderation reports",
+            "service": "tower-zendesk_queue",
+            "restart_allowed": True,
+        },
         "generate_live_bracket_cache": {
             "name": "Live Bracket Cache",
             "description": "Generates and maintains the live bracket cache used by live views",
@@ -516,6 +522,54 @@ def service_status_page():
 
     except Exception:
         st.warning("Queue status unavailable")
+
+    # Zendesk Queue status
+    st.markdown("### 🎫 Zendesk Queue Status")
+    try:
+        # Try to get Zendesk queue status
+        try:
+            from thetower.backend.sus.models import ModerationRecord
+
+            # Get queue statistics
+            pending_count = ModerationRecord.objects.filter(
+                needs_zendesk_ticket=True,
+                zendesk_ticket_id__isnull=True
+            ).count()
+
+            # Get failed count (max retries reached, typically 3)
+            failed_count = ModerationRecord.objects.filter(
+                needs_zendesk_ticket=True,
+                zendesk_ticket_id__isnull=True,
+                zendesk_retry_count__gte=3
+            ).count()
+
+            # Get successfully created tickets (last 24h)
+            yesterday = dj_timezone.now() - timedelta(days=1)
+            recent_created = ModerationRecord.objects.filter(
+                zendesk_ticket_id__isnull=False,
+                zendesk_last_attempt__gte=yesterday
+            ).count()
+
+            # Get total tickets ever created
+            total_created = ModerationRecord.objects.filter(
+                zendesk_ticket_id__isnull=False
+            ).count()
+
+            col1, col2, col3, col4 = st.columns(4)
+            with col1:
+                st.metric("📋 Pending", pending_count)
+            with col2:
+                st.metric("❌ Failed", failed_count)
+            with col3:
+                st.metric("✅ Created (24h)", recent_created)
+            with col4:
+                st.metric("🎫 Total Tickets", total_created)
+
+        except Exception:
+            st.warning("Could not load Zendesk queue status")
+
+    except Exception:
+        st.warning("Zendesk queue status unavailable")
 
     # Instructions
     with st.expander("ℹ️ About Service Status"):

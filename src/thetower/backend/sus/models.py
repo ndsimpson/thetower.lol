@@ -201,6 +201,26 @@ class ModerationRecord(models.Model):
         help_text="Reason for this moderation action"
     )
 
+    # Zendesk ticket creation queue fields
+    needs_zendesk_ticket = models.BooleanField(
+        default=True,
+        help_text="Moderation record needs a Zendesk ticket created"
+    )
+    zendesk_ticket_id = models.IntegerField(
+        null=True,
+        blank=True,
+        help_text="Zendesk ticket ID once created"
+    )
+    zendesk_last_attempt = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When Zendesk ticket creation was last attempted"
+    )
+    zendesk_retry_count = models.SmallIntegerField(
+        default=0,
+        help_text="Number of failed Zendesk ticket creation attempts"
+    )
+
     class Meta:
         ordering = ['-started_at']
         indexes = [
@@ -214,6 +234,9 @@ class ModerationRecord(models.Model):
             # Time-based queries
             models.Index(fields=['started_at']),
             models.Index(fields=['created_at']),
+            # Zendesk queue processing
+            models.Index(fields=['needs_zendesk_ticket', 'zendesk_retry_count', 'created_at'], name='idx_zendesk_queue'),
+            models.Index(fields=['needs_zendesk_ticket'], name='idx_needs_zendesk'),
         ]
 
     def __str__(self):
@@ -266,6 +289,9 @@ class ModerationRecord(models.Model):
     @classmethod
     def create_for_admin(cls, tower_id, moderation_type, admin_user, reason=None, **kwargs):
         """Create a moderation record from admin interface"""
+        # Don't override needs_zendesk_ticket if explicitly set
+        if 'needs_zendesk_ticket' not in kwargs:
+            kwargs['needs_zendesk_ticket'] = True
         return cls.objects.create(
             tower_id=tower_id,
             moderation_type=moderation_type,
@@ -278,6 +304,9 @@ class ModerationRecord(models.Model):
     @classmethod
     def create_for_bot(cls, tower_id, moderation_type, discord_id, reason=None, **kwargs):
         """Create a moderation record from Discord bot"""
+        # Don't override needs_zendesk_ticket if explicitly set
+        if 'needs_zendesk_ticket' not in kwargs:
+            kwargs['needs_zendesk_ticket'] = True
         return cls.objects.create(
             tower_id=tower_id,
             moderation_type=moderation_type,
@@ -291,6 +320,10 @@ class ModerationRecord(models.Model):
     def create_for_api(cls, tower_id, moderation_type, api_key, reason=None, **kwargs):
         """Create a moderation record from API with comprehensive business logic"""
         from django.utils import timezone
+
+        # API-sourced records should NOT create Zendesk tickets to avoid circular loops
+        if 'needs_zendesk_ticket' not in kwargs:
+            kwargs['needs_zendesk_ticket'] = False
 
         # Get existing active records for this player
         existing_active = cls.objects.filter(
