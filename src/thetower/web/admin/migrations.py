@@ -28,9 +28,9 @@ def get_django_migrations_status():
         # Set Django settings
         os.environ.setdefault("DJANGO_SETTINGS_MODULE", "thetower.backend.towerdb.settings")
 
-        # Run showmigrations command
+        # Run showmigrations command (without --plan for easier parsing)
         result = subprocess.run(
-            [sys.executable, "manage.py", "showmigrations", "--plan"],
+            [sys.executable, "manage.py", "showmigrations"],
             cwd=backend_path,
             capture_output=True,
             text=True,
@@ -45,23 +45,26 @@ def get_django_migrations_status():
         current_app = None
 
         for line in result.stdout.strip().split('\n'):
-            line = line.strip()
-            if not line:
+            line_stripped = line.strip()
+
+            # Skip empty lines
+            if not line_stripped:
                 continue
 
-            # App header (no leading spaces/symbols)
-            if not line.startswith(('[X]', '[ ]', '(no')):
-                current_app = line.rstrip(':')
+            # App header (no leading spaces, no [X] or [ ] prefix)
+            if not line.startswith(' '):
+                current_app = line_stripped
                 if current_app not in migrations:
                     migrations[current_app] = {
                         'applied': [],
                         'unapplied': []
                     }
             else:
-                # Migration entry
-                if current_app and line.startswith('['):
-                    is_applied = line.startswith('[X]')
-                    migration_name = line[4:].strip()  # Remove [X] or [ ] prefix
+                # Migration entry (starts with space, then [X] or [ ])
+                if current_app and line.startswith(' ['):
+                    is_applied = '[X]' in line
+                    # Extract migration name after the [X] or [ ] marker
+                    migration_name = line.split('] ')[1].strip()
 
                     if is_applied:
                         migrations[current_app]['applied'].append(migration_name)
