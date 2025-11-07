@@ -91,6 +91,7 @@ if hidden_features:
     admin_system_health_pages = [
         st.Page("admin/service_status.py", title="Service Status", icon="🔧", url_path="services"),
         st.Page("admin/codebase_status.py", title="Codebase Status", icon="📦", url_path="codebase"),
+        st.Page("admin/migrations.py", title="Migrations", icon="🔄", url_path="migrations"),
     ]
 
     admin_moderation_pages = [
