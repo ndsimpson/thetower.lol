@@ -314,12 +314,47 @@ class ModerationRecordAdmin(SimpleHistoryAdmin):
 
     _notes_display.short_description = "Notes"
 
+    def _zendesk_ticket_link(self, obj):
+        """Display Zendesk ticket as a clickable link if available."""
+        if obj.zendesk_ticket_id:
+            try:
+                from ..zendesk_utils import get_zendesk_ticket_web_url
+                ticket_url = get_zendesk_ticket_web_url(obj.zendesk_ticket_id)
+                return format_html(
+                    '<a href="{}" target="_blank">Ticket #{}</a>',
+                    ticket_url,
+                    obj.zendesk_ticket_id
+                )
+            except Exception:
+                # Fallback if zendesk_utils not available or URL construction fails
+                return f"Ticket #{obj.zendesk_ticket_id}"
+        return "-"
+
+    _zendesk_ticket_link.short_description = "Zendesk Ticket"
+
+    def _zendesk_status_display(self, obj):
+        """Display Zendesk processing status."""
+        if obj.zendesk_ticket_id:
+            return format_html('<span style="color: green;">✅ #{}</span>', obj.zendesk_ticket_id)
+        elif obj.needs_zendesk_ticket:
+            if obj.zendesk_retry_count >= 3:
+                return format_html('<span style="color: red;">❌ Failed ({} retries)</span>', obj.zendesk_retry_count)
+            elif obj.zendesk_retry_count > 0:
+                return format_html('<span style="color: orange;">⏳ Retrying (attempt {})</span>', obj.zendesk_retry_count + 1)
+            else:
+                return format_html('<span style="color: blue;">⏳ Pending</span>')
+        else:
+            return format_html('<span style="color: gray;">➖ Disabled</span>')
+
+    _zendesk_status_display.short_description = "Zendesk Status"
+
     list_display = (
         "tower_id",
         "_known_player_display",
         "moderation_type",
         "_status_display",
         "source",
+        "_zendesk_status_display",
         "created_at",
         "_created_by_display",
         "resolved_at",
@@ -349,12 +384,22 @@ class ModerationRecordAdmin(SimpleHistoryAdmin):
         "created_by_api_key",  # Only set by API
         "resolved_by_discord_id",  # Only set by bot
         "resolved_by_api_key",  # Only set by API
+        "_zendesk_ticket_link",  # Display Zendesk ticket as link
+        "_zendesk_status_display",  # Display formatted status
+        "zendesk_ticket_id",  # Managed by background worker
+        "zendesk_last_attempt",  # Managed by background worker
+        "zendesk_retry_count",  # Managed by background worker
     )
 
     fieldsets = (
         ("Moderation Details", {
             "fields": ("tower_id", "known_player", "moderation_type", "source", "created_at", "_created_by_display", "resolved_at", "_resolved_by_display", "reason"),
             "description": "Enter the Tower ID. If this player is verified (has a Discord account), they will be auto-linked."
+        }),
+        ("Zendesk Integration", {
+            "fields": ("_zendesk_status_display", "needs_zendesk_ticket", "_zendesk_ticket_link", "zendesk_ticket_id", "zendesk_last_attempt", "zendesk_retry_count"),
+            "description": "Zendesk ticket creation status and controls. Toggle 'needs_zendesk_ticket' to manually control ticket creation.",
+            "classes": ("collapse",)
         }),
         ("Audit Trail", {
             "fields": (
