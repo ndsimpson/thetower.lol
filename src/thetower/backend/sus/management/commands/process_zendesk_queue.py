@@ -117,8 +117,7 @@ class Command(BaseCommand):
             if not record:
                 return False
 
-            # Mark as processing (prevent other workers from picking it up)
-            record.needs_zendesk_ticket = False
+            # Update last attempt timestamp (pessimistic lock prevents race conditions)
             record.zendesk_last_attempt = timezone.now()
             record.save()
 

@@ -314,28 +314,19 @@ class ModerationRecordAdmin(SimpleHistoryAdmin):
 
     _notes_display.short_description = "Notes"
 
-    def _zendesk_ticket_link(self, obj):
-        """Display Zendesk ticket as a clickable link if available."""
+    def _zendesk_status_display(self, obj):
+        """Display Zendesk processing status with clickable link if ticket exists."""
         if obj.zendesk_ticket_id:
             try:
                 from ..zendesk_utils import get_zendesk_ticket_web_url
                 ticket_url = get_zendesk_ticket_web_url(obj.zendesk_ticket_id)
                 return format_html(
-                    '<a href="{}" target="_blank">Ticket #{}</a>',
+                    '<a href="{}" target="_blank" style="color: green; text-decoration: none;">✅ #{}</a>',
                     ticket_url,
                     obj.zendesk_ticket_id
                 )
             except Exception:
-                # Fallback if zendesk_utils not available or URL construction fails
-                return f"Ticket #{obj.zendesk_ticket_id}"
-        return "-"
-
-    _zendesk_ticket_link.short_description = "Zendesk Ticket"
-
-    def _zendesk_status_display(self, obj):
-        """Display Zendesk processing status."""
-        if obj.zendesk_ticket_id:
-            return format_html('<span style="color: green;">✅ #{}</span>', obj.zendesk_ticket_id)
+                return format_html('<span style="color: green;">✅ #{}</span>', obj.zendesk_ticket_id)
         elif obj.needs_zendesk_ticket:
             if obj.zendesk_retry_count >= 3:
                 return format_html('<span style="color: red;">❌ Failed ({} retries)</span>', obj.zendesk_retry_count)
@@ -384,11 +375,7 @@ class ModerationRecordAdmin(SimpleHistoryAdmin):
         "created_by_api_key",  # Only set by API
         "resolved_by_discord_id",  # Only set by bot
         "resolved_by_api_key",  # Only set by API
-        "_zendesk_ticket_link",  # Display Zendesk ticket as link
-        "_zendesk_status_display",  # Display formatted status
-        "zendesk_ticket_id",  # Managed by background worker
-        "zendesk_last_attempt",  # Managed by background worker
-        "zendesk_retry_count",  # Managed by background worker
+        "_zendesk_status_display",  # Display formatted status with clickable link
     )
 
     fieldsets = (
@@ -397,8 +384,8 @@ class ModerationRecordAdmin(SimpleHistoryAdmin):
             "description": "Enter the Tower ID. If this player is verified (has a Discord account), they will be auto-linked."
         }),
         ("Zendesk Integration", {
-            "fields": ("_zendesk_status_display", "needs_zendesk_ticket", "_zendesk_ticket_link", "zendesk_ticket_id", "zendesk_last_attempt", "zendesk_retry_count"),
-            "description": "Zendesk ticket creation status and controls. Toggle 'needs_zendesk_ticket' to manually control ticket creation.",
+            "fields": ("_zendesk_status_display", "needs_zendesk_ticket"),
+            "description": "Zendesk ticket creation status and controls. Click status for direct ticket access. Once a ticket is created, the toggle becomes read-only as the queue ignores records with existing tickets.",
             "classes": ("collapse",)
         }),
         ("Audit Trail", {
@@ -416,6 +403,10 @@ class ModerationRecordAdmin(SimpleHistoryAdmin):
     def get_readonly_fields(self, request, obj=None):
         # Base readonly fields that are always readonly
         readonly = list(self.readonly_fields)
+
+        # Make needs_zendesk_ticket readonly if ticket already exists
+        if obj and obj.zendesk_ticket_id:
+            readonly.append("needs_zendesk_ticket")
 
         # For non-superusers, make audit trail fields and source readonly
         if not request.user.is_superuser:
