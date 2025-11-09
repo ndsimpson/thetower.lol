@@ -183,12 +183,9 @@ class BaseCog(commands.Cog):
         """Initialize cog-specific resources after bot is ready.
 
         This method should be overridden by cogs to perform async initialization.
-        The base method handles command registration.
         """
-        # Register commands based on their type settings
-        await self.register_commands()
-
-        # Command types will be properly set up before derived class initialization
+        # Cogs can override this for custom initialization
+        pass
 
     async def wait_until_ready(self, timeout: Optional[float] = None) -> bool:
         """
@@ -220,79 +217,6 @@ class BaseCog(commands.Cog):
             self._ready.set()
         else:
             self._ready.clear()
-
-    async def register_commands(self):
-        """Register commands based on their type settings.
-
-        This method should be called during cog initialization to register
-        flexible commands according to their configured types.
-        """
-        self.logger.debug(f"Registering commands for {self.__class__.__name__}")
-
-        # Process each command in the cog
-        for command in self.get_commands():
-            # Skip commands that don't have flex command attributes
-            if not hasattr(command, "_flex_command_func"):
-                continue
-
-            command_name = command._flex_command_name
-            command_type = self.bot.command_type_manager.get_command_type(command_name)
-
-            self.logger.debug(f"Command {command_name} has type {command_type}")
-
-            # Handle registration based on command type
-            if command_type == "prefix":
-                # Ensure it's not in the app command tree
-                try:
-                    self.bot.tree.remove_command(command_name)
-                except Exception:
-                    # Command might not exist in tree
-                    pass
-
-            elif command_type == "slash":
-                # Remove as prefix command and add as app command
-                # First store a reference to the command for later removal
-                cmd_to_remove = self.bot.get_command(command_name)
-
-                if cmd_to_remove:
-                    self.bot.remove_command(command_name)
-
-                # Register as app command
-                kwargs = command._flex_command_kwargs.copy()
-                # Remove aliases as they don't work with app commands
-                if "aliases" in kwargs:
-                    del kwargs["aliases"]
-
-                # Register with the app command tree
-                self.bot.tree.command(name=command_name, **kwargs)(command._flex_command_func)
-
-            elif command_type == "both":
-                # Ensure it exists as both types
-                kwargs = command._flex_command_kwargs.copy()
-                # Remove aliases as they don't work with app commands
-                if "aliases" in kwargs:
-                    slash_kwargs = kwargs.copy()
-                    del slash_kwargs["aliases"]
-                else:
-                    slash_kwargs = kwargs
-
-                # Register with the app command tree if not already
-                self.bot.tree.command(name=command_name, **slash_kwargs)(command._flex_command_func)
-
-            elif command_type == "none":
-                # Remove from both systems
-                try:
-                    self.bot.remove_command(command_name)
-                except Exception:
-                    pass
-
-                try:
-                    self.bot.tree.remove_command(command_name)
-                except Exception:
-                    pass
-
-        self.logger.info(f"Command registration completed for {self.__class__.__name__}")
-        return True
 
     def set_ready_timeout(self, timeout: float) -> None:
         """

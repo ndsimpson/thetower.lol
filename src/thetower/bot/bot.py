@@ -13,7 +13,7 @@ from discord.ext.commands import Context
 
 # Local imports
 from thetower.bot.exceptions import ChannelUnauthorized, UserUnauthorized
-from thetower.bot.utils import CogManager, CommandTypeManager, ConfigManager, PermissionManager
+from thetower.bot.utils import CogManager, ConfigManager, PermissionManager
 
 # Set up logging
 log_level = getenv("LOG_LEVEL", "INFO").upper()
@@ -34,11 +34,6 @@ class DiscordBot(commands.Bot):
         self.config = ConfigManager()
         self.permission_manager = PermissionManager(self.config)
 
-        # Initialize default command type settings if they don't exist
-        if not self.config.get("command_type_mode", None):
-            self.config.config["command_type_mode"] = "prefix"  # Default to prefix type
-            self.config.save_config()
-
         super().__init__(
             command_prefix=self.config.get("prefix"),
             intents=intents,
@@ -49,9 +44,6 @@ class DiscordBot(commands.Bot):
         )
         self.logger = logger
         self.cog_manager = CogManager(self)
-
-        # Store command types configuration
-        self.command_types = self.config.get("command_types", {})
 
         # Set up logging with UTC timestamps
         formatter = logging.Formatter("%(asctime)s UTC [%(name)s] %(levelname)s: %(message)s", datefmt="%Y-%m-%d %H:%M:%S")
@@ -71,9 +63,6 @@ class DiscordBot(commands.Bot):
 
         # Add global command check
         self.add_check(self.global_command_check)
-
-        # Set up command type handling
-        self.command_type_manager = CommandTypeManager(self)
 
         # Auto-sync slash commands if enabled
         if self.config.get("auto_sync_commands", True):
@@ -847,168 +836,6 @@ async def config_toggle(ctx, setting_name: str, value: bool = None):
     # Report the new state
     status = "✅ Enabled" if new_value else "❌ Disabled"
     await ctx.send(f"Setting `{setting_name}` is now {status}")
-
-
-@bot.group(name="command_type", aliases=["cmdtype"], invoke_without_command=True)
-async def command_type_group(ctx):
-    """Manage command types (prefix, slash, both, none)"""
-    if ctx.invoked_subcommand is None:
-        # Show current settings
-        embed = discord.Embed(title="Command Type Settings", description="Control how commands are invoked", color=discord.Color.blue())
-
-        default_mode = bot.config.get("command_type_mode", "prefix")
-        embed.add_field(name="Default Mode", value=f"`{default_mode}`", inline=False)
-
-        # Show custom command types
-        command_types = bot.config.get("command_types", {})
-        if command_types:
-            custom_settings = "\n".join([f"`{cmd}`: {mode}" for cmd, mode in sorted(command_types.items())])
-            embed.add_field(name="Custom Command Settings", value=custom_settings, inline=False)
-        else:
-            embed.add_field(name="Custom Command Settings", value="No custom settings configured", inline=False)
-
-        # Add explanation
-        embed.add_field(
-            name="Command Type Options",
-            value="`prefix`: Traditional commands only (e.g., $command)\n"
-            "`slash`: Slash commands only (e.g., /command)\n"
-            "`both`: Both prefix and slash commands\n"
-            "`none`: Command disabled",
-            inline=False,
-        )
-
-        await ctx.send(embed=embed)
-
-
-@command_type_group.command(name="set_default")
-async def command_type_set_default(ctx, mode: str):
-    """Set the default command type mode.
-
-    Args:
-        mode: The mode to set (prefix, slash, both, none)
-
-    Examples:
-        $command_type set_default both
-        $command_type set_default slash
-    """
-    valid_modes = ["prefix", "slash", "both", "none"]
-    if mode.lower() not in valid_modes:
-        return await ctx.send(f"❌ Invalid mode. Valid options: {', '.join(valid_modes)}")
-
-    # Update the setting
-    bot.config.config["command_type_mode"] = mode.lower()
-    bot.config.save_config()
-
-    await ctx.send(f"✅ Default command type mode set to: `{mode.lower()}`")
-
-    # Remind about syncing
-    await ctx.send("ℹ️ Remember to use `$command_type sync` to apply changes to slash commands")
-
-
-@command_type_group.command(name="set")
-async def command_type_set(ctx, command_name: str, mode: str):
-    """Set the command type for a specific command.
-
-    Args:
-        command_name: The command to configure
-        mode: The mode to set (prefix, slash, both, none)
-
-    Examples:
-        $command_type set settings slash
-        $command_type set help prefix
-    """
-    valid_modes = ["prefix", "slash", "both", "none"]
-    if mode.lower() not in valid_modes:
-        return await ctx.send(f"❌ Invalid mode. Valid options: {', '.join(valid_modes)}")
-
-    # Check if command exists
-    cmd = bot.get_command(command_name)
-    if not cmd:
-        return await ctx.send(f"❌ Command '{command_name}' not found")
-
-    # Use the root command name if it's a subcommand
-    root_name = cmd.qualified_name
-
-    # Update the setting
-    command_types = bot.config.get("command_types", {})
-    command_types[root_name] = mode.lower()
-    bot.config.config["command_types"] = command_types
-    bot.config.save_config()
-
-    await ctx.send(f"✅ Command `{root_name}` set to mode: `{mode.lower()}`")
-
-    # Remind about syncing
-    await ctx.send("ℹ️ Remember to use `$command_type sync` to apply changes to slash commands")
-
-
-@command_type_group.command(name="reset")
-async def command_type_reset(ctx, command_name: str):
-    """Reset a command to use the default command type.
-
-    Args:
-        command_name: The command to reset
-
-    Examples:
-        $command_type reset settings
-    """
-    # Check if command exists
-    cmd = bot.get_command(command_name)
-    if not cmd:
-        return await ctx.send(f"❌ Command '{command_name}' not found")
-
-    # Use the root command name if it's a subcommand
-    root_name = cmd.qualified_name
-
-    # Update the setting
-    command_types = bot.config.get("command_types", {})
-    if root_name in command_types:
-        del command_types[root_name]
-        bot.config.config["command_types"] = command_types
-        bot.config.save_config()
-
-        default_mode = bot.config.get("command_type_mode", "both")
-        await ctx.send(f"✅ Command `{root_name}` reset to default mode: `{default_mode}`")
-    else:
-        default_mode = bot.config.get("command_type_mode", "both")
-        await ctx.send(f"ℹ️ Command `{root_name}` is already using default mode: `{default_mode}`")
-
-    # Remind about syncing
-    await ctx.send("ℹ️ Remember to use `$command_type sync` to apply changes to slash commands")
-
-
-@command_type_group.command(name="sync")
-async def command_type_sync(ctx):
-    """Sync command settings with Discord."""
-    await ctx.send("🔄 Syncing commands with Discord...")
-
-    try:
-        # Get registered commands
-        commands = []
-        for command in bot.walk_commands():
-            # Skip commands that shouldn't be slash commands
-            command_type = bot.command_type_manager.get_command_type(command.qualified_name)
-            if command_type in ["slash", "both"]:
-                # Convert command to slash command format
-                slash_command = {
-                    "name": command.name,
-                    "description": command.help or "No description available",
-                    "options": [],  # Add parameter handling if needed
-                }
-                commands.append(slash_command)
-
-        # Sync with Discord
-        if ctx.guild:
-            # Sync to specific guild
-            synced = await bot.tree.sync(guild=ctx.guild)
-        else:
-            # Global sync
-            synced = await bot.tree.sync()
-
-        await ctx.send(f"✅ Synced {len(synced)} command(s) with Discord")
-
-    except Exception as e:
-        await ctx.send(f"❌ Error syncing commands: {str(e)}")
-        bot.logger.error(f"Command sync error: {e}", exc_info=True)
 
 
 def main():
