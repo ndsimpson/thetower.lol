@@ -13,7 +13,7 @@ from discord.ext.commands import Context
 
 # Local imports
 from thetower.bot.exceptions import ChannelUnauthorized, UserUnauthorized
-from thetower.bot.utils import BaseFileMonitor, CogManager, CommandTypeManager, ConfigManager, PermissionManager
+from thetower.bot.utils import CogManager, CommandTypeManager, ConfigManager, PermissionManager
 
 # Set up logging
 log_level = getenv("LOG_LEVEL", "INFO").upper()
@@ -27,7 +27,7 @@ intents.message_content = True
 intents.members = True
 
 
-class DiscordBot(commands.Bot, BaseFileMonitor):
+class DiscordBot(commands.Bot):
     def __init__(self) -> None:
         environ.setdefault("DJANGO_SETTINGS_MODULE", "thetower.backend.settings")
         django.setup()
@@ -68,9 +68,6 @@ class DiscordBot(commands.Bot, BaseFileMonitor):
         """This will just be executed when the bot starts the first time."""
         self.logger.info(f"Logged in as {self.user} (ID: {self.user.id})")
         self.logger.info("------")
-
-        # Setup file monitoring through CogManager instead of directly
-        self.cog_manager.start_observer()
 
         # Add global command check
         self.add_check(self.global_command_check)
@@ -445,25 +442,17 @@ async def cog_reload_all(ctx):
     await ctx.send(embed=embed)
 
 
-@cog_group.group(name="autoreload", aliases=["auto"], invoke_without_command=True)
-async def cog_autoreload_group(ctx):
-    """Auto-reload settings for cogs"""
-    if ctx.invoked_subcommand is None:
-        await bot.cog_manager.auto_reload_settings(ctx)
-
-
 @cog_group.command(name="toggle")
 async def cog_toggle(ctx, setting_name: str, value: bool = None):
     """Toggle a cog-related setting.
 
     Args:
-        setting_name: Name of the setting to toggle (load_all, auto_reload)
+        setting_name: Name of the setting to toggle (load_all)
         value: Optional boolean value to set explicitly. If omitted, toggles current value.
 
     Examples:
         $cog toggle load_all        (toggle the load_all_cogs setting)
         $cog toggle load_all True   (explicitly enable load_all_cogs)
-        $cog toggle auto_reload     (toggle auto-reload for all cogs)
     """
     setting_name = setting_name.lower()
 
@@ -477,74 +466,8 @@ async def cog_toggle(ctx, setting_name: str, value: bool = None):
         await ctx.send(f"Setting `load_all_cogs` is now {status}")
         return
 
-    # Handle auto_reload setting
-    elif setting_name in ["auto_reload", "auto", "autoreload"]:
-        await bot.cog_manager.toggle_auto_reload_with_ctx(ctx)
-        return
-
-    # Handle per-cog auto_reload setting
-    elif setting_name.startswith("auto_reload_"):
-        cog_name = setting_name[len("auto_reload_") :]
-        if not cog_name:
-            await ctx.send("❌ Please specify a cog name: `auto_reload_cogname`")
-            return
-
-        await ctx.invoke(bot.get_command("cog autoreload toggle_cog"), cog_name=cog_name)
-        return
-
     # Unknown setting
-    await ctx.send(f"❌ Unknown setting: `{setting_name}`\nValid settings: `load_all`, `auto_reload`, `auto_reload_cogname`")
-
-
-@cog_group.command(name="pause")
-async def cog_pause(ctx, value: bool = None):
-    """Pause or unpause the cog auto-reload system.
-
-    When paused, file changes won't trigger automatic reloads.
-
-    Args:
-        value: Optional boolean value to set explicitly.
-              If omitted, toggles the current state.
-
-    Examples:
-        $cog pause          (toggle pause state)
-        $cog pause True     (explicitly pause)
-        $cog pause False    (explicitly unpause)
-    """
-    # Get current observer status
-    is_paused = not bot.cog_manager.observer_running
-
-    # Determine new value (toggle if not specified)
-    new_paused_state = not is_paused if value is None else value
-
-    # Apply the change
-    if new_paused_state:
-        if bot.cog_manager.observer_running:
-            bot.cog_manager.stop_observer()
-            await ctx.send("System is now ⏸️ Paused (auto-reload disabled)")
-        else:
-            await ctx.send("System is already ⏸️ Paused")
-    else:
-        if not bot.cog_manager.observer_running:
-            bot.cog_manager.start_observer()
-            await ctx.send("System is now ✅ Running (auto-reload enabled)")
-        else:
-            await ctx.send("System is already ✅ Running")
-
-
-# Keep the specialized toggle_cog command in the autoreload subgroup since it requires special handling
-@cog_autoreload_group.command(name="toggle_cog")
-async def cog_autoreload_toggle_cog(ctx, cog_name: str):
-    """Toggle auto-reload for a specific cog.
-
-    Args:
-        cog_name: The name of the cog to toggle auto-reload for
-
-    Examples:
-        $cog autoreload toggle_cog music
-        $cog autoreload toggle_cog utils
-    """
-    await bot.cog_manager.toggle_cog_auto_reload_with_ctx(ctx, cog_name)
+    await ctx.send(f"❌ Unknown setting: `{setting_name}`\nValid settings: `load_all`")
 
 
 @cog_group.command(name="toggle_autostart")
@@ -1086,13 +1009,6 @@ async def command_type_sync(ctx):
     except Exception as e:
         await ctx.send(f"❌ Error syncing commands: {str(e)}")
         bot.logger.error(f"Command sync error: {e}", exc_info=True)
-
-
-@bot.event
-async def on_close():
-    """Clean up resources when the bot is shutting down."""
-    # Stop the file system observer
-    bot.cog_manager.stop_observer()
 
 
 def main():
