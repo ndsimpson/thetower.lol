@@ -12,7 +12,6 @@ from discord.ui import Button, Modal, Select, TextInput, View
 
 # Local application imports
 from thetower.bot.basecog import BaseCog
-from thetower.bot.utils.decorators import flexible_command
 
 
 class AdvertisementType:
@@ -1023,7 +1022,7 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
     # Owner Commands
     # ====================
 
-    @flexible_command(name="owner_delete_post")
+    @commands.command(name="owner_delete_post")
     async def owner_delete_post(self, ctx: commands.Context, message_url: str) -> None:
         """Delete a post based on message URL and remove it from pending deletions.
 
@@ -1093,7 +1092,7 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
             self.logger.error(f"Error processing owner_delete_post command: {str(e)}")
             await ctx.send(f"Error processing command: {str(e)}")
 
-    @flexible_command(name="owner_reset_timeout")
+    @commands.command(name="owner_reset_timeout")
     async def owner_reset_timeout(self, ctx: commands.Context, timeout_type: str, identifier: str) -> None:
         """Reset a timeout for a user or guild.
 
@@ -1127,7 +1126,7 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
         except Exception as e:
             await ctx.send(f"Error processing command: {str(e)}")
 
-    @flexible_command(name="owner_list_timeouts")
+    @commands.command(name="owner_list_timeouts")
     async def owner_list_timeouts(self, ctx: commands.Context, timeout_type: Optional[str] = None) -> None:
         """List all active timeouts.
 
@@ -1186,7 +1185,7 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
             self.logger.error(f"Error in owner_list_timeouts: {e}", exc_info=True)
             await ctx.send(f"Error processing command: {str(e)}")
 
-    @flexible_command(name="owner_list_pending")
+    @commands.command(name="owner_list_pending")
     async def owner_list_pending(self, ctx: commands.Context) -> None:
         """List all pending deletions.
 
@@ -1244,7 +1243,7 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
             self.logger.error(f"Error in owner_list_pending: {e}", exc_info=True)
             await ctx.send(f"Error processing command: {str(e)}")
 
-    @flexible_command(name="owner_delete_all_ads")
+    @commands.command(name="owner_delete_all_ads")
     async def owner_delete_all_ads(self, ctx: commands.Context, confirm: str = None) -> None:
         """Delete all active advertisements and clear pending deletions.
 
@@ -1308,7 +1307,7 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
             self.logger.error(f"Error in owner_delete_all_ads: {e}", exc_info=True)
             await ctx.send(f"Error processing command: {str(e)}")
 
-    @flexible_command(name="owner_clear_all_timeouts")
+    @commands.command(name="owner_clear_all_timeouts")
     async def owner_clear_all_timeouts(self, ctx: commands.Context, confirm: str = None) -> None:
         """Clear all advertisement timeouts.
 
