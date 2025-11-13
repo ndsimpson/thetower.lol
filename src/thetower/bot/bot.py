@@ -45,6 +45,7 @@ class DiscordBot(commands.Bot, BaseFileMonitor):
             case_insensitive=True,
             # Add application_id for slash commands support
             application_id=int(getenv("DISCORD_APPLICATION_ID", 0)),
+            interaction_timeout=900,  # 15 minutes timeout for slash commands
         )
         self.logger = logger
         self.cog_manager = CogManager(self)

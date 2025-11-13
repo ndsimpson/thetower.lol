@@ -31,7 +31,7 @@ class AdTypeSelection(View):
         Args:
             cog: The UnifiedAdvertise cog instance
         """
-        super().__init__(timeout=180)  # 3 minute timeout
+        super().__init__(timeout=900)  # 15 minute timeout
         self.cog = cog
 
     @discord.ui.button(label="Guild Advertisement", style=discord.ButtonStyle.primary, emoji="🏰")
@@ -83,7 +83,7 @@ class GuildAdvertisementForm(Modal, title="Guild Advertisement Form"):
         Args:
             cog: The UnifiedAdvertise cog instance
         """
-        super().__init__(timeout=180)  # 3 minute timeout
+        super().__init__(timeout=900)  # 15 minute timeout
         self.cog = cog
         self.notify = True
         self.interaction = None  # Store interaction object
@@ -172,7 +172,7 @@ class GuildAdvertisementForm(Modal, title="Guild Advertisement Form"):
 
 class NotificationView(View):
     def __init__(self, form: GuildAdvertisementForm):
-        super().__init__(timeout=180)
+        super().__init__(timeout=900)
         self.form = form
 
     @discord.ui.select(
@@ -195,7 +195,7 @@ class MemberAdvertisementForm(Modal, title="Member Advertisement Form"):
         Args:
             cog: The UnifiedAdvertise cog instance
         """
-        super().__init__(timeout=180)  # 3 minute timeout
+        super().__init__(timeout=900)  # 15 minute timeout
         self.cog = cog
         self.notify = True
         self.interaction = None  # Store interaction object
@@ -933,7 +933,7 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
 
         class DeleteView(View):
             def __init__(self, cog: UnifiedAdvertise):
-                super().__init__()
+                super().__init__(timeout=900)  # 15 minute timeout
                 self.cog = cog
                 self.add_item(DeleteSelect())
 
@@ -1013,7 +1013,7 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
 
         class NotifyView(View):
             def __init__(self, cog: UnifiedAdvertise):
-                super().__init__()
+                super().__init__(timeout=900)  # 15 minute timeout
                 self.cog = cog
                 self.add_item(NotifySelect())
 
