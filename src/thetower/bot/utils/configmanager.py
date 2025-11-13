@@ -5,14 +5,10 @@ from os import getenv
 from pathlib import Path
 from typing import Any, Dict
 
-from watchdog.events import FileModifiedEvent, FileSystemEventHandler
-
-from .filemonitor import BaseFileMonitor
-
 logger = logging.getLogger(__name__)
 
 
-class ConfigManager(BaseFileMonitor):
+class ConfigManager:
     _instance = None
 
     def __new__(cls):
@@ -170,23 +166,6 @@ class ConfigManager(BaseFileMonitor):
     def get(self, key: str, default: Any = None) -> Any:
         """Get a configuration value."""
         return self.config.get(key, default)
-
-    def start_monitoring(self):
-        """Start monitoring the config file for changes."""
-
-        class ConfigFileHandler(FileSystemEventHandler):
-            def __init__(self, config_manager):
-                self.config_manager = config_manager
-
-            def on_modified(self, event):
-                if isinstance(event, FileModifiedEvent):
-                    event_path = Path(event.src_path).resolve()
-                    config_path = self.config_manager.config_path.resolve()
-                    if event_path == config_path:
-                        logger.info("Config file modified, reloading...")
-                        self.config_manager.load_config()
-
-        super().start_monitoring(self.config_path.parent, ConfigFileHandler(self), recursive=False)
 
     def get_guild_id(self) -> int:
         """Get the guild ID."""
