@@ -14,13 +14,6 @@ from discord.ext.commands import Context
 # Local application imports
 from thetower.bot.exceptions import ChannelUnauthorized, UserUnauthorized
 from thetower.bot.utils import ConfigManager
-from thetower.bot.utils.command_helpers import (
-    add_settings_commands,
-    add_standard_admin_commands,
-    create_set_command,
-    create_settings_command,
-    register_settings_commands,
-)
 from thetower.bot.utils.data_management import DataManager
 from thetower.bot.utils.task_tracker import TaskTracker
 
@@ -233,18 +226,27 @@ class BaseCog(commands.Cog):
         self.logger.debug(f"Guild cache reset for {self.__class__.__name__}")
 
     @property
-    def guild(self):
-        """Get and cache the primary guild for this bot."""
-        if self._guild is None:
-            self._guild = self.bot.get_guild(self.config.get_guild_id())
-        return self._guild
+    def cog_name(self) -> str:
+        """Get the standardized cog name in snake_case format.
+
+        This ensures consistency between how cogs are referenced in bot_owner_settings
+        (which uses filenames like 'battle_conditions') and guild settings.
+
+        Returns:
+            str: The cog name in snake_case format (e.g., 'battle_conditions')
+        """
+        import re
+
+        # Convert PascalCase to snake_case
+        class_name = self.__class__.__name__
+        snake = re.sub('([a-z0-9])([A-Z])', r'\1_\2', class_name)
+        return snake.lower()
 
     @property
     def data_directory(self) -> Path:
         """Get and cache the cog's data directory."""
         if self._cog_data_directory is None:
-            cog_name = self.__class__.__name__
-            self._cog_data_directory = self.config.get_cog_data_directory(cog_name)
+            self._cog_data_directory = self.config.get_cog_data_directory(self.cog_name)
         return self._cog_data_directory
 
     def load_command_permissions(self) -> Dict[str, Any]:
@@ -272,6 +274,21 @@ class BaseCog(commands.Cog):
         # Skip permission checks for help command
         if ctx.command.name == "help":
             return True
+
+        # Check if this cog is enabled for the current guild
+        if ctx.guild:
+            cog_name = self.__class__.__name__.replace("Cog", "").lower()
+            # Convert CamelCase to snake_case for cog names like "TourneyRolesCog" -> "tourney_roles"
+            import re
+            cog_name = re.sub(r'(?<!^)(?=[A-Z])', '_', cog_name).lower()
+
+            is_bot_owner = await ctx.bot.is_owner(ctx.author)
+
+            # Check if cog is enabled for this guild
+            if not ctx.bot.cog_manager.can_guild_use_cog(cog_name, ctx.guild.id, is_bot_owner):
+                # Don't send a message here - just silently fail
+                # The cog simply won't respond if not enabled for the guild
+                return False
 
         # Get the full command name for subcommands
         command_name = self.get_command_name(ctx)
@@ -319,102 +336,262 @@ class BaseCog(commands.Cog):
 
     # Cog settings methods
 
-    def get_setting(self, key: str, default: Any = None, guild_id: int = None) -> Any:
+    def _extract_guild_id(self, guild_id: int = None, ctx: Context = None, interaction: discord.Interaction = None) -> int:
+        """Extract guild ID from various sources.
+
+        Priority order:
+        1. Explicit guild_id parameter
+        2. Context object (ctx.guild.id)
+        3. Interaction object (interaction.guild_id)
+        4. Raise error if none available
+
+        Args:
+            guild_id: Explicit guild ID
+            ctx: Command context (optional)
+            interaction: Discord interaction (optional)
+
+        Returns:
+            The guild ID
+
+        Raises:
+            ValueError: If guild_id cannot be determined
+        """
+        if guild_id is not None:
+            return guild_id
+
+        if ctx is not None and ctx.guild is not None:
+            return ctx.guild.id
+
+        if interaction is not None and interaction.guild is not None:
+            return interaction.guild_id
+
+        # Try to inspect the call stack for ctx or interaction
+        import inspect
+        frame = inspect.currentframe()
+        try:
+            # Walk up the call stack looking for ctx or interaction
+            for _ in range(10):  # Limit depth to avoid infinite loops
+                frame = frame.f_back
+                if frame is None:
+                    break
+
+                local_vars = frame.f_locals
+
+                # Check for ctx in local variables
+                if 'ctx' in local_vars:
+                    ctx_obj = local_vars['ctx']
+                    if isinstance(ctx_obj, Context) and ctx_obj.guild is not None:
+                        return ctx_obj.guild.id
+
+                # Check for interaction in local variables
+                if 'interaction' in local_vars:
+                    inter_obj = local_vars['interaction']
+                    if isinstance(inter_obj, discord.Interaction) and inter_obj.guild is not None:
+                        return inter_obj.guild_id
+
+                # Check for self.ctx (some cogs might store it)
+                if 'self' in local_vars:
+                    self_obj = local_vars['self']
+                    if hasattr(self_obj, 'ctx') and isinstance(self_obj.ctx, Context):
+                        if self_obj.ctx.guild is not None:
+                            return self_obj.ctx.guild.id
+        finally:
+            del frame
+
+        raise ValueError(
+            "guild_id is required but could not be determined automatically. "
+            "Please pass guild_id=ctx.guild.id explicitly, or ensure this is called "
+            "within a command context."
+        )
+
+    def ensure_settings_initialized(
+        self,
+        guild_id: int = None,
+        default_settings: Dict[str, Any] = None,
+        ctx: Context = None,
+        interaction: discord.Interaction = None
+    ) -> None:
+        """Ensure settings are initialized for a specific guild.
+
+        Args:
+            guild_id: The guild ID to initialize settings for (auto-detected from ctx if not provided)
+            default_settings: Dictionary of default setting values (optional)
+            ctx: Command context (optional, used for auto-detecting guild_id)
+            interaction: Discord interaction (optional, used for auto-detecting guild_id)
+
+        Example:
+            # Automatic guild detection:
+            self.ensure_settings_initialized(ctx=ctx, default_settings={
+                'notification_hour': 0,
+                'enabled_leagues': ['Legend', 'Champion']
+            })
+
+            # Or explicit:
+            self.ensure_settings_initialized(guild_id=ctx.guild.id, default_settings={...})
+        """
+        if default_settings is None:
+            return
+
+        guild_id = self._extract_guild_id(guild_id, ctx, interaction)
+
+        for key, value in default_settings.items():
+            if not self.has_setting(key, guild_id=guild_id, ctx=ctx, interaction=interaction):
+                self.set_setting(key, value, guild_id=guild_id, ctx=ctx, interaction=interaction)
+
+    def get_setting(
+        self,
+        key: str,
+        default: Any = None,
+        guild_id: int = None,
+        ctx: Context = None,
+        interaction: discord.Interaction = None
+    ) -> Any:
         """Get a cog-specific setting.
 
         Args:
             key: Setting name
             default: Default value if setting doesn't exist
-            guild_id: Optional guild ID (uses current guild by default)
+            guild_id: Guild ID (auto-detected from ctx/interaction if not provided)
+            ctx: Command context (optional, used for auto-detecting guild_id)
+            interaction: Discord interaction (optional, used for auto-detecting guild_id)
 
         Returns:
             The setting value or default
 
         Example:
-            value = self.get_setting('timeout_seconds', 60)
-        """
-        cog_name = self.__class__.__name__
-        return self.config.get_cog_setting(cog_name, key, default, guild_id)
+            # Automatic - just pass ctx:
+            value = self.get_setting('timeout_seconds', 60, ctx=ctx)
 
-    def set_setting(self, key: str, value: Any, guild_id: int = None) -> None:
+            # Or explicit:
+            value = self.get_setting('timeout_seconds', 60, guild_id=ctx.guild.id)
+        """
+        guild_id = self._extract_guild_id(guild_id, ctx, interaction)
+        return self.config.get_cog_setting(self.cog_name, key, default, guild_id)
+
+    def set_setting(
+        self,
+        key: str,
+        value: Any,
+        guild_id: int = None,
+        ctx: Context = None,
+        interaction: discord.Interaction = None
+    ) -> None:
         """Save a cog-specific setting.
 
         Args:
             key: Setting name
             value: Setting value
-            guild_id: Optional guild ID (uses current guild by default)
+            guild_id: Guild ID (auto-detected from ctx/interaction if not provided)
+            ctx: Command context (optional, used for auto-detecting guild_id)
+            interaction: Discord interaction (optional, used for auto-detecting guild_id)
 
         Example:
-            self.set_setting('timeout_seconds', 120)
-        """
-        cog_name = self.__class__.__name__
-        self.config.set_cog_setting(cog_name, key, value, guild_id)
+            # Automatic - just pass ctx:
+            self.set_setting('timeout_seconds', 120, ctx=ctx)
 
-    def update_settings(self, settings: Dict[str, Any], guild_id: int = None) -> None:
+            # Or explicit:
+            self.set_setting('timeout_seconds', 120, guild_id=ctx.guild.id)
+        """
+        guild_id = self._extract_guild_id(guild_id, ctx, interaction)
+        self.config.set_cog_setting(self.cog_name, key, value, guild_id)
+
+    def update_settings(
+        self,
+        settings: Dict[str, Any],
+        guild_id: int = None,
+        ctx: Context = None,
+        interaction: discord.Interaction = None
+    ) -> None:
         """Update multiple cog settings at once.
 
         Args:
             settings: Dictionary of settings to update
-            guild_id: Optional guild ID (uses current guild by default)
+            guild_id: Guild ID (auto-detected from ctx/interaction if not provided)
+            ctx: Command context (optional, used for auto-detecting guild_id)
+            interaction: Discord interaction (optional, used for auto-detecting guild_id)
 
         Example:
+            # Automatic - just pass ctx:
             self.update_settings({
                 'timeout_seconds': 120,
                 'max_retries': 3,
                 'enabled': True
-            })
+            }, ctx=ctx)
         """
-        cog_name = self.__class__.__name__
-        self.config.update_cog_settings(cog_name, settings, guild_id)
+        guild_id = self._extract_guild_id(guild_id, ctx, interaction)
+        self.config.update_cog_settings(self.cog_name, settings, guild_id)
 
-    def remove_setting(self, key: str, guild_id: int = None) -> bool:
+    def remove_setting(
+        self,
+        key: str,
+        guild_id: int = None,
+        ctx: Context = None,
+        interaction: discord.Interaction = None
+    ) -> bool:
         """Remove a cog-specific setting.
 
         Args:
             key: Setting name to remove
-            guild_id: Optional guild ID (uses current guild by default)
+            guild_id: Guild ID (auto-detected from ctx/interaction if not provided)
+            ctx: Command context (optional, used for auto-detecting guild_id)
+            interaction: Discord interaction (optional, used for auto-detecting guild_id)
 
         Returns:
             True if setting was removed, False if it didn't exist
 
         Example:
-            self.remove_setting('legacy_option')
+            self.remove_setting('legacy_option', ctx=ctx)
         """
-        cog_name = self.__class__.__name__
-        return self.config.remove_cog_setting(cog_name, key, guild_id)
+        guild_id = self._extract_guild_id(guild_id, ctx, interaction)
+        return self.config.remove_cog_setting(self.cog_name, key, guild_id)
 
-    def has_setting(self, key: str, guild_id: int = None) -> bool:
+    def has_setting(
+        self,
+        key: str,
+        guild_id: int = None,
+        ctx: Context = None,
+        interaction: discord.Interaction = None
+    ) -> bool:
         """Check if a cog-specific setting exists.
 
         Args:
             key: Setting name to check
-            guild_id: Optional guild ID (uses current guild by default)
+            guild_id: Guild ID (auto-detected from ctx/interaction if not provided)
+            ctx: Command context (optional, used for auto-detecting guild_id)
+            interaction: Discord interaction (optional, used for auto-detecting guild_id)
 
         Returns:
             True if setting exists, False otherwise
 
         Example:
-            if self.has_setting('feature_enabled'):
+            if self.has_setting('feature_enabled', ctx=ctx):
                 # use the feature
         """
-        cog_name = self.__class__.__name__
-        return self.config.has_cog_setting(cog_name, key, guild_id)
+        guild_id = self._extract_guild_id(guild_id, ctx, interaction)
+        return self.config.has_cog_setting(self.cog_name, key, guild_id)
 
-    def get_all_settings(self, guild_id: int = None) -> Dict[str, Any]:
+    def get_all_settings(
+        self,
+        guild_id: int = None,
+        ctx: Context = None,
+        interaction: discord.Interaction = None
+    ) -> Dict[str, Any]:
         """Get all settings for this cog.
 
         Args:
-            guild_id: Optional guild ID (uses current guild by default)
+            guild_id: Guild ID (auto-detected from ctx/interaction if not provided)
+            ctx: Command context (optional, used for auto-detecting guild_id)
+            interaction: Discord interaction (optional, used for auto-detecting guild_id)
 
         Returns:
             Dictionary of all cog settings
 
         Example:
-            all_settings = self.get_all_settings()
+            all_settings = self.get_all_settings(ctx=ctx)
             print(f"Current configuration: {all_settings}")
         """
-        cog_name = self.__class__.__name__
-        return self.config.get_all_cog_settings(cog_name, guild_id)
+        guild_id = self._extract_guild_id(guild_id, ctx, interaction)
+        return self.config.get_all_cog_settings(self.cog_name, guild_id)
 
     # ----- Data Management Methods -----
 
@@ -489,71 +666,7 @@ class BaseCog(commands.Cog):
                 task.cancel()
         self._save_tasks.clear()
 
-    # ----- Command Helper Methods -----
-
-    def create_settings_command(self, group_command) -> Callable:
-        """
-        Create a standard settings display command.
-
-        Args:
-            group_command: The command group to add this command to
-
-        Returns:
-            The created command function
-        """
-        return create_settings_command(self)
-
-    def create_set_command(self, valid_settings=None, validators=None) -> Callable:
-        """
-        Create a standard command for changing settings.
-
-        Args:
-            valid_settings: Optional list of valid setting names
-            validators: Optional dict mapping setting names to validator functions
-
-        Returns:
-            The created command function
-        """
-        return create_set_command(self, valid_settings, validators)
-
-    def add_settings_commands(self, group_command, valid_settings=None, validators=None):
-        """
-        Add both settings and set commands to a command group.
-
-        Args:
-            group_command: The command group to add commands to
-            valid_settings: Optional list of valid setting names
-            validators: Optional dict mapping setting names to validator functions
-        """
-        add_settings_commands(self, group_command, valid_settings, validators)
-
-    def register_settings_commands(self, group_name, valid_settings=None, validators=None, aliases=None) -> commands.Group:
-        """
-        Register a complete settings command group for this cog.
-
-        Args:
-            group_name: Name for the command group
-            valid_settings: Optional list of valid setting names
-            validators: Optional dict mapping setting names to validator functions
-            aliases: Optional list of aliases for the command group
-
-        Returns:
-            The created command group
-        """
-        return register_settings_commands(self, group_name, valid_settings, validators, aliases)
-
-    def add_admin_commands(self, group_name, aliases=None) -> commands.Group:
-        """
-        Add standard administrative commands to this cog.
-
-        Args:
-            group_name: Name for the admin command group
-            aliases: Optional aliases for the admin command group
-
-        Returns:
-            The created command group
-        """
-        return add_standard_admin_commands(self, group_name, aliases)
+    # ----- Utility Methods -----
 
     # Utility method to get common time-based validators
     def get_time_validators(self, min_seconds=60) -> Dict[str, Callable]:
@@ -646,95 +759,138 @@ class BaseCog(commands.Cog):
         if hasattr(super(), "cog_unload"):
             await super().cog_unload()
 
-    async def _handle_toggle(
-        self, ctx: commands.Context, setting_name: str, value: Optional[bool] = None, *, description: Optional[str] = None
+    # ====================
+    # Slash Command Permission Helpers
+    # ====================
+
+    async def check_slash_action_permission(
+        self,
+        interaction: discord.Interaction,
+        action_name: str,
+        *,
+        default_to_owner: bool = True
+    ) -> bool:
+        """Check if a user has permission to use a specific slash command action.
+
+        Args:
+            interaction: The Discord interaction
+            action_name: The name of the action (e.g., "generate", "resend")
+            default_to_owner: If True, bot/guild owners can always use the action
+
+        Returns:
+            True if the user has permission, False otherwise
+        """
+        guild_id = interaction.guild.id
+        user_id = interaction.user.id
+
+        # Bot owner and guild owner bypass if default_to_owner is True
+        if default_to_owner:
+            is_bot_owner = await self.bot.is_owner(interaction.user)
+            is_guild_owner = interaction.guild.owner_id == user_id
+
+            if is_bot_owner or is_guild_owner:
+                return True
+
+        # Get permissions config for this action
+        config_key = f"slash_permissions.{action_name}"
+        permissions = self.get_setting(config_key, default={}, guild_id=guild_id)
+
+        # If no specific permissions set, default based on default_to_owner
+        if not permissions:
+            return default_to_owner  # Already checked owner above
+
+        # Check allowed users
+        allowed_users = permissions.get("allowed_users", [])
+        if user_id in allowed_users:
+            return True
+
+        # Check allowed roles
+        allowed_roles = permissions.get("allowed_roles", [])
+        user_role_ids = [role.id for role in interaction.user.roles]
+        if any(role_id in allowed_roles for role_id in user_role_ids):
+            return True
+
+        return False
+
+    async def check_slash_channel_permission(
+        self,
+        interaction: discord.Interaction,
+        action_name: str
+    ) -> bool:
+        """Check if a slash command action can be used in the current channel.
+
+        Args:
+            interaction: The Discord interaction
+            action_name: The name of the action (e.g., "generate")
+
+        Returns:
+            True if the action can be used in this channel, False otherwise
+        """
+        guild_id = interaction.guild.id
+        channel_id = interaction.channel.id
+
+        # Get channel permissions config for this action
+        config_key = f"slash_permissions.{action_name}"
+        permissions = self.get_setting(config_key, default={}, guild_id=guild_id)
+
+        # If no channel restrictions, allow all channels
+        allowed_channels = permissions.get("allowed_channels", [])
+        if not allowed_channels:
+            return True
+
+        # Check if current channel is in allowed list
+        return channel_id in allowed_channels
+
+    def get_slash_action_target_channel(
+        self,
+        guild_id: int,
+        action_name: str
+    ) -> Optional[int]:
+        """Get the pre-configured target channel for a slash command action.
+
+        This is used for actions that post to a specific channel (like scheduled reposts).
+
+        Args:
+            guild_id: The guild ID
+            action_name: The name of the action (e.g., "resend")
+
+        Returns:
+            Channel ID if configured, None otherwise
+        """
+        config_key = f"slash_permissions.{action_name}"
+        permissions = self.get_setting(config_key, default={}, guild_id=guild_id)
+        return permissions.get("target_channel")
+
+    def set_slash_action_permission(
+        self,
+        guild_id: int,
+        action_name: str,
+        *,
+        allowed_users: Optional[list] = None,
+        allowed_roles: Optional[list] = None,
+        allowed_channels: Optional[list] = None,
+        target_channel: Optional[int] = None
     ) -> None:
-        """Handle toggling a boolean setting.
+        """Set permissions for a slash command action.
 
         Args:
-            ctx: Command context (works with both prefix and slash commands)
-            setting_name: Name of the setting to toggle
-            value: Optional explicit value to set
-            description: Optional description of what is being toggled (for better UX)
+            guild_id: The guild ID
+            action_name: The name of the action
+            allowed_users: List of user IDs that can use this action
+            allowed_roles: List of role IDs that can use this action
+            allowed_channels: List of channel IDs where action can be used
+            target_channel: Pre-configured target channel for this action
         """
-        if setting_name not in self.get_all_settings():
-            await ctx.send(f"❌ Unknown setting: {setting_name}")
-            return
+        config_key = f"slash_permissions.{action_name}"
+        permissions = {}
 
-        current = self.get_setting(setting_name)
-        if not isinstance(current, bool):
-            await ctx.send(f"❌ Setting {setting_name} is not toggleable")
-            return
+        if allowed_users is not None:
+            permissions["allowed_users"] = allowed_users
+        if allowed_roles is not None:
+            permissions["allowed_roles"] = allowed_roles
+        if allowed_channels is not None:
+            permissions["allowed_channels"] = allowed_channels
+        if target_channel is not None:
+            permissions["target_channel"] = target_channel
 
-        new_value = not current if value is None else value
-        self.set_setting(setting_name, new_value)
-
-        # Format the setting name for display
-        display_name = description or setting_name.replace("_", " ").title()
-
-        emoji = "✅" if new_value else "❌"
-        await ctx.send(f"{emoji} {display_name} is now {'enabled' if new_value else 'disabled'}")
-
-        # Log the change
-        self.logger.info(f"Setting toggled: {setting_name} = {new_value} by {ctx.author}")
-
-        # Mark settings as modified
-        self.mark_data_modified()
-
-    async def _handle_pause(
-        self, ctx: Union[commands.Context, discord.Interaction], state: Optional[bool] = None, *, description: Optional[str] = None
-    ) -> None:
-        """Handle pausing/unpausing cog operations.
-
-        Args:
-            ctx: Command context or interaction
-            state: Optional explicit pause state, toggles if None
-            description: Optional description of what is being paused
-        """
-        # Toggle if no state specified
-        new_state = not self._is_paused if state is None else state
-        old_state = self._is_paused
-        self._is_paused = new_state
-
-        # Only send message if state actually changed
-        if new_state != old_state:
-            display_name = description or f"{self.__class__.__name__} Operations"
-            status = "⏸️ Paused" if new_state else "▶️ Resumed"
-
-            msg = f"{status}: {display_name}"
-
-            # Handle both context and interaction responses
-            if isinstance(ctx, discord.Interaction):
-                if ctx.response.is_done():
-                    await ctx.followup.send(msg)
-                else:
-                    await ctx.response.send_message(msg)
-            else:
-                await ctx.send(msg)
-
-            # Log the change
-            self.logger.info(
-                f"{self.__class__.__name__} {'paused' if new_state else 'resumed'} " f"by {ctx.author if hasattr(ctx, 'author') else ctx.user}"
-            )
-
-    def create_pause_commands(self, group_command) -> None:
-        """Add pause/resume commands to a command group.
-
-        Args:
-            group_command: The command group to add commands to
-        """
-
-        @group_command.command(name="pause")
-        async def pause(ctx):
-            """Pause operations"""
-            await self._handle_pause(ctx, True)
-
-        @group_command.command(name="resume")
-        async def resume(ctx):
-            """Resume operations"""
-            await self._handle_pause(ctx, False)
-
-        @group_command.command(name="toggle")
-        async def toggle(ctx):
-            """Toggle pause state"""
-            await self._handle_pause(ctx)
+        self.set_setting(config_key, permissions, guild_id=guild_id)

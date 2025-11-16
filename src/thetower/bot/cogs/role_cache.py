@@ -2,7 +2,6 @@
 import asyncio
 import datetime
 from collections import deque
-from pathlib import Path
 from typing import Optional
 
 # Third-party
@@ -36,33 +35,13 @@ class RoleCache(BaseCog, name="Role Cache", description="Cache for Discord role 
         # Store reference on bot
         self.bot.role_cache = self
 
-        # Define settings with descriptions
-        settings_config = {
-            "refresh_interval": (1800, "How often to refresh data (seconds, default 30 minutes)"),
-            "staleness_threshold": (3600, "Maximum age before data is considered stale (seconds, default 1 hour)"),
-            "save_interval": (300, "How often to save data to disk (seconds, default 5 minutes)"),
-            "cache_filename": ("role_cache.json", "Cache data filename"),
+        # Define default settings
+        self.default_settings = {
+            "refresh_interval": 1800,
+            "staleness_threshold": 3600,
+            "save_interval": 300,
+            "cache_filename": "role_cache.json",
         }
-
-        # Initialize settings
-        for name, (value, description) in settings_config.items():
-            if not self.has_setting(name):
-                self.set_setting(name, value, description=description)
-
-        # Load settings into instance variables
-        self._load_settings()
-
-    def _load_settings(self) -> None:
-        """Load settings into instance variables."""
-        self.refresh_interval = self.get_setting("refresh_interval")
-        self.staleness_threshold = self.get_setting("staleness_threshold")
-        self.save_interval = self.get_setting("save_interval")
-        self.cache_filename = self.get_setting("cache_filename")
-
-    @property
-    def cache_file(self) -> Path:
-        """Get the cache file path using the cog's data directory"""
-        return self.data_directory / self.cache_filename
 
     async def save_cache(self) -> bool:
         """Save the member role cache using BaseCog's utility."""
@@ -119,9 +98,6 @@ class RoleCache(BaseCog, name="Role Cache", description="Cache for Discord role 
                 # Initialize parent
                 self.logger.debug("Initializing parent cog")
                 await super().cog_initialize()
-
-                # 0. Create inherited commands
-                self.create_pause_commands(self.rolecache_group)
 
                 # 1. Verify settings
                 self.logger.debug("Loading settings")
@@ -391,7 +367,7 @@ class RoleCache(BaseCog, name="Role Cache", description="Cache for Discord role 
     @rolecache_group.command(name="settings")
     async def settings_command(self, ctx):
         """Display current role cache settings"""
-        settings = self.get_all_settings()
+        settings = self.get_all_settings(ctx=ctx)
 
         embed = discord.Embed(title="Role Cache Settings", description="Current configuration for role caching system", color=discord.Color.blue())
 
@@ -436,7 +412,7 @@ class RoleCache(BaseCog, name="Role Cache", description="Cache for Discord role 
             self.save_interval = value
 
         # Save the setting
-        self.set_setting(setting_name, value)
+        self.set_setting(setting_name, value, ctx=ctx)
 
         # Format confirmation message
         hours = value // 3600

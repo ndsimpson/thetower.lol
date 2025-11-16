@@ -13,6 +13,8 @@ from discord.ext.commands import Context
 
 # Local imports
 from thetower.bot.exceptions import ChannelUnauthorized, UserUnauthorized
+
+# from thetower.bot.ui.settings_views import SettingsMainView  # TODO: Implement general bot settings
 from thetower.bot.utils import CogManager, ConfigManager, PermissionManager
 
 # Set up logging
@@ -29,13 +31,13 @@ intents.members = True
 
 class DiscordBot(commands.Bot):
     def __init__(self) -> None:
-        environ.setdefault("DJANGO_SETTINGS_MODULE", "thetower.backend.settings")
+        environ.setdefault("DJANGO_SETTINGS_MODULE", "thetower.backend.towerdb.settings")
         django.setup()
         self.config = ConfigManager()
         self.permission_manager = PermissionManager(self.config)
 
         super().__init__(
-            command_prefix=self.config.get("prefix"),
+            command_prefix=self._get_prefix,
             intents=intents,
             case_insensitive=True,
             # Add application_id for slash commands support
@@ -55,6 +57,29 @@ class DiscordBot(commands.Bot):
             handler = logging.StreamHandler()
             handler.setFormatter(formatter)
             root_logger.addHandler(handler)
+
+    def _get_prefix(self, bot, message):
+        """Get the command prefix(es) for a guild.
+
+        Returns the guild-specific prefix(es) if set, otherwise the default prefix.
+        Supports DMs by falling back to default prefix.
+        Can return a single prefix or a list of prefixes.
+        """
+        # Get default prefix from config (fallback)
+        default_prefix = self.config.get("prefix", "%")
+
+        # In DMs, use default prefix
+        if message.guild is None:
+            return default_prefix
+
+        # Get guild-specific prefix(es)
+        guild_prefixes = self.config.get_guild_prefix(message.guild.id)
+
+        # If guild has custom prefix(es), use them; otherwise use default
+        if guild_prefixes:
+            # If it's a list, return the list; if it's a string, return as-is
+            return guild_prefixes
+        return default_prefix
 
     async def setup_hook(self) -> None:
         """This will just be executed when the bot starts the first time."""
@@ -445,33 +470,16 @@ async def cog_toggle(ctx, setting_name: str, value: bool = None):
     """
     setting_name = setting_name.lower()
 
-    # Handle load_all_cogs setting
+    # Handle load_all_cogs setting (deprecated - kept for backwards compatibility)
     if setting_name in ["load_all", "load_all_cogs"]:
-        current_value = bot.config.get("load_all_cogs", False)
-        new_value = not current_value if value is None else value
-        bot.config.config["load_all_cogs"] = new_value
-        bot.config.save_config()
-        status = "✅ Enabled" if new_value else "❌ Disabled"
-        await ctx.send(f"Setting `load_all_cogs` is now {status}")
+        await ctx.send("⚠️ The `load_all_cogs` setting is deprecated. Bot owner now controls which cogs are loaded globally.")
         return
 
     # Unknown setting
-    await ctx.send(f"❌ Unknown setting: `{setting_name}`\nValid settings: `load_all`")
+    await ctx.send(f"❌ Unknown setting: `{setting_name}`")
 
 
-@cog_group.command(name="toggle_autostart")
-async def cog_toggle_autostart(ctx, cog_name: str):
-    """Toggle autostart for a cog.
-
-    Args:
-        cog_name: The cog to toggle autostart for
-
-    Examples:
-        $cog toggle_autostart service_control
-    """
-    await bot.cog_manager.toggle_cog_autostart_with_ctx(ctx, cog_name)
-
-
+# Permission Management Commands
 @bot.group(name="perm", aliases=["perms", "permission", "permissions"], invoke_without_command=True)
 async def permission_group(ctx):
     """Command group for managing command permissions"""
@@ -691,12 +699,27 @@ async def settings(ctx):
     embed = discord.Embed(title="Bot Settings", description="Current configuration for bot system", color=discord.Color.blue())
 
     # Get basic bot configuration
-    prefix = bot.config.get("prefix", "$")
+    default_prefix = bot.config.get("prefix", "%")
+    guild_prefixes = bot.config.get_guild_prefix(ctx.guild.id) if ctx.guild else None
+
+    # Format prefix display
+    if guild_prefixes:
+        if isinstance(guild_prefixes, list):
+            prefix_list = ", ".join(f"`{p}`" for p in guild_prefixes)
+            current_prefix = guild_prefixes[0]  # Use first for help text
+            prefix_display = f"**Prefix(es)**: {prefix_list} (server-specific)"
+        else:
+            current_prefix = guild_prefixes
+            prefix_display = f"**Prefix**: `{guild_prefixes}` (server-specific)"
+    else:
+        current_prefix = default_prefix
+        prefix_display = f"**Prefix**: `{default_prefix}` (default)"
+
     error_channel_id = bot.config.get("error_log_channel", None)
     error_channel = bot.get_channel(int(error_channel_id)) if error_channel_id else None
 
     # General settings section
-    general_settings = [f"**Prefix**: `{prefix}`", f"**Error Log Channel**: {error_channel.mention if error_channel else '❌ Disabled'}"]
+    general_settings = [prefix_display, f"**Error Log Channel**: {error_channel.mention if error_channel else '❌ Disabled'}"]
     embed.add_field(name="General Settings", value="\n".join(general_settings), inline=False)
 
     # Cog management settings
@@ -739,7 +762,7 @@ async def settings(ctx):
     embed.add_field(name="Bot Status", value="\n".join(status_info), inline=False)
 
     # Footer with version info
-    embed.set_footer(text=f"User ID: {bot.user.id} | Use {prefix}help to see available commands")
+    embed.set_footer(text=f"User ID: {bot.user.id} | Use {current_prefix}help to see available commands")
 
     await ctx.send(embed=embed)
 
@@ -749,33 +772,6 @@ async def config_group(ctx):
     """Commands for managing bot configuration"""
     if ctx.invoked_subcommand is None:
         await ctx.invoke(bot.get_command("settings"))
-
-
-@config_group.command(name="prefix")
-async def config_prefix(ctx, new_prefix: str = None):
-    """View or change the bot command prefix.
-
-    Parameters:
-    -----------
-    new_prefix: The new prefix to use. If omitted, shows current prefix.
-
-    Examples:
-    ---------
-    $config prefix !
-    $config prefix
-    """
-    if new_prefix is None:
-        current_prefix = bot.config.get("prefix", "$")
-        await ctx.send(f"Current command prefix: `{current_prefix}`")
-    else:
-        # Ensure prefix isn't too long
-        if len(new_prefix) > 5:
-            return await ctx.send("❌ Prefix must be 5 characters or less")
-
-        bot.config.config["prefix"] = new_prefix
-        bot.config.save_config()
-        bot.command_prefix = new_prefix
-        await ctx.send(f"✅ Command prefix changed to: `{new_prefix}`")
 
 
 @config_group.command(name="error_channel")
@@ -838,6 +834,49 @@ async def config_toggle(ctx, setting_name: str, value: bool = None):
     await ctx.send(f"Setting `{setting_name}` is now {status}")
 
 
+# ============================================================================
+# Slash Commands
+# ============================================================================
+
+
+# @bot.tree.command(name="settings", description="Open the bot settings interface")
+# async def settings_slash(interaction: discord.Interaction):
+#     """Open the interactive settings interface."""
+#     is_bot_owner = await bot.is_owner(interaction.user)
+#     guild_id = interaction.guild.id if interaction.guild else None
+
+#     # Check if user has permission
+#     if not is_bot_owner:
+#         if not interaction.guild:
+#             return await interaction.response.send_message(
+#                 "❌ Settings can only be accessed in a server (unless you're the bot owner).",
+#                 ephemeral=True
+#             )
+#         if interaction.user.id != interaction.guild.owner_id:
+#             return await interaction.response.send_message(
+#                 "❌ Only the server owner or bot owner can access settings.",
+#                 ephemeral=True
+#             )
+
+#     # Create main settings view
+#     view = SettingsMainView(is_bot_owner, guild_id)
+
+#     embed = discord.Embed(
+#         title="⚙️ Settings",
+#         description="Select a category to manage",
+#         color=discord.Color.blue()
+#     )
+
+#     if is_bot_owner:
+#         embed.add_field(
+#             name="👑 Bot Owner",
+#             value="You have full access to all settings",
+#             inline=False
+#         )
+
+#     await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+
+
 def main():
     """Main entry point for the Discord bot."""
     bot.run(getenv("DISCORD_TOKEN"), log_level=logging.INFO)
@@ -848,4 +887,5 @@ __all__ = ["bot", "DiscordBot", "main"]
 
 # Run bot if this module is executed directly
 if __name__ == "__main__":
+    main()
     main()

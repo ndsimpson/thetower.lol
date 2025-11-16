@@ -3,10 +3,12 @@ import asyncio
 import datetime
 import re
 import time
+from pathlib import Path
 from typing import ClassVar, Dict, List, Optional, Tuple
 
 # Third-party imports
 import discord
+from discord import app_commands
 from discord.ext import commands, tasks
 from discord.ui import Button, Modal, Select, TextInput, View
 
@@ -146,9 +148,12 @@ class GuildAdvertisementForm(Modal, title="Guild Advertisement Form"):
         embed.set_footer(text="Use /advertise to submit your own advertisement")
 
         # CRITICAL: Respond to interaction IMMEDIATELY before heavy work
+        discord_guild_id = interaction.guild.id if interaction.guild else None
+        cooldown_hours = self.cog._get_cooldown_hours(discord_guild_id) if discord_guild_id else 168
+
         await interaction.response.send_message(
             f"Thank you! Your {AdvertisementType.GUILD} advertisement is being posted. "
-            f"It will remain visible for {self.cog.cooldown_hours} hours.",
+            f"It will remain visible for {cooldown_hours} hours.",
             ephemeral=True,
         )
 
@@ -247,9 +252,12 @@ class MemberAdvertisementForm(Modal, title="Member Advertisement Form"):
         embed.set_footer(text="Use /advertise to submit your own advertisement")
 
         # CRITICAL: Respond to interaction IMMEDIATELY before heavy work
+        discord_guild_id = interaction.guild.id if interaction.guild else None
+        cooldown_hours = self.cog._get_cooldown_hours(discord_guild_id) if discord_guild_id else 168
+
         await interaction.response.send_message(
             f"Thank you! Your {AdvertisementType.MEMBER} advertisement is being posted. "
-            f"It will remain visible for {self.cog.cooldown_hours} hours.",
+            f"It will remain visible for {cooldown_hours} hours.",
             ephemeral=True,
         )
 
@@ -266,65 +274,1080 @@ class MemberAdvertisementForm(Modal, title="Member Advertisement Form"):
             pass
 
 
+# ====================
+# UI Components for Advertisement Management
+# ====================
+
+
+class AdManagementView(View):
+    """View for users to manage their advertisements."""
+
+    def __init__(self, cog: "UnifiedAdvertise", user_id: int, guild_id: int):
+        super().__init__(timeout=300)  # 5 minute timeout
+        self.cog = cog
+        self.user_id = user_id
+        self.guild_id = guild_id
+
+    async def update_view(self, interaction: discord.Interaction):
+        """Update the view with current advertisement status."""
+        # Get user's active advertisements in this guild
+        user_ads = []
+        for thread_id, deletion_time, author_id, notify, ad_guild_id in self.cog.pending_deletions:
+            if author_id == self.user_id and ad_guild_id == self.guild_id:
+                try:
+                    thread = await self.cog.bot.fetch_channel(thread_id)
+                    if thread:
+                        time_left = deletion_time - datetime.datetime.now()
+                        hours_left = time_left.total_seconds() / 3600
+                        user_ads.append((thread_id, thread.name, hours_left, notify))
+                except Exception:
+                    continue
+
+        # Check cooldown status
+        cooldown_hours = self.cog._get_cooldown_hours(self.guild_id)
+        guild_cooldowns = self.cog.cooldowns.get(self.guild_id, {"users": {}, "guilds": {}})
+        user_cooldown_str = guild_cooldowns["users"].get(str(self.user_id))
+
+        on_cooldown = False
+        cooldown_hours_left = 0
+
+        if user_cooldown_str:
+            stored_time = datetime.datetime.fromisoformat(user_cooldown_str)
+            if stored_time.tzinfo is None:
+                stored_time = stored_time.replace(tzinfo=datetime.timezone.utc)
+            current_time = datetime.datetime.now(datetime.timezone.utc)
+            elapsed = (current_time - stored_time).total_seconds()
+
+            if elapsed < cooldown_hours * 3600:
+                on_cooldown = True
+                cooldown_hours_left = cooldown_hours - (elapsed / 3600)
+
+        # Build embed
+        embed = discord.Embed(
+            title="Advertisement Management",
+            description="Manage your advertisements in this server",
+            color=discord.Color.blue()
+        )
+
+        if user_ads:
+            ads_text = []
+            for thread_id, name, hours_left, notify in user_ads:
+                notify_icon = "🔔" if notify else "🔕"
+                ads_text.append(f"**{name}**\n{notify_icon} Expires in {hours_left:.1f} hours")
+            embed.add_field(name="Your Active Advertisements", value="\n\n".join(ads_text), inline=False)
+        else:
+            embed.add_field(name="Active Advertisements", value="You have no active advertisements", inline=False)
+
+        if on_cooldown:
+            embed.add_field(
+                name="Cooldown Status",
+                value=f"⏳ You can post a new advertisement in {cooldown_hours_left:.1f} hours",
+                inline=False
+            )
+        else:
+            embed.add_field(
+                name="Cooldown Status",
+                value="✅ You can post a new advertisement now!",
+                inline=False
+            )
+
+        # Update buttons
+        self.clear_items()
+
+        if user_ads:
+            # Add delete button if user has ads
+            delete_btn = Button(label="Delete Advertisement", style=discord.ButtonStyle.danger, emoji="🗑️")
+            delete_btn.callback = self.delete_advertisement
+            self.add_item(delete_btn)
+
+            # Add toggle notification button
+            toggle_btn = Button(label="Toggle Notifications", style=discord.ButtonStyle.secondary, emoji="🔔")
+            toggle_btn.callback = self.toggle_notifications
+            self.add_item(toggle_btn)
+
+        if not on_cooldown:
+            # Add create new ad button
+            create_btn = Button(label="Create Advertisement", style=discord.ButtonStyle.success, emoji="✨")
+            create_btn.callback = self.create_advertisement
+            self.add_item(create_btn)
+
+        # Always add refresh button
+        refresh_btn = Button(label="Refresh", style=discord.ButtonStyle.secondary, emoji="🔄")
+        refresh_btn.callback = self.refresh_view
+        self.add_item(refresh_btn)
+
+        return embed
+
+    async def delete_advertisement(self, interaction: discord.Interaction):
+        """Handle deleting an advertisement."""
+        # Get user's ads
+        user_ads = []
+        for thread_id, deletion_time, author_id, notify, ad_guild_id in self.cog.pending_deletions:
+            if author_id == self.user_id and ad_guild_id == self.guild_id:
+                try:
+                    thread = await self.cog.bot.fetch_channel(thread_id)
+                    if thread:
+                        user_ads.append((thread_id, thread.name))
+                except Exception:
+                    continue
+
+        if len(user_ads) == 1:
+            # Only one ad, delete it directly
+            thread_id = user_ads[0][0]
+            await self._delete_ad(interaction, thread_id)
+        else:
+            # Multiple ads, show selection dropdown
+            options = [discord.SelectOption(label=name[:100], value=str(tid)) for tid, name in user_ads]
+            select = Select(placeholder="Select advertisement to delete", options=options)
+
+            async def select_callback(select_interaction: discord.Interaction):
+                thread_id = int(select.values[0])
+                await self._delete_ad(select_interaction, thread_id)
+
+            select.callback = select_callback
+            view = View()
+            view.add_item(select)
+            await interaction.response.send_message("Select the advertisement you want to delete:", view=view, ephemeral=True)
+
+    async def _delete_ad(self, interaction: discord.Interaction, thread_id: int):
+        """Delete a specific advertisement."""
+        try:
+            thread = await self.cog.bot.fetch_channel(thread_id)
+            await thread.delete()
+
+            # Remove from pending deletions
+            self.cog.pending_deletions = [
+                entry for entry in self.cog.pending_deletions if entry[0] != thread_id
+            ]
+            await self.cog._save_pending_deletions()
+
+            await interaction.response.send_message("✅ Advertisement deleted successfully.", ephemeral=True)
+
+            # Refresh the main view
+            embed = await self.update_view(interaction)
+            await interaction.message.edit(embed=embed, view=self)
+        except Exception as e:
+            self.cog.logger.error(f"Error deleting advertisement: {e}")
+            await interaction.response.send_message("❌ Failed to delete advertisement.", ephemeral=True)
+
+    async def toggle_notifications(self, interaction: discord.Interaction):
+        """Toggle notification settings."""
+        # Get user's ads
+        user_ads = []
+        for entry in self.cog.pending_deletions:
+            thread_id, deletion_time, author_id, notify, ad_guild_id = entry
+            if author_id == self.user_id and ad_guild_id == self.guild_id:
+                try:
+                    thread = await self.cog.bot.fetch_channel(thread_id)
+                    if thread:
+                        user_ads.append((thread_id, thread.name, notify))
+                except Exception:
+                    continue
+
+        if len(user_ads) == 1:
+            # Only one ad, toggle it directly
+            thread_id, name, current_notify = user_ads[0]
+            await self._toggle_notify(interaction, thread_id, not current_notify)
+        else:
+            # Multiple ads, show selection dropdown
+            options = [
+                discord.SelectOption(
+                    label=name[:80],
+                    value=str(tid),
+                    description=f"Notifications {'ON' if notify else 'OFF'}",
+                    emoji="🔔" if notify else "🔕"
+                )
+                for tid, name, notify in user_ads
+            ]
+            select = Select(placeholder="Select advertisement", options=options)
+
+            async def select_callback(select_interaction: discord.Interaction):
+                thread_id = int(select.values[0])
+                # Find current notify state
+                current_notify = False
+                for tid, _, notify in user_ads:
+                    if tid == thread_id:
+                        current_notify = notify
+                        break
+                await self._toggle_notify(select_interaction, thread_id, not current_notify)
+
+            select.callback = select_callback
+            view = View()
+            view.add_item(select)
+            await interaction.response.send_message("Select advertisement to toggle notifications:", view=view, ephemeral=True)
+
+    async def _toggle_notify(self, interaction: discord.Interaction, thread_id: int, new_state: bool):
+        """Toggle notification for a specific ad."""
+        updated_deletions = []
+        for t_id, t_time, t_author, t_notify, t_guild_id in self.cog.pending_deletions:
+            if t_id == thread_id:
+                updated_deletions.append((t_id, t_time, t_author, new_state, t_guild_id))
+            else:
+                updated_deletions.append((t_id, t_time, t_author, t_notify, t_guild_id))
+
+        self.cog.pending_deletions = updated_deletions
+        await self.cog._save_pending_deletions()
+
+        state_text = "enabled" if new_state else "disabled"
+        await interaction.response.send_message(f"✅ Notifications have been {state_text}.", ephemeral=True)
+
+        # Refresh the main view
+        embed = await self.update_view(interaction)
+        await interaction.message.edit(embed=embed, view=self)
+
+    async def create_advertisement(self, interaction: discord.Interaction):
+        """Launch the advertisement creation flow."""
+        view = AdTypeSelection(self.cog)
+        await interaction.response.send_message("What type of advertisement would you like to post?", view=view, ephemeral=True)
+
+    async def refresh_view(self, interaction: discord.Interaction):
+        """Refresh the view."""
+        embed = await self.update_view(interaction)
+        await interaction.response.edit_message(embed=embed, view=self)
+
+
+class AdminAdManagementView(View):
+    """View for server owners/admins to manage all advertisements."""
+
+    def __init__(self, cog: "UnifiedAdvertise", guild_id: int, is_bot_owner: bool = False):
+        super().__init__(timeout=600)  # 10 minute timeout
+        self.cog = cog
+        self.guild_id = guild_id
+        self.is_bot_owner = is_bot_owner
+
+    async def update_view(self, interaction: discord.Interaction):
+        """Update the view with current advertisement statistics."""
+        # Get all advertisements in this guild
+        guild_ads_count = 0
+        member_ads_count = 0
+
+        # Get tag IDs for this guild
+        guild_tag_id = self.cog._get_guild_tag_id(self.guild_id)
+        member_tag_id = self.cog._get_member_tag_id(self.guild_id)
+
+        for thread_id, deletion_time, author_id, notify, ad_guild_id in self.cog.pending_deletions:
+            if ad_guild_id == self.guild_id:
+                try:
+                    thread = await self.cog.bot.fetch_channel(thread_id)
+                    if thread:
+                        # Check tags to determine type
+                        thread_tag_ids = [tag.id for tag in thread.applied_tags]
+                        if guild_tag_id and guild_tag_id in thread_tag_ids:
+                            guild_ads_count += 1
+                        elif member_tag_id and member_tag_id in thread_tag_ids:
+                            member_ads_count += 1
+                except Exception:
+                    continue
+
+        total_ads = guild_ads_count + member_ads_count
+
+        # Build embed
+        embed = discord.Embed(
+            title="🛡️ Advertisement Management (Admin)",
+            description="Manage advertisements for this server",
+            color=discord.Color.gold()
+        )
+
+        embed.add_field(name="📊 Statistics", value=f"**Total Active:** {total_ads}\n**Guild Ads:** {guild_ads_count}\n**Member Ads:** {member_ads_count}", inline=False)
+
+        # Update buttons
+        self.clear_items()
+
+        # Add manage ads button
+        manage_btn = Button(label="Manage Ads", style=discord.ButtonStyle.primary, emoji="📋")
+        manage_btn.callback = self.show_manage_ads
+        self.add_item(manage_btn)
+
+        # Add settings button (for admins)
+        settings_btn = Button(label="Settings", style=discord.ButtonStyle.primary, emoji="⚙️")
+        settings_btn.callback = self.show_settings
+        self.add_item(settings_btn)
+
+        # Add "My Ads" button to access regular user view
+        my_ads_btn = Button(label="My Ads", style=discord.ButtonStyle.success, emoji="📝")
+        my_ads_btn.callback = self.show_my_ads
+        self.add_item(my_ads_btn)
+
+        # Add refresh button
+        refresh_btn = Button(label="Refresh", style=discord.ButtonStyle.secondary, emoji="🔄")
+        refresh_btn.callback = self.refresh_view
+        self.add_item(refresh_btn)
+
+        return embed
+
+    async def show_manage_ads(self, interaction: discord.Interaction):
+        """Show ad type selection view."""
+        type_view = AdTypeSelectionView(self.cog, self.guild_id)
+        embed = type_view.build_embed()
+        await interaction.response.send_message(embed=embed, view=type_view, ephemeral=True)
+
+    async def show_settings(self, interaction: discord.Interaction):
+        """Show settings management UI."""
+        settings_view = SettingsView(self.cog, self.guild_id)
+        embed = await settings_view.build_embed()
+        await interaction.response.send_message(embed=embed, view=settings_view, ephemeral=True)
+
+    async def show_my_ads(self, interaction: discord.Interaction):
+        """Show the regular user ad management view."""
+        user_view = AdManagementView(self.cog, interaction.user.id, interaction.guild.id)
+        embed = await user_view.update_view(interaction)
+        await interaction.response.send_message(embed=embed, view=user_view, ephemeral=True)
+
+    async def refresh_view(self, interaction: discord.Interaction):
+        """Refresh the view."""
+        embed = await self.update_view(interaction)
+        await interaction.response.edit_message(embed=embed, view=self)
+
+
+class AdTypeSelectionView(View):
+    """View for selecting which type of ads to manage (Guild or Member)."""
+
+    def __init__(self, cog: "UnifiedAdvertise", guild_id: int):
+        super().__init__(timeout=600)
+        self.cog = cog
+        self.guild_id = guild_id
+
+        # Add buttons
+        guild_btn = Button(label="Guild Ads", style=discord.ButtonStyle.primary, emoji="🏰")
+        guild_btn.callback = self.show_guild_ads
+        self.add_item(guild_btn)
+
+        member_btn = Button(label="Member Ads", style=discord.ButtonStyle.primary, emoji="👤")
+        member_btn.callback = self.show_member_ads
+        self.add_item(member_btn)
+
+        back_btn = Button(label="Back", style=discord.ButtonStyle.secondary, emoji="◀️")
+        back_btn.callback = self.go_back
+        self.add_item(back_btn)
+
+    def build_embed(self):
+        """Build the ad type selection embed."""
+        embed = discord.Embed(
+            title="📋 Select Advertisement Type",
+            description="Choose which type of advertisements to manage",
+            color=discord.Color.blue()
+        )
+        return embed
+
+    async def show_guild_ads(self, interaction: discord.Interaction):
+        """Show guild advertisement list."""
+        list_view = AdListView(self.cog, self.guild_id, AdvertisementType.GUILD)
+        embed = await list_view.build_embed()
+        await interaction.response.edit_message(embed=embed, view=list_view)
+
+    async def show_member_ads(self, interaction: discord.Interaction):
+        """Show member advertisement list."""
+        list_view = AdListView(self.cog, self.guild_id, AdvertisementType.MEMBER)
+        embed = await list_view.build_embed()
+        await interaction.response.edit_message(embed=embed, view=list_view)
+
+    async def go_back(self, interaction: discord.Interaction):
+        """Go back to admin main view."""
+        admin_view = AdminAdManagementView(self.cog, self.guild_id)
+        embed = await admin_view.update_view(interaction)
+        await interaction.response.edit_message(embed=embed, view=admin_view)
+
+
+class AdListView(View):
+    """View for listing and selecting specific advertisements."""
+
+    def __init__(self, cog: "UnifiedAdvertise", guild_id: int, ad_type: str):
+        super().__init__(timeout=600)
+        self.cog = cog
+        self.guild_id = guild_id
+        self.ad_type = ad_type
+
+    async def build_embed(self):
+        """Build the ad list embed with selection dropdown."""
+        # Get tag ID for this ad type
+        if self.ad_type == AdvertisementType.GUILD:
+            tag_id = self.cog._get_guild_tag_id(self.guild_id)
+            type_emoji = "🏰"
+            type_name = "Guild"
+        else:
+            tag_id = self.cog._get_member_tag_id(self.guild_id)
+            type_emoji = "👤"
+            type_name = "Member"
+
+        # Get all advertisements of this type
+        ads = []
+        for thread_id, deletion_time, author_id, notify, ad_guild_id in self.cog.pending_deletions:
+            if ad_guild_id == self.guild_id:
+                try:
+                    thread = await self.cog.bot.fetch_channel(thread_id)
+                    if thread:
+                        # Check if this thread has the correct tag
+                        thread_tag_ids = [tag.id for tag in thread.applied_tags]
+                        if tag_id and tag_id in thread_tag_ids:
+                            time_left = deletion_time - datetime.datetime.now()
+                            hours_left = time_left.total_seconds() / 3600
+                            ads.append((thread_id, thread.name, author_id, hours_left, notify))
+                except Exception:
+                    continue
+
+        embed = discord.Embed(
+            title=f"{type_emoji} {type_name} Advertisements",
+            description=f"Total: {len(ads)} active",
+            color=discord.Color.green() if ads else discord.Color.greyple()
+        )
+
+        if ads:
+            # Add selection dropdown
+            options = [
+                discord.SelectOption(
+                    label=name[:80] if len(name) <= 80 else name[:77] + "...",
+                    value=str(thread_id),
+                    description=f"By user {author_id} - {hours_left:.1f}h left"[:100]
+                )
+                for thread_id, name, author_id, hours_left, notify in ads[:25]  # Discord limit
+            ]
+            select = Select(placeholder="Select an advertisement to view details", options=options)
+            select.callback = self.show_ad_details
+            self.add_item(select)
+
+        # Add back button
+        back_btn = Button(label="Back", style=discord.ButtonStyle.secondary, emoji="◀️")
+        back_btn.callback = self.go_back
+        self.add_item(back_btn)
+
+        return embed
+
+    async def show_ad_details(self, interaction: discord.Interaction):
+        """Show details for selected advertisement."""
+        thread_id = int(interaction.data['values'][0])
+        detail_view = AdDetailView(self.cog, self.guild_id, thread_id, self.ad_type)
+        embed = await detail_view.build_embed()
+        await interaction.response.edit_message(embed=embed, view=detail_view)
+
+    async def go_back(self, interaction: discord.Interaction):
+        """Go back to ad type selection."""
+        type_view = AdTypeSelectionView(self.cog, self.guild_id)
+        embed = type_view.build_embed()
+        await interaction.response.edit_message(embed=embed, view=type_view)
+
+
+class AdDetailView(View):
+    """View for displaying advertisement details with action buttons."""
+
+    def __init__(self, cog: "UnifiedAdvertise", guild_id: int, thread_id: int, ad_type: str):
+        super().__init__(timeout=600)
+        self.cog = cog
+        self.guild_id = guild_id
+        self.thread_id = thread_id
+        self.ad_type = ad_type
+
+    async def build_embed(self):
+        """Build the ad detail embed."""
+        # Find the ad in pending_deletions
+        ad_data = None
+        for t_id, deletion_time, author_id, notify, ad_guild_id in self.cog.pending_deletions:
+            if t_id == self.thread_id and ad_guild_id == self.guild_id:
+                ad_data = (t_id, deletion_time, author_id, notify)
+                break
+
+        if not ad_data:
+            embed = discord.Embed(
+                title="❌ Advertisement Not Found",
+                description="This advertisement may have been deleted.",
+                color=discord.Color.red()
+            )
+            return embed
+
+        thread_id, deletion_time, author_id, notify = ad_data
+
+        # Fetch thread details
+        try:
+            thread = await self.cog.bot.fetch_channel(thread_id)
+            time_left = deletion_time - datetime.datetime.now()
+            hours_left = time_left.total_seconds() / 3600
+
+            type_emoji = "🏰" if self.ad_type == AdvertisementType.GUILD else "👤"
+            type_name = "Guild" if self.ad_type == AdvertisementType.GUILD else "Member"
+
+            embed = discord.Embed(
+                title=f"{type_emoji} {thread.name}",
+                description=f"**Type:** {type_name} Advertisement\n**Thread ID:** {thread_id}",
+                color=discord.Color.blue()
+            )
+
+            embed.add_field(name="Posted By", value=f"<@{author_id}>", inline=True)
+            embed.add_field(name="Expires In", value=f"{hours_left:.1f} hours", inline=True)
+            embed.add_field(name="Notifications", value="🔔 Enabled" if notify else "🔕 Disabled", inline=True)
+            embed.add_field(name="Thread", value=thread.mention if hasattr(thread, 'mention') else f"Thread {thread_id}", inline=False)
+
+            # Add action buttons
+            reset_btn = Button(label="Reset Timeout", style=discord.ButtonStyle.primary, emoji="⏰")
+            reset_btn.callback = self.reset_timeout
+            self.add_item(reset_btn)
+
+            delete_btn = Button(label="Delete Ad", style=discord.ButtonStyle.danger, emoji="🗑️")
+            delete_btn.callback = self.delete_ad
+            self.add_item(delete_btn)
+
+            ban_btn = Button(label="Ban & Delete", style=discord.ButtonStyle.danger, emoji="🚫")
+            ban_btn.callback = self.ban_and_delete
+            self.add_item(ban_btn)
+
+            back_btn = Button(label="Back", style=discord.ButtonStyle.secondary, emoji="◀️")
+            back_btn.callback = self.go_back
+            self.add_item(back_btn)
+
+        except Exception as e:
+            self.cog.logger.error(f"Error fetching thread {thread_id}: {e}")
+            embed = discord.Embed(
+                title="❌ Error Loading Advertisement",
+                description=f"Could not load advertisement details: {str(e)}",
+                color=discord.Color.red()
+            )
+
+        return embed
+
+    async def reset_timeout(self, interaction: discord.Interaction):
+        """Reset the advertisement timeout."""
+        # Find and update the deletion time
+        updated_deletions = []
+        for t_id, deletion_time, author_id, notify, ad_guild_id in self.cog.pending_deletions:
+            if t_id == self.thread_id:
+                # Reset to full cooldown
+                cooldown_hours = self.cog._get_cooldown_hours(self.guild_id)
+                new_deletion_time = datetime.datetime.now() + datetime.timedelta(hours=cooldown_hours)
+                updated_deletions.append((t_id, new_deletion_time, author_id, notify, ad_guild_id))
+            else:
+                updated_deletions.append((t_id, deletion_time, author_id, notify, ad_guild_id))
+
+        self.cog.pending_deletions = updated_deletions
+        await self.cog._save_pending_deletions()
+
+        await interaction.response.send_message("✅ Advertisement timeout reset successfully.", ephemeral=True)
+
+        # Refresh the view
+        embed = await self.build_embed()
+        await interaction.message.edit(embed=embed, view=self)
+
+    async def delete_ad(self, interaction: discord.Interaction):
+        """Delete the advertisement."""
+        try:
+            thread = await self.cog.bot.fetch_channel(self.thread_id)
+            await thread.delete()
+
+            # Remove from pending deletions
+            self.cog.pending_deletions = [
+                entry for entry in self.cog.pending_deletions if entry[0] != self.thread_id
+            ]
+            await self.cog._save_pending_deletions()
+
+            await interaction.response.send_message("✅ Advertisement deleted successfully.", ephemeral=True)
+
+            # Go back to list
+            list_view = AdListView(self.cog, self.guild_id, self.ad_type)
+            embed = await list_view.build_embed()
+            await interaction.message.edit(embed=embed, view=list_view)
+
+        except Exception as e:
+            self.cog.logger.error(f"Error deleting thread {self.thread_id}: {e}")
+            await interaction.response.send_message(f"❌ Failed to delete advertisement: {str(e)}", ephemeral=True)
+
+    async def ban_and_delete(self, interaction: discord.Interaction):
+        """Ban the user/guild and delete the advertisement."""
+        # Get author ID from pending_deletions
+        author_id = None
+        for t_id, _, a_id, _, ad_guild_id in self.cog.pending_deletions:
+            if t_id == self.thread_id:
+                author_id = a_id
+                break
+
+        if not author_id:
+            await interaction.response.send_message("❌ Could not find advertisement author.", ephemeral=True)
+            return
+
+        # Add to banned list
+        banned_key = f"banned_{'guilds' if self.ad_type == AdvertisementType.GUILD else 'users'}"
+        banned_list = self.cog.get_setting(banned_key, default=[], guild_id=self.guild_id)
+        if isinstance(banned_list, list):
+            if author_id not in banned_list:
+                banned_list.append(author_id)
+                self.cog.set_setting(banned_key, banned_list, guild_id=self.guild_id)
+
+        # Delete the ad
+        try:
+            thread = await self.cog.bot.fetch_channel(self.thread_id)
+            await thread.delete()
+
+            # Remove from pending deletions
+            self.cog.pending_deletions = [
+                entry for entry in self.cog.pending_deletions if entry[0] != self.thread_id
+            ]
+            await self.cog._save_pending_deletions()
+
+            type_name = "guild" if self.ad_type == AdvertisementType.GUILD else "user"
+            await interaction.response.send_message(
+                f"✅ Banned {type_name} {author_id} and deleted advertisement.",
+                ephemeral=True
+            )
+
+            # Go back to list
+            list_view = AdListView(self.cog, self.guild_id, self.ad_type)
+            embed = await list_view.build_embed()
+            await interaction.message.edit(embed=embed, view=list_view)
+
+        except Exception as e:
+            self.cog.logger.error(f"Error in ban_and_delete for thread {self.thread_id}: {e}")
+            await interaction.response.send_message(f"❌ Failed to ban and delete: {str(e)}", ephemeral=True)
+
+    async def go_back(self, interaction: discord.Interaction):
+        """Go back to ad list."""
+        list_view = AdListView(self.cog, self.guild_id, self.ad_type)
+        embed = await list_view.build_embed()
+        await interaction.response.edit_message(embed=embed, view=list_view)
+
+
+class SettingsView(View):
+    """View for managing advertisement settings."""
+
+    def __init__(self, cog: "UnifiedAdvertise", guild_id: int):
+        super().__init__(timeout=600)  # 10 minute timeout
+        self.cog = cog
+        self.guild_id = guild_id
+
+    async def build_embed(self):
+        """Build settings display embed."""
+        # Get guild-specific settings
+        cooldown_hours = self.cog._get_cooldown_hours(self.guild_id)
+        advertise_channel_id = self.cog._get_advertise_channel_id(self.guild_id)
+        mod_channel_id = self.cog._get_mod_channel_id(self.guild_id)
+        testing_channel_id = self.cog._get_testing_channel_id(self.guild_id)
+        debug_enabled = self.cog.get_setting('debug_enabled', default=False, guild_id=self.guild_id)
+        guild_tag_id = self.cog._get_guild_tag_id(self.guild_id)
+        member_tag_id = self.cog._get_member_tag_id(self.guild_id)
+
+        embed = discord.Embed(
+            title="⚙️ Advertisement Settings",
+            description=f"Configuration for Guild {self.guild_id}",
+            color=discord.Color.blue()
+        )
+
+        # Time Settings
+        embed.add_field(
+            name="⏰ Advertisement Cooldown",
+            value=f"{cooldown_hours} hours",
+            inline=False
+        )
+
+        # Channel Settings
+        advertise_channel = self.cog.bot.get_channel(advertise_channel_id) if advertise_channel_id else None
+        channel_name = advertise_channel.mention if advertise_channel else f"ID: {advertise_channel_id}" if advertise_channel_id else "Not configured"
+        embed.add_field(
+            name="📢 Advertisement Channel",
+            value=channel_name,
+            inline=False
+        )
+
+        # Mod Channel Settings
+        mod_channel = self.cog.bot.get_channel(mod_channel_id) if mod_channel_id else None
+        mod_channel_name = mod_channel.mention if mod_channel else "Not configured"
+        embed.add_field(
+            name="🛡️ Moderation Channel",
+            value=mod_channel_name,
+            inline=False
+        )
+
+        # Testing/Debug Channel Settings
+        testing_channel = self.cog.bot.get_channel(testing_channel_id) if testing_channel_id else None
+        testing_channel_name = testing_channel.mention if testing_channel else "Not configured"
+        debug_status = "✅ Enabled" if debug_enabled else "❌ Disabled"
+        embed.add_field(
+            name="🔧 Debug Settings",
+            value=f"Testing Channel: {testing_channel_name}\nDebug Messages: {debug_status}",
+            inline=False
+        )
+
+        # Tag Settings
+        guild_tag = f"ID: {guild_tag_id}" if guild_tag_id else "Not configured"
+        member_tag = f"ID: {member_tag_id}" if member_tag_id else "Not configured"
+        embed.add_field(
+            name="🏷️ Forum Tags",
+            value=f"Guild Tag: {guild_tag}\nMember Tag: {member_tag}",
+            inline=False
+        )
+
+        # Stats
+        guild_cooldowns = self.cog.cooldowns.get(self.guild_id, {"users": {}, "guilds": {}})
+        guild_pending = sum(1 for _, _, _, _, gid in self.cog.pending_deletions if gid == self.guild_id)
+
+        embed.add_field(
+            name="📊 Statistics",
+            value=f"Active User Cooldowns: {len(guild_cooldowns.get('users', {}))}\n"
+                  f"Active Guild Cooldowns: {len(guild_cooldowns.get('guilds', {}))}\n"
+                  f"Pending Deletions: {guild_pending}",
+            inline=False
+        )
+
+        # Add buttons
+        self.clear_items()
+
+        # Change cooldown button
+        cooldown_btn = Button(label="Set Cooldown", style=discord.ButtonStyle.primary, emoji="⏰")
+        cooldown_btn.callback = self.set_cooldown
+        self.add_item(cooldown_btn)
+
+        # Set ad channel button
+        channel_btn = Button(label="Set Ad Channel", style=discord.ButtonStyle.primary, emoji="📢")
+        channel_btn.callback = self.set_ad_channel
+        self.add_item(channel_btn)
+
+        # Set mod channel button
+        mod_btn = Button(label="Set Mod Channel", style=discord.ButtonStyle.primary, emoji="🛡️")
+        mod_btn.callback = self.set_mod_channel
+        self.add_item(mod_btn)
+
+        # Set testing channel button
+        testing_btn = Button(label="Set Testing Channel", style=discord.ButtonStyle.secondary, emoji="🔧")
+        testing_btn.callback = self.set_testing_channel
+        self.add_item(testing_btn)
+
+        # Toggle debug button
+        debug_btn = Button(
+            label="Disable Debug" if debug_enabled else "Enable Debug",
+            style=discord.ButtonStyle.danger if debug_enabled else discord.ButtonStyle.success,
+            emoji="🔕" if debug_enabled else "🔔"
+        )
+        debug_btn.callback = self.toggle_debug
+        self.add_item(debug_btn)
+
+        # Set guild tag button
+        guild_tag_btn = Button(label="Set Guild Tag", style=discord.ButtonStyle.secondary, emoji="🏰")
+        guild_tag_btn.callback = self.set_guild_tag
+        self.add_item(guild_tag_btn)
+
+        # Set member tag button
+        member_tag_btn = Button(label="Set Member Tag", style=discord.ButtonStyle.secondary, emoji="👤")
+        member_tag_btn.callback = self.set_member_tag
+        self.add_item(member_tag_btn)
+
+        return embed
+
+    async def set_cooldown(self, interaction: discord.Interaction):
+        """Show modal to set cooldown hours."""
+        modal = SettingModal(self.cog, self.guild_id, "cooldown_hours", "Set Cooldown Hours", "Enter cooldown hours (e.g., 168 for 7 days)")
+        modal.parent_view = self
+        await interaction.response.send_modal(modal)
+
+    async def set_ad_channel(self, interaction: discord.Interaction):
+        """Show channel selector for advertisement channel."""
+        view = View(timeout=60)
+
+        # Create channel select for forum channels only
+        channel_select = discord.ui.ChannelSelect(
+            placeholder="Select advertisement forum channel",
+            channel_types=[discord.ChannelType.forum],
+            min_values=1,
+            max_values=1
+        )
+
+        async def channel_callback(select_interaction: discord.Interaction):
+            selected_channel = channel_select.values[0]
+            self.cog.set_setting(
+                "advertise_channel_id",
+                selected_channel.id,
+                guild_id=self.guild_id
+            )
+            await select_interaction.response.send_message(
+                f"✅ Set advertisement channel to {selected_channel.mention}",
+                ephemeral=True
+            )
+
+        channel_select.callback = channel_callback
+        view.add_item(channel_select)
+        await interaction.response.send_message("Select the forum channel for advertisements:", view=view, ephemeral=True)
+
+    async def set_mod_channel(self, interaction: discord.Interaction):
+        """Show channel selector for moderation channel."""
+        view = View(timeout=60)
+
+        # Create channel select for text channels
+        channel_select = discord.ui.ChannelSelect(
+            placeholder="Select moderation notification channel",
+            channel_types=[discord.ChannelType.text],
+            min_values=0,
+            max_values=1
+        )
+
+        async def channel_callback(select_interaction: discord.Interaction):
+            if channel_select.values:
+                selected_channel = channel_select.values[0]
+                self.cog.set_setting(
+                    "mod_channel_id",
+                    selected_channel.id,
+                    guild_id=self.guild_id
+                )
+                await select_interaction.response.send_message(
+                    f"✅ Set moderation channel to {selected_channel.mention}",
+                    ephemeral=True
+                )
+            else:
+                self.cog.set_setting(
+                    "mod_channel_id",
+                    None,
+                    guild_id=self.guild_id
+                )
+                await select_interaction.response.send_message(
+                    "✅ Cleared moderation channel",
+                    ephemeral=True
+                )
+
+        channel_select.callback = channel_callback
+        view.add_item(channel_select)
+
+        # Add a clear button
+        clear_btn = Button(label="Clear Channel", style=discord.ButtonStyle.secondary)
+
+        async def clear_callback(clear_interaction: discord.Interaction):
+            self.cog.set_setting(
+                "mod_channel_id",
+                None,
+                guild_id=self.guild_id
+            )
+            await clear_interaction.response.send_message(
+                "✅ Cleared moderation channel",
+                ephemeral=True
+            )
+
+        clear_btn.callback = clear_callback
+        view.add_item(clear_btn)
+
+        await interaction.response.send_message("Select the text channel for moderation notifications (or click Clear):", view=view, ephemeral=True)
+
+    async def set_guild_tag(self, interaction: discord.Interaction):
+        """Show modal to set guild tag."""
+        modal = SettingModal(self.cog, self.guild_id, "guild_tag_id", "Set Guild Tag ID", "Enter forum tag ID (0 to clear)")
+        modal.parent_view = self
+        await interaction.response.send_modal(modal)
+
+    async def set_member_tag(self, interaction: discord.Interaction):
+        """Show modal to set member tag."""
+        modal = SettingModal(self.cog, self.guild_id, "member_tag_id", "Set Member Tag ID", "Enter forum tag ID (0 to clear)")
+        modal.parent_view = self
+        await interaction.response.send_modal(modal)
+
+    async def set_testing_channel(self, interaction: discord.Interaction):
+        """Show channel selector for testing/debug channel."""
+        view = View(timeout=60)
+
+        # Create channel select for text channels only
+        channel_select = discord.ui.ChannelSelect(
+            placeholder="Select testing channel for debug messages",
+            channel_types=[discord.ChannelType.text]
+        )
+
+        async def channel_callback(select_interaction: discord.Interaction):
+            channel_id = channel_select.values[0].id
+            self.cog.set_setting(
+                "testing_channel_id",
+                channel_id,
+                guild_id=self.guild_id
+            )
+            await select_interaction.response.send_message(
+                f"✅ Set testing channel to <#{channel_id}>",
+                ephemeral=True
+            )
+
+        channel_select.callback = channel_callback
+        view.add_item(channel_select)
+
+        # Add a clear button
+        clear_btn = Button(label="Clear Channel", style=discord.ButtonStyle.secondary)
+
+        async def clear_callback(clear_interaction: discord.Interaction):
+            self.cog.set_setting(
+                "testing_channel_id",
+                None,
+                guild_id=self.guild_id
+            )
+            await clear_interaction.response.send_message(
+                "✅ Cleared testing channel",
+                ephemeral=True
+            )
+
+        clear_btn.callback = clear_callback
+        view.add_item(clear_btn)
+
+        await interaction.response.send_message("Select the text channel for debug messages (or click Clear):", view=view, ephemeral=True)
+
+    async def toggle_debug(self, interaction: discord.Interaction):
+        """Toggle debug messages on/off."""
+        current_state = self.cog.get_setting('debug_enabled', default=False, guild_id=self.guild_id)
+        new_state = not current_state
+
+        self.cog.set_setting('debug_enabled', new_state, guild_id=self.guild_id)
+
+        status = "enabled" if new_state else "disabled"
+        await interaction.response.send_message(
+            f"✅ Debug messages {status}",
+            ephemeral=True
+        )
+
+        # Refresh the settings view to show updated state
+        embed = await self.build_embed()
+        await interaction.message.edit(embed=embed, view=self)
+
+
+class SettingModal(Modal):
+    """Modal for changing a setting value."""
+
+    def __init__(self, cog: "UnifiedAdvertise", guild_id: int, setting_name: str, title: str, placeholder: str):
+        super().__init__(title=title, timeout=300)
+        self.cog = cog
+        self.guild_id = guild_id
+        self.setting_name = setting_name
+        self.parent_view = None
+
+        self.value_input = TextInput(
+            label="Value",
+            placeholder=placeholder,
+            required=True,
+            max_length=20
+        )
+        self.add_item(self.value_input)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        """Handle setting update."""
+        try:
+            # Convert value to int
+            value = int(self.value_input.value)
+
+            # Handle special case: 0 means None for optional settings
+            if value == 0 and self.setting_name in ["mod_channel_id", "guild_tag_id", "member_tag_id"]:
+                value = None
+
+            # Update setting
+            self.cog.set_setting(
+                self.setting_name,
+                value,
+                guild_id=self.guild_id
+            )
+
+            await interaction.response.send_message(
+                f"✅ Updated {self.setting_name} to {value if value is not None else 'None'}",
+                ephemeral=True
+            )
+
+            # Refresh parent view if available
+            if self.parent_view:
+                # Wait a moment for the setting to save
+                await asyncio.sleep(0.5)
+                # We can't directly edit the original message, so we'll just notify the user
+                # They can click refresh on the settings view
+
+        except ValueError:
+            await interaction.response.send_message(
+                "❌ Invalid value. Please enter a number.",
+                ephemeral=True
+            )
+        except Exception as e:
+            self.cog.logger.error(f"Error updating setting: {e}")
+            await interaction.response.send_message(
+                f"❌ Error updating setting: {e}",
+                ephemeral=True
+            )
+
+
 class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
     @tasks.loop(hours=1)
     async def orphaned_post_scan(self) -> None:
         """Scan for orphaned advertisement posts and add them to pending deletions if not already tracked."""
         await self._send_debug_message("Starting orphaned post scan.")
+
+        # Skip if paused
+        if self.is_paused:
+            return
+
         try:
-            channel = self.bot.get_channel(self.advertise_channel_id)
-            if not channel:
-                await self._send_debug_message(f"Orphan scan: Advertisement channel not found: {self.advertise_channel_id}")
-                return
+            # Scan each guild's advertisement channel
+            for guild in self.bot.guilds:
+                guild_id = guild.id
 
-            # Fetch all active threads in the forum channel
-            threads = []
-            try:
-                # For forum channels, threads is a list property, not a method
-                threads = channel.threads
-            except Exception as e:
-                await self._send_debug_message(f"Orphan scan: Failed to fetch threads: {e}")
-                return
+                # Only process guilds where this cog is enabled
+                if not self.bot.cog_manager.can_guild_use_cog(self.qualified_name, guild_id):
+                    continue
 
-            tracked_ids = {t_id for t_id, _, _, _ in self.pending_deletions}
-            new_orphans = 0
-            for thread in threads:
-                if thread.id not in tracked_ids:
-                    # Extract actual user and guild information from embed
-                    user_id, guild_id, ad_type = await self._extract_user_and_guild_info(thread)
+                self._ensure_guild_initialized(guild_id)
 
-                    # Add all orphans regardless of pin status
-                    deletion_time = datetime.datetime.now() + datetime.timedelta(hours=self.cooldown_hours)
-                    notify = False
-                    self.pending_deletions.append((thread.id, deletion_time, user_id, notify))
-                    new_orphans += 1
+                advertise_channel_id = self._get_advertise_channel_id(guild_id)
+                if not advertise_channel_id:
+                    continue  # Skip guilds without configured ad channel
 
-                    # Update cooldown timestamps to match this thread's creation time
-                    thread_creation_timestamp = thread.created_at.isoformat()
+                channel = self.bot.get_channel(advertise_channel_id)
+                if not channel:
+                    await self._send_debug_message(f"Orphan scan: Advertisement channel not found for guild {guild_id}: {advertise_channel_id}", guild_id)
+                    continue
 
-                    if user_id != 0:
-                        self.cooldowns["users"][str(user_id)] = thread_creation_timestamp
-                        await self._send_debug_message(f"Updated user {user_id} cooldown to match orphaned thread {thread.id} creation time")
+                # Fetch all active threads in the forum channel
+                threads = []
+                try:
+                    # For forum channels, threads is a list property, not a method
+                    threads = channel.threads
+                except Exception as e:
+                    await self._send_debug_message(f"Orphan scan: Failed to fetch threads for guild {guild_id}: {e}", guild_id)
+                    continue
 
-                    # For guild advertisements, also update guild cooldown
-                    if ad_type == "guild" and guild_id:
-                        self.cooldowns["guilds"][guild_id] = thread_creation_timestamp
-                        await self._send_debug_message(f"Updated guild {guild_id} cooldown to match orphaned thread {thread.id} creation time")
-            if new_orphans:
-                await self._save_pending_deletions()
-                await self._save_cooldowns()  # Save updated cooldown timestamps
-                await self._send_debug_message(f"Orphan scan: Added {new_orphans} orphaned threads to pending deletions.")
-            else:
-                await self._send_debug_message("Orphan scan: No new orphaned threads found.")
+                tracked_ids = {t_id for t_id, _, _, _, _ in self.pending_deletions}
+                new_orphans = 0
+                cooldown_hours = self._get_cooldown_hours(guild_id)
 
-            # After handling orphans, check for duplicates
-            await self._check_and_remove_duplicates(threads)
+                for thread in threads:
+                    if thread.id not in tracked_ids:
+                        # Extract actual user and guild information from embed
+                        user_id, ad_guild_id, ad_type = await self._extract_user_and_guild_info(thread)
+
+                        # Add all orphans regardless of pin status
+                        deletion_time = datetime.datetime.now() + datetime.timedelta(hours=cooldown_hours)
+                        notify = False
+                        self.pending_deletions.append((thread.id, deletion_time, user_id, notify, guild_id))
+                        new_orphans += 1
+
+                        # Update cooldown timestamps to match this thread's creation time
+                        thread_creation_timestamp = thread.created_at.isoformat()
+
+                        # Get guild-specific cooldowns
+                        guild_cooldowns = self.cooldowns.get(guild_id, {"users": {}, "guilds": {}})
+
+                        if user_id != 0:
+                            guild_cooldowns["users"][str(user_id)] = thread_creation_timestamp
+                            await self._send_debug_message(f"Updated user {user_id} cooldown to match orphaned thread {thread.id} creation time", guild_id)
+
+                        # For guild advertisements, also update guild cooldown
+                        if ad_type == "guild" and ad_guild_id:
+                            guild_cooldowns["guilds"][ad_guild_id] = thread_creation_timestamp
+                            await self._send_debug_message(f"Updated guild {ad_guild_id} cooldown to match orphaned thread {thread.id} creation time", guild_id)
+
+                        # Save back to main cooldowns
+                        self.cooldowns[guild_id] = guild_cooldowns
+
+                if new_orphans:
+                    await self._save_pending_deletions()
+                    await self._save_cooldowns(guild_id)  # Save updated cooldown timestamps
+                    await self._send_debug_message(f"Orphan scan: Added {new_orphans} orphaned threads to pending deletions.", guild_id)
+                else:
+                    await self._send_debug_message("Orphan scan: No new orphaned threads found.", guild_id)
+
+                # After handling orphans, check for duplicates
+                await self._check_and_remove_duplicates(threads, guild_id)
+
         except Exception as e:
             await self._send_debug_message(f"Orphan scan: Error: {e}")
 
-    async def _check_and_remove_duplicates(self, threads: list) -> None:
-        """Check for duplicate posts and remove all but the oldest one."""
-        await self._send_debug_message("Starting duplicate detection scan.")
+    async def _check_and_remove_duplicates(self, threads: list, guild_id: int) -> None:
+        """Check for duplicate posts and remove all but the oldest one.
+
+        Args:
+            threads: List of threads to check
+            guild_id: Discord guild ID
+        """
+        await self._send_debug_message("Starting duplicate detection scan.", guild_id)
+
+        cooldown_hours = self._get_cooldown_hours(guild_id)
+        guild_cooldowns = self.cooldowns.get(guild_id, {"users": {}, "guilds": {}})
+
         try:
             # Group threads by author to check for duplicates from same user
             author_threads = {}
@@ -399,52 +1422,57 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
                         try:
                             await thread.delete()
                             duplicates_removed += 1
-                            await self._send_debug_message(f"Deleted duplicate thread {thread.id}")
+                            await self._send_debug_message(f"Deleted duplicate thread {thread.id}", guild_id)
 
                             # Remove from pending deletions if it was there
                             self.pending_deletions = [entry for entry in self.pending_deletions if entry[0] != thread.id]
 
                         except Exception as e:
-                            await self._send_debug_message(f"Error deleting duplicate thread {thread.id}: {e}")
+                            await self._send_debug_message(f"Error deleting duplicate thread {thread.id}: {e}", guild_id)
 
                     # Ensure all kept threads are properly tracked and update cooldowns
-                    tracked_ids = {t_id for t_id, _, _, _ in self.pending_deletions}
+                    tracked_ids = {t_id for t_id, _, _, _, _ in self.pending_deletions}
                     for keep_thread in keep_threads:
                         # Get the thread's actual user and guild info
                         thread_user_id, thread_guild_id, thread_ad_type = await self._extract_user_and_guild_info(keep_thread)
 
                         if keep_thread.id not in tracked_ids:
-                            deletion_time = datetime.datetime.now() + datetime.timedelta(hours=self.cooldown_hours)
+                            deletion_time = datetime.datetime.now() + datetime.timedelta(hours=cooldown_hours)
                             notify = False  # Don't notify for duplicate cleanup
-                            self.pending_deletions.append((keep_thread.id, deletion_time, thread_user_id, notify))
-                            await self._send_debug_message(f"Added kept thread {keep_thread.id} to pending deletions tracking")
+                            self.pending_deletions.append((keep_thread.id, deletion_time, thread_user_id, notify, guild_id))
+                            await self._send_debug_message(f"Added kept thread {keep_thread.id} to pending deletions tracking", guild_id)
 
                         # Update cooldown timestamps to match the kept thread's creation time
                         thread_creation_timestamp = keep_thread.created_at.isoformat()
 
                         # Update user cooldown
                         if thread_user_id != 0:
-                            self.cooldowns["users"][str(thread_user_id)] = thread_creation_timestamp
+                            guild_cooldowns["users"][str(thread_user_id)] = thread_creation_timestamp
                             await self._send_debug_message(
-                                f"Updated user {thread_user_id} cooldown to match kept thread {keep_thread.id} creation time"
+                                f"Updated user {thread_user_id} cooldown to match kept thread {keep_thread.id} creation time",
+                                guild_id
                             )
 
                         # Update guild cooldown for guild advertisements
                         if thread_ad_type == "guild" and thread_guild_id:
-                            self.cooldowns["guilds"][thread_guild_id] = thread_creation_timestamp
+                            guild_cooldowns["guilds"][thread_guild_id] = thread_creation_timestamp
                             await self._send_debug_message(
-                                f"Updated guild {thread_guild_id} cooldown to match kept thread {keep_thread.id} creation time"
+                                f"Updated guild {thread_guild_id} cooldown to match kept thread {keep_thread.id} creation time",
+                                guild_id
                             )
+
+                    # Save updated guild cooldowns
+                    self.cooldowns[guild_id] = guild_cooldowns
 
             if duplicates_removed > 0:
                 await self._save_pending_deletions()
-                await self._save_cooldowns()  # Save updated cooldown timestamps
-                await self._send_debug_message(f"Duplicate scan complete: Removed {duplicates_removed} duplicate threads.")
+                await self._save_cooldowns(guild_id)  # Save updated cooldown timestamps
+                await self._send_debug_message(f"Duplicate scan complete: Removed {duplicates_removed} duplicate threads.", guild_id)
             else:
-                await self._send_debug_message("Duplicate scan complete: No duplicates found.")
+                await self._send_debug_message("Duplicate scan complete: No duplicates found.", guild_id)
 
         except Exception as e:
-            await self._send_debug_message(f"Duplicate detection error: {e}")
+            await self._send_debug_message(f"Duplicate detection error: {e}", guild_id)
 
     async def _are_threads_similar(self, thread1, thread2) -> bool:
         """Determine if two threads are similar enough to be considered duplicates.
@@ -590,43 +1618,68 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
         super().__init__(bot)
         self.logger.info("Initializing UnifiedAdvertise")
 
-        # Define settings with descriptions
-        settings_config = {
-            "cooldown_hours": (24, "Default cooldown period in hours"),
-            "advertise_channel_id": (None, "Forum channel for advertisements"),
-            "mod_channel_id": (None, "Channel for moderator notifications"),
-            "guild_tag_id": (None, "Tag ID for guild advertisements"),
-            "member_tag_id": (None, "Tag ID for member advertisements"),
-            "guild_id": (None, "Guild ID for slash command registration"),
-            "cooldown_filename": ("advertisement_cooldowns.json", "Filename for cooldown data"),
-            "pending_deletions_filename": ("advertisement_pending_deletions.pkl", "Filename for pending deletions"),
+        # Define default settings (per-guild)
+        self.default_settings = {
+            "cooldown_hours": 24,
+            "advertise_channel_id": None,
+            "mod_channel_id": None,
+            "guild_tag_id": None,
+            "member_tag_id": None,
+            "testing_channel_id": None,
+            "debug_enabled": False,
         }
 
-        # Initialize settings
-        for name, (value, description) in settings_config.items():
-            if not self.has_setting(name):
-                self.set_setting(name, value)
-
-        # Initialize empty data structures (will be populated in cog_initialize)
-        self.cooldowns = {"users": {}, "guilds": {}}
+        # Multi-guild data structures (will be populated in cog_initialize)
+        # Format: {guild_id: {"users": {}, "guilds": {}}}
+        self.cooldowns = {}
+        # Format: [(thread_id, deletion_time, author_id, notify, guild_id), ...]
         self.pending_deletions = []
 
         # Store a reference to this cog
         self.bot.unified_advertise = self
 
-    def _load_settings(self) -> None:
-        """Load settings into instance variables."""
-        self.cooldown_hours: int = self.get_setting("cooldown_hours")
-        self.advertise_channel_id: Optional[int] = self.get_setting("advertise_channel_id")
-        self.mod_channel_id: Optional[int] = self.get_setting("mod_channel_id")
-        self.guild_tag_id: Optional[int] = self.get_setting("guild_tag_id")
-        self.member_tag_id: Optional[int] = self.get_setting("member_tag_id")
-        self.guild_id: Optional[int] = self.get_setting("guild_id")
-        self.cooldown_filename: str = self.get_setting("cooldown_filename", "advertisement_cooldowns.json")
-        self.pending_deletions_filename: str = self.get_setting("pending_deletions_filename", "advertisement_pending_deletions.pkl")
+    # === Settings Helper Methods ===
 
-        # Get testing channel from config for debug messages
-        self.testing_channel_id: Optional[int] = self.config.get_channel_id("testing") if self.config else None
+    def _ensure_guild_initialized(self, guild_id: int) -> None:
+        """Ensure settings and data structures are initialized for a guild."""
+        if guild_id:
+            self.ensure_settings_initialized(guild_id=guild_id, default_settings=self.default_settings)
+
+            # Initialize cooldowns for this guild if not present
+            if guild_id not in self.cooldowns:
+                self.cooldowns[guild_id] = {"users": {}, "guilds": {}}
+
+    def _get_cooldown_hours(self, guild_id: int) -> int:
+        """Get cooldown hours setting for a guild."""
+        return self.get_setting('cooldown_hours', default=24, guild_id=guild_id)
+
+    def _get_advertise_channel_id(self, guild_id: int) -> Optional[int]:
+        """Get advertise channel ID setting for a guild."""
+        return self.get_setting('advertise_channel_id', default=None, guild_id=guild_id)
+
+    def _get_mod_channel_id(self, guild_id: int) -> Optional[int]:
+        """Get mod channel ID setting for a guild."""
+        return self.get_setting('mod_channel_id', default=None, guild_id=guild_id)
+
+    def _get_guild_tag_id(self, guild_id: int) -> Optional[int]:
+        """Get guild tag ID setting for a guild."""
+        return self.get_setting('guild_tag_id', default=None, guild_id=guild_id)
+
+    def _get_member_tag_id(self, guild_id: int) -> Optional[int]:
+        """Get member tag ID setting for a guild."""
+        return self.get_setting('member_tag_id', default=None, guild_id=guild_id)
+
+    def _get_testing_channel_id(self, guild_id: int) -> Optional[int]:
+        """Get testing channel ID setting for a guild."""
+        return self.get_setting('testing_channel_id', default=None, guild_id=guild_id)
+
+    def _get_cooldown_filename(self, guild_id: int) -> str:
+        """Get cooldown filename for a guild."""
+        return f'advertisement_cooldowns_{guild_id}.json'
+
+    def _get_pending_deletions_filename(self, guild_id: int) -> str:
+        """Get pending deletions filename for a guild."""
+        return f'advertisement_pending_deletions_{guild_id}.pkl'
 
     async def cog_initialize(self) -> None:
         """Initialize the cog - called by BaseCog during ready process."""
@@ -638,21 +1691,12 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
                 self.logger.debug("Initializing parent cog")
                 await super().cog_initialize()
 
-                # 0. Create inherited commands
-                self.create_pause_commands(self.unifiedadvertise_group)
-
-                # 1. Load settings
-                self.logger.debug("Loading settings")
-                tracker.update_status("Loading settings")
-                self._load_settings()
-
-                # 2. Load data
+                # 1. Load data (multi-guild support will load for all configured guilds)
                 self.logger.debug("Loading cached data")
                 tracker.update_status("Loading data")
-                self.cooldowns = await self._load_cooldowns()
-                self.pending_deletions = await self._load_pending_deletions()
+                await self._load_all_guild_data()
 
-                # 3. Start scheduled tasks
+                # 2. Start scheduled tasks
                 self.logger.debug("Starting scheduled tasks")
                 tracker.update_status("Starting tasks")
                 if not self.check_deletions.is_running():
@@ -662,18 +1706,60 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
                 if not hasattr(self, "orphaned_post_scan") or not self.orphaned_post_scan.is_running():
                     self.orphaned_post_scan.start()
 
-                # 4. Update status variables
+                # 3. Update status variables
                 self._last_operation_time = datetime.datetime.utcnow()
                 self._operation_count = 0
 
-                # 5. Mark as ready
+                # 4. Mark as ready
                 self.set_ready(True)
                 self.logger.info("Advertisement initialization complete")
+
+                # 5. Sync slash commands for all guilds where this cog is enabled
+                tracker.update_status("Syncing slash commands")
+                await self._sync_commands_for_enabled_guilds()
 
         except Exception as e:
             self._has_errors = True
             self.logger.error(f"Failed to initialize Advertisement module: {e}", exc_info=True)
             raise
+
+    async def _sync_commands_for_enabled_guilds(self) -> None:
+        """Sync slash commands for all guilds where this cog is enabled."""
+        try:
+            # Normalize the cog name for config lookups (e.g., "Unified Advertise" -> "unified_advertise")
+            normalized_cog_name = self.bot.cog_manager.class_name_to_filename(self.qualified_name.replace(' ', ''))
+            self.logger.info(f"Checking cog enablement using qualified_name: '{self.qualified_name}' (normalized: '{normalized_cog_name}')")
+
+            # Debug: Log what commands are in the tree
+            all_commands = self.bot.tree.get_commands()
+            self.logger.info(f"DEBUG: Bot tree has {len(all_commands)} global commands")
+            for cmd in all_commands:
+                self.logger.info(f"  - {cmd.name}: {cmd.description}")
+
+            self.logger.info(f"Starting slash command sync for {len(self.bot.guilds)} guilds...")
+            synced_count = 0
+            skipped_count = 0
+            for guild in self.bot.guilds:
+                can_use = self.bot.cog_manager.can_guild_use_cog(normalized_cog_name, guild.id)
+                self.logger.debug(f"Guild {guild.id} ({guild.name}): can_guild_use_cog('{normalized_cog_name}') = {can_use}")
+                if can_use:
+                    try:
+                        self.logger.info(f"Syncing slash commands for guild {guild.id} ({guild.name})...")
+                        # Copy global commands to this guild, then sync
+                        self.bot.tree.copy_global_to(guild=guild)
+                        synced = await self.bot.tree.sync(guild=guild)
+                        synced_count += 1
+                        self.logger.info(f"✓ Successfully synced {len(synced)} slash commands for guild {guild.id} ({guild.name})")
+                        for cmd in synced:
+                            self.logger.info(f"  - Synced: {cmd.name}")
+                    except Exception as e:
+                        self.logger.warning(f"✗ Failed to sync slash commands for guild {guild.id}: {e}")
+                else:
+                    skipped_count += 1
+                    # self.logger.info(f"⊘ Skipping guild {guild.id} ({guild.name}) - cog not enabled")
+            self.logger.info(f"Slash command sync complete: {synced_count} synced, {skipped_count} skipped out of {len(self.bot.guilds)} guilds")
+        except Exception as e:
+            self.logger.error(f"Error syncing commands for enabled guilds: {e}")
 
     async def cog_unload(self) -> None:
         """Clean up when cog is unloaded."""
@@ -697,146 +1783,29 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
         # Call parent implementation
         await super().cog_unload()
 
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        """Override interaction check for slash commands.
+
+        For the unified_advertise cog:
+        - The /advertise command is for managing user's own ads (ephemeral UI), so no channel restrictions
+        - Future commands that post to channels should respect permission manager
+        """
+        # For now, /advertise is just for personal ad management (ephemeral)
+        # If we add slash commands that post to channels, we'll check permissions for those
+        return True
+
     # ====================
     # Standard Commands
     # ====================
-
-    @commands.group(name="unifiedadvertise", aliases=["uad"], invoke_without_command=True)
-    async def unifiedadvertise_group(self, ctx):
-        """Unified advertisement management commands."""
-        if ctx.invoked_subcommand is None:
-            await ctx.send_help(ctx.command)
-
-    @unifiedadvertise_group.command(name="status")
-    async def status_command(self, ctx: commands.Context) -> None:
-        """Display current operational status of the advertisement system."""
-        if not await self.wait_until_ready():
-            await ctx.send("⏳ Still initializing, please try again later.")
-            return
-
-        # Determine overall status
-        if self.is_paused:
-            status_emoji = "⏸️"
-            status_text = "Paused"
-            embed_color = discord.Color.orange()
-        elif self._has_errors:
-            status_emoji = "⚠️"
-            status_text = "Degraded"
-            embed_color = discord.Color.orange()
-        else:
-            status_emoji = "✅"
-            status_text = "Operational"
-            embed_color = discord.Color.blue()
-
-        # Create status embed
-        embed = discord.Embed(title="Advertisement System Status", description=f"Current status: {status_emoji} {status_text}", color=embed_color)
-
-        # Add dependency information
-        channel = self.bot.get_channel(self.advertise_channel_id)
-        dependencies = [f"Advertisement Channel: {'✅ Available' if channel else '❌ Unavailable'}"]
-        embed.add_field(name="Dependencies", value="\n".join(dependencies), inline=False)
-
-        # Add task tracking status
-        self.add_task_status_fields(embed)
-
-        # Add statistics
-        embed.add_field(
-            name="Statistics",
-            value=f"Operations completed: {self._operation_count}\n" f"Pending deletions: {len(self.pending_deletions)}",
-            inline=False,
-        )
-
-        # Add last activity
-        if self._last_operation_time:
-            embed.add_field(name="Last Activity", value=f"Last operation: {self.format_relative_time(self._last_operation_time)} ago", inline=False)
-
-        await ctx.send(embed=embed)
-
-    @unifiedadvertise_group.command(name="settings")
-    async def settings_command(self, ctx: commands.Context) -> None:
-        """Display current advertisement settings."""
-        if not await self.wait_until_ready():
-            await ctx.send("⏳ System is still initializing, please try again later.")
-            return
-
-        embed = discord.Embed(
-            title="Advertisement Settings", description="Current configuration for advertisement system", color=discord.Color.blue()
-        )
-
-        # Time Settings
-        embed.add_field(name="Time Settings", value=f"Advertisement Cooldown: {self.format_time_value(self.cooldown_hours * 3600)}", inline=False)
-
-        # Channel Settings
-        advertise_channel = self.bot.get_channel(self.advertise_channel_id)
-        channel_name = advertise_channel.name if advertise_channel else "Unknown"
-        embed.add_field(name="Channel Settings", value=f"Advertisement Channel: {channel_name} (ID: {self.advertise_channel_id})", inline=False)
-
-        # Tag Settings
-        guild_tag = "Not configured" if self.guild_tag_id is None else f"ID: {self.guild_tag_id}"
-        member_tag = "Not configured" if self.member_tag_id is None else f"ID: {self.member_tag_id}"
-
-        embed.add_field(name="Tag Settings", value=f"Guild Tag: {guild_tag}\nMember Tag: {member_tag}", inline=False)
-
-        # Stats
-        embed.add_field(
-            name="Statistics",
-            value=f"Active User Cooldowns: {len(self.cooldowns['users'])}\n"
-            f"Active Guild Cooldowns: {len(self.cooldowns['guilds'])}\n"
-            f"Pending Deletions: {len(self.pending_deletions)}",
-            inline=False,
-        )
-
-        await ctx.send(embed=embed)
-
-    @unifiedadvertise_group.command(name="set")
-    async def set_setting_command(self, ctx: commands.Context, setting_name: str, value: str) -> None:
-        """Change a cog setting.
-
-        Args:
-            setting_name: Name of setting to change
-            value: New value for setting
-        """
-        try:
-            valid_settings = {
-                "cooldown_hours": ("Cooldown period in hours", int),
-                "advertise_channel_id": ("Forum channel for advertisements", int),
-                "mod_channel_id": ("Channel for moderator notifications", int),
-                "guild_tag_id": ("Tag ID for guild advertisements", int),
-                "member_tag_id": ("Tag ID for member advertisements", int),
-                "guild_id": ("Guild ID for slash command registration", int),
-            }
-
-            if setting_name not in valid_settings:
-                return await ctx.send("❌ Invalid setting. Valid options:\n" + "\n".join([f"• `{k}` - {v[0]}" for k, v in valid_settings.items()]))
-
-            # Convert value to correct type
-            try:
-                value = valid_settings[setting_name][1](value)
-            except ValueError:
-                return await ctx.send(f"❌ Invalid value format for {setting_name}")
-
-            # Update the setting
-            self.set_setting(setting_name, value)
-
-            # Reload settings into instance variables
-            self._load_settings()
-
-            await ctx.send(f"✅ Set `{setting_name}` to `{value}`")
-            self.logger.info(f"Setting changed by {ctx.author}: {setting_name} = {value}")
-
-        except Exception as e:
-            self.logger.error(f"Error changing setting: {e}")
-            await ctx.send("❌ An error occurred changing the setting")
 
     # ====================
     # Advertisement Commands
     # ====================
 
-    @discord.app_commands.command(name="advertise", description="Create a new advertisement")
+    @app_commands.command(name="advertise", description="Manage your advertisements")
+    @app_commands.guild_only()
     async def advertise_slash(self, interaction: discord.Interaction) -> None:
-        """Slash command for creating an advertisement."""
-        start_time = time.time()
-
+        """Slash command for managing advertisements."""
         # Send response immediately to avoid timeout
         if not await self.wait_until_ready():
             await interaction.response.send_message("⏳ System is still initializing, please try again later.", ephemeral=True)
@@ -847,521 +1816,38 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
             await interaction.response.send_message("⏸️ The advertisement system is currently paused. Please try again later.", ephemeral=True)
             return
 
-        # Check permissions (do this before responding to avoid timeout)
-        permission_start = time.time()
-        if not await self.interaction_check(interaction):
-            # interaction_check should handle its own response
-            return
-        permission_time = time.time() - permission_start
-
-        # Create the selection view
-        view_create_start = time.time()
-        view = AdTypeSelection(self)
-        view_create_time = time.time() - view_create_start
-
-        # Send the response first, then debug messages
-        response_start = time.time()
-        await interaction.response.send_message("What type of advertisement would you like to post?", view=view, ephemeral=True)
-        response_time = time.time() - response_start
-
-        # Now send detailed debug messages after successful response
-        total_time = time.time() - start_time
-        await self._send_debug_message(f"Advertise command started by user {interaction.user.id} ({interaction.user.name})")
-        await self._send_debug_message(f"Permission check completed in {permission_time:.2f}s for user {interaction.user.id}")
-        await self._send_debug_message(f"View creation took {view_create_time:.2f}s for user {interaction.user.id}")
-        await self._send_debug_message(f"Response send took {response_time:.2f}s for user {interaction.user.id}")
-        await self._send_debug_message(f"Advertise command setup completed in {total_time:.2f}s for user {interaction.user.id}")
-
-    @discord.app_commands.command(name="advertisedelete", description="Delete your active advertisement")
-    async def delete_ad_slash(self, interaction: discord.Interaction) -> None:
-        """Slash command to delete your own advertisement early."""
-        if not await self.wait_until_ready():
-            await interaction.response.send_message("⏳ System is still initializing, please try again later.", ephemeral=True)
-            return
-
-        # Check if system is paused
-        if self.is_paused:
-            await interaction.response.send_message("⏸️ The advertisement system is currently paused. Please try again later.", ephemeral=True)
-            return
-
         # Check permissions
         if not await self.interaction_check(interaction):
             return
 
-        # Find user's active advertisements
-        user_threads = []
-        for thread_id, deletion_time, author_id, notify in self.pending_deletions:
-            # Changed: Check author_id instead of thread.owner_id
-            if author_id == interaction.user.id:
-                try:
-                    thread = await self.bot.fetch_channel(thread_id)
-                    if thread:
-                        user_threads.append((thread_id, thread.name))
-                except Exception:
-                    continue
-
-        if not user_threads:
-            await interaction.response.send_message("You don't have any active advertisements.", ephemeral=True)
+        # Ensure we're in a guild
+        if not interaction.guild:
+            await interaction.response.send_message("❌ This command must be used in a server.", ephemeral=True)
             return
 
-        # Create selection menu
-        options = [discord.SelectOption(label=name[:100], value=str(id)) for id, name in user_threads]
+        guild_id = interaction.guild.id
+        user_id = interaction.user.id
 
-        class DeleteSelect(Select):
-            def __init__(self):
-                super().__init__(placeholder="Select an advertisement to delete", options=options, min_values=1, max_values=1)
+        # Initialize settings for this guild
+        self._ensure_guild_initialized(guild_id)
 
-            async def callback(self, select_interaction: discord.Interaction):
-                thread_id = int(self.values[0])
-                try:
-                    thread = await self.view.cog.bot.fetch_channel(thread_id)
-                    await thread.delete()
+        # Check if user is admin/owner for admin view
+        is_admin = interaction.user.guild_permissions.administrator
+        is_bot_owner = await self.bot.is_owner(interaction.user)
 
-                    # Update tracking with new tuple structure
-                    self.view.cog.pending_deletions = [
-                        (t_id, t_time, t_author, t_notify)
-                        for t_id, t_time, t_author, t_notify in self.view.cog.pending_deletions
-                        if t_id != thread_id
-                    ]
-                    await self.view.cog._save_pending_deletions()
-
-                    await select_interaction.response.send_message("Advertisement deleted successfully.", ephemeral=True)
-                except Exception as e:
-                    self.view.cog.logger.error(f"Error deleting advertisement: {e}")
-                    await select_interaction.response.send_message("Failed to delete advertisement.", ephemeral=True)
-
-        class DeleteView(View):
-            def __init__(self, cog: UnifiedAdvertise):
-                super().__init__(timeout=900)  # 15 minute timeout
-                self.cog = cog
-                self.add_item(DeleteSelect())
-
-        await interaction.response.send_message("Select the advertisement you want to delete:", view=DeleteView(self), ephemeral=True)
-
-    @discord.app_commands.command(name="advertisenotify", description="Toggle notification settings for your advertisement")
-    async def notify_ad_slash(self, interaction: discord.Interaction) -> None:
-        """Slash command to toggle notification settings for your advertisement."""
-        if not await self.wait_until_ready():
-            await interaction.response.send_message("⏳ System is still initializing, please try again later.", ephemeral=True)
-            return
-
-        # Check if system is paused
-        if self.is_paused:
-            await interaction.response.send_message("⏸️ The advertisement system is currently paused. Please try again later.", ephemeral=True)
-            return
-
-        # Check permissions
-        if not await self.interaction_check(interaction):
-            return
-
-        # Find user's active advertisements
-        user_threads = []
-        for thread_id, deletion_time, author_id, notify in self.pending_deletions:
-            if author_id == interaction.user.id:
-                try:
-                    thread = await self.bot.fetch_channel(thread_id)
-                    if thread:
-                        user_threads.append((thread_id, thread.name, notify))
-                except Exception:
-                    continue
-
-        if not user_threads:
-            await interaction.response.send_message("You don't have any active advertisements.", ephemeral=True)
-            return
-
-        # Create selection menu options with current notification status
-        options = [
-            discord.SelectOption(
-                label=name[:80],  # Shorter label to accommodate notification status
-                value=str(id),
-                description=f"Notifications {'enabled' if notify else 'disabled'}",
-                emoji="✉️" if notify else "🔕",
-            )
-            for id, name, notify in user_threads
-        ]
-
-        class NotifySelect(Select):
-            def __init__(self):
-                super().__init__(placeholder="Select an advertisement to modify notifications", options=options, min_values=1, max_values=1)
-
-            async def callback(self, select_interaction: discord.Interaction):
-                thread_id = int(self.values[0])
-
-                # Find current notification state
-                current_notify = False
-                for t_id, t_time, t_author, t_notify in self.view.cog.pending_deletions:
-                    if t_id == thread_id:
-                        current_notify = t_notify
-                        break
-
-                # Toggle notification state
-                updated_deletions = []
-                for t_id, t_time, t_author, t_notify in self.view.cog.pending_deletions:
-                    if t_id == thread_id:
-                        # Flip the notification setting
-                        updated_deletions.append((t_id, t_time, t_author, not t_notify))
-                    else:
-                        updated_deletions.append((t_id, t_time, t_author, t_notify))
-
-                self.view.cog.pending_deletions = updated_deletions
-                self.view.cog._save_pending_deletions()
-
-                # Confirm the change
-                new_state = "enabled" if not current_notify else "disabled"
-                await select_interaction.response.send_message(f"Notifications have been {new_state} for your advertisement.", ephemeral=True)
-
-        class NotifyView(View):
-            def __init__(self, cog: UnifiedAdvertise):
-                super().__init__(timeout=900)  # 15 minute timeout
-                self.cog = cog
-                self.add_item(NotifySelect())
-
-        await interaction.response.send_message("Select an advertisement to toggle notifications:", view=NotifyView(self), ephemeral=True)
+        if is_admin or is_bot_owner:
+            # Show admin view
+            view = AdminAdManagementView(self, guild_id, is_bot_owner)
+            embed = await view.update_view(interaction)
+            await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+        else:
+            # Show user view
+            view = AdManagementView(self, user_id, guild_id)
+            embed = await view.update_view(interaction)
+            await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
 
     # ====================
     # Owner Commands
-    # ====================
-
-    @commands.command(name="owner_delete_post")
-    async def owner_delete_post(self, ctx: commands.Context, message_url: str) -> None:
-        """Delete a post based on message URL and remove it from pending deletions.
-
-        Only works for the bot owner in DMs.
-
-        Args:
-            message_url: URL of the message/thread to delete
-        """
-        # Check if command is used by bot owner in DMs
-        if not await self._check_owner_dm(ctx):
-            return
-
-        try:
-            # Extract channel and message IDs from URL
-            parts = message_url.split("/")
-            if len(parts) < 7:
-                await ctx.send("Invalid message URL format. Expected: https://discord.com/channels/guild_id/channel_id/message_id")
-                return
-
-            channel_id = int(parts[-2])
-
-            # Try to fetch the channel (should be a thread)
-            try:
-                thread = await self.bot.fetch_channel(channel_id)
-
-                # Delete the thread
-                await thread.delete()
-
-                # Remove from pending deletions and notify author if needed
-                updated_list = []
-                deleted = False
-
-                for t_id, t_time, t_author, t_notify in self.pending_deletions:
-                    if t_id == channel_id:
-                        deleted = True
-                        # Try to notify the author if notifications were enabled
-                        if t_notify and t_author:
-                            try:
-                                user = await self.bot.fetch_user(t_author)
-                                if user:
-                                    await user.send(f"Your advertisement in {thread.name} has been removed by a moderator.")
-                            except Exception as e:
-                                self.logger.error(f"Failed to send notification to user {t_author}: {e}")
-                    else:
-                        updated_list.append((t_id, t_time, t_author, t_notify))
-
-                if deleted:
-                    self.pending_deletions = updated_list
-                    self._save_pending_deletions()
-                    self.logger.info(f"Owner manually deleted thread {channel_id} and removed from pending deletions")
-                    await ctx.send("Successfully deleted thread and removed from pending deletions.")
-                else:
-                    self.logger.info(f"Owner manually deleted thread {channel_id} (not in pending deletions)")
-                    await ctx.send("Successfully deleted thread, but it wasn't in the pending deletions list.")
-
-            except discord.NotFound:
-                self.logger.warning(f"Owner tried to delete non-existent thread {channel_id}")
-                await ctx.send("Thread not found. It might have been already deleted.")
-            except discord.Forbidden:
-                self.logger.error(f"No permission to delete thread {channel_id}")
-                await ctx.send("I don't have permission to delete that thread.")
-            except Exception as e:
-                self.logger.error(f"Error deleting thread {channel_id}: {str(e)}")
-                await ctx.send(f"Error deleting thread: {str(e)}")
-
-        except Exception as e:
-            self.logger.error(f"Error processing owner_delete_post command: {str(e)}")
-            await ctx.send(f"Error processing command: {str(e)}")
-
-    @commands.command(name="owner_reset_timeout")
-    async def owner_reset_timeout(self, ctx: commands.Context, timeout_type: str, identifier: str) -> None:
-        """Reset a timeout for a user or guild.
-
-        timeout_type: 'user' or 'guild'
-        identifier: Discord user ID or Guild ID
-        Only works for the bot owner in DMs.
-        """
-        # Check if command is used by bot owner in DMs
-        if not await self._check_owner_dm(ctx):
-            return
-
-        try:
-            timeout_type = timeout_type.lower()
-
-            if timeout_type not in ["user", "guild"]:
-                await ctx.send("Invalid timeout type. Use 'user' or 'guild'.")
-                return
-
-            # Map timeout type to the cooldowns dictionary key
-            cooldown_key = "users" if timeout_type == "user" else "guilds"
-
-            # Check if the identifier exists in the cooldowns
-            if identifier in self.cooldowns[cooldown_key]:
-                # Remove the timeout
-                del self.cooldowns[cooldown_key][identifier]
-                await self._save_cooldowns()
-                await ctx.send(f"Successfully reset {timeout_type} timeout for {identifier}.")
-            else:
-                await ctx.send(f"No timeout found for {timeout_type} {identifier}.")
-
-        except Exception as e:
-            await ctx.send(f"Error processing command: {str(e)}")
-
-    @commands.command(name="owner_list_timeouts")
-    async def owner_list_timeouts(self, ctx: commands.Context, timeout_type: Optional[str] = None) -> None:
-        """List all active timeouts.
-
-        Args:
-            timeout_type: Optional 'user' or 'guild' to filter results
-        """
-        if not await self._check_owner_dm(ctx):
-            return
-
-        try:
-            now = datetime.datetime.now()
-            if timeout_type and timeout_type.lower() in ["user", "guild"]:
-                sections = [f"{timeout_type.lower()}s"]
-            else:
-                sections = ["users", "guilds"]
-            messages = []
-            current_msg = []
-
-            for section in sections:
-                if not self.cooldowns[section]:
-                    current_msg.append(f"No active {section} timeouts.")
-                    continue
-
-                current_msg.append(f"**{section.capitalize()} Timeouts:**")
-
-                for item_id, timestamp in list(self.cooldowns[section].items()):
-                    timestamp_dt = datetime.datetime.fromisoformat(timestamp)
-                    elapsed = now - timestamp_dt
-                    hours_left = self.cooldown_hours - (elapsed.total_seconds() / 3600)
-
-                    line = f"- ID: `{item_id}`, " + (
-                        f"Time left: {hours_left:.1f} hours" if hours_left > 0 else f"**⚠️ EXPIRED** ({abs(hours_left):.1f} hours ago)"
-                    )
-
-                    # Check if adding this line would exceed Discord's limit
-                    if sum(len(x) for x in current_msg) + len(line) > 1900:
-                        messages.append("\n".join(current_msg))
-                        current_msg = [line]
-                    else:
-                        current_msg.append(line)
-
-                current_msg.append("")  # Add separator between sections
-
-            # Add any remaining content
-            if current_msg:
-                messages.append("\n".join(current_msg))
-
-            # Send messages
-            if not messages:
-                await ctx.send("No active timeouts found.")
-            else:
-                for msg in messages:
-                    await ctx.send(msg)
-
-        except Exception as e:
-            self.logger.error(f"Error in owner_list_timeouts: {e}", exc_info=True)
-            await ctx.send(f"Error processing command: {str(e)}")
-
-    @commands.command(name="owner_list_pending")
-    async def owner_list_pending(self, ctx: commands.Context) -> None:
-        """List all pending deletions.
-
-        Only works for the bot owner in DMs.
-        """
-        # Check if command is used by the bot owner in DMs
-        if not await self._check_owner_dm(ctx):
-            return
-
-        try:
-            now = datetime.datetime.now()
-
-            if not self.pending_deletions:
-                await ctx.send("No pending thread deletions.")
-                return
-
-            result = ["**Pending Thread Deletions:**"]
-
-            for thread_id, deletion_time, author_id, notify in self.pending_deletions:
-                time_left = deletion_time - now
-                hours_left = time_left.total_seconds() / 3600
-
-                if self.guild_id:
-                    thread_url = f"https://discord.com/channels/{self.guild_id}/{thread_id}"
-                else:
-                    thread_url = f"Thread ID: {thread_id} (Guild ID not configured)"
-
-                if hours_left > 0:
-                    result.append(f"- Thread ID: `{thread_id}`, Time left: {hours_left:.1f} hours\n  URL: {thread_url}")
-                else:
-                    # Updated to use consistent emoji
-                    result.append(f"- Thread ID: `{thread_id}`, **⚠️ OVERDUE** by {abs(hours_left):.1f} hours\n  URL: {thread_url}")
-
-            # Send the message(s) - discord has a 2000 char limit
-            messages = []
-            current_msg = ""
-
-            for line in result:
-                if len(current_msg) + len(line) + 1 > 1990:  # Leave some buffer
-                    messages.append(current_msg)
-                    current_msg = line
-                else:
-                    if current_msg:
-                        current_msg += "\n" + line
-                    else:
-                        current_msg = line
-
-            if current_msg:
-                messages.append(current_msg)
-
-            for msg in messages:
-                await ctx.send(msg)
-
-        except Exception as e:
-            self.logger.error(f"Error in owner_list_pending: {e}", exc_info=True)
-            await ctx.send(f"Error processing command: {str(e)}")
-
-    @commands.command(name="owner_delete_all_ads")
-    async def owner_delete_all_ads(self, ctx: commands.Context, confirm: str = None) -> None:
-        """Delete all active advertisements and clear pending deletions.
-
-        Args:
-            confirm: Type 'confirm' to execute the deletion
-
-        Only works for the bot owner in DMs.
-        """
-        if not await self._check_owner_dm(ctx):
-            return
-
-        if not confirm or confirm.lower() != "confirm":
-            await ctx.send(
-                "⚠️ This will delete ALL active advertisements and clear the pending deletions list.\n"
-                "To confirm, use: `owner_delete_all_ads confirm`"
-            )
-            return
-
-        try:
-            deleted_count = 0
-            errors_count = 0
-
-            # Process each pending deletion
-            for thread_id, _, author_id, notify in self.pending_deletions:
-                try:
-                    thread = await self.bot.fetch_channel(thread_id)
-                    if thread:
-                        await thread.delete()
-                        deleted_count += 1
-
-                        # Try to notify the author if notifications were enabled
-                        if notify and author_id:
-                            try:
-                                user = await self.bot.fetch_user(author_id)
-                                if user:
-                                    await user.send("Your advertisement has been removed by a moderator.")
-                            except Exception as e:
-                                self.logger.warning(f"Failed to send notification to user {author_id}: {e}")
-                except discord.NotFound:
-                    # Thread already deleted
-                    deleted_count += 1
-                except Exception as e:
-                    self.logger.error(f"Error deleting thread {thread_id}: {e}")
-                    errors_count += 1
-
-            # Clear the pending deletions list
-            old_count = len(self.pending_deletions)
-            self.pending_deletions = []
-            await self._save_pending_deletions()
-
-            # Send summary
-            await ctx.send(
-                f"Operation complete:\n"
-                f"• Processed {old_count} pending deletions\n"
-                f"• Successfully deleted: {deleted_count} threads\n"
-                f"• Errors encountered: {errors_count}\n"
-                f"• Pending deletions list cleared"
-            )
-
-        except Exception as e:
-            self.logger.error(f"Error in owner_delete_all_ads: {e}", exc_info=True)
-            await ctx.send(f"Error processing command: {str(e)}")
-
-    @commands.command(name="owner_clear_all_timeouts")
-    async def owner_clear_all_timeouts(self, ctx: commands.Context, confirm: str = None) -> None:
-        """Clear all advertisement timeouts.
-
-        Args:
-            confirm: Type 'confirm' to execute the clearing
-
-        Only works for the bot owner in DMs.
-        """
-        if not await self._check_owner_dm(ctx):
-            return
-
-        if not confirm or confirm.lower() != "confirm":
-            await ctx.send(
-                "⚠️ This will clear ALL advertisement cooldowns for both users and guilds.\n" "To confirm, use: `owner_clear_all_timeouts confirm`"
-            )
-            return
-
-        try:
-            # Store counts for reporting
-            user_count = len(self.cooldowns["users"])
-            guild_count = len(self.cooldowns["guilds"])
-
-            # Clear both cooldown dictionaries
-            self.cooldowns = {"users": {}, "guilds": {}}
-            await self._save_cooldowns()
-
-            await ctx.send(f"Successfully cleared all timeouts:\n" f"• Users cleared: {user_count}\n" f"• Guilds cleared: {guild_count}")
-
-        except Exception as e:
-            self.logger.error(f"Error in owner_clear_all_timeouts: {e}", exc_info=True)
-            await ctx.send(f"Error processing command: {str(e)}")
-
-    async def _check_owner_dm(self, ctx: commands.Context) -> bool:
-        """Check if the command is being used by the bot owner in DMs.
-
-        Args:
-            ctx: The command context
-
-        Returns:
-            bool: True if the user is the bot owner and in DMs, False otherwise
-        """
-        # Check if command is in DMs
-        if not isinstance(ctx.channel, discord.DMChannel):
-            self.logger.warning(f"Non-DM attempt to use owner command from {ctx.author.id}")
-            return False
-
-        # Check if user is bot owner
-        if ctx.author.id != self.bot.owner_id:
-            self.logger.warning(f"Non-owner {ctx.author.id} attempted to use owner command")
-            await ctx.send("This command is only available to the bot owner.")
-            return False
-
-        return True
-
     # ====================
     # Task Loops
     # ====================
@@ -1382,7 +1868,7 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
             current_time = datetime.datetime.now()
             to_remove = []  # Track entries to remove
 
-            for thread_id, deletion_time, author_id, notify in self.pending_deletions:
+            for thread_id, deletion_time, author_id, notify, guild_id in self.pending_deletions:
                 if current_time >= deletion_time:
                     try:
                         # Try to get the thread
@@ -1403,7 +1889,7 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
 
                         # Delete the thread
                         await thread.delete()
-                        self.logger.info(f"Deleted advertisement thread {thread_id}")
+                        self.logger.info(f"Deleted advertisement thread {thread_id} for guild {guild_id}")
                         self._operation_count += 1
 
                     except discord.NotFound:
@@ -1453,74 +1939,59 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
     # Helper Methods
     # ====================
 
-    async def _cleanup_cooldowns(self) -> None:
-        """Remove expired cooldowns from the cooldowns dictionary."""
+    async def _load_all_guild_data(self) -> None:
+        """Load data for all configured guilds."""
         try:
-            current_time = datetime.datetime.now()
-            sections = ["users", "guilds"]
-            expired_count = 0
+            # Get all guilds the bot is in
+            for guild in self.bot.guilds:
+                guild_id = guild.id
 
-            for section in sections:
-                expired_items = []
+                # Only load data for guilds where this cog is enabled
+                if not self.bot.cog_manager.can_guild_use_cog(self.qualified_name, guild_id):
+                    continue
 
-                for item_id, timestamp in list(self.cooldowns[section].items()):
-                    timestamp_dt = datetime.datetime.fromisoformat(timestamp)
-                    elapsed = current_time - timestamp_dt
-                    if elapsed.total_seconds() > self.cooldown_hours * 3600:
-                        expired_items.append(item_id)
+                self._ensure_guild_initialized(guild_id)
 
-                for item_id in expired_items:
-                    del self.cooldowns[section][item_id]
-                    expired_count += 1
+                # Load cooldowns for this guild
+                cooldowns_file = self.data_directory / self._get_cooldown_filename(guild_id)
+                guild_cooldowns = await self.load_data(cooldowns_file, default={"users": {}, "guilds": {}})
+                self.cooldowns[guild_id] = guild_cooldowns
 
-            if expired_count > 0:
-                await self._save_cooldowns()
-                self.logger.info(f"Weekly cleanup: Removed {expired_count} expired cooldowns")
-                self._last_operation_time = datetime.datetime.now()
+                self.logger.info(f"Loaded cooldowns for guild {guild_id}: {len(guild_cooldowns.get('users', {}))} users, {len(guild_cooldowns.get('guilds', {}))} guilds")
+
+            # Load all pending deletions (global, but we'll track guild_id in the tuple)
+            deletions_file = self.data_directory / "advertisement_pending_deletions_all.pkl"
+            self.pending_deletions = await self._load_pending_deletions_multi_guild(deletions_file)
+
+            self.logger.info(f"Loaded {len(self.pending_deletions)} total pending deletions across all guilds")
+
         except Exception as e:
-            self.logger.error(f"Error during cooldown cleanup: {e}")
-            self._has_errors = True
+            self.logger.error(f"Error loading guild data: {e}", exc_info=True)
 
-    async def _load_cooldowns(self) -> Dict[str, Dict[str, str]]:
-        """Load cooldowns using BaseCog data management."""
+    async def _load_pending_deletions_multi_guild(self, file_path: Path) -> List[Tuple[int, datetime.datetime, int, bool, int]]:
+        """Load pending deletions with multi-guild support.
+
+        Returns:
+            List of tuples: (thread_id, deletion_time, author_id, notify, guild_id)
+        """
         try:
-            cooldowns_file = self.data_directory / self.cooldown_filename
-            data = await self.load_data(cooldowns_file, default={"users": {}, "guilds": {}})
-            return data
-        except Exception as e:
-            self.logger.error(f"Error loading cooldowns: {e}")
-            return {"users": {}, "guilds": {}}
-
-    async def _save_cooldowns(self) -> None:
-        """Save cooldowns using BaseCog data management."""
-        try:
-            cooldowns_file = self.data_directory / self.cooldown_filename
-            await self.save_data_if_modified(self.cooldowns, cooldowns_file)
-            self.mark_data_modified()
-        except Exception as e:
-            self.logger.error(f"Error saving cooldowns: {e}")
-
-    async def _load_pending_deletions(self) -> List[Tuple[int, datetime.datetime, int, bool]]:
-        """Load pending deletions using BaseCog data management."""
-        try:
-            deletions_file = self.data_directory / self.pending_deletions_filename
-            data = await self.load_data(deletions_file, default=[])
-
-            # Convert timestamps to datetime if needed
+            data = await self.load_data(file_path, default=[])
             converted_data = []
+
             for entry in data:
-                if len(entry) == 4:  # Current format (thread_id, time, author_id, notify)
+                if len(entry) == 5:  # New format with guild_id
+                    thread_id, del_time, author_id, notify, guild_id = entry
+                    if isinstance(del_time, str):
+                        del_time = datetime.datetime.fromisoformat(del_time)
+                    converted_data.append((int(thread_id), del_time, int(author_id), bool(notify), int(guild_id)))
+                elif len(entry) == 4:  # Old format without guild_id (thread_id, time, author_id, notify)
                     thread_id, del_time, author_id, notify = entry
                     if isinstance(del_time, str):
                         del_time = datetime.datetime.fromisoformat(del_time)
-                    converted_data.append((int(thread_id), del_time, int(author_id), bool(notify)))
-                elif len(entry) == 2:  # Old format (thread_id, time)
-                    thread_id, del_time = entry
-                    if isinstance(del_time, str):
-                        del_time = datetime.datetime.fromisoformat(del_time)
-                    # Add default values for author_id (None) and notify (False)
-                    converted_data.append((int(thread_id), del_time, 0, False))
-                    self.logger.info(f"Migrated old deletion entry format for thread {thread_id}")
+                    # Try to determine guild_id from thread
+                    guild_id = await self._get_thread_guild_id(thread_id)
+                    converted_data.append((int(thread_id), del_time, int(author_id), bool(notify), guild_id))
+                    self.logger.info(f"Migrated deletion entry for thread {thread_id} to include guild_id {guild_id}")
                 else:
                     self.logger.warning(f"Invalid deletion entry format: {entry}")
                     continue
@@ -1530,21 +2001,111 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
             self.logger.error(f"Error loading pending deletions: {e}")
             return []
 
-    async def _save_pending_deletions(self) -> None:
-        """Save pending deletions using BaseCog data management."""
+    async def _get_thread_guild_id(self, thread_id: int) -> int:
+        """Try to determine guild_id from a thread."""
         try:
-            deletions_file = self.data_directory / self.pending_deletions_filename
+            thread = await self.bot.fetch_channel(thread_id)
+            if thread and hasattr(thread, 'guild'):
+                return thread.guild.id
+        except Exception:
+            pass
+        # Default to first guild if we can't determine
+        if self.bot.guilds:
+            return self.bot.guilds[0].id
+        return 0
+
+    async def _save_all_guild_cooldowns(self) -> None:
+        """Save cooldowns for all guilds."""
+        try:
+            for guild_id, cooldowns in self.cooldowns.items():
+                cooldowns_file = self.data_directory / self._get_cooldown_filename(guild_id)
+                await self.save_data_if_modified(cooldowns, cooldowns_file)
+            self.mark_data_modified()
+        except Exception as e:
+            self.logger.error(f"Error saving all guild cooldowns: {e}")
+
+    async def _save_pending_deletions_multi_guild(self) -> None:
+        """Save pending deletions with multi-guild support."""
+        try:
+            deletions_file = self.data_directory / "advertisement_pending_deletions_all.pkl"
 
             # Convert datetime objects to ISO strings for serialization
             serializable_data = [
-                (thread_id, deletion_time.isoformat() if isinstance(deletion_time, datetime.datetime) else deletion_time, author_id, notify)
-                for thread_id, deletion_time, author_id, notify in self.pending_deletions
+                (thread_id, deletion_time.isoformat() if isinstance(deletion_time, datetime.datetime) else deletion_time,
+                 author_id, notify, guild_id)
+                for thread_id, deletion_time, author_id, notify, guild_id in self.pending_deletions
             ]
 
             await self.save_data_if_modified(serializable_data, deletions_file)
             self.mark_data_modified()
         except Exception as e:
             self.logger.error(f"Error saving pending deletions: {e}")
+
+    async def _cleanup_cooldowns(self) -> None:
+        """Remove expired cooldowns from the cooldowns dictionary."""
+        try:
+            current_time = datetime.datetime.now()
+            total_expired = 0
+
+            # Iterate through all guilds
+            for guild_id in list(self.cooldowns.keys()):
+                cooldown_hours = await self._get_cooldown_hours(guild_id)
+                sections = ["users", "guilds"]
+                guild_expired = 0
+
+                for section in sections:
+                    expired_items = []
+                    guild_cooldowns = self.cooldowns[guild_id].get(section, {})
+
+                    for item_id, timestamp in list(guild_cooldowns.items()):
+                        timestamp_dt = datetime.datetime.fromisoformat(timestamp)
+                        elapsed = current_time - timestamp_dt
+                        if elapsed.total_seconds() > cooldown_hours * 3600:
+                            expired_items.append(item_id)
+
+                    for item_id in expired_items:
+                        del self.cooldowns[guild_id][section][item_id]
+                        guild_expired += 1
+
+                if guild_expired > 0:
+                    self.logger.info(f"Weekly cleanup: Removed {guild_expired} expired cooldowns for guild {guild_id}")
+                    total_expired += guild_expired
+
+            if total_expired > 0:
+                await self._save_all_guild_cooldowns()
+                self.logger.info(f"Weekly cleanup: Removed {total_expired} total expired cooldowns across all guilds")
+                self._last_operation_time = datetime.datetime.now()
+        except Exception as e:
+            self.logger.error(f"Error during cooldown cleanup: {e}")
+            self._has_errors = True
+
+    async def _load_cooldowns(self) -> Dict[str, Dict[str, str]]:
+        """Deprecated: Load cooldowns for single guild. Use _load_all_guild_data instead."""
+        self.logger.warning("_load_cooldowns is deprecated, use _load_all_guild_data instead")
+        return {"users": {}, "guilds": {}}
+
+    async def _save_cooldowns(self, guild_id: int = None) -> None:
+        """Save cooldowns - updated for multi-guild support."""
+        if guild_id:
+            # Save for specific guild
+            try:
+                cooldowns_file = self.data_directory / self._get_cooldown_filename(guild_id)
+                await self.save_data_if_modified(self.cooldowns.get(guild_id, {"users": {}, "guilds": {}}), cooldowns_file)
+                self.mark_data_modified()
+            except Exception as e:
+                self.logger.error(f"Error saving cooldowns for guild {guild_id}: {e}")
+        else:
+            # Save for all guilds
+            await self._save_all_guild_cooldowns()
+
+    async def _load_pending_deletions(self) -> List[Tuple[int, datetime.datetime, int, bool]]:
+        """Deprecated: Use _load_pending_deletions_multi_guild instead."""
+        self.logger.warning("_load_pending_deletions is deprecated, use _load_pending_deletions_multi_guild instead")
+        return []
+
+    async def _save_pending_deletions(self) -> None:
+        """Save pending deletions - updated for multi-guild support."""
+        await self._save_pending_deletions_multi_guild()
 
     async def _resume_deletion_tasks(self) -> None:
         """Check for threads that were scheduled for deletion before restart."""
@@ -1619,41 +2180,95 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
             return ""
         return str(guild_id).upper().strip()
 
-    async def _send_debug_message(self, message: str) -> None:
-        """Send debug message to testing channel if configured."""
-        if self.testing_channel_id:
+    async def _send_debug_message(self, message: str, guild_id: Optional[int] = None) -> None:
+        """Send debug message to testing channel if configured and debug is enabled.
+
+        Args:
+            message: The debug message to send
+            guild_id: Optional guild ID to send to that guild's testing channel
+        """
+        # Check if debug is enabled for this guild
+        if guild_id:
+            debug_enabled = self.get_setting('debug_enabled', default=False, guild_id=guild_id)
+            testing_channel_id = self._get_testing_channel_id(guild_id)
+        else:
+            # Try to get from first configured guild as fallback
+            debug_enabled = False
+            testing_channel_id = None
+            for gid in self.cooldowns.keys():
+                debug_enabled = self.get_setting('debug_enabled', default=False, guild_id=gid)
+                testing_channel_id = self._get_testing_channel_id(gid)
+                if testing_channel_id and debug_enabled:
+                    break
+
+        # Only send to Discord if debug is enabled
+        if debug_enabled and testing_channel_id:
             try:
-                channel = self.bot.get_channel(self.testing_channel_id)
+                channel = self.bot.get_channel(testing_channel_id)
                 if channel:
                     # Add UTC timestamp to debug message
                     utc_timestamp = datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
                     await channel.send(f"🔧 **[{utc_timestamp}] Advertise Debug**: {message}")
             except Exception as e:
                 self.logger.error(f"Failed to send debug message to testing channel: {e}")
-        # Always log to console as backup
-        self.logger.info(message)
 
     async def check_cooldowns(
-        self, interaction: discord.Interaction, user_id: int, guild_id: Optional[str] = None, ad_type: Optional[str] = None
+        self, interaction: discord.Interaction, user_id: int, ad_guild_id: Optional[str] = None, ad_type: Optional[str] = None
     ) -> bool:
         """Check if user or guild is on cooldown and handle the response.
 
         Args:
             interaction: The discord interaction
             user_id: Discord user ID
-            guild_id: Guild ID (optional) - will be normalized for consistent checking
+            ad_guild_id: In-game Guild ID for guild advertisements (optional) - will be normalized for consistent checking
             ad_type: Type of advertisement (guild or member)
 
         Returns:
             bool: True if not on cooldown, False if on cooldown
         """
-        # Normalize guild_id if provided
-        if guild_id:
-            guild_id = self._normalize_guild_id(guild_id)
+        # Get the Discord guild ID (server ID)
+        discord_guild_id = interaction.guild.id if interaction.guild else None
+        if not discord_guild_id:
+            return False
+
+        # Check if user or guild is banned
+        if ad_type == AdvertisementType.GUILD and ad_guild_id:
+            # Normalize the guild ID
+            normalized_guild_id = self._normalize_guild_id(ad_guild_id)
+            banned_guilds = self.get_setting("banned_guilds", default=[], guild_id=discord_guild_id)
+            if isinstance(banned_guilds, list) and normalized_guild_id in banned_guilds:
+                await interaction.response.send_message(
+                    "❌ This guild has been banned from posting advertisements in this server.",
+                    ephemeral=True
+                )
+                return False
+
+        if ad_type == AdvertisementType.MEMBER:
+            banned_users = self.get_setting("banned_users", default=[], guild_id=discord_guild_id)
+            if isinstance(banned_users, list) and user_id in banned_users:
+                await interaction.response.send_message(
+                    "❌ You have been banned from posting member advertisements in this server.",
+                    ephemeral=True
+                )
+                return False
+
+        # Ensure guild is initialized
+        self._ensure_guild_initialized(discord_guild_id)
+
+        # Get cooldown settings for this guild
+        cooldown_hours = self._get_cooldown_hours(discord_guild_id)
+        mod_channel_id = self._get_mod_channel_id(discord_guild_id)
+
+        # Get guild-specific cooldowns
+        guild_cooldowns = self.cooldowns.get(discord_guild_id, {"users": {}, "guilds": {}})
+
+        # Normalize ad_guild_id if provided (for in-game guild ads)
+        if ad_guild_id:
+            ad_guild_id = self._normalize_guild_id(ad_guild_id)
 
         # Check user cooldown
-        if str(user_id) in self.cooldowns["users"]:
-            timestamp = self.cooldowns["users"][str(user_id)]
+        if str(user_id) in guild_cooldowns["users"]:
+            timestamp = guild_cooldowns["users"][str(user_id)]
             # Parse the stored timestamp
             stored_time = datetime.datetime.fromisoformat(timestamp)
             # Convert to UTC if needed and make timezone-aware for consistent comparison
@@ -1663,30 +2278,31 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
             current_time = datetime.datetime.now(datetime.timezone.utc)
             elapsed = (current_time - stored_time).total_seconds()
 
-            if elapsed < self.cooldown_hours * 3600:
-                hours_left = self.cooldown_hours - (elapsed / 3600)
+            if elapsed < cooldown_hours * 3600:
+                hours_left = cooldown_hours - (elapsed / 3600)
 
                 # Send notification to mod channel about bypass attempt
-                mod_channel = self.bot.get_channel(self.mod_channel_id)
-                if mod_channel:
-                    await mod_channel.send(
-                        f"⚠️ **Advertisement Cooldown Bypass Attempt**\n"
-                        f"User: {interaction.user.name} (ID: {interaction.user.id})\n"
-                        f"Type: User cooldown ({ad_type})\n"
-                        f"Time remaining: {hours_left:.1f} hours"
-                    )
+                if mod_channel_id:
+                    mod_channel = self.bot.get_channel(mod_channel_id)
+                    if mod_channel:
+                        await mod_channel.send(
+                            f"⚠️ **Advertisement Cooldown Bypass Attempt**\n"
+                            f"User: {interaction.user.name} (ID: {interaction.user.id})\n"
+                            f"Type: User cooldown ({ad_type})\n"
+                            f"Time remaining: {hours_left:.1f} hours"
+                        )
 
                 await interaction.response.send_message(
-                    f"You can only post one advertisement every {self.cooldown_hours} hours. "
+                    f"You can only post one advertisement every {cooldown_hours} hours. "
                     f"Please try again in {hours_left:.1f} hours.\n"
                     f"If you attempt to bypass this limit, you will be banned from advertising.",
                     ephemeral=True,
                 )
                 return False
 
-        # Check guild cooldown if applicable
-        if guild_id and guild_id in self.cooldowns["guilds"]:
-            timestamp = self.cooldowns["guilds"][guild_id]
+        # Check in-game guild cooldown if applicable
+        if ad_guild_id and ad_guild_id in guild_cooldowns["guilds"]:
+            timestamp = guild_cooldowns["guilds"][ad_guild_id]
             # Parse the stored timestamp
             stored_time = datetime.datetime.fromisoformat(timestamp)
             # Convert to UTC if needed and make timezone-aware for consistent comparison
@@ -1696,21 +2312,22 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
             current_time = datetime.datetime.now(datetime.timezone.utc)
             elapsed = (current_time - stored_time).total_seconds()
 
-            if elapsed < self.cooldown_hours * 3600:
-                hours_left = self.cooldown_hours - (elapsed / 3600)
+            if elapsed < cooldown_hours * 3600:
+                hours_left = cooldown_hours - (elapsed / 3600)
 
                 # Send notification to mod channel about guild cooldown bypass attempt
-                mod_channel = self.bot.get_channel(self.mod_channel_id)
-                if mod_channel:
-                    await mod_channel.send(
-                        f"⚠️ **Guild Advertisement Cooldown Bypass Attempt**\n"
-                        f"User: {interaction.user.name} (ID: {interaction.user.id})\n"
-                        f"Guild ID: {guild_id}\n"
-                        f"Time remaining: {hours_left:.1f} hours"
-                    )
+                if mod_channel_id:
+                    mod_channel = self.bot.get_channel(mod_channel_id)
+                    if mod_channel:
+                        await mod_channel.send(
+                            f"⚠️ **Guild Advertisement Cooldown Bypass Attempt**\n"
+                            f"User: {interaction.user.name} (ID: {interaction.user.id})\n"
+                            f"Guild ID: {ad_guild_id}\n"
+                            f"Time remaining: {hours_left:.1f} hours"
+                        )
 
                 await interaction.response.send_message(
-                    f"This guild was already advertised in the past {self.cooldown_hours} hours. "
+                    f"This guild was already advertised in the past {cooldown_hours} hours. "
                     f"Please try again in {hours_left:.1f} hours.\n"
                     f"If you attempt to bypass this limit, your guild will be banned from advertising.",
                     ephemeral=True,
@@ -1720,7 +2337,7 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
         return True
 
     async def post_advertisement(
-        self, interaction: discord.Interaction, embed: discord.Embed, thread_title: str, ad_type: str, guild_id: Optional[str], notify: bool
+        self, interaction: discord.Interaction, embed: discord.Embed, thread_title: str, ad_type: str, ad_guild_id: Optional[str], notify: bool
     ) -> None:
         """Post the advertisement as a thread in the forum channel.
 
@@ -1729,46 +2346,60 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
             embed: Embed to post
             thread_title: Title for the forum thread
             ad_type: Type of advertisement (guild or member)
-            guild_id: Guild ID (optional, for guild advertisements)
+            ad_guild_id: In-game Guild ID (optional, for guild advertisements)
             notify: Whether to notify the user when the ad expires
         """
-        import time
-
         start_time = time.time()
+
+        # Get Discord guild ID
+        discord_guild_id = interaction.guild.id if interaction.guild else None
+        if not discord_guild_id:
+            await interaction.followup.send("❌ This command must be used in a server.", ephemeral=True)
+            return
+
         await self._send_debug_message(f"Starting post_advertisement for user {interaction.user.id} ({interaction.user.name}), type: {ad_type}")
 
         try:
+            # Ensure guild is initialized
+            self._ensure_guild_initialized(discord_guild_id)
+
+            # Get guild-specific settings
+            advertise_channel_id = self._get_advertise_channel_id(discord_guild_id)
+            guild_tag_id = self._get_guild_tag_id(discord_guild_id)
+            member_tag_id = self._get_member_tag_id(discord_guild_id)
+            cooldown_hours = self._get_cooldown_hours(discord_guild_id)
+
             # Get the forum channel first (quick check)
             channel_fetch_start = time.time()
-            channel = self.bot.get_channel(self.advertise_channel_id)
+            channel = self.bot.get_channel(advertise_channel_id)
             channel_fetch_time = time.time() - channel_fetch_start
             await self._send_debug_message(f"Channel fetch took {channel_fetch_time:.2f}s for user {interaction.user.id}")
 
             if not channel:
-                await self._send_debug_message(f"❌ Advertisement channel not found: {self.advertise_channel_id}")
-                await interaction.followup.send("There was an error posting your advertisement. Please contact @thedisasterfish.", ephemeral=True)
+                await self._send_debug_message(f"❌ Advertisement channel not found: {advertise_channel_id}")
+                await interaction.followup.send("There was an error posting your advertisement. Please contact a server administrator.", ephemeral=True)
                 return
 
             # Now do the heavy work (initial response already sent by form)
             async with self.task_tracker.task_context("Posting Advertisement"):
                 # Determine which tag to apply based on advertisement type
                 applied_tags = []
-                if ad_type == AdvertisementType.GUILD and self.guild_tag_id:
+                if ad_type == AdvertisementType.GUILD and guild_tag_id:
                     try:
                         # Find the tag object by ID
                         for tag in channel.available_tags:
-                            if tag.id == self.guild_tag_id:
+                            if tag.id == guild_tag_id:
                                 applied_tags.append(tag)
                                 break
                     except Exception as e:
                         self.logger.error(f"Error finding guild tag: {e}")
                         self._has_errors = True
 
-                elif ad_type == AdvertisementType.MEMBER and self.member_tag_id:
+                elif ad_type == AdvertisementType.MEMBER and member_tag_id:
                     try:
                         # Find the tag object by ID
                         for tag in channel.available_tags:
-                            if tag.id == self.member_tag_id:
+                            if tag.id == member_tag_id:
                                 applied_tags.append(tag)
                                 break
                     except Exception as e:
@@ -1794,23 +2425,27 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
                 self._operation_count += 1
                 self._last_operation_time = datetime.datetime.now()
 
-                # Update cooldowns
+                # Update cooldowns for this guild
                 cooldown_start = time.time()
                 current_time = datetime.datetime.now(datetime.timezone.utc).isoformat()
-                self.cooldowns["users"][str(interaction.user.id)] = current_time
 
-                # If it's a guild advertisement, also add guild cooldown
-                if guild_id:
-                    self.cooldowns["guilds"][guild_id] = current_time
+                # Get guild-specific cooldowns
+                guild_cooldowns = self.cooldowns.get(discord_guild_id, {"users": {}, "guilds": {}})
+                guild_cooldowns["users"][str(interaction.user.id)] = current_time
 
-                await self._save_cooldowns()
+                # If it's a guild advertisement, also add in-game guild cooldown
+                if ad_guild_id:
+                    guild_cooldowns["guilds"][ad_guild_id] = current_time
+
+                self.cooldowns[discord_guild_id] = guild_cooldowns
+                await self._save_cooldowns(discord_guild_id)
                 cooldown_time = time.time() - cooldown_start
                 await self._send_debug_message(f"Cooldown update took {cooldown_time:.2f}s for user {interaction.user.id}")
 
-                # Schedule thread for deletion with author ID and notification preference
+                # Schedule thread for deletion with author ID, notification preference, and guild ID
                 schedule_start = time.time()
-                deletion_time = datetime.datetime.now() + datetime.timedelta(hours=self.cooldown_hours)
-                self.pending_deletions.append((thread.id, deletion_time, interaction.user.id, notify))
+                deletion_time = datetime.datetime.now() + datetime.timedelta(hours=cooldown_hours)
+                self.pending_deletions.append((thread.id, deletion_time, interaction.user.id, notify, discord_guild_id))
                 await self._save_pending_deletions()
                 schedule_time = time.time() - schedule_start
                 await self._send_debug_message(f"Deletion scheduling took {schedule_time:.2f}s for user {interaction.user.id}")
@@ -1828,7 +2463,7 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
 
             # Try to send error message - use followup since initial response was already sent in form
             try:
-                await interaction.followup.send("There was an error posting your advertisement. Please contact @thedisasterfish.", ephemeral=True)
+                await interaction.followup.send("There was an error posting your advertisement. Please contact a server administrator.", ephemeral=True)
             except Exception as response_error:
                 await self._send_debug_message(f"❌ Failed to send error response to user {interaction.user.id}: {str(response_error)}")
 
@@ -1841,21 +2476,6 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
 async def setup(bot: commands.Bot) -> None:
     await bot.add_cog(UnifiedAdvertise(bot))
 
-    # Sync the slash commands
-    try:
-        cog = bot.get_cog("Unified Advertise")
-        bot.logger.debug("Waiting for UnifiedAdvertise cog to be ready")
-        await cog.wait_until_ready()
-        bot.logger.debug("UnifiedAdvertise Cog is ready")
-        if cog.guild_id:
-            guild = discord.Object(id=cog.guild_id)
-            bot.tree.copy_global_to(guild=guild)
-            await bot.tree.sync(guild=guild)
-            bot.logger.info(f"Synced commands to guild {cog.guild_id}")
-        else:
-            bot.logger.warning("Guild ID not configured, using global sync")
-            await bot.tree.sync()
-    except Exception as e:
-        if cog:
-            bot.logger.error(f"Error syncing app commands: {e}")
-        print(f"Error syncing app commands: {e}")
+    # Note: Slash command syncing is now handled automatically by CogManager
+    # when cogs are enabled/disabled for guilds
+    bot.logger.info("UnifiedAdvertise cog loaded - slash commands will sync per-guild via CogManager")

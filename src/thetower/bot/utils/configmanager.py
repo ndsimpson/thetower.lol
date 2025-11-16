@@ -29,7 +29,6 @@ class ConfigManager:
                 sys.exit(1)
 
             self.config: Dict[str, Any] = {}
-            self._observer = None
             self.initialized = True
             self.load_config()
 
@@ -44,19 +43,16 @@ class ConfigManager:
             raise
 
     def save_config(self) -> None:
-        """Save configuration to JSON file with alphabetically sorted cogs."""
+        """Save configuration to JSON file with alphabetically sorted guilds and cogs."""
         try:
-            # Sort enabled_cogs and disabled_cogs lists if they exist
-            if "enabled_cogs" in self.config:
-                self.config["enabled_cogs"] = sorted(self.config["enabled_cogs"])
-
-            if "disabled_cogs" in self.config:
-                self.config["disabled_cogs"] = sorted(self.config["disabled_cogs"])
-
-            # Sort cog settings alphabetically if they exist
-            if "cogs" in self.config:
-                for guild_id, guild_cogs in self.config["cogs"].items():
-                    self.config["cogs"][guild_id] = self._sort_dict_keys(guild_cogs)
+            # Sort guilds section alphabetically
+            if "guilds" in self.config:
+                for guild_id, guild_data in self.config["guilds"].items():
+                    # Sort enabled_cogs list if it exists
+                    if "enabled_cogs" in guild_data and isinstance(guild_data["enabled_cogs"], list):
+                        guild_data["enabled_cogs"] = sorted(guild_data["enabled_cogs"])
+                    # Sort all cog settings within this guild
+                    self.config["guilds"][guild_id] = self._sort_dict_keys(guild_data)
 
             with open(self.config_path, "w") as f:
                 json.dump(self.config, f, indent=4)
@@ -230,15 +226,16 @@ class ConfigManager:
             cog_name: The name of the cog
             setting_name: The name of the setting
             default: Default value if setting doesn't exist
-            guild_id: The guild ID (uses current guild if None)
+            guild_id: The guild ID (required for multi-guild support)
 
         Returns:
             The setting value or default
         """
         if guild_id is None:
-            guild_id = self.get_guild_id()
+            raise ValueError("guild_id is required for multi-guild support. Pass ctx.guild.id or interaction.guild_id")
 
-        cog_settings = self.config.setdefault("cogs", {}).setdefault(str(guild_id), {}).setdefault(cog_name, {})
+        # Don't create empty structures when reading - only get what exists
+        cog_settings = self.config.get("guilds", {}).get(str(guild_id), {}).get(cog_name, {})
         return cog_settings.get(setting_name, default)
 
     def set_cog_setting(self, cog_name: str, setting_name: str, value: Any, guild_id: int = None) -> None:
@@ -248,16 +245,16 @@ class ConfigManager:
             cog_name: The name of the cog
             setting_name: The name of the setting
             value: The value to set
-            guild_id: The guild ID (uses current guild if None)
+            guild_id: The guild ID (required for multi-guild support)
         """
         if guild_id is None:
-            guild_id = self.get_guild_id()
+            raise ValueError("guild_id is required for multi-guild support. Pass ctx.guild.id or interaction.guild_id")
 
-        cog_settings = self.config.setdefault("cogs", {}).setdefault(str(guild_id), {}).setdefault(cog_name, {})
+        cog_settings = self.config.setdefault("guilds", {}).setdefault(str(guild_id), {}).setdefault(cog_name, {})
         cog_settings[setting_name] = value
 
-        # Sort the cog settings for this guild
-        self.config["cogs"][str(guild_id)] = self._sort_dict_keys(self.config["cogs"][str(guild_id)])
+        # Sort the settings for this guild
+        self.config["guilds"][str(guild_id)] = self._sort_dict_keys(self.config["guilds"][str(guild_id)])
 
         self.save_config()
         logger.info(f"Set {cog_name} setting '{setting_name}' for guild {guild_id}")
@@ -268,16 +265,16 @@ class ConfigManager:
         Args:
             cog_name: The name of the cog
             settings: Dictionary of setting names and values
-            guild_id: The guild ID (uses current guild if None)
+            guild_id: The guild ID (required for multi-guild support)
         """
         if guild_id is None:
-            guild_id = self.get_guild_id()
+            raise ValueError("guild_id is required for multi-guild support. Pass ctx.guild.id or interaction.guild_id")
 
-        cog_settings = self.config.setdefault("cogs", {}).setdefault(str(guild_id), {}).setdefault(cog_name, {})
+        cog_settings = self.config.setdefault("guilds", {}).setdefault(str(guild_id), {}).setdefault(cog_name, {})
         cog_settings.update(settings)
 
-        # Sort the cog settings for this guild
-        self.config["cogs"][str(guild_id)] = self._sort_dict_keys(self.config["cogs"][str(guild_id)])
+        # Sort the settings for this guild
+        self.config["guilds"][str(guild_id)] = self._sort_dict_keys(self.config["guilds"][str(guild_id)])
 
         self.save_config()
         logger.info(f"Updated multiple settings for {cog_name} in guild {guild_id}")
@@ -288,16 +285,16 @@ class ConfigManager:
         Args:
             cog_name: The name of the cog
             setting_name: The name of the setting
-            guild_id: The guild ID (uses current guild if None)
+            guild_id: The guild ID (required for multi-guild support)
 
         Returns:
             True if setting was removed, False if it didn't exist
         """
         if guild_id is None:
-            guild_id = self.get_guild_id()
+            raise ValueError("guild_id is required for multi-guild support. Pass ctx.guild.id or interaction.guild_id")
 
         try:
-            cog_settings = self.config["cogs"][str(guild_id)][cog_name]
+            cog_settings = self.config["guilds"][str(guild_id)][cog_name]
             if setting_name in cog_settings:
                 del cog_settings[setting_name]
                 self.save_config()
@@ -313,16 +310,16 @@ class ConfigManager:
         Args:
             cog_name: The name of the cog
             setting_name: The name of the setting
-            guild_id: The guild ID (uses current guild if None)
+            guild_id: The guild ID (required for multi-guild support)
 
         Returns:
             True if the setting exists, False otherwise
         """
         if guild_id is None:
-            guild_id = self.get_guild_id()
+            raise ValueError("guild_id is required for multi-guild support. Pass ctx.guild.id or interaction.guild_id")
 
         try:
-            return setting_name in self.config["cogs"][str(guild_id)][cog_name]
+            return setting_name in self.config["guilds"][str(guild_id)][cog_name]
         except KeyError:
             return False
 
@@ -331,12 +328,291 @@ class ConfigManager:
 
         Args:
             cog_name: The name of the cog
-            guild_id: The guild ID (uses current guild if None)
+            guild_id: The guild ID (required for multi-guild support)
 
         Returns:
             Dictionary of all cog settings
         """
         if guild_id is None:
-            guild_id = self.get_guild_id()
+            raise ValueError("guild_id is required for multi-guild support. Pass ctx.guild.id or interaction.guild_id")
 
-        return self.config.setdefault("cogs", {}).setdefault(str(guild_id), {}).setdefault(cog_name, {}).copy()
+        # Don't create empty structures when reading - only get what exists
+        return self.config.get("guilds", {}).get(str(guild_id), {}).get(cog_name, {}).copy()
+
+    # Guild Metadata Methods
+
+    def get_guild_enabled_cogs(self, guild_id: int) -> list:
+        """Get the list of enabled cogs for a guild.
+
+        Args:
+            guild_id: The guild ID
+
+        Returns:
+            List of enabled cog names
+        """
+        if guild_id is None:
+            raise ValueError("guild_id is required")
+
+        # Don't create empty structures when reading - only get what exists
+        return self.config.get("guilds", {}).get(str(guild_id), {}).get("enabled_cogs", [])
+
+    def set_guild_enabled_cogs(self, guild_id: int, enabled_cogs: list) -> None:
+        """Set the list of enabled cogs for a guild.
+
+        Args:
+            guild_id: The guild ID
+            enabled_cogs: List of cog names to enable
+        """
+        if guild_id is None:
+            raise ValueError("guild_id is required")
+
+        guild_config = self.config.setdefault("guilds", {}).setdefault(str(guild_id), {})
+        guild_config["enabled_cogs"] = sorted(enabled_cogs)
+
+        self.save_config()
+        logger.info(f"Set enabled_cogs for guild {guild_id}: {enabled_cogs}")
+
+    def get_guild_prefix(self, guild_id: int) -> str | list[str] | None:
+        """Get the command prefix(es) for a guild.
+
+        Args:
+            guild_id: The guild ID
+
+        Returns:
+            The guild's prefix (string), list of prefixes, or None if using default
+        """
+        if guild_id is None:
+            raise ValueError("guild_id is required")
+
+        # Don't create empty structures when reading
+        return self.config.get("guilds", {}).get(str(guild_id), {}).get("prefix")
+
+    def set_guild_prefix(self, guild_id: int, prefix: str | list[str]) -> None:
+        """Set the command prefix(es) for a guild.
+
+        Args:
+            guild_id: The guild ID
+            prefix: The new prefix (string) or list of prefixes
+        """
+        if guild_id is None:
+            raise ValueError("guild_id is required")
+
+        guild_config = self.config.setdefault("guilds", {}).setdefault(str(guild_id), {})
+        guild_config["prefix"] = prefix
+
+        self.save_config()
+        logger.info(f"Set prefix for guild {guild_id}: {prefix}")
+
+    def add_guild_enabled_cog(self, guild_id: int, cog_name: str) -> bool:
+        """Add a cog to the guild's enabled list.
+
+        Args:
+            guild_id: The guild ID
+            cog_name: The cog name to enable
+
+        Returns:
+            True if added, False if already enabled
+        """
+        enabled_cogs = self.get_guild_enabled_cogs(guild_id)
+
+        if cog_name not in enabled_cogs:
+            enabled_cogs.append(cog_name)
+            self.set_guild_enabled_cogs(guild_id, enabled_cogs)
+            return True
+        return False
+
+    def remove_guild_enabled_cog(self, guild_id: int, cog_name: str) -> bool:
+        """Remove a cog from the guild's enabled list.
+
+        Args:
+            guild_id: The guild ID
+            cog_name: The cog name to disable
+
+        Returns:
+            True if removed, False if was not enabled
+        """
+        enabled_cogs = self.get_guild_enabled_cogs(guild_id)
+
+        if cog_name in enabled_cogs:
+            enabled_cogs.remove(cog_name)
+            self.set_guild_enabled_cogs(guild_id, enabled_cogs)
+            return True
+        return False
+
+    # Bot Owner Settings Methods
+
+    def get_bot_owner_cog_config(self, cog_name: str) -> Dict[str, Any]:
+        """Get bot owner configuration for a specific cog.
+
+        Args:
+            cog_name: The name of the cog
+
+        Returns:
+            Dictionary with 'enabled' and 'public' keys, or empty dict if not found
+        """
+        return self.config.setdefault("bot_owner_settings", {}).setdefault("cogs", {}).get(cog_name, {}).copy()
+
+    def set_bot_owner_cog_enabled(self, cog_name: str, enabled: bool) -> None:
+        """Set whether a cog is enabled globally by the bot owner.
+
+        Args:
+            cog_name: The name of the cog
+            enabled: True to enable, False to disable
+        """
+        cog_config = self.config.setdefault("bot_owner_settings", {}).setdefault("cogs", {}).setdefault(cog_name, {})
+        cog_config["enabled"] = enabled
+        self.save_config()
+        logger.info(f"Bot owner set cog '{cog_name}' enabled={enabled}")
+
+    def set_bot_owner_cog_public(self, cog_name: str, public: bool) -> None:
+        """Set whether a cog is public (available to all guilds).
+
+        Args:
+            cog_name: The name of the cog
+            public: True for public, False for restricted
+        """
+        cog_config = self.config.setdefault("bot_owner_settings", {}).setdefault("cogs", {}).setdefault(cog_name, {})
+        cog_config["public"] = public
+        self.save_config()
+        logger.info(f"Bot owner set cog '{cog_name}' public={public}")
+
+    def get_all_bot_owner_cogs(self) -> Dict[str, Dict[str, Any]]:
+        """Get all bot owner cog configurations.
+
+        Returns:
+            Dictionary mapping cog names to their configurations
+        """
+        return self.config.setdefault("bot_owner_settings", {}).setdefault("cogs", {}).copy()
+
+    def add_guild_cog_authorization(self, guild_id: int, cog_name: str, allow: bool = True) -> None:
+        """Add or remove a cog authorization for a specific guild.
+
+        Args:
+            guild_id: The guild ID
+            cog_name: The name of the cog
+            allow: True to add to allowed list, False to add to disallowed list
+        """
+        guild_auth = self.config.setdefault("bot_owner_settings", {}).setdefault("guild_cog_authorizations", {}).setdefault(str(guild_id), {})
+
+        if allow:
+            # Add to allowed list
+            allowed = guild_auth.setdefault("allowed", [])
+            if cog_name not in allowed:
+                allowed.append(cog_name)
+                allowed.sort()
+        else:
+            # Add to disallowed list
+            disallowed = guild_auth.setdefault("disallowed", [])
+            if cog_name not in disallowed:
+                disallowed.append(cog_name)
+                disallowed.sort()
+
+        self.save_config()
+        list_type = "allowed" if allow else "disallowed"
+        logger.info(f"Bot owner added cog '{cog_name}' to {list_type} list for guild {guild_id}")
+
+    def remove_guild_cog_authorization(self, guild_id: int, cog_name: str, from_allowed: bool = True) -> bool:
+        """Remove a cog authorization from a guild's allowed or disallowed list.
+
+        Args:
+            guild_id: The guild ID
+            cog_name: The name of the cog
+            from_allowed: True to remove from allowed list, False to remove from disallowed list
+
+        Returns:
+            True if removed, False if not found
+        """
+        try:
+            guild_auth = self.config["bot_owner_settings"]["guild_cog_authorizations"][str(guild_id)]
+            list_name = "allowed" if from_allowed else "disallowed"
+
+            if cog_name in guild_auth.get(list_name, []):
+                guild_auth[list_name].remove(cog_name)
+                self.save_config()
+                logger.info(f"Bot owner removed cog '{cog_name}' from {list_name} list for guild {guild_id}")
+                return True
+            return False
+        except KeyError:
+            return False
+
+    def get_guild_cog_authorizations(self, guild_id: int) -> Dict[str, list]:
+        """Get the allowed and disallowed cog lists for a guild.
+
+        Args:
+            guild_id: The guild ID
+
+        Returns:
+            Dictionary with 'allowed' and 'disallowed' lists
+        """
+        guild_auth = self.config.setdefault("bot_owner_settings", {}).setdefault("guild_cog_authorizations", {}).get(str(guild_id), {})
+        return {"allowed": guild_auth.get("allowed", []).copy(), "disallowed": guild_auth.get("disallowed", []).copy()}
+
+    def is_cog_allowed_for_guild(self, cog_name: str, guild_id: int) -> bool:
+        """Check if a cog is allowed for a specific guild (bot owner level check).
+
+        This checks:
+        1. Cog is enabled by bot owner
+        2. Cog is not in guild's disallowed list
+        3. Cog is public OR in guild's allowed list
+
+        Args:
+            cog_name: The name of the cog
+            guild_id: The guild ID
+
+        Returns:
+            True if the cog is allowed for the guild, False otherwise
+        """
+        # Get cog config
+        cog_config = self.get_bot_owner_cog_config(cog_name)
+
+        # Must be enabled by bot owner
+        if not cog_config.get("enabled", False):
+            return False
+
+        # Get guild authorizations
+        guild_auth = self.get_guild_cog_authorizations(guild_id)
+
+        # Must not be disallowed
+        if cog_name in guild_auth["disallowed"]:
+            return False
+
+        # Must be public OR explicitly allowed
+        is_public = cog_config.get("public", False)
+        is_allowed = cog_name in guild_auth["allowed"]
+
+        return is_public or is_allowed
+
+    def authorize_guild_cog(self, guild_id: int, cog_name: str) -> None:
+        """Authorize a cog for a guild (add to allowed list and remove from disallowed).
+
+        Args:
+            guild_id: The guild ID
+            cog_name: The name of the cog
+        """
+        # Remove from disallowed list if present
+        self.remove_guild_cog_authorization(guild_id, cog_name, from_allowed=False)
+        # Add to allowed list
+        self.add_guild_cog_authorization(guild_id, cog_name, allow=True)
+
+    def unauthorize_guild_cog(self, guild_id: int, cog_name: str) -> None:
+        """Deny a cog for a guild (add to disallowed list and remove from allowed).
+
+        Args:
+            guild_id: The guild ID
+            cog_name: The name of the cog
+        """
+        # Remove from allowed list if present
+        self.remove_guild_cog_authorization(guild_id, cog_name, from_allowed=True)
+        # Add to disallowed list
+        self.add_guild_cog_authorization(guild_id, cog_name, allow=False)
+
+    def clear_guild_cog_authorization(self, guild_id: int, cog_name: str) -> None:
+        """Clear any custom authorization for a cog (remove from both lists).
+
+        Args:
+            guild_id: The guild ID
+            cog_name: The name of the cog
+        """
+        # Remove from both lists
+        self.remove_guild_cog_authorization(guild_id, cog_name, from_allowed=True)
+        self.remove_guild_cog_authorization(guild_id, cog_name, from_allowed=False)

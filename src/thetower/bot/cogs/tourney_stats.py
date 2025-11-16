@@ -46,35 +46,19 @@ class TourneyStats(BaseCog, name="Tourney Stats"):
         self.last_updated = None
         self.tournament_counts = {}
 
-        # Define settings with descriptions
-        settings_config = {
-            "cache_filename": ("tourney_stats_data.pkl", "Filename for caching tournament data"),
-            "update_check_interval": (6 * 60 * 60, "How often to check for updates (seconds)"),
-            "update_error_retry_interval": (30 * 60, "How long to wait after errors (seconds)"),
-            "recent_tournaments_display_count": (3, "Number of recent tournaments to display"),
+        # Define default settings
+        self.default_settings = {
+            "cache_filename": "tourney_stats_data.pkl",
+            "update_check_interval": 6 * 60 * 60,
+            "update_error_retry_interval": 30 * 60,
+            "recent_tournaments_display_count": 3,
         }
-
-        # Initialize settings
-        for name, (value, description) in settings_config.items():
-            if not self.has_setting(name):
-                self.set_setting(name, value, description=description)
-
-        # Load settings into instance variables
-        self._load_settings()
-
-        # Initialize file-related instance variables
-        self.cache_filename = self.get_setting("cache_filename")
-
-    def _load_settings(self) -> None:
-        """Load settings into instance variables."""
-        self.update_check_interval = self.get_setting("update_check_interval")
-        self.update_error_retry_interval = self.get_setting("update_error_retry_interval")
-        self.recent_tournaments_display_count = self.get_setting("recent_tournaments_display_count")
 
     @property
     def cache_file(self) -> Path:
         """Get the cache file path using the cog's data directory"""
-        return self.data_directory / self.cache_filename
+        cache_filename = self.default_settings["cache_filename"]
+        return self.data_directory / cache_filename
 
     async def cog_initialize(self):
         """Initialize the cog - called by BaseCog during ready process"""
@@ -466,7 +450,7 @@ class TourneyStats(BaseCog, name="Tourney Stats"):
             embed.add_field(name="Dependencies", value="\n".join(dependencies), inline=False)
 
         # Add settings information
-        settings = self.get_all_settings()
+        settings = self.get_all_settings(ctx=ctx)
         settings_text = []
         for name, value in settings.items():
             settings_text.append(f"**{name}:** {value}")
@@ -505,12 +489,12 @@ class TourneyStats(BaseCog, name="Tourney Stats"):
         """
         try:
             # Validate setting exists
-            if not self.has_setting(setting_name):
-                valid_settings = list(self.get_all_settings().keys())
+            if not self.has_setting(setting_name, ctx=ctx):
+                valid_settings = list(self.get_all_settings(ctx=ctx).keys())
                 return await ctx.send(f"Invalid setting. Valid options: {', '.join(valid_settings)}")
 
             # Convert value to correct type based on current setting type
-            current_value = self.get_setting(setting_name)
+            current_value = self.get_setting(setting_name, ctx=ctx)
             if isinstance(current_value, bool):
                 value = value.lower() in ("true", "1", "yes")
             elif isinstance(current_value, int):
@@ -519,7 +503,7 @@ class TourneyStats(BaseCog, name="Tourney Stats"):
                 value = float(value)
 
             # Save the setting
-            self.set_setting(setting_name, value)
+            self.set_setting(setting_name, value, ctx=ctx)
 
             # Update instance variable if it exists
             if hasattr(self, setting_name):
@@ -538,11 +522,11 @@ class TourneyStats(BaseCog, name="Tourney Stats"):
     async def pause_command(self, ctx: commands.Context) -> None:
         """Toggle pausing of tournament data updates."""
         # Get current pause state from settings
-        is_paused = self.get_setting("paused", False)
+        is_paused = self.get_setting("paused", False, ctx=ctx)
 
         # Toggle state
         new_state = not is_paused
-        self.set_setting("paused", new_state)
+        self.set_setting("paused", new_state, ctx=ctx)
 
         # Update periodic task if it exists
         if hasattr(self, "periodic_update_check"):

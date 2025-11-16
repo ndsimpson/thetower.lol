@@ -111,10 +111,6 @@ class PermissionManager:
         # Resolve to primary command name
         primary_name = self._get_primary_command_name(ctx, command_name)
 
-        # Always allow the help command
-        if primary_name == "help":
-            return True
-
         # Always allow DMs from bot owner
         if ctx.guild is None and await ctx.bot.is_owner(ctx.author):
             return True
@@ -137,25 +133,49 @@ class PermissionManager:
         command_config = self.permissions["commands"].get(command_name, {})
         channel_config = command_config.get("channels", {}).get(str(ctx.channel.id))
 
-        # Check for wildcard channel permission
+        # Check for explicit channel configuration first (takes precedence over wildcard)
+        if channel_config:
+            # Explicit channel configuration exists
+            # Check if it's an explicit denial (public=false and no authorized users)
+            if not channel_config.get("public", False):
+                if str(ctx.author.id) not in channel_config.get("authorized_users", []):
+                    logger.warning(f"Command '{command_name}' blocked - explicit denial or unauthorized user. " f"User: {ctx.author} (ID: {ctx.author.id})")
+                    raise UserUnauthorized(ctx.author)
+            # Explicit allow (public=true or user is authorized)
+            return True
+
+        # Check for wildcard channel permission (only if no explicit config)
         if "*" in command_config.get("channels", {}):
             wildcard_channel_config = command_config["channels"].get("*", {})
             # If wildcard is public or user is authorized
             if wildcard_channel_config.get("public", False) or str(ctx.author.id) in wildcard_channel_config.get("authorized_users", []):
                 return True
 
-        # Check channel permissions
-        if not channel_config:
-            logger.warning(f"Command '{command_name}' blocked - unauthorized channel. " f"Channel: {ctx.channel} (ID: {ctx.channel.id})")
-            raise ChannelUnauthorized(ctx.channel)
+        # For subcommands (e.g., "battleconditions resume"), check parent command permissions
+        if " " in command_name:
+            parts = command_name.split()
+            # Try checking parent command (e.g., "battleconditions" from "battleconditions resume")
+            parent_command = parts[0]
+            parent_config = self.permissions["commands"].get(parent_command, {})
+            parent_channel_config = parent_config.get("channels", {}).get(str(ctx.channel.id))
 
-        # Check user permissions if channel is not public
-        if not channel_config.get("public", False):
-            if str(ctx.author.id) not in channel_config.get("authorized_users", []):
-                logger.warning(f"Command '{command_name}' blocked - unauthorized user. " f"User: {ctx.author} (ID: {ctx.author.id})")
-                raise UserUnauthorized(ctx.author)
+            # Check explicit parent config
+            if parent_channel_config:
+                if not parent_channel_config.get("public", False):
+                    if str(ctx.author.id) not in parent_channel_config.get("authorized_users", []):
+                        logger.warning(f"Subcommand '{command_name}' blocked - parent command denied. " f"User: {ctx.author} (ID: {ctx.author.id})")
+                        raise UserUnauthorized(ctx.author)
+                return True
 
-        return True
+            # Check parent wildcard
+            if "*" in parent_config.get("channels", {}):
+                parent_wildcard_config = parent_config["channels"].get("*", {})
+                if parent_wildcard_config.get("public", False) or str(ctx.author.id) in parent_wildcard_config.get("authorized_users", []):
+                    return True
+
+        # No permission found
+        logger.warning(f"Command '{command_name}' blocked - unauthorized channel. " f"Channel: {ctx.channel} (ID: {ctx.channel.id})")
+        raise ChannelUnauthorized(ctx.channel)
 
     def _resolve_command_name(self, bot, command_name: str) -> str:
         """
