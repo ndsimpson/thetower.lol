@@ -13,8 +13,7 @@ from discord.ext.commands import Context
 
 # Local imports
 from thetower.bot.exceptions import ChannelUnauthorized, UserUnauthorized
-
-# from thetower.bot.ui.settings_views import SettingsMainView  # TODO: Implement general bot settings
+from thetower.bot.ui.settings_views import SettingsMainView
 from thetower.bot.utils import CogManager, ConfigManager, PermissionManager
 
 # Set up logging
@@ -65,12 +64,12 @@ class DiscordBot(commands.Bot):
         Supports DMs by falling back to default prefix.
         Can return a single prefix or a list of prefixes.
         """
-        # Get default prefix from config (fallback)
-        default_prefix = self.config.get("prefix", "%")
+        # Get default prefixes from config (no hardcoded fallback)
+        default_prefixes = self.config.get("prefixes", [])
 
-        # In DMs, use default prefix
+        # In DMs, use default prefixes
         if message.guild is None:
-            return default_prefix
+            return default_prefixes
 
         # Get guild-specific prefix(es)
         guild_prefixes = self.config.get_guild_prefix(message.guild.id)
@@ -79,7 +78,7 @@ class DiscordBot(commands.Bot):
         if guild_prefixes:
             # If it's a list, return the list; if it's a string, return as-is
             return guild_prefixes
-        return default_prefix
+        return default_prefixes
 
     async def setup_hook(self) -> None:
         """This will just be executed when the bot starts the first time."""
@@ -89,14 +88,8 @@ class DiscordBot(commands.Bot):
         # Add global command check
         self.add_check(self.global_command_check)
 
-        # Auto-sync slash commands if enabled
-        if self.config.get("auto_sync_commands", True):
-            self.logger.info("Auto-syncing commands with Discord...")
-            try:
-                await self.tree.sync()
-                self.logger.info("Command sync complete")
-            except Exception as e:
-                self.logger.error(f"Failed to sync commands: {e}")
+        # Note: Global command sync is handled after cogs are loaded in on_ready
+        # to ensure all commands are registered before syncing
 
     async def global_command_check(self, ctx):
         """Global permissions check for all commands."""
@@ -329,6 +322,18 @@ class DiscordBot(commands.Bot):
             self.logger.debug("Loading cogs...")
             await self.cog_manager.load_cogs()
             self.logger.debug(f"Loaded cogs: {self.cog_manager.loaded_cogs}")
+
+            # Sync all commands globally after cogs are loaded
+            self.logger.info("Syncing all slash commands globally...")
+            try:
+                # Log commands being synced
+                commands = [cmd.name for cmd in self.tree.get_commands()]
+                self.logger.info(f"Syncing {len(commands)} slash commands globally: {', '.join(commands)}")
+
+                await self.tree.sync()
+                self.logger.info("Global command sync complete")
+            except Exception as e:
+                self.logger.error(f"Failed to sync commands globally: {e}")
 
     async def on_connect(self):
         self.logger.info("Bot connected to Discord!")
@@ -699,21 +704,30 @@ async def settings(ctx):
     embed = discord.Embed(title="Bot Settings", description="Current configuration for bot system", color=discord.Color.blue())
 
     # Get basic bot configuration
-    default_prefix = bot.config.get("prefix", "%")
+    default_prefixes = bot.config.get("prefixes", [])
     guild_prefixes = bot.config.get_guild_prefix(ctx.guild.id) if ctx.guild else None
 
     # Format prefix display
     if guild_prefixes:
         if isinstance(guild_prefixes, list):
             prefix_list = ", ".join(f"`{p}`" for p in guild_prefixes)
-            current_prefix = guild_prefixes[0]  # Use first for help text
+            current_prefix = guild_prefixes[0] if guild_prefixes else "!"
             prefix_display = f"**Prefix(es)**: {prefix_list} (server-specific)"
         else:
             current_prefix = guild_prefixes
             prefix_display = f"**Prefix**: `{guild_prefixes}` (server-specific)"
     else:
-        current_prefix = default_prefix
-        prefix_display = f"**Prefix**: `{default_prefix}` (default)"
+        if isinstance(default_prefixes, list):
+            if default_prefixes:
+                prefix_list = ", ".join(f"`{p}`" for p in default_prefixes)
+                current_prefix = default_prefixes[0]
+                prefix_display = f"**Prefix(es)**: {prefix_list} (default)"
+            else:
+                current_prefix = "!"
+                prefix_display = "**Prefix(es)**: None configured (default)"
+        else:
+            current_prefix = default_prefixes or "!"
+            prefix_display = f"**Prefix**: `{default_prefixes or 'None'}` (default)"
 
     error_channel_id = bot.config.get("error_log_channel", None)
     error_channel = bot.get_channel(int(error_channel_id)) if error_channel_id else None
@@ -834,47 +848,103 @@ async def config_toggle(ctx, setting_name: str, value: bool = None):
     await ctx.send(f"Setting `{setting_name}` is now {status}")
 
 
+@bot.command()
+async def sync_commands(ctx):
+    """Manually sync slash commands for this guild.
+
+    This command is useful if slash commands are not appearing in Discord.
+    Only server owners or the bot owner can use this command.
+    """
+    if not ctx.guild:
+        await ctx.send("❌ This command can only be used in a server.")
+        return
+
+    # Check if user has permission (guild owner or bot owner)
+    is_bot_owner = await bot.is_owner(ctx.author)
+    is_guild_owner = ctx.author.id == ctx.guild.owner_id
+
+    if not (is_bot_owner or is_guild_owner):
+        await ctx.send("❌ Only the server owner or bot owner can sync commands.")
+        return
+
+    try:
+        await ctx.send("🔄 Syncing slash commands for this guild...")
+
+        # Log commands being synced
+        commands = [cmd.name for cmd in bot.tree.get_commands()]
+        logger.info(f"Syncing {len(commands)} slash commands for guild {ctx.guild.id} ({ctx.guild.name}): {', '.join(commands)}")
+
+        await bot.tree.sync(guild=ctx.guild)
+        await ctx.send("✅ Slash commands synced successfully!")
+        logger.info(f"Successfully synced slash commands for guild {ctx.guild.id} ({ctx.guild.name})")
+    except Exception as e:
+        await ctx.send(f"❌ Failed to sync commands: {e}")
+        logger.error(f"Failed to manually sync commands for guild {ctx.guild.id}: {e}")
+
+
 # ============================================================================
 # Slash Commands
 # ============================================================================
 
 
-# @bot.tree.command(name="settings", description="Open the bot settings interface")
-# async def settings_slash(interaction: discord.Interaction):
-#     """Open the interactive settings interface."""
-#     is_bot_owner = await bot.is_owner(interaction.user)
-#     guild_id = interaction.guild.id if interaction.guild else None
+@bot.tree.command(name="sync_commands", description="Manually sync slash commands for this guild")
+async def sync_commands_slash(interaction: discord.Interaction):
+    """Manually sync slash commands for this guild.
 
-#     # Check if user has permission
-#     if not is_bot_owner:
-#         if not interaction.guild:
-#             return await interaction.response.send_message(
-#                 "❌ Settings can only be accessed in a server (unless you're the bot owner).",
-#                 ephemeral=True
-#             )
-#         if interaction.user.id != interaction.guild.owner_id:
-#             return await interaction.response.send_message(
-#                 "❌ Only the server owner or bot owner can access settings.",
-#                 ephemeral=True
-#             )
+    This command is useful if slash commands are not appearing in Discord.
+    Only server owners or the bot owner can use this command.
+    """
+    if not interaction.guild:
+        await interaction.response.send_message("❌ This command can only be used in a server.", ephemeral=True)
+        return
 
-#     # Create main settings view
-#     view = SettingsMainView(is_bot_owner, guild_id)
+    # Check if user has permission (guild owner or bot owner)
+    is_bot_owner = await bot.is_owner(interaction.user)
+    is_guild_owner = interaction.user.id == interaction.guild.owner_id
 
-#     embed = discord.Embed(
-#         title="⚙️ Settings",
-#         description="Select a category to manage",
-#         color=discord.Color.blue()
-#     )
+    if not (is_bot_owner or is_guild_owner):
+        await interaction.response.send_message("❌ Only the server owner or bot owner can sync commands.", ephemeral=True)
+        return
 
-#     if is_bot_owner:
-#         embed.add_field(
-#             name="👑 Bot Owner",
-#             value="You have full access to all settings",
-#             inline=False
-#         )
+    try:
+        await interaction.response.defer(ephemeral=True)
 
-#     await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+        # Log commands being synced
+        commands = [cmd.name for cmd in bot.tree.get_commands()]
+        logger.info(f"Syncing {len(commands)} slash commands for guild {interaction.guild.id} ({interaction.guild.name}): {', '.join(commands)}")
+
+        await bot.tree.sync(guild=interaction.guild)
+        await interaction.followup.send("✅ Slash commands synced successfully!", ephemeral=True)
+        logger.info(f"Successfully synced slash commands for guild {interaction.guild.id} ({interaction.guild.name})")
+    except Exception as e:
+        await interaction.followup.send(f"❌ Failed to sync commands: {e}", ephemeral=True)
+        logger.error(f"Failed to manually sync commands for guild {interaction.guild.id}: {e}")
+
+
+@bot.tree.command(name="settings", description="Open the bot settings interface")
+async def settings_slash(interaction: discord.Interaction):
+    """Open the interactive settings interface."""
+    is_bot_owner = await bot.is_owner(interaction.user)
+    guild_id = interaction.guild.id if interaction.guild else None
+
+    # Check if user has permission
+    if not is_bot_owner:
+        if not interaction.guild:
+            return await interaction.response.send_message(
+                "❌ Settings can only be accessed in a server (unless you're the bot owner).", ephemeral=True
+            )
+        if interaction.user.id != interaction.guild.owner_id:
+            return await interaction.response.send_message("❌ Only the server owner or bot owner can access settings.", ephemeral=True)
+
+    # Create main settings view
+    view = SettingsMainView(is_bot_owner, guild_id)
+
+    embed = discord.Embed(title="⚙️ Settings", description="Select a category to manage", color=discord.Color.blue())
+
+    if is_bot_owner:
+        embed.add_field(name="👑 Bot Owner", value="You have full access to all settings", inline=False)
+
+    await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
 
 
 def main():
@@ -887,5 +957,4 @@ __all__ = ["bot", "DiscordBot", "main"]
 
 # Run bot if this module is executed directly
 if __name__ == "__main__":
-    main()
     main()

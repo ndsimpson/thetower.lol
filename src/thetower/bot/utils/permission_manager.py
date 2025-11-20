@@ -139,7 +139,9 @@ class PermissionManager:
             # Check if it's an explicit denial (public=false and no authorized users)
             if not channel_config.get("public", False):
                 if str(ctx.author.id) not in channel_config.get("authorized_users", []):
-                    logger.warning(f"Command '{command_name}' blocked - explicit denial or unauthorized user. " f"User: {ctx.author} (ID: {ctx.author.id})")
+                    logger.warning(
+                        f"Command '{command_name}' blocked - explicit denial or unauthorized user. " f"User: {ctx.author} (ID: {ctx.author.id})"
+                    )
                     raise UserUnauthorized(ctx.author)
             # Explicit allow (public=true or user is authorized)
             return True

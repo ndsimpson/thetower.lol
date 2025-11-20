@@ -1,7 +1,7 @@
 # Standard library
 import asyncio
 import datetime
-import re
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
 
 # Third-party
@@ -15,6 +15,13 @@ from thetower.backend.sus.models import KnownPlayer
 # Local
 from thetower.bot.basecog import BaseCog
 
+from .ui import (
+    KnownPlayersSettingsView,
+    UserInteractions,
+    get_player_details,
+    validate_creator_code,
+)
+
 
 class KnownPlayers(BaseCog, name="Known Players", description="Player identity management and lookup"):
     """Player identity management and lookup.
@@ -22,6 +29,9 @@ class KnownPlayers(BaseCog, name="Known Players", description="Player identity m
     Provides commands for finding players by ID, name or Discord info, and
     maintaining the database of known player identities.
     """
+
+    # Settings view class for the cog manager
+    settings_view_class = KnownPlayersSettingsView
 
     def __init__(self, bot):
         super().__init__(bot)
@@ -52,7 +62,91 @@ class KnownPlayers(BaseCog, name="Known Players", description="Player identity m
             "save_on_update": True,
             "allow_partial_matches": True,
             "case_sensitive": False,
+            "restrict_lookups_to_known_users": True,
+            # Profile posting settings
+            "profile_post_channels": [],  # List of channel IDs where profiles can be posted publicly
         }
+
+        # Initialize UI interactions
+        self.user_interactions = UserInteractions(self)
+
+    async def _check_additional_interaction_permissions(self, interaction: discord.Interaction) -> bool:
+        """Override additional interaction permissions for slash commands.
+
+        The /profile and /lookup commands open ephemeral UIs where permissions are checked
+        at the button level, not at the command level. This allows everyone to
+        open the UI and see what actions they can perform based on their permissions.
+        """
+        # Allow all slash commands through - permissions checked in button callbacks
+        return True
+
+    @property
+    def results_per_page(self) -> int:
+        """Get results per page setting."""
+        return self.config.config.get("known_players", {}).get("results_per_page", self.default_settings["results_per_page"])
+
+    @property
+    def cache_refresh_interval(self) -> int:
+        """Get cache refresh interval setting."""
+        return self.config.config.get("known_players", {}).get("cache_refresh_interval", self.default_settings["cache_refresh_interval"])
+
+    @property
+    def cache_save_interval(self) -> int:
+        """Get cache save interval setting."""
+        return self.config.config.get("known_players", {}).get("cache_save_interval", self.default_settings["cache_save_interval"])
+
+    @property
+    def info_max_results(self) -> int:
+        """Get info max results setting."""
+        return self.config.config.get("known_players", {}).get("info_max_results", self.default_settings["info_max_results"])
+
+    @property
+    def refresh_check_interval(self) -> int:
+        """Get refresh check interval setting."""
+        return self.config.config.get("known_players", {}).get("refresh_check_interval", self.default_settings["refresh_check_interval"])
+
+    @property
+    def auto_refresh(self) -> bool:
+        """Get auto refresh setting."""
+        return self.config.config.get("known_players", {}).get("auto_refresh", self.default_settings["auto_refresh"])
+
+    @property
+    def save_on_update(self) -> bool:
+        """Get save on update setting."""
+        return self.config.config.get("known_players", {}).get("save_on_update", self.default_settings["save_on_update"])
+
+    @property
+    def allow_partial_matches(self) -> bool:
+        """Get allow partial matches setting."""
+        return self.config.config.get("known_players", {}).get("allow_partial_matches", self.default_settings["allow_partial_matches"])
+
+    @property
+    def case_sensitive(self) -> bool:
+        """Get case sensitive setting."""
+        return self.config.config.get("known_players", {}).get("case_sensitive", self.default_settings["case_sensitive"])
+
+    @property
+    def restrict_lookups_to_known_users(self) -> bool:
+        """Get restrict lookups to known users setting."""
+        return self.config.config.get("known_players", {}).get(
+            "restrict_lookups_to_known_users", self.default_settings["restrict_lookups_to_known_users"]
+        )
+
+    @property
+    def profile_post_channels(self) -> List[int]:
+        """Get profile post channels setting."""
+        return self.config.config.get("known_players", {}).get("profile_post_channels", self.default_settings["profile_post_channels"])
+
+    def get_profile_post_channels(self, guild_id: int) -> List[int]:
+        """Get profile post channels setting for a specific guild."""
+        guild_config = self.config.config.get("guilds", {}).get(str(guild_id), {}).get("known_players", {})
+        return guild_config.get("profile_post_channels", [])
+
+    @property
+    def cache_file(self) -> Path:
+        """Get the cache file path."""
+        filename = self.config.config.get("known_players", {}).get("cache_filename", self.default_settings["cache_filename"])
+        return self.data_directory / filename
 
     async def save_cache(self) -> bool:
         """Save the cache to disk"""
@@ -150,25 +244,30 @@ class KnownPlayers(BaseCog, name="Known Players", description="Player identity m
 
                 new_details = {}
                 new_ids = {}
+                player_id_count = 0
+                discord_id_count = 0
 
                 for player in all_players:
                     # Cache player details
-                    details = await self.get_player_details(player)
+                    details = await get_player_details(player)
                     player_id = details.get("primary_id")
                     if player_id:
                         new_details[player_id] = details
                         new_ids[player_id] = player.pk
+                        player_id_count += 1
 
                         # Also cache by Discord ID if available
                         discord_id = details.get("discord_id")
                         if discord_id:
                             new_details[discord_id] = details
                             new_ids[discord_id] = player.pk
+                            discord_id_count += 1
 
                         # Cache by all known player IDs
                         for pid in details.get("all_ids", []):
                             new_details[pid] = details
                             new_ids[pid] = player.pk
+                            player_id_count += 1
 
                 # Update caches atomically
                 self.player_details_cache = new_details
@@ -177,10 +276,12 @@ class KnownPlayers(BaseCog, name="Known Players", description="Player identity m
 
                 # Save cache to disk if configured
                 # Note: Using default for internal operation without guild context
-                if self.default_settings.get("save_on_update", True):
+                if self.save_on_update:
                     await self.save_cache()
 
-                self.logger.info(f"Player cache refresh complete. {len(new_details)} entries cached.")
+                self.logger.info(
+                    f"Player cache refresh complete. {len(new_details)} total entries cached ({player_id_count} player IDs, {discord_id_count} Discord IDs)."
+                )
                 return True
 
             except Exception as e:
@@ -201,7 +302,7 @@ class KnownPlayers(BaseCog, name="Known Players", description="Player identity m
         search_term = search_term.strip()
 
         # Apply case sensitivity setting (use default for internal operations)
-        if not self.default_settings.get("case_sensitive", False):
+        if not self.case_sensitive:
             search_term = search_term.lower()
 
         # First check exact matches in cache
@@ -214,7 +315,7 @@ class KnownPlayers(BaseCog, name="Known Players", description="Player identity m
                 return [self.player_cache[search_term]]
 
         # Apply partial matching setting (use default for internal operations)
-        if not self.default_settings.get("allow_partial_matches", True):
+        if not self.allow_partial_matches:
             # Only do exact matches
             if search_term in self.player_details_cache:
                 # Make sure we have the Django object
@@ -240,25 +341,6 @@ class KnownPlayers(BaseCog, name="Known Players", description="Player identity m
             results.extend([r for r in discord_results if r not in results])
 
             return results
-
-    async def get_player_details(self, player: KnownPlayer) -> Dict[str, Any]:
-        """Get detailed information about a player"""
-        # Fetch player IDs
-        player_ids = await sync_to_async(list)(player.ids.all())
-
-        # Find primary ID
-        primary_id = next((pid.id for pid in player_ids if pid.primary), None)
-
-        # Return formatted details
-        return {
-            "name": player.name,
-            "discord_id": player.discord_id,
-            "creator_code": player.creator_code,
-            "approved": player.approved,
-            "primary_id": primary_id,
-            "all_ids": [pid.id for pid in player_ids],
-            "ids_count": len(player_ids),
-        }
 
     async def get_player_by_player_id(self, player_id: str) -> Optional[KnownPlayer]:
         """Get a player by their Tower player id"""
@@ -318,402 +400,42 @@ class KnownPlayers(BaseCog, name="Known Players", description="Player identity m
 
         return list(discord_ids)
 
-    async def get_discord_to_player_mapping(self) -> Dict[str, Dict[str, Any]]:
-        """
-        Get mapping of Discord IDs to player information
+    async def _load_settings(self) -> None:
+        """Load and initialize default settings."""
+        # Ensure known_players config section exists
+        known_players_config = self.config.config.setdefault("known_players", {})
 
-        Returns:
-            dict: Dictionary with Discord IDs as keys and player info as values
-                  Each value contains 'name', 'primary_id', and 'all_ids'
-        """
-        await self.wait_until_ready()
+        # Set defaults for any missing settings
+        for key, default_value in self.default_settings.items():
+            if key not in known_players_config:
+                known_players_config[key] = default_value
+                self.logger.debug(f"Set default setting {key} = {default_value}")
 
-        # Create a mapping of Discord IDs to player details
-        discord_mapping: Dict[str, Dict[str, Any]] = {}
-
-        # Process all entries in player_details_cache
-        for player_details in self.player_details_cache.values():
-            # Only process each player once by checking for Discord ID
-            discord_id = player_details.get("discord_id")
-            if discord_id and discord_id not in discord_mapping:
-                # Find all IDs for this player
-                all_ids = player_details.get("all_ids", [])
-                primary_id = player_details.get("primary_id")
-
-                # Create the mapping entry
-                discord_mapping[discord_id] = {
-                    "name": player_details.get("name", ""),
-                    "primary_id": primary_id,
-                    "all_ids": all_ids,
-                    "approved": player_details.get("approved", True),
-                }
-
-                self.logger.debug(f"Added mapping for Discord ID {discord_id}: {all_ids}")
-
-        self.logger.debug(f"Built Discord mapping with {len(discord_mapping)} entries")
-        return discord_mapping
+        # Save the config if any defaults were set
+        if known_players_config:
+            self.config.save_config()
+            self.logger.debug("Saved updated config with default settings")
 
     # === Helper Methods ===
 
     def _validate_creator_code(self, code: str) -> tuple[bool, str]:
-        """
-        Validate creator code format - only one emoji allowed at the end, no punctuation or URLs.
-
-        Args:
-            code: The creator code to validate
-
-        Returns:
-            Tuple of (is_valid, error_message)
-        """
-        if not code or not code.strip():
-            return True, ""  # Empty codes are allowed (removes code)
-
-        code = code.strip()
-
-        # Check for URLs (basic patterns)
-        url_patterns = [r"https?://", r"www\.", r"\.com", r"\.org", r"\.net", r"\.io", r"\.co", r"\.me"]
-
-        for pattern in url_patterns:
-            if re.search(pattern, code, re.IGNORECASE):
-                return False, "Creator codes cannot contain URLs or web addresses."
-
-        # Check for punctuation and spaces (no punctuation or spaces allowed)
-        # Allow only letters and numbers
-        forbidden_characters = re.compile(r'[.,;:!?@#$%^&*()+=\[\]{}|\\<>"`~\/\-_\s]')
-        if forbidden_characters.search(code):
-            forbidden_chars = forbidden_characters.findall(code)
-            return False, f"Creator codes can only contain letters and numbers. Found: {', '.join(set(forbidden_chars))}"
-
-        # Regex pattern to match emojis (Unicode ranges for most common emojis)
-        emoji_pattern = re.compile(
-            r"[\U0001F600-\U0001F64F]|"  # emoticons
-            r"[\U0001F300-\U0001F5FF]|"  # symbols & pictographs
-            r"[\U0001F680-\U0001F6FF]|"  # transport & map symbols
-            r"[\U0001F1E0-\U0001F1FF]|"  # flags (iOS)
-            r"[\U00002702-\U000027B0]|"  # dingbats
-            r"[\U000024C2-\U0001F251]"  # enclosed characters
-        )
-
-        # Find all emojis in the code
-        emojis = emoji_pattern.findall(code)
-
-        if len(emojis) == 0:
-            return True, ""  # No emojis is fine
-        elif len(emojis) > 1:
-            return False, f"Only one emoji is allowed. Found {len(emojis)} emojis: {''.join(emojis)}"
-
-        # Check if the single emoji is at the end
-        emoji = emojis[0]
-        if not code.endswith(emoji):
-            return False, f"The emoji '{emoji}' must be at the end of your creator code."
-
-        return True, ""
-
-    # === UI Components ===
-
-    class CreatorCodeModal(discord.ui.Modal, title="Set Creator Code"):
-        """Modal for setting creator code."""
-
-        def __init__(self, cog, current_code: str = None):
-            super().__init__()
-            self.cog = cog
-            self.creator_code_input = discord.ui.TextInput(
-                label="Creator Code",
-                placeholder="Enter your creator code (letters and numbers only)",
-                default=current_code or "",
-                required=False,
-                max_length=50
-            )
-            self.add_item(self.creator_code_input)
-
-        async def on_submit(self, interaction: discord.Interaction):
-            discord_id = str(interaction.user.id)
-            creator_code = self.creator_code_input.value.strip() if self.creator_code_input.value else None
-
-            # Validate creator code format if provided
-            if creator_code:
-                is_valid, error_message = self.cog._validate_creator_code(creator_code)
-                if not is_valid:
-                    embed = discord.Embed(
-                        title="Invalid Creator Code Format",
-                        description=error_message,
-                        color=discord.Color.red()
-                    )
-                    embed.add_field(
-                        name="Valid Format",
-                        value=(
-                            "Creator codes must be alphanumeric only:\n"
-                            "• Only letters (A-Z, a-z) and numbers (0-9)\n"
-                            "• No spaces, punctuation, or special characters\n\n"
-                            "Examples:\n"
-                            "✅ `thedisasterfish`\n"
-                            "✅ `mycreatorcode`\n"
-                            "✅ `playername123`\n"
-                            "❌ `my code` (no spaces)\n"
-                            "❌ `my_code` (no underscores)\n"
-                            "❌ `player-name` (no hyphens)"
-                        ),
-                        inline=False
-                    )
-                    await interaction.response.send_message(embed=embed, ephemeral=True)
-                    return
-
-            try:
-                # Find the player by Discord ID
-                player = await sync_to_async(lambda: KnownPlayer.objects.filter(discord_id=discord_id).first())()
-
-                if not player:
-                    embed = discord.Embed(
-                        title="Player Not Found",
-                        description="No player account found linked to your Discord ID.",
-                        color=discord.Color.red()
-                    )
-                    await interaction.response.send_message(embed=embed, ephemeral=True)
-                    return
-
-                # Update the creator code
-                old_code = player.creator_code
-                player.creator_code = creator_code
-                await sync_to_async(player.save)()
-
-                # Clear cache for this player to force refresh
-                player_cache_key = discord_id.lower()
-                if player_cache_key in self.cog.player_details_cache:
-                    del self.cog.player_details_cache[player_cache_key]
-                if player_cache_key in self.cog.player_cache:
-                    del self.cog.player_cache[player_cache_key]
-
-                # Create response embed
-                if creator_code:
-                    embed = discord.Embed(
-                        title="Creator Code Updated",
-                        description=f"Your creator code has been set to: **{creator_code}**",
-                        color=discord.Color.green()
-                    )
-                    if old_code and old_code != creator_code:
-                        embed.add_field(name="Previous Code", value=old_code, inline=False)
-                else:
-                    embed = discord.Embed(
-                        title="Creator Code Removed",
-                        description="Your creator code has been removed.",
-                        color=discord.Color.orange()
-                    )
-                    if old_code:
-                        embed.add_field(name="Previous Code", value=old_code, inline=False)
-
-                await interaction.response.send_message(embed=embed, ephemeral=True)
-
-            except Exception as e:
-                self.cog.logger.error(f"Error setting creator code for user {discord_id}: {e}")
-                await interaction.response.send_message(f"❌ Error updating creator code: {e}", ephemeral=True)
-
-    class ProfileView(discord.ui.View):
-        """View with button to set creator code."""
-
-        def __init__(self, cog, current_code: str = None):
-            super().__init__(timeout=300)
-            self.cog = cog
-            self.current_code = current_code
-
-        @discord.ui.button(label="Set Creator Code", style=discord.ButtonStyle.primary, emoji="✏️")
-        async def set_creator_code_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-            """Button to open creator code modal."""
-            modal = KnownPlayers.CreatorCodeModal(self.cog, self.current_code)
-            await interaction.response.send_modal(modal)
+        """Wrapper for the validation function"""
+        return validate_creator_code(code)
 
     # === Slash Commands ===
 
     @app_commands.command(name="profile", description="View your player profile and verification status")
     async def profile_slash(self, interaction: discord.Interaction) -> None:
         """View your own player profile and verification status."""
-        if not await self.wait_until_ready():
-            await interaction.response.send_message("⏳ Still initializing, please try again shortly.", ephemeral=True)
-            return
-
-        discord_id = str(interaction.user.id)
-
-        # Try to find player by Discord ID
-        player = await self.get_player_by_discord_id(discord_id)
-
-        if not player:
-            embed = discord.Embed(
-                title="Not Verified",
-                description="You don't have a verified player account linked to your Discord ID.",
-                color=discord.Color.orange()
-            )
-            embed.add_field(
-                name="How to Get Verified",
-                value="Contact a server administrator to link your player ID to your Discord account.",
-                inline=False
-            )
-            await interaction.response.send_message(embed=embed, ephemeral=True)
-            return
-
-        # Get player details
-        details = await self.get_player_details(player)
-
-        # Create profile embed
-        embed = discord.Embed(
-            title=f"Player Profile: {details['name'] or 'Unknown'}",
-            description="✅ Your Discord account is verified!",
-            color=discord.Color.green()
-        )
-
-        # Add basic info
-        embed.add_field(
-            name="Basic Info",
-            value=(
-                f"**Name:** {details['name'] or 'Not set'}\n"
-                f"**Discord ID:** {details['discord_id']}\n"
-                f"**Creator Code:** {details.get('creator_code') or 'Not set'}\n"
-                f"**Status:** {'Approved ✅' if details['approved'] else 'Pending ⏳'}"
-            ),
-            inline=False
-        )
-
-        # Format player IDs
-        primary_id = details["primary_id"]
-        ids_list = details["all_ids"]
-
-        formatted_ids = []
-        if primary_id:
-            formatted_ids.append(f"✅ **{primary_id}** (Primary)")
-            ids_list = [pid for pid in ids_list if pid != primary_id]
-
-        formatted_ids.extend(ids_list)
-
-        embed.add_field(
-            name=f"Player IDs ({len(details['all_ids'])})",
-            value="\n".join(formatted_ids) if formatted_ids else "No IDs found",
-            inline=False
-        )
-
-        # Create view with set creator code button
-        view = KnownPlayers.ProfileView(self, details.get('creator_code'))
-
-        await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+        await self.user_interactions.handle_profile_command(interaction)
 
     @app_commands.command(name="lookup", description="Look up a player by ID, name, or Discord user")
-    @app_commands.describe(
-        identifier="Player ID, name, or mention a Discord user",
-        user="Discord user to look up (optional)"
-    )
+    @app_commands.describe(identifier="Player ID, name, or mention a Discord user", user="Discord user to look up (optional)")
     async def lookup_slash(self, interaction: discord.Interaction, identifier: str = None, user: discord.User = None) -> None:
         """Look up a player by various identifiers."""
-        if not await self.wait_until_ready():
-            await interaction.response.send_message("⏳ Still initializing, please try again shortly.", ephemeral=True)
-            return
+        await self.user_interactions.handle_lookup_command(interaction, identifier, user)
 
-        await interaction.response.defer(ephemeral=True)
-
-        # Determine what to search for
-        if user:
-            search_term = str(user.id)
-            player = await self.get_player_by_discord_id(search_term)
-            if player:
-                results = [player]
-            else:
-                results = []
-        elif identifier:
-            identifier = identifier.strip()
-            # Check cache for exact match
-            if identifier.lower() in self.player_details_cache:
-                if identifier.lower() not in self.player_cache:
-                    await self.rebuild_object_cache_for_keys({identifier.lower()})
-                if identifier.lower() in self.player_cache:
-                    player = self.player_cache[identifier.lower()]
-                    results = [player] if player else []
-                else:
-                    results = await self.search_player(identifier)
-            else:
-                results = await self.search_player(identifier)
-        else:
-            await interaction.followup.send("❌ Please provide either an identifier or mention a user.", ephemeral=True)
-            return
-
-        if not results:
-            search_display = f"<@{user.id}>" if user else f"'{identifier}'"
-            await interaction.followup.send(f"No players found matching {search_display}", ephemeral=True)
-            return
-
-        if len(results) == 1:
-            player = results[0]
-            details = await self.get_player_details(player)
-
-            embed = discord.Embed(
-                title=f"Player Details: {details['name'] or 'Unknown'}",
-                color=discord.Color.blue()
-            )
-
-            # Basic information
-            discord_user_mention = f"<@{details['discord_id']}>" if details['discord_id'] else "Not set"
-            embed.add_field(
-                name="Basic Info",
-                value=(
-                    f"**Name:** {details['name'] or 'Not set'}\n"
-                    f"**Discord:** {discord_user_mention}\n"
-                    f"**Creator Code:** {details.get('creator_code') or 'Not set'}\n"
-                    f"**Approved:** {'Yes ✅' if details['approved'] else 'No ❌'}"
-                ),
-                inline=False
-            )
-
-            # Player IDs
-            primary_id = details["primary_id"]
-            ids_list = details["all_ids"]
-
-            formatted_ids = []
-            if primary_id:
-                formatted_ids.append(f"✅ **{primary_id}** (Primary)")
-                ids_list = [pid for pid in ids_list if pid != primary_id]
-
-            formatted_ids.extend(ids_list)
-
-            embed.add_field(
-                name=f"Player IDs ({len(details['all_ids'])})",
-                value="\n".join(formatted_ids) if formatted_ids else "No IDs found",
-                inline=False
-            )
-
-            await interaction.followup.send(embed=embed, ephemeral=True)
-        else:
-            # Multiple results
-            embed = discord.Embed(
-                title="Multiple Players Found",
-                description=f"Found {len(results)} players. Showing first 5:",
-                color=discord.Color.gold()
-            )
-
-            for i, player in enumerate(results[:5], 1):
-                player_ids = await sync_to_async(list)(player.ids.all())
-                primary_id = next((pid.id for pid in player_ids if pid.primary), None)
-
-                formatted_ids = []
-                if primary_id:
-                    formatted_ids.append(f"✅ {primary_id}")
-
-                other_ids = [pid.id for pid in player_ids if pid.id != primary_id]
-                formatted_ids.extend(other_ids[:2])
-
-                id_list = ", ".join(formatted_ids)
-                if len(player_ids) > 3:
-                    id_list += f" (+{len(player_ids) - 3} more)"
-
-                discord_mention = f"<@{player.discord_id}>" if player.discord_id else "Not set"
-                player_info = (
-                    f"**Name:** {player.name}\n"
-                    f"**Discord:** {discord_mention}\n"
-                    f"**Player IDs:** {id_list}"
-                )
-
-                embed.add_field(name=f"Player #{i}", value=player_info, inline=False)
-
-            if len(results) > 5:
-                embed.set_footer(text=f"{len(results) - 5} more results not shown. Be more specific.")
-
-            await interaction.followup.send(embed=embed, ephemeral=True)
-
-    # === Helper Methods ===
+    # === Background Tasks ===
 
     @tasks.loop(seconds=None)  # Will set interval in before_loop
     async def periodic_cache_save(self):
@@ -827,7 +549,7 @@ class KnownPlayers(BaseCog, name="Known Players", description="Player identity m
                 # 1. Verify settings
                 self.logger.debug("Loading settings")
                 tracker.update_status("Verifying settings")
-                self._load_settings()
+                await self._load_settings()
 
                 # 2. Load cache
                 self.logger.debug("Loading cache from disk")
@@ -876,7 +598,3 @@ class KnownPlayers(BaseCog, name="Known Players", description="Player identity m
         # Call parent unload last
         await super().cog_unload()
         self.logger.info("Known Players cog unloaded")
-
-
-async def setup(bot) -> None:
-    await bot.add_cog(KnownPlayers(bot))

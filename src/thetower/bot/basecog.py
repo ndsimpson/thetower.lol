@@ -75,6 +75,17 @@ class BaseCog(commands.Cog):
 
         self.logger.debug(f"Registered listeners for {self.__class__.__name__}")
 
+        # Register cog settings view if one exists
+        self._register_cog_settings_view()
+
+    def _register_cog_settings_view(self) -> None:
+        """Register this cog's settings view with the cog manager if it exists."""
+        # Check if this cog has a settings view class
+        settings_view_class = getattr(self, "settings_view_class", None)
+        if settings_view_class:
+            self.bot.cog_manager.register_cog_settings_view(self.cog_name, settings_view_class)
+            self.logger.debug(f"Registered settings view for cog '{self.cog_name}'")
+
     @property
     def logger(self) -> logging.Logger:
         """
@@ -239,7 +250,7 @@ class BaseCog(commands.Cog):
 
         # Convert PascalCase to snake_case
         class_name = self.__class__.__name__
-        snake = re.sub('([a-z0-9])([A-Z])', r'\1_\2', class_name)
+        snake = re.sub("([a-z0-9])([A-Z])", r"\1_\2", class_name)
         return snake.lower()
 
     @property
@@ -280,7 +291,8 @@ class BaseCog(commands.Cog):
             cog_name = self.__class__.__name__.replace("Cog", "").lower()
             # Convert CamelCase to snake_case for cog names like "TourneyRolesCog" -> "tourney_roles"
             import re
-            cog_name = re.sub(r'(?<!^)(?=[A-Z])', '_', cog_name).lower()
+
+            cog_name = re.sub(r"(?<!^)(?=[A-Z])", "_", cog_name).lower()
 
             is_bot_owner = await ctx.bot.is_owner(ctx.author)
 
@@ -301,10 +313,25 @@ class BaseCog(commands.Cog):
             raise
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
-        """Check permissions for slash commands.
+        """Check permissions for slash commands - always includes cog authorization."""
+        # Step 1: Always check cog authorization first
+        if not await self._check_cog_authorization(interaction):
+            return False
 
-        This is the slash command equivalent of cog_check.
-        """
+        # Step 2: Allow cogs to add additional checks
+        return await self._check_additional_interaction_permissions(interaction)
+
+    async def _check_cog_authorization(self, interaction: discord.Interaction) -> bool:
+        """Check if this cog is authorized for the guild (not overridable)."""
+        if interaction.guild:
+            is_bot_owner = await self.bot.is_owner(interaction.user)
+            if not self.bot.cog_manager.can_guild_use_cog(self.cog_name, interaction.guild.id, is_bot_owner):
+                # Silently fail - command won't respond if cog not authorized
+                return False
+        return True
+
+    async def _check_additional_interaction_permissions(self, interaction: discord.Interaction) -> bool:
+        """Additional permission checks that cogs can override."""
         if not interaction.command:
             return True
 
@@ -367,6 +394,7 @@ class BaseCog(commands.Cog):
 
         # Try to inspect the call stack for ctx or interaction
         import inspect
+
         frame = inspect.currentframe()
         try:
             # Walk up the call stack looking for ctx or interaction
@@ -378,21 +406,21 @@ class BaseCog(commands.Cog):
                 local_vars = frame.f_locals
 
                 # Check for ctx in local variables
-                if 'ctx' in local_vars:
-                    ctx_obj = local_vars['ctx']
+                if "ctx" in local_vars:
+                    ctx_obj = local_vars["ctx"]
                     if isinstance(ctx_obj, Context) and ctx_obj.guild is not None:
                         return ctx_obj.guild.id
 
                 # Check for interaction in local variables
-                if 'interaction' in local_vars:
-                    inter_obj = local_vars['interaction']
+                if "interaction" in local_vars:
+                    inter_obj = local_vars["interaction"]
                     if isinstance(inter_obj, discord.Interaction) and inter_obj.guild is not None:
                         return inter_obj.guild_id
 
                 # Check for self.ctx (some cogs might store it)
-                if 'self' in local_vars:
-                    self_obj = local_vars['self']
-                    if hasattr(self_obj, 'ctx') and isinstance(self_obj.ctx, Context):
+                if "self" in local_vars:
+                    self_obj = local_vars["self"]
+                    if hasattr(self_obj, "ctx") and isinstance(self_obj.ctx, Context):
                         if self_obj.ctx.guild is not None:
                             return self_obj.ctx.guild.id
         finally:
@@ -405,11 +433,7 @@ class BaseCog(commands.Cog):
         )
 
     def ensure_settings_initialized(
-        self,
-        guild_id: int = None,
-        default_settings: Dict[str, Any] = None,
-        ctx: Context = None,
-        interaction: discord.Interaction = None
+        self, guild_id: int = None, default_settings: Dict[str, Any] = None, ctx: Context = None, interaction: discord.Interaction = None
     ) -> None:
         """Ensure settings are initialized for a specific guild.
 
@@ -438,14 +462,7 @@ class BaseCog(commands.Cog):
             if not self.has_setting(key, guild_id=guild_id, ctx=ctx, interaction=interaction):
                 self.set_setting(key, value, guild_id=guild_id, ctx=ctx, interaction=interaction)
 
-    def get_setting(
-        self,
-        key: str,
-        default: Any = None,
-        guild_id: int = None,
-        ctx: Context = None,
-        interaction: discord.Interaction = None
-    ) -> Any:
+    def get_setting(self, key: str, default: Any = None, guild_id: int = None, ctx: Context = None, interaction: discord.Interaction = None) -> Any:
         """Get a cog-specific setting.
 
         Args:
@@ -468,14 +485,7 @@ class BaseCog(commands.Cog):
         guild_id = self._extract_guild_id(guild_id, ctx, interaction)
         return self.config.get_cog_setting(self.cog_name, key, default, guild_id)
 
-    def set_setting(
-        self,
-        key: str,
-        value: Any,
-        guild_id: int = None,
-        ctx: Context = None,
-        interaction: discord.Interaction = None
-    ) -> None:
+    def set_setting(self, key: str, value: Any, guild_id: int = None, ctx: Context = None, interaction: discord.Interaction = None) -> None:
         """Save a cog-specific setting.
 
         Args:
@@ -495,13 +505,7 @@ class BaseCog(commands.Cog):
         guild_id = self._extract_guild_id(guild_id, ctx, interaction)
         self.config.set_cog_setting(self.cog_name, key, value, guild_id)
 
-    def update_settings(
-        self,
-        settings: Dict[str, Any],
-        guild_id: int = None,
-        ctx: Context = None,
-        interaction: discord.Interaction = None
-    ) -> None:
+    def update_settings(self, settings: Dict[str, Any], guild_id: int = None, ctx: Context = None, interaction: discord.Interaction = None) -> None:
         """Update multiple cog settings at once.
 
         Args:
@@ -521,13 +525,7 @@ class BaseCog(commands.Cog):
         guild_id = self._extract_guild_id(guild_id, ctx, interaction)
         self.config.update_cog_settings(self.cog_name, settings, guild_id)
 
-    def remove_setting(
-        self,
-        key: str,
-        guild_id: int = None,
-        ctx: Context = None,
-        interaction: discord.Interaction = None
-    ) -> bool:
+    def remove_setting(self, key: str, guild_id: int = None, ctx: Context = None, interaction: discord.Interaction = None) -> bool:
         """Remove a cog-specific setting.
 
         Args:
@@ -545,13 +543,7 @@ class BaseCog(commands.Cog):
         guild_id = self._extract_guild_id(guild_id, ctx, interaction)
         return self.config.remove_cog_setting(self.cog_name, key, guild_id)
 
-    def has_setting(
-        self,
-        key: str,
-        guild_id: int = None,
-        ctx: Context = None,
-        interaction: discord.Interaction = None
-    ) -> bool:
+    def has_setting(self, key: str, guild_id: int = None, ctx: Context = None, interaction: discord.Interaction = None) -> bool:
         """Check if a cog-specific setting exists.
 
         Args:
@@ -570,12 +562,7 @@ class BaseCog(commands.Cog):
         guild_id = self._extract_guild_id(guild_id, ctx, interaction)
         return self.config.has_cog_setting(self.cog_name, key, guild_id)
 
-    def get_all_settings(
-        self,
-        guild_id: int = None,
-        ctx: Context = None,
-        interaction: discord.Interaction = None
-    ) -> Dict[str, Any]:
+    def get_all_settings(self, guild_id: int = None, ctx: Context = None, interaction: discord.Interaction = None) -> Dict[str, Any]:
         """Get all settings for this cog.
 
         Args:
@@ -763,13 +750,7 @@ class BaseCog(commands.Cog):
     # Slash Command Permission Helpers
     # ====================
 
-    async def check_slash_action_permission(
-        self,
-        interaction: discord.Interaction,
-        action_name: str,
-        *,
-        default_to_owner: bool = True
-    ) -> bool:
+    async def check_slash_action_permission(self, interaction: discord.Interaction, action_name: str, *, default_to_owner: bool = True) -> bool:
         """Check if a user has permission to use a specific slash command action.
 
         Args:
@@ -812,11 +793,7 @@ class BaseCog(commands.Cog):
 
         return False
 
-    async def check_slash_channel_permission(
-        self,
-        interaction: discord.Interaction,
-        action_name: str
-    ) -> bool:
+    async def check_slash_channel_permission(self, interaction: discord.Interaction, action_name: str) -> bool:
         """Check if a slash command action can be used in the current channel.
 
         Args:
@@ -841,11 +818,7 @@ class BaseCog(commands.Cog):
         # Check if current channel is in allowed list
         return channel_id in allowed_channels
 
-    def get_slash_action_target_channel(
-        self,
-        guild_id: int,
-        action_name: str
-    ) -> Optional[int]:
+    def get_slash_action_target_channel(self, guild_id: int, action_name: str) -> Optional[int]:
         """Get the pre-configured target channel for a slash command action.
 
         This is used for actions that post to a specific channel (like scheduled reposts).
@@ -869,7 +842,7 @@ class BaseCog(commands.Cog):
         allowed_users: Optional[list] = None,
         allowed_roles: Optional[list] = None,
         allowed_channels: Optional[list] = None,
-        target_channel: Optional[int] = None
+        target_channel: Optional[int] = None,
     ) -> None:
         """Set permissions for a slash command action.
 

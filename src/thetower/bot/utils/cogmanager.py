@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from pathlib import Path
 
@@ -19,6 +20,9 @@ class CogManager:
         self.config = ConfigManager()
         self.loaded_cogs = []
         self.unloaded_cogs = []
+
+        # Registry for cog settings views
+        self.cog_settings_registry = {}
 
     async def load_cogs(self) -> None:
         """
@@ -217,8 +221,8 @@ class CogManager:
             The expected class name in PascalCase
         """
         # Split by underscore and capitalize each part
-        parts = filename.split('_')
-        return ''.join(word.capitalize() for word in parts)
+        parts = filename.split("_")
+        return "".join(word.capitalize() for word in parts)
 
     def class_name_to_filename(self, class_name: str) -> str:
         """Convert a cog class name to its filename.
@@ -236,7 +240,8 @@ class CogManager:
         """
         # Insert underscore before uppercase letters (except first)
         import re
-        snake = re.sub('([a-z0-9])([A-Z])', r'\1_\2', class_name)
+
+        snake = re.sub("([a-z0-9])([A-Z])", r"\1_\2", class_name)
         return snake.lower()
 
     def get_cog_by_filename(self, filename: str):
@@ -260,7 +265,7 @@ class CogManager:
             return cog
 
         # Try strategy 2: Class name with spaces (e.g., "Battle Conditions")
-        class_name_with_spaces = ' '.join(word.capitalize() for word in filename.split('_'))
+        class_name_with_spaces = " ".join(word.capitalize() for word in filename.split("_"))
         cog = self.bot.get_cog(class_name_with_spaces)
         if cog:
             return cog
@@ -269,8 +274,8 @@ class CogManager:
         # This handles custom names set in the cog definition
         for cog in self.bot.cogs.values():
             # Check if the cog's module matches the filename
-            if hasattr(cog, '__module__'):
-                module_parts = cog.__module__.split('.')
+            if hasattr(cog, "__module__"):
+                module_parts = cog.__module__.split(".")
                 if module_parts and module_parts[-1] == filename:
                     return cog
 
@@ -317,9 +322,20 @@ class CogManager:
             logger.warning(f"Cannot load cog '{cog_name}' - not enabled by bot owner")
             return False
 
+        # Check if already loaded
+        extension_name = f"thetower.bot.cogs.{cog_name}"
+        if extension_name in self.bot.extensions:
+            # Already loaded, just update tracking lists
+            if cog_name in self.unloaded_cogs:
+                self.unloaded_cogs.remove(cog_name)
+            if cog_name not in self.loaded_cogs:
+                self.loaded_cogs.append(cog_name)
+            logger.info(f"Cog '{cog_name}' already loaded, updated tracking")
+            return True
+
         # Now proceed with loading if allowed
         try:
-            await self.bot.load_extension(f"thetower.bot.cogs.{cog_name}")
+            await self.bot.load_extension(extension_name)
             if cog_name in self.unloaded_cogs:
                 self.unloaded_cogs.remove(cog_name)
             if cog_name not in self.loaded_cogs:
@@ -329,6 +345,33 @@ class CogManager:
         except Exception as e:
             logger.error(f"Failed to load cog '{cog_name}': {str(e)}")
             return False
+
+    def sync_loaded_cogs_with_extensions(self) -> None:
+        """Synchronize the loaded_cogs list with the actual bot extensions.
+
+        This method ensures that the CogManager's tracking lists are accurate
+        by checking what extensions are actually loaded in Discord.py and updating
+        the internal lists accordingly.
+        """
+        # Get all cog extensions that are currently loaded
+        loaded_extensions = set()
+        for extension_name in self.bot.extensions.keys():
+            if extension_name.startswith("thetower.bot.cogs."):
+                cog_name = extension_name.replace("thetower.bot.cogs.", "")
+                loaded_extensions.add(cog_name)
+
+        # Update loaded_cogs list
+        self.loaded_cogs = list(loaded_extensions)
+
+        # Update unloaded_cogs list (cogs that are enabled but not loaded)
+        enabled_cogs = set()
+        for cog_name, config in self.config.get_all_bot_owner_cogs().items():
+            if config.get("enabled", False):
+                enabled_cogs.add(cog_name)
+
+        self.unloaded_cogs = list(enabled_cogs - loaded_extensions)
+
+        logger.info(f"Synchronized cog tracking: {len(self.loaded_cogs)} loaded, {len(self.unloaded_cogs)} unloaded")
 
     async def enable_cog(self, cog_name: str, guild_id: int) -> tuple:
         """Enable a cog for a specific guild.
@@ -372,7 +415,8 @@ class CogManager:
             try:
                 guild = self.bot.get_guild(guild_id)
                 if guild:
-                    self.bot.tree.copy_global_to(guild=guild)
+                    # Add a small delay to avoid rate limiting if multiple syncs happen rapidly
+                    await asyncio.sleep(0.5)
                     await self.bot.tree.sync(guild=guild)
                     logger.info(f"Synced slash commands for guild {guild_id} after enabling cog {cog_name}")
             except Exception as e:
@@ -413,7 +457,7 @@ class CogManager:
             try:
                 guild = self.bot.get_guild(guild_id)
                 if guild:
-                    self.bot.tree.copy_global_to(guild=guild)
+                    await asyncio.sleep(0.5)
                     await self.bot.tree.sync(guild=guild)
                     logger.info(f"Synced slash commands for guild {guild_id} after disabling cog {cog_name}")
             except Exception as e:
@@ -442,18 +486,30 @@ class CogManager:
         enabled_cogs = self.config.get_guild_enabled_cogs(guild_id)
         guild_auth = self.config.get_guild_cog_authorizations(guild_id)
 
-        # Get cog files
+        # Get cog files and directories
         cogs_path = Path(__file__).parent.parent.resolve() / "cogs"
-        available_cogs = [file.stem for file in cogs_path.iterdir() if file.suffix == ".py" and not file.stem.startswith("_")]
+        available_cogs = []
+
+        for item in cogs_path.iterdir():
+            if item.is_file() and item.suffix == ".py" and not item.stem.startswith("_"):
+                # Direct .py files
+                available_cogs.append(item.stem)
+            elif item.is_dir() and (item / "__init__.py").exists():
+                # Package directories with __init__.py
+                available_cogs.append(item.name)
 
         cog_status = []
         for cog in sorted(available_cogs):
             cog_config = bot_owner_cogs.get(cog, {})
             is_allowed = self.config.is_cog_allowed_for_guild(cog, guild_id)
 
+            # Check actual extension loading state instead of tracking list
+            extension_name = f"thetower.bot.cogs.{cog}"
+            is_loaded = extension_name in self.bot.extensions
+
             status = {
                 "name": cog,
-                "loaded": cog in self.loaded_cogs,
+                "loaded": is_loaded,
                 "bot_owner_enabled": cog_config.get("enabled", False),
                 "public": cog_config.get("public", False),
                 "guild_authorized": cog in guild_auth["allowed"],
@@ -754,3 +810,47 @@ class CogManager:
                 await ctx.send(f"✅ Guild {guild_id} is no longer disallowed from using cog `{resolved_cog}`.")
         else:
             await ctx.send(f"ℹ️ Guild {guild_id} was not in the disallow list for cog `{resolved_cog}`.")
+
+    # Cog Settings Registry Methods
+
+    def register_cog_settings_view(self, cog_name: str, settings_view_class: type) -> None:
+        """Register a settings view class for a cog.
+
+        Args:
+            cog_name: The name of the cog (snake_case)
+            settings_view_class: The View class that handles cog settings
+        """
+        self.cog_settings_registry[cog_name] = settings_view_class
+        logger.debug(f"Registered settings view for cog '{cog_name}': {settings_view_class.__name__}")
+
+    def get_cog_settings_view(self, cog_name: str) -> type | None:
+        """Get the registered settings view class for a cog.
+
+        Args:
+            cog_name: The name of the cog (snake_case)
+
+        Returns:
+            The View class for the cog's settings, or None if not registered
+        """
+        return self.cog_settings_registry.get(cog_name)
+
+    def get_enabled_cogs_with_settings(self, guild_id: int) -> list[str]:
+        """Get list of enabled cogs for a guild that have settings views registered.
+
+        Args:
+            guild_id: The guild ID
+
+        Returns:
+            List of cog names that are enabled for the guild and have settings views
+        """
+        enabled_cogs = []
+        all_cogs = self.get_all_cogs_with_config()
+
+        for cog_name in all_cogs.keys():
+            # Check if cog is enabled for this guild
+            if self.can_guild_use_cog(cog_name, guild_id, is_bot_owner=False):
+                # Check if cog has a settings view registered
+                if cog_name in self.cog_settings_registry:
+                    enabled_cogs.append(cog_name)
+
+        return sorted(enabled_cogs)
