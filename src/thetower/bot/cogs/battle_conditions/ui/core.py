@@ -133,7 +133,7 @@ class ScheduleTimeModal(discord.ui.Modal, title="Schedule Time Configuration"):
             from .user import ScheduleLeagueSelect
 
             # Step 3: Show league picker
-            league_view = discord.ui.View(timeout=300)
+            league_view = discord.ui.View(timeout=900)
             league_view.add_item(ScheduleLeagueSelect(self.cog, self.guild_id, self.channel_id, hour, minute, days_before))
 
             await interaction.response.send_message(
@@ -190,7 +190,7 @@ class EditScheduleModal(discord.ui.Modal, title="Edit BC Schedule"):
             from .admin import EditScheduleLeagueSelect
 
             # Show league picker
-            league_view = discord.ui.View(timeout=300)
+            league_view = discord.ui.View(timeout=900)
             league_view.add_item(
                 EditScheduleLeagueSelect(self.cog, self.guild_id, self.schedule_idx, hour, minute, days_before, self.current_leagues)
             )

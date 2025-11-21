@@ -14,7 +14,7 @@ class TourneyAdminView(discord.ui.View):
     """Admin view for tournament statistics management."""
 
     def __init__(self, cog: "TourneyStats"):
-        super().__init__(timeout=600)  # 10 minute timeout
+        super().__init__(timeout=900)  # 10 minute timeout
         self.cog = cog
 
     async def create_admin_embed(self) -> discord.Embed:

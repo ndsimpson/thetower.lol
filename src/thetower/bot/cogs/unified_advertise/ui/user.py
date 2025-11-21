@@ -14,7 +14,7 @@ class AdManagementView(View):
     """View for users to manage their advertisements."""
 
     def __init__(self, cog: "UnifiedAdvertise", user_id: int, guild_id: int):
-        super().__init__(timeout=300)  # 5 minute timeout
+        super().__init__(timeout=900)  # 5 minute timeout
         self.cog = cog
         self.user_id = user_id
         self.guild_id = guild_id

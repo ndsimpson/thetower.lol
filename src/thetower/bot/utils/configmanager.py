@@ -547,6 +547,27 @@ class ConfigManager:
         guild_auth = self.config.setdefault("bot_owner_settings", {}).setdefault("guild_cog_authorizations", {}).get(str(guild_id), {})
         return {"allowed": guild_auth.get("allowed", []).copy(), "disallowed": guild_auth.get("disallowed", []).copy()}
 
+    def get_cog_guild_authorizations(self, cog_name: str) -> Dict[str, list]:
+        """Get the authorization status for a specific cog across all guilds.
+
+        Args:
+            cog_name: The name of the cog
+
+        Returns:
+            Dictionary with 'allowed' and 'disallowed' lists containing guild IDs
+        """
+        guild_auths = self.config.setdefault("bot_owner_settings", {}).setdefault("guild_cog_authorizations", {})
+        allowed_guilds = []
+        disallowed_guilds = []
+
+        for guild_id, auth in guild_auths.items():
+            if cog_name in auth.get("allowed", []):
+                allowed_guilds.append(int(guild_id))
+            elif cog_name in auth.get("disallowed", []):
+                disallowed_guilds.append(int(guild_id))
+
+        return {"allowed": allowed_guilds, "disallowed": disallowed_guilds}
+
     def is_cog_allowed_for_guild(self, cog_name: str, guild_id: int) -> bool:
         """Check if a cog is allowed for a specific guild (bot owner level check).
 

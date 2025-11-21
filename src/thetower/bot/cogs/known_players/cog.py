@@ -400,6 +400,25 @@ class KnownPlayers(BaseCog, name="Known Players", description="Player identity m
 
         return list(discord_ids)
 
+    async def get_discord_to_player_mapping(self) -> Dict[str, Dict[str, Any]]:
+        """Get mapping of Discord IDs to player information for TourneyRoles integration"""
+        await self.wait_until_ready()
+
+        mapping: Dict[str, Dict[str, Any]] = {}
+        for details in self.player_details_cache.values():
+            discord_id = details.get("discord_id")
+            if discord_id:
+                # Create the mapping entry with the expected structure
+                mapping[discord_id] = {
+                    "all_ids": details.get("all_ids", []),
+                    "discord_id": discord_id,
+                    "name": details.get("name", ""),
+                    "player_id": details.get("player_id", ""),
+                    # Include any other fields that might be needed
+                }
+
+        return mapping
+
     async def _load_settings(self) -> None:
         """Load and initialize default settings."""
         # Ensure known_players config section exists

@@ -178,6 +178,14 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
             self.config.save_config()
             self.logger.debug("Saved updated config with default settings")
 
+    async def get_known_players_cog(self):
+        """Get the KnownPlayers cog instance."""
+        return self.bot.get_cog("Known Players")
+
+    async def get_tourney_stats_cog(self):
+        """Get the TourneyStats cog instance."""
+        return self.bot.get_cog("Tourney Stats")
+
     async def get_discord_to_player_mapping(self):
         """Get mapping of Discord IDs to player information from KnownPlayers"""
         known_players_cog = await self.get_known_players_cog()

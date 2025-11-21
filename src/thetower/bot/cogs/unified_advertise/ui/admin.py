@@ -14,7 +14,7 @@ class AdminAdManagementView(View):
     """View for administrators to manage advertisements in the guild."""
 
     def __init__(self, cog: "UnifiedAdvertise", guild_id: int):
-        super().__init__(timeout=600)  # 10 minute timeout
+        super().__init__(timeout=900)  # 10 minute timeout
         self.cog = cog
         self.guild_id = guild_id
 
@@ -37,9 +37,7 @@ class AdminAdManagementView(View):
 
         # Build embed
         embed = discord.Embed(
-            title="Admin Advertisement Management",
-            description="Manage all advertisements in this server",
-            color=discord.Color.red()
+            title="Admin Advertisement Management", description="Manage all advertisements in this server", color=discord.Color.red()
         )
 
         if active_ads:
@@ -52,11 +50,7 @@ class AdminAdManagementView(View):
             embed.add_field(name="Active Advertisements", value="No active advertisements", inline=False)
 
         # Add statistics
-        embed.add_field(
-            name="Statistics",
-            value=f"Total Active Ads: {len(active_ads)}",
-            inline=True
-        )
+        embed.add_field(name="Statistics", value=f"Total Active Ads: {len(active_ads)}", inline=True)
 
         # Update buttons
         self.clear_items()
@@ -110,14 +104,7 @@ class AdminAdManagementView(View):
             await self._delete_ad(interaction, thread_id)
         else:
             # Multiple ads, show selection dropdown
-            options = [
-                discord.SelectOption(
-                    label=name[:80],
-                    value=str(tid),
-                    description=f"By {author}"
-                )
-                for tid, name, author in guild_ads
-            ]
+            options = [discord.SelectOption(label=name[:80], value=str(tid), description=f"By {author}") for tid, name, author in guild_ads]
             select = Select(placeholder="Select advertisement to delete", options=options)
 
             async def select_callback(select_interaction: discord.Interaction):
@@ -136,9 +123,7 @@ class AdminAdManagementView(View):
             await thread.delete()
 
             # Remove from pending deletions
-            self.cog.pending_deletions = [
-                entry for entry in self.cog.pending_deletions if entry[0] != thread_id
-            ]
+            self.cog.pending_deletions = [entry for entry in self.cog.pending_deletions if entry[0] != thread_id]
             await self.cog._save_pending_deletions()
 
             await interaction.response.send_message("✅ Advertisement deleted successfully.", ephemeral=True)
@@ -177,7 +162,7 @@ class AdminAdManagementView(View):
                     label=name[:80],
                     value=str(tid),
                     description=f"By {author} • Notifications {'ON' if notify else 'OFF'}",
-                    emoji="🔔" if notify else "🔕"
+                    emoji="🔔" if notify else "🔕",
                 )
                 for tid, name, author, notify in guild_ads
             ]
@@ -225,6 +210,7 @@ class AdminAdManagementView(View):
     async def create_advertisement(self, interaction: discord.Interaction):
         """Switch to user view for creating an advertisement."""
         from .user import AdManagementView
+
         view = AdManagementView(self.cog, interaction.user.id, self.guild_id)
         embed = await view.update_view(interaction)
         await interaction.response.edit_message(embed=embed, view=view)
@@ -232,6 +218,9 @@ class AdminAdManagementView(View):
     async def open_settings(self, interaction: discord.Interaction):
         """Open the settings view."""
         from .settings import GuildSettingsView
-        view = GuildSettingsView(self.cog, self.guild_id)
+
+        is_bot_owner = await self.cog.bot.is_owner(interaction.user)
+        context = self.cog.SettingsViewContext(self.guild_id, self.cog, interaction, is_bot_owner)
+        view = GuildSettingsView(context)
         embed = await view.update_view(interaction)
         await interaction.response.edit_message(embed=embed, view=view)

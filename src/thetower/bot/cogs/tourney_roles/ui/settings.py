@@ -6,10 +6,12 @@ This module contains:
 - Configuration interfaces for all tournament role settings
 """
 
+from __future__ import annotations
+
 import discord
 from discord import ui
 
-from thetower.bot.basecog import BaseCog
+from thetower.bot.ui.context import SettingsViewContext
 
 from .core import TournamentRolesCore
 
@@ -17,11 +19,11 @@ from .core import TournamentRolesCore
 class TournamentRolesSettingsView(ui.View):
     """Settings view for tournament roles that integrates with global settings."""
 
-    def __init__(self, guild_id: int, cog: BaseCog):
-        super().__init__(timeout=600)
-        self.guild_id = guild_id
-        self.cog = cog
-        self.core = TournamentRolesCore(cog)
+    def __init__(self, context: SettingsViewContext):
+        super().__init__(timeout=900)
+        self.guild_id = context.guild_id
+        self.cog = context.cog_instance
+        self.core = TournamentRolesCore(self.cog)
 
     async def get_settings_embed(self) -> discord.Embed:
         """Create the main settings embed."""
@@ -150,35 +152,40 @@ class TournamentRolesSettingsView(ui.View):
     @ui.button(label="Core Settings", style=discord.ButtonStyle.primary, emoji="⚙️", row=0)
     async def core_settings(self, interaction: discord.Interaction, button: ui.Button):
         """Open core settings menu."""
-        view = CoreSettingsView(self.guild_id, self.cog)
+        context = self.SettingsViewContext(self.guild_id, self.cog, interaction, False)  # is_bot_owner not needed here
+        view = CoreSettingsView(context)
         embed = await view.get_embed()
         await interaction.response.edit_message(embed=embed, view=view)
 
     @ui.button(label="Update Settings", style=discord.ButtonStyle.primary, emoji="🔄", row=0)
     async def update_settings(self, interaction: discord.Interaction, button: ui.Button):
         """Open update settings menu."""
-        view = UpdateSettingsView(self.guild_id, self.cog)
+        context = self.SettingsViewContext(self.guild_id, self.cog, interaction, False)
+        view = UpdateSettingsView(context)
         embed = await view.get_embed()
         await interaction.response.edit_message(embed=embed, view=view)
 
     @ui.button(label="Processing Settings", style=discord.ButtonStyle.primary, emoji="⚡", row=0)
     async def processing_settings(self, interaction: discord.Interaction, button: ui.Button):
         """Open processing settings menu."""
-        view = ProcessingSettingsView(self.guild_id, self.cog)
+        context = self.SettingsViewContext(self.guild_id, self.cog, interaction, False)
+        view = ProcessingSettingsView(context)
         embed = await view.get_embed()
         await interaction.response.edit_message(embed=embed, view=view)
 
     @ui.button(label="Mode Settings", style=discord.ButtonStyle.secondary, emoji="🎭", row=1)
     async def mode_settings(self, interaction: discord.Interaction, button: ui.Button):
         """Open mode settings menu."""
-        view = ModeSettingsView(self.guild_id, self.cog)
+        context = self.SettingsViewContext(self.guild_id, self.cog, interaction, False)
+        view = ModeSettingsView(context)
         embed = await view.get_embed()
         await interaction.response.edit_message(embed=embed, view=view)
 
     @ui.button(label="Logging Settings", style=discord.ButtonStyle.secondary, emoji="📝", row=1)
     async def logging_settings(self, interaction: discord.Interaction, button: ui.Button):
         """Open logging settings menu."""
-        view = LoggingSettingsView(self.guild_id, self.cog)
+        context = self.SettingsViewContext(self.guild_id, self.cog, interaction, False)
+        view = LoggingSettingsView(context)
         embed = await view.get_embed()
         await interaction.response.edit_message(embed=embed, view=view)
 
@@ -254,11 +261,11 @@ class TournamentRolesSettingsView(ui.View):
 class CoreSettingsView(ui.View):
     """View for core tournament roles settings."""
 
-    def __init__(self, guild_id: int, cog: BaseCog):
-        super().__init__(timeout=600)
-        self.guild_id = guild_id
-        self.cog = cog
-        self.core = TournamentRolesCore(cog)
+    def __init__(self, context: SettingsViewContext):
+        super().__init__(timeout=900)
+        self.guild_id = context.guild_id
+        self.cog = context.cog_instance
+        self.core = TournamentRolesCore(self.cog)
 
     async def get_embed(self) -> discord.Embed:
         """Create the core settings embed."""
@@ -346,7 +353,8 @@ class CoreSettingsView(ui.View):
     @ui.button(label="Back", style=discord.ButtonStyle.gray, emoji="⬅️")
     async def back(self, interaction: discord.Interaction, button: ui.Button):
         """Go back to main settings."""
-        main_view = TournamentRolesSettingsView(self.guild_id, self.cog)
+        context = self.cog.SettingsViewContext(self.guild_id, self.cog, interaction, False)
+        main_view = TournamentRolesSettingsView(context)
         embed = await main_view.get_settings_embed()
         await interaction.response.edit_message(embed=embed, view=main_view)
 
@@ -354,11 +362,11 @@ class CoreSettingsView(ui.View):
 class UpdateSettingsView(ui.View):
     """View for update-related settings."""
 
-    def __init__(self, guild_id: int, cog: BaseCog):
-        super().__init__(timeout=600)
-        self.guild_id = guild_id
-        self.cog = cog
-        self.core = TournamentRolesCore(cog)
+    def __init__(self, context: SettingsViewContext):
+        super().__init__(timeout=900)
+        self.guild_id = context.guild_id
+        self.cog = context.cog_instance
+        self.core = TournamentRolesCore(self.cog)
 
     async def get_embed(self) -> discord.Embed:
         """Create the update settings embed."""
@@ -434,7 +442,8 @@ class UpdateSettingsView(ui.View):
     @ui.button(label="Back", style=discord.ButtonStyle.gray, emoji="⬅️")
     async def back(self, interaction: discord.Interaction, button: ui.Button):
         """Go back to main settings."""
-        main_view = TournamentRolesSettingsView(self.guild_id, self.cog)
+        context = self.cog.SettingsViewContext(self.guild_id, self.cog, interaction, False)
+        main_view = TournamentRolesSettingsView(context)
         embed = await main_view.get_settings_embed()
         await interaction.response.edit_message(embed=embed, view=main_view)
 
@@ -467,11 +476,11 @@ class DurationModal(ui.Modal, title="Set Duration"):
 class ProcessingSettingsView(ui.View):
     """View for processing-related settings."""
 
-    def __init__(self, guild_id: int, cog: BaseCog):
-        super().__init__(timeout=600)
-        self.guild_id = guild_id
-        self.cog = cog
-        self.core = TournamentRolesCore(cog)
+    def __init__(self, context: SettingsViewContext):
+        super().__init__(timeout=900)
+        self.guild_id = context.guild_id
+        self.cog = context.cog_instance
+        self.core = TournamentRolesCore(self.cog)
 
     async def get_embed(self) -> discord.Embed:
         """Create the processing settings embed."""
@@ -536,13 +545,14 @@ class ProcessingSettingsView(ui.View):
             minutes = modal.result
             seconds = minutes * 60
             self.cog.set_setting("error_retry_delay", seconds, guild_id=self.guild_id)
-            embed = await self.get_embed()
-            await interaction.followup.edit_message(interaction.message.id, embed=embed, view=self)
+        embed = await self.get_embed()
+        await interaction.followup.edit_message(interaction.message.id, embed=embed, view=self)
 
     @ui.button(label="Back", style=discord.ButtonStyle.gray, emoji="⬅️")
     async def back(self, interaction: discord.Interaction, button: ui.Button):
         """Go back to main settings."""
-        main_view = TournamentRolesSettingsView(self.guild_id, self.cog)
+        context = self.cog.SettingsViewContext(self.guild_id, self.cog, interaction, False)
+        main_view = TournamentRolesSettingsView(context)
         embed = await main_view.get_settings_embed()
         await interaction.response.edit_message(embed=embed, view=main_view)
 
@@ -579,11 +589,11 @@ class NumberModal(ui.Modal, title="Set Number Value"):
 class ModeSettingsView(ui.View):
     """View for mode-related settings."""
 
-    def __init__(self, guild_id: int, cog: BaseCog):
-        super().__init__(timeout=600)
-        self.guild_id = guild_id
-        self.cog = cog
-        self.core = TournamentRolesCore(cog)
+    def __init__(self, context: SettingsViewContext):
+        super().__init__(timeout=900)
+        self.guild_id = context.guild_id
+        self.cog = context.cog_instance
+        self.core = TournamentRolesCore(self.cog)
 
     async def get_embed(self) -> discord.Embed:
         """Create the mode settings embed."""
@@ -644,7 +654,8 @@ class ModeSettingsView(ui.View):
     @ui.button(label="Back", style=discord.ButtonStyle.gray, emoji="⬅️")
     async def back(self, interaction: discord.Interaction, button: ui.Button):
         """Go back to main settings."""
-        main_view = TournamentRolesSettingsView(self.guild_id, self.cog)
+        context = self.cog.SettingsViewContext(self.guild_id, self.cog, interaction, False)
+        main_view = TournamentRolesSettingsView(context)
         embed = await main_view.get_settings_embed()
         await interaction.response.edit_message(embed=embed, view=main_view)
 
@@ -652,11 +663,11 @@ class ModeSettingsView(ui.View):
 class LoggingSettingsView(ui.View):
     """View for logging-related settings."""
 
-    def __init__(self, guild_id: int, cog: BaseCog):
-        super().__init__(timeout=600)
-        self.guild_id = guild_id
-        self.cog = cog
-        self.core = TournamentRolesCore(cog)
+    def __init__(self, context: SettingsViewContext):
+        super().__init__(timeout=900)
+        self.guild_id = context.guild_id
+        self.cog = context.cog_instance
+        self.core = TournamentRolesCore(self.cog)
 
     async def get_embed(self) -> discord.Embed:
         """Create the logging settings embed."""
@@ -749,6 +760,7 @@ class LoggingSettingsView(ui.View):
     @ui.button(label="Back", style=discord.ButtonStyle.gray, emoji="⬅️")
     async def back(self, interaction: discord.Interaction, button: ui.Button):
         """Go back to main settings."""
-        main_view = TournamentRolesSettingsView(self.guild_id, self.cog)
+        context = self.cog.SettingsViewContext(self.guild_id, self.cog, interaction, False)
+        main_view = TournamentRolesSettingsView(context)
         embed = await main_view.get_settings_embed()
         await interaction.response.edit_message(embed=embed, view=main_view)

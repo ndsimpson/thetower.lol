@@ -11,7 +11,7 @@ class BCSettingsView(discord.ui.View):
     """View for managing BC settings."""
 
     def __init__(self, cog, is_bot_owner: bool = False):
-        super().__init__(timeout=300)
+        super().__init__(timeout=900)
         self.cog = cog
 
         # Add buttons for different settings
@@ -40,7 +40,7 @@ class ConfigureLeaguesButton(discord.ui.Button):
 
         # Create select menu with all leagues
         league_select = LeagueSelect(cog, enabled_leagues)
-        select_view = discord.ui.View(timeout=300)
+        select_view = discord.ui.View(timeout=900)
         select_view.add_item(league_select)
 
         await interaction.response.send_message("Select which leagues to enable:", view=select_view, ephemeral=True)
@@ -127,7 +127,7 @@ class ScheduleManagementView(discord.ui.View):
     """View for managing BC schedules."""
 
     def __init__(self, cog, guild_id: int, schedules: list, can_manage: bool = False):
-        super().__init__(timeout=300)
+        super().__init__(timeout=900)
         self.cog = cog
         self.guild_id = guild_id
         self.schedules = schedules
@@ -152,7 +152,7 @@ class CreateScheduleButton(discord.ui.Button):
 
     async def callback(self, interaction: discord.Interaction):
         # Step 1: Show channel picker
-        channel_view = discord.ui.View(timeout=300)
+        channel_view = discord.ui.View(timeout=900)
         channel_view.add_item(ScheduleChannelSelect(self.view.cog, self.view.guild_id))
 
         await interaction.response.send_message(
@@ -191,7 +191,7 @@ class EditScheduleButton(discord.ui.Button):
         view: ScheduleManagementView = self.view
 
         # Show schedule selector
-        select_view = discord.ui.View(timeout=300)
+        select_view = discord.ui.View(timeout=900)
         select_view.add_item(EditScheduleSelect(view.cog, view.schedules, view.guild_id))
 
         await interaction.response.send_message("Select a schedule to edit:", view=select_view, ephemeral=True)
@@ -272,7 +272,7 @@ class DeleteScheduleButton(discord.ui.Button):
         view: ScheduleManagementView = self.view
 
         # Show schedule selector
-        select_view = discord.ui.View(timeout=300)
+        select_view = discord.ui.View(timeout=900)
         select_view.add_item(DeleteScheduleSelect(view.cog, view.schedules, view.guild_id))
 
         await interaction.response.send_message("Select a schedule to delete:", view=select_view, ephemeral=True)
@@ -327,7 +327,7 @@ class TogglePauseScheduleButton(discord.ui.Button):
         view: ScheduleManagementView = self.view
 
         # Show schedule selector
-        select_view = discord.ui.View(timeout=300)
+        select_view = discord.ui.View(timeout=900)
         select_view.add_item(TogglePauseSelect(view.bc_cog, view.schedules, view.guild_id))
 
         await interaction.response.send_message("Select a schedule to pause/resume:", view=select_view, ephemeral=True)
@@ -401,7 +401,7 @@ class BCPermissionsView(discord.ui.View):
     """View for configuring BC action permissions."""
 
     def __init__(self, cog):
-        super().__init__(timeout=300)
+        super().__init__(timeout=900)
         self.cog = cog
 
         self.add_item(ConfigureGeneratePermButton())
@@ -440,7 +440,7 @@ class ConfigureGeneratePermButton(discord.ui.Button):
 
         # Create mentionable select with default values
         mentionable_select = ActionMentionableSelect(cog, "generate", guild_id)
-        select_view = discord.ui.View(timeout=300)
+        select_view = discord.ui.View(timeout=900)
         select_view.add_item(mentionable_select)
 
         await interaction.response.send_message(
@@ -480,7 +480,7 @@ class ConfigureRunSchedulePermButton(discord.ui.Button):
 
         # Create mentionable select with default values
         mentionable_select = ActionMentionableSelect(cog, "run_schedule", guild_id)
-        select_view = discord.ui.View(timeout=300)
+        select_view = discord.ui.View(timeout=900)
         select_view.add_item(mentionable_select)
 
         await interaction.response.send_message(
@@ -520,7 +520,7 @@ class ConfigureManageSchedulesPermButton(discord.ui.Button):
 
         # Create mentionable select with default values
         mentionable_select = ActionMentionableSelect(cog, "manage_schedules", guild_id)
-        select_view = discord.ui.View(timeout=300)
+        select_view = discord.ui.View(timeout=900)
         select_view.add_item(mentionable_select)
 
         await interaction.response.send_message(
@@ -574,7 +574,7 @@ class ConfigureChannelsPermButton(discord.ui.Button):
         current_text = "**Current Channel Restrictions:**\n" + "\n".join(restrictions) + "\n\n"
 
         # Show action selector
-        action_view = discord.ui.View(timeout=300)
+        action_view = discord.ui.View(timeout=900)
         action_view.add_item(ChannelRestrictionActionSelect(cog, guild_id))
 
         await interaction.response.send_message(
@@ -673,7 +673,7 @@ class ChannelRestrictionActionSelect(discord.ui.Select):
             current_mode = "specific"
 
         # Show restriction mode selector
-        mode_view = discord.ui.View(timeout=300)
+        mode_view = discord.ui.View(timeout=900)
         mode_view.add_item(ChannelRestrictionModeSelect(self.cog, action_name, self.guild_id, current_mode, current_channels))
 
         action_display = action_name.replace("_", " ").title()
@@ -738,7 +738,7 @@ class ChannelRestrictionModeSelect(discord.ui.Select):
 
         elif selected_mode == "specific":
             # Show channel selector
-            channel_view = discord.ui.View(timeout=300)
+            channel_view = discord.ui.View(timeout=900)
             channel_view.add_item(ActionChannelSelect(self.cog, self.action_name, self.guild_id, self.current_channels))
 
             current_text = ""

@@ -13,6 +13,7 @@ from discord.ext.commands import Context
 
 # Local application imports
 from thetower.bot.exceptions import ChannelUnauthorized, UserUnauthorized
+from thetower.bot.ui.context import SettingsViewContext
 from thetower.bot.utils import ConfigManager
 from thetower.bot.utils.data_management import DataManager
 from thetower.bot.utils.task_tracker import TaskTracker
@@ -33,6 +34,9 @@ class BaseCog(commands.Cog):
     - Task status tracking
     - Logging
     """
+
+    # Make SettingsViewContext available to all cogs without individual imports
+    SettingsViewContext = SettingsViewContext
 
     def __init__(self, bot):
         super().__init__()  # Initialize commands.Cog

@@ -7,13 +7,14 @@ from discord.ui import Button, View
 
 # Local imports
 # Note: This will be imported by bot.py, so we need to be careful about circular imports
+from thetower.bot.ui.context import SettingsViewContext
 
 
 class SettingsMainView(View):
     """Main settings view that branches based on user permissions."""
 
     def __init__(self, is_bot_owner: bool, guild_id: Optional[int] = None):
-        super().__init__(timeout=600)  # 10 minute timeout
+        super().__init__(timeout=900)  # 15 minute timeout
         self.is_bot_owner = is_bot_owner
         self.guild_id = guild_id
 
@@ -89,7 +90,7 @@ class BotOwnerSettingsView(View):
     """Settings view for bot owners with full access."""
 
     def __init__(self):
-        super().__init__(timeout=600)
+        super().__init__(timeout=900)
 
         # Set default prefix button
         prefix_btn = Button(label="Set Default Prefix", style=discord.ButtonStyle.primary, emoji="🔤", custom_id="set_default_prefix")
@@ -119,14 +120,102 @@ class BotOwnerSettingsView(View):
 
     async def show_cog_management(self, interaction: discord.Interaction):
         """Show the cog management interface."""
-        # Create cog management view and update display
+        # Create cog management view
         view = CogManagementView()
-        await view.update_display(interaction)
+
+        # Populate the view and create initial embed
+        bot = interaction.client
+        all_cogs = bot.cog_manager.get_all_cogs_with_config()
+
+        # Populate cog selector
+        view.cog_select.options = []
+        if all_cogs:
+            for cog_name in sorted(all_cogs.keys()):
+                config = all_cogs[cog_name]
+                enabled = config.get("enabled", False)
+                loaded = f"thetower.bot.cogs.{cog_name}" in bot.extensions
+                public = config.get("public", False)
+
+                # Create description showing status
+                status_parts = []
+                if enabled:
+                    status_parts.append("✅")
+                else:
+                    status_parts.append("❌")
+
+                if loaded:
+                    status_parts.append("🟢")
+                else:
+                    status_parts.append("🔴")
+
+                if public:
+                    status_parts.append("🌐")
+                else:
+                    status_parts.append("🔒")
+
+                description = " ".join(status_parts)
+
+                option = discord.SelectOption(label=cog_name, value=cog_name, description=description)
+                view.cog_select.options.append(option)
+        else:
+            # Add placeholder option when no cogs exist
+            option = discord.SelectOption(label="No cogs available", value="none", description="No cogs found in the system")
+            view.cog_select.options.append(option)
+
+        # Create initial embed
+        embed = discord.Embed(
+            title="⚙️ Cog Management",
+            description="View all cogs and their status. Select a cog from the dropdown to manage it.",
+            color=discord.Color.blue(),
+        )
+
+        # Show all cogs status
+        if all_cogs:
+            cog_status_lines = []
+            for cog_name in sorted(all_cogs.keys()):
+                config = all_cogs[cog_name]
+                enabled = config.get("enabled", False)
+                loaded = f"thetower.bot.cogs.{cog_name}" in bot.extensions
+                public = config.get("public", False)
+
+                # Create status indicators
+                status_parts = []
+                if enabled:
+                    status_parts.append("✅")
+                else:
+                    status_parts.append("❌")
+
+                if loaded:
+                    status_parts.append("🟢")
+                else:
+                    status_parts.append("🔴")
+
+                if public:
+                    status_parts.append("🌐")
+                else:
+                    status_parts.append("🔒")
+
+                status = " ".join(status_parts)
+
+                cog_status_lines.append(f"`{cog_name}` {status}")
+
+            embed.add_field(name=f"All Cogs ({len(all_cogs)})", value="\n".join(cog_status_lines), inline=False)
+        else:
+            embed.add_field(name="Cogs", value="No cogs found in the system", inline=False)
+
+        # Enable/disable action buttons based on available cogs
+        has_cogs = len(all_cogs) > 0
+        view.cog_select.disabled = not has_cogs
+        view.enable_btn.disabled = not has_cogs
+        view.visibility_btn.disabled = not has_cogs
+        view.control_btn.disabled = not has_cogs
+
+        await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
 
     async def set_error_channel(self, interaction: discord.Interaction):
         """Set the error logging channel."""
         # Create channel selector
-        view = View(timeout=60)
+        view = View(timeout=900)
         channel_select = ui.ChannelSelect(
             placeholder="Select channel for error logs", channel_types=[discord.ChannelType.text], min_values=0, max_values=1
         )
@@ -173,7 +262,7 @@ class GuildPrefixManagementView(View):
     """View for managing guild-specific prefixes."""
 
     def __init__(self, guild_id: int):
-        super().__init__(timeout=600)
+        super().__init__(timeout=900)
         self.guild_id = guild_id
         self.selected_prefix_index = None
         self.status_message = None
@@ -446,7 +535,7 @@ class GuildOwnerSettingsView(View):
     """Settings view for guild owners with limited access."""
 
     def __init__(self, guild_id: int):
-        super().__init__(timeout=600)
+        super().__init__(timeout=900)
         self.guild_id = guild_id
 
         # Set guild prefix button - now opens management view
@@ -565,7 +654,97 @@ class GuildOwnerSettingsView(View):
         """Open cog settings management view."""
         # Create cog settings view
         view = CogSettingsView(self.guild_id)
-        await view.update_display(interaction)
+
+        # Populate the view and create initial embed
+        bot = interaction.client
+        cog_status_list, _ = bot.cog_manager.get_cog_status_list(self.guild_id)
+        available_cogs = [status for status in cog_status_list if status["guild_can_use"]]
+
+        # Populate cog selector
+        view.cog_select.options = []
+        if available_cogs:
+            for status in available_cogs:
+                cog_name = status["name"]
+                enabled = status["guild_enabled"]
+                has_settings = cog_name in bot.cog_manager.cog_settings_registry
+
+                # Create description showing status
+                status_parts = []
+                if enabled:
+                    status_parts.append("✅")
+                else:
+                    status_parts.append("❌")
+
+                if has_settings:
+                    status_parts.append("⚙️")
+                else:
+                    status_parts.append("🚫")
+
+                description = " ".join(status_parts)
+
+                option = discord.SelectOption(label=cog_name.replace("_", " ").title(), value=cog_name, description=description)
+                view.cog_select.options.append(option)
+        else:
+            # Add placeholder option when no cogs are available
+            option = discord.SelectOption(label="No cogs enabled", value="none", description="No cogs are enabled for this server")
+            view.cog_select.options.append(option)
+
+        # Create initial embed
+        embed = discord.Embed(
+            title="⚙️ Cog Settings",
+            description="Manage cogs for this server. Select a cog to enable/disable it or configure its settings.",
+            color=discord.Color.blue(),
+        )
+
+        if available_cogs:
+            cog_list = []
+            for status in available_cogs:
+                cog_name = status["name"]
+                enabled = status["guild_enabled"]
+                has_settings = cog_name in bot.cog_manager.cog_settings_registry
+
+                display_name = cog_name.replace("_", " ").title()
+
+                # Create status indicators
+                status_parts = []
+                if enabled:
+                    status_parts.append("✅")
+                else:
+                    status_parts.append("❌")
+
+                if has_settings:
+                    status_parts.append("⚙️")
+                else:
+                    status_parts.append("🚫")
+
+                status_str = " ".join(status_parts)
+
+                cog_list.append(f"`{display_name}` {status_str}")
+
+            embed.add_field(name=f"Available Cogs ({len(available_cogs)})", value="\n".join(cog_list), inline=False)
+
+            # Show legend
+            legend = [
+                "✅ = Enabled for this server",
+                "❌ = Disabled for this server",
+                "⚙️ = Has configurable settings",
+                "🚫 = No configurable settings",
+            ]
+            embed.add_field(name="Legend", value="\n".join(legend), inline=False)
+        else:
+            embed.add_field(
+                name="No Cogs Available",
+                value="No cogs are currently available for this server.\n\n" "Contact the bot owner if you believe this is an error.",
+                inline=False,
+            )
+
+        # Enable/disable buttons based on available cogs
+        has_cogs = len(available_cogs) > 0
+        view.cog_select.disabled = not has_cogs
+        view.toggle_btn.disabled = not has_cogs
+        view.configure_btn.disabled = True  # No selection yet
+
+        await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
 
     async def clear_prefix(self, interaction: discord.Interaction):
         """Clear guild-specific prefix to use default."""
@@ -606,7 +785,7 @@ class CogSettingsView(View):
     """View for managing cog enable/disable and settings for a guild."""
 
     def __init__(self, guild_id: int):
-        super().__init__(timeout=600)
+        super().__init__(timeout=900)
         self.guild_id = guild_id
         self.selected_cog = None
         self.status_message = None
@@ -795,6 +974,9 @@ class CogSettingsView(View):
 
         currently_enabled = selected_status["guild_enabled"]
 
+        # Defer the response for potentially long-running operations
+        await interaction.response.defer()
+
         # Toggle the cog
         if currently_enabled:
             success_msg, error_msg = await bot.cog_manager.disable_cog(self.selected_cog, self.guild_id)
@@ -807,8 +989,121 @@ class CogSettingsView(View):
         if error_msg:
             self.status_message = error_msg
 
-        # Refresh display
-        await self.update_display(interaction)
+        # Send follow-up with updated display
+        embed = discord.Embed(
+            title="⚙️ Cog Settings",
+            description="Manage cogs for this server. Select a cog to enable/disable it or configure its settings.",
+            color=discord.Color.blue(),
+        )
+
+        # Add status message
+        if self.status_message:
+            embed.add_field(name="Status", value=self.status_message, inline=False)
+            self.status_message = None  # Clear after displaying
+
+        # Re-populate cog selector
+        cog_status_list, _ = bot.cog_manager.get_cog_status_list(self.guild_id)
+        available_cogs = [status for status in cog_status_list if status["guild_can_use"]]
+
+        self.cog_select.options = []
+        if available_cogs:
+            for status in available_cogs:
+                cog_name = status["name"]
+                enabled = status["guild_enabled"]
+                has_settings = cog_name in bot.cog_manager.cog_settings_registry
+
+                # Create description showing status
+                status_parts = []
+                if enabled:
+                    status_parts.append("✅")
+                else:
+                    status_parts.append("❌")
+
+                if has_settings:
+                    status_parts.append("⚙️")
+                else:
+                    status_parts.append("🚫")
+
+                description = " ".join(status_parts)
+
+                option = discord.SelectOption(label=cog_name.replace("_", " ").title(), value=cog_name, description=description)
+                self.cog_select.options.append(option)
+
+        if available_cogs:
+            cog_list = []
+            for status in available_cogs:
+                cog_name = status["name"]
+                enabled = status["guild_enabled"]
+                has_settings = cog_name in bot.cog_manager.cog_settings_registry
+
+                display_name = cog_name.replace("_", " ").title()
+
+                # Create status indicators
+                status_parts = []
+                if enabled:
+                    status_parts.append("✅")
+                else:
+                    status_parts.append("❌")
+
+                if has_settings:
+                    status_parts.append("⚙️")
+                else:
+                    status_parts.append("🚫")
+
+                status_str = " ".join(status_parts)
+
+                # Highlight selected cog
+                if self.selected_cog == cog_name:
+                    cog_list.append(f"**`{display_name}`** {status_str} ← Selected")
+                else:
+                    cog_list.append(f"`{display_name}` {status_str}")
+
+            embed.add_field(name=f"Available Cogs ({len(available_cogs)})", value="\n".join(cog_list), inline=False)
+
+            # Show legend
+            legend = [
+                "✅ = Enabled for this server",
+                "❌ = Disabled for this server",
+                "⚙️ = Has configurable settings",
+                "🚫 = No configurable settings",
+            ]
+            embed.add_field(name="Legend", value="\n".join(legend), inline=False)
+
+            if self.selected_cog:
+                selected_status = next((s for s in available_cogs if s["name"] == self.selected_cog), None)
+                if selected_status:
+                    enabled = selected_status["guild_enabled"]
+                    has_settings = self.selected_cog in bot.cog_manager.cog_settings_registry
+
+                    embed.add_field(
+                        name=f"Selected: {self.selected_cog.replace('_', ' ').title()}",
+                        value=f"**Status:** {'✅ Enabled' if enabled else '❌ Disabled'}\n"
+                        f"**Settings:** {'⚙️ Available' if has_settings else '🚫 Not available'}\n\n"
+                        f"Use 'Enable/Disable' to toggle this cog for this server.\n"
+                        f"{'Use \'Configure Settings\' to access its settings.' if enabled and has_settings else ''}",
+                        inline=False,
+                    )
+
+        # Enable/disable buttons based on selection and cog status
+        has_selection = self.selected_cog is not None and any(s["name"] == self.selected_cog for s in available_cogs)
+        has_cogs = len(available_cogs) > 0
+
+        self.cog_select.disabled = not has_cogs
+        self.toggle_btn.disabled = not (has_selection and has_cogs)
+
+        # Configure button only enabled for selected cog that is enabled and has settings
+        if has_selection:
+            selected_status = next((s for s in available_cogs if s["name"] == self.selected_cog), None)
+            if selected_status:
+                enabled = selected_status["guild_enabled"]
+                has_settings = self.selected_cog in bot.cog_manager.cog_settings_registry
+                self.configure_btn.disabled = not (enabled and has_settings)
+            else:
+                self.configure_btn.disabled = True
+        else:
+            self.configure_btn.disabled = True
+
+        await interaction.followup.send(embed=embed, view=self)
 
     async def configure_cog(self, interaction: discord.Interaction):
         """Open the settings view for the selected cog."""
@@ -832,37 +1127,45 @@ class CogSettingsView(View):
 
         # Create and display the cog's settings view
         try:
-            # Try different constructor signatures in order of preference
-            view = None
-
             # Check if user is bot owner for settings that need it
             is_bot_owner = await interaction.client.is_owner(interaction.user)
 
-            # Try 1: (guild_id, cog_instance) - for views that need guild and cog context
+            # Create context object
+            context = SettingsViewContext(guild_id=self.guild_id, cog_instance=cog_instance, interaction=interaction, is_bot_owner=is_bot_owner)
+
+            # Try the new unified constructor first
             try:
-                view = settings_view_class(self.guild_id, cog_instance)
+                view = settings_view_class(context)
             except TypeError:
-                # Try 2: (cog_instance, interaction, is_bot_owner) - for views that need user context and owner status
+                # Fallback to old signature-guessing logic for backwards compatibility
+                # Try different constructor signatures in order of preference
+                view = None
+
+                # Try 1: (guild_id, cog_instance) - for views that need guild and cog context
                 try:
-                    view = settings_view_class(cog_instance, interaction, is_bot_owner)
+                    view = settings_view_class(self.guild_id, cog_instance)
                 except TypeError:
-                    # Try 3: (cog_instance, interaction) - for views that need user context
+                    # Try 2: (cog_instance, interaction, is_bot_owner) - for views that need user context and owner status
                     try:
-                        view = settings_view_class(cog_instance, interaction)
+                        view = settings_view_class(cog_instance, interaction, is_bot_owner)
                     except TypeError:
-                        # Try 4: (cog_instance, guild_id) - for views that need guild context
+                        # Try 3: (cog_instance, interaction) - for views that need user context
                         try:
-                            view = settings_view_class(cog_instance, self.guild_id)
+                            view = settings_view_class(cog_instance, interaction)
                         except TypeError:
-                            # Try 5: (guild_id) - for views that only need guild context
+                            # Try 4: (cog_instance, guild_id) - for views that need guild context
                             try:
-                                view = settings_view_class(self.guild_id)
+                                view = settings_view_class(cog_instance, self.guild_id)
                             except TypeError:
-                                # Try 6: (cog_instance) - for views that only need cog context
+                                # Try 5: (guild_id) - for views that only need guild context
                                 try:
-                                    view = settings_view_class(cog_instance)
-                                except TypeError as e:
-                                    raise TypeError(f"Could not determine constructor signature for {settings_view_class.__name__}: {e}")
+                                    view = settings_view_class(self.guild_id)
+                                except TypeError:
+                                    # Try 6: (cog_instance) - for views that only need cog context
+                                    try:
+                                        view = settings_view_class(cog_instance)
+                                    except TypeError as e:
+                                        raise TypeError(f"Could not determine constructor signature for {settings_view_class.__name__}: {e}")
 
             # Call update_display if it exists
             if hasattr(view, "update_display"):
@@ -937,7 +1240,7 @@ class CogVisibilityView(View):
     """View for managing cog visibility and server authorizations."""
 
     def __init__(self, cog_name: str):
-        super().__init__(timeout=600)
+        super().__init__(timeout=900)
         self.cog_name = cog_name
         self.selected_guild = None
         self.status_message = None
@@ -971,7 +1274,7 @@ class CogVisibilityView(View):
         is_public = config.get("public", False)
 
         # Get guild authorizations
-        guild_auth = bot.cog_manager.config.get_guild_cog_authorizations(self.cog_name)
+        guild_auth = bot.cog_manager.config.get_cog_guild_authorizations(self.cog_name)
 
         # Clear all children and recreate the view completely
         self.clear_items()
@@ -1118,7 +1421,11 @@ class CogVisibilityView(View):
             except ValueError:
                 pass
 
-        await interaction.response.edit_message(embed=embed, view=self)
+        try:
+            await interaction.response.edit_message(embed=embed, view=self)
+        except discord.NotFound:
+            # Interaction has expired, ignore the error
+            pass
 
     async def select_guild(self, interaction: discord.Interaction):
         """Handle guild selection."""
@@ -1253,7 +1560,7 @@ class BotPrefixManagementView(View):
     """View for managing the default bot prefixes."""
 
     def __init__(self):
-        super().__init__(timeout=600)
+        super().__init__(timeout=900)
         self.selected_prefix_index = None
         self.status_message = None
 
@@ -1477,7 +1784,7 @@ class CogManagementView(View):
     """View for managing cogs globally."""
 
     def __init__(self):
-        super().__init__(timeout=600)
+        super().__init__(timeout=900)
         self.selected_cog = None
         self.status_message = None
 
@@ -1626,7 +1933,11 @@ class CogManagementView(View):
         self.visibility_btn.disabled = not (has_selection and has_cogs)
         self.control_btn.disabled = not (has_selection and has_cogs)
 
-        await interaction.response.edit_message(embed=embed, view=self)
+        try:
+            await interaction.response.edit_message(embed=embed, view=self)
+        except discord.NotFound:
+            # Interaction has expired, ignore the error
+            pass
 
     async def select_cog(self, interaction: discord.Interaction):
         """Handle cog selection."""
@@ -1651,6 +1962,9 @@ class CogManagementView(View):
 
         bot.cog_manager.config.set_bot_owner_cog_enabled(self.selected_cog, new_state)
 
+        # Defer the response to handle potentially long-running operations
+        await interaction.response.defer()
+
         # If enabling, try to load; if disabling, unload
         if new_state:
             await bot.cog_manager.load_cog(self.selected_cog)
@@ -1661,8 +1975,111 @@ class CogManagementView(View):
 
         self.status_message = f"✅ Cog `{self.selected_cog}` has been {action}."
 
-        # Refresh display
-        await self.update_display(interaction)
+        # Send follow-up message since we deferred
+        embed = discord.Embed(
+            title="⚙️ Cog Management",
+            description="View all cogs and their status. Select a cog from the dropdown to manage it.",
+            color=discord.Color.blue(),
+        )
+
+        # Add status message
+        embed.add_field(name="Status", value=self.status_message, inline=False)
+        self.status_message = None  # Clear after displaying
+
+        # Re-populate the view for the follow-up
+        all_cogs = bot.cog_manager.get_all_cogs_with_config()
+
+        # Update cog selector options
+        self.cog_select.options = []
+        if all_cogs:
+            for cog_name in sorted(all_cogs.keys()):
+                config = all_cogs[cog_name]
+                enabled = config.get("enabled", False)
+                loaded = f"thetower.bot.cogs.{cog_name}" in bot.extensions
+                public = config.get("public", False)
+
+                # Create description showing status
+                status_parts = []
+                if enabled:
+                    status_parts.append("✅")
+                else:
+                    status_parts.append("❌")
+
+                if loaded:
+                    status_parts.append("🟢")
+                else:
+                    status_parts.append("🔴")
+
+                if public:
+                    status_parts.append("🌐")
+                else:
+                    status_parts.append("🔒")
+
+                description = " ".join(status_parts)
+
+                option = discord.SelectOption(label=cog_name, value=cog_name, description=description)
+                self.cog_select.options.append(option)
+
+        # Show all cogs status
+        if all_cogs:
+            cog_status_lines = []
+            for cog_name in sorted(all_cogs.keys()):
+                config = all_cogs[cog_name]
+                enabled = config.get("enabled", False)
+                loaded = f"thetower.bot.cogs.{cog_name}" in bot.extensions
+                public = config.get("public", False)
+
+                # Create status indicators
+                status_parts = []
+                if enabled:
+                    status_parts.append("✅")
+                else:
+                    status_parts.append("❌")
+
+                if loaded:
+                    status_parts.append("🟢")
+                else:
+                    status_parts.append("🔴")
+
+                if public:
+                    status_parts.append("🌐")
+                else:
+                    status_parts.append("🔒")
+
+                status = " ".join(status_parts)
+
+                # Highlight selected cog
+                if self.selected_cog == cog_name:
+                    cog_status_lines.append(f"**`{cog_name}`** {status} ← Selected")
+                else:
+                    cog_status_lines.append(f"`{cog_name}` {status}")
+
+            embed.add_field(name=f"All Cogs ({len(all_cogs)})", value="\n".join(cog_status_lines), inline=False)
+
+            # Show selected cog details if any
+            if self.selected_cog and self.selected_cog in all_cogs:
+                config = all_cogs[self.selected_cog]
+                enabled = config.get("enabled", False)
+                loaded = f"thetower.bot.cogs.{self.selected_cog}" in bot.extensions
+                public = config.get("public", False)
+
+                embed.add_field(
+                    name=f"Details: {self.selected_cog}",
+                    value=f"**Enabled:** {'✅ Yes' if enabled else '❌ No'}\n"
+                    f"**Loaded:** {'🟢 Yes' if loaded else '🔴 No'}\n"
+                    f"**Visibility:** {'🌐 Public' if public else '🔒 Private'}",
+                    inline=False,
+                )
+
+        # Enable/disable action buttons based on selection
+        has_selection = self.selected_cog is not None
+        has_cogs = len(all_cogs) > 0
+        self.cog_select.disabled = not has_cogs
+        self.enable_btn.disabled = not (has_selection and has_cogs)
+        self.visibility_btn.disabled = not (has_selection and has_cogs)
+        self.control_btn.disabled = not (has_selection and has_cogs)
+
+        await interaction.followup.send(embed=embed, view=self)
 
     async def set_visibility(self, interaction: discord.Interaction):
         """Set a cog's visibility with granular server control."""
@@ -1688,7 +2105,7 @@ class CogManagementView(View):
 
         if loaded:
             # Offer reload or unload
-            view = View(timeout=60)
+            view = View(timeout=900)
 
             reload_btn = Button(label="Reload", style=discord.ButtonStyle.primary, emoji="🔄", custom_id="reload_cog")
             reload_btn.callback = self.do_reload
@@ -1700,6 +2117,9 @@ class CogManagementView(View):
 
             await interaction.response.send_message(f"What would you like to do with `{self.selected_cog}`?", view=view, ephemeral=True)
         else:
+            # Defer the response for potentially long-running load operation
+            await interaction.response.defer()
+
             # Try to load
             success = await bot.cog_manager.load_cog(self.selected_cog)
             if success:
@@ -1707,30 +2127,343 @@ class CogManagementView(View):
             else:
                 self.status_message = f"❌ Failed to load cog `{self.selected_cog}`. Check logs for details."
 
-            # Refresh display
-            await self.update_display(interaction)
+            # Send follow-up with updated display
+            embed = discord.Embed(
+                title="⚙️ Cog Management",
+                description="View all cogs and their status. Select a cog from the dropdown to manage it.",
+                color=discord.Color.blue(),
+            )
+
+            # Add status message
+            embed.add_field(name="Status", value=self.status_message, inline=False)
+            self.status_message = None  # Clear after displaying
+
+            # Re-populate the view for the follow-up
+            all_cogs = bot.cog_manager.get_all_cogs_with_config()
+
+            # Update cog selector options
+            self.cog_select.options = []
+            if all_cogs:
+                for cog_name in sorted(all_cogs.keys()):
+                    config = all_cogs[cog_name]
+                    enabled = config.get("enabled", False)
+                    loaded = f"thetower.bot.cogs.{cog_name}" in bot.extensions
+                    public = config.get("public", False)
+
+                    # Create description showing status
+                    status_parts = []
+                    if enabled:
+                        status_parts.append("✅")
+                    else:
+                        status_parts.append("❌")
+
+                    if loaded:
+                        status_parts.append("🟢")
+                    else:
+                        status_parts.append("🔴")
+
+                    if public:
+                        status_parts.append("🌐")
+                    else:
+                        status_parts.append("🔒")
+
+                    description = " ".join(status_parts)
+
+                    option = discord.SelectOption(label=cog_name, value=cog_name, description=description)
+                    self.cog_select.options.append(option)
+
+            # Show all cogs status
+            if all_cogs:
+                cog_status_lines = []
+                for cog_name in sorted(all_cogs.keys()):
+                    config = all_cogs[cog_name]
+                    enabled = config.get("enabled", False)
+                    loaded = f"thetower.bot.cogs.{cog_name}" in bot.extensions
+                    public = config.get("public", False)
+
+                    # Create status indicators
+                    status_parts = []
+                    if enabled:
+                        status_parts.append("✅")
+                    else:
+                        status_parts.append("❌")
+
+                    if loaded:
+                        status_parts.append("🟢")
+                    else:
+                        status_parts.append("🔴")
+
+                    if public:
+                        status_parts.append("🌐")
+                    else:
+                        status_parts.append("🔒")
+
+                    status = " ".join(status_parts)
+
+                    # Highlight selected cog
+                    if self.selected_cog == cog_name:
+                        cog_status_lines.append(f"**`{cog_name}`** {status} ← Selected")
+                    else:
+                        cog_status_lines.append(f"`{cog_name}` {status}")
+
+                embed.add_field(name=f"All Cogs ({len(all_cogs)})", value="\n".join(cog_status_lines), inline=False)
+
+                # Show selected cog details if any
+                if self.selected_cog and self.selected_cog in all_cogs:
+                    config = all_cogs[self.selected_cog]
+                    enabled = config.get("enabled", False)
+                    loaded = f"thetower.bot.cogs.{self.selected_cog}" in bot.extensions
+                    public = config.get("public", False)
+
+                    embed.add_field(
+                        name=f"Details: {self.selected_cog}",
+                        value=f"**Enabled:** {'✅ Yes' if enabled else '❌ No'}\n"
+                        f"**Loaded:** {'🟢 Yes' if loaded else '🔴 No'}\n"
+                        f"**Visibility:** {'🌐 Public' if public else '🔒 Private'}",
+                        inline=False,
+                    )
+
+            # Enable/disable action buttons based on selection
+            has_selection = self.selected_cog is not None
+            has_cogs = len(all_cogs) > 0
+            self.cog_select.disabled = not has_cogs
+            self.enable_btn.disabled = not (has_selection and has_cogs)
+            self.visibility_btn.disabled = not (has_selection and has_cogs)
+            self.control_btn.disabled = not (has_selection and has_cogs)
+
+            await interaction.followup.send(embed=embed, view=self)
 
     async def do_reload(self, interaction: discord.Interaction):
         """Reload the selected cog."""
+        await interaction.response.defer()
         success = await interaction.client.cog_manager.reload_cog(self.selected_cog)
         if success:
             self.status_message = f"✅ Cog `{self.selected_cog}` reloaded successfully."
         else:
             self.status_message = f"❌ Failed to reload cog `{self.selected_cog}`. Check logs for details."
 
-        # Refresh display
-        await self.update_display(interaction)
+        # Send follow-up with updated display
+        embed = discord.Embed(
+            title="⚙️ Cog Management",
+            description="View all cogs and their status. Select a cog from the dropdown to manage it.",
+            color=discord.Color.blue(),
+        )
+
+        # Add status message
+        embed.add_field(name="Status", value=self.status_message, inline=False)
+        self.status_message = None  # Clear after displaying
+
+        # Re-populate the view for the follow-up
+        bot = interaction.client
+        all_cogs = bot.cog_manager.get_all_cogs_with_config()
+
+        # Update cog selector options
+        self.cog_select.options = []
+        if all_cogs:
+            for cog_name in sorted(all_cogs.keys()):
+                config = all_cogs[cog_name]
+                enabled = config.get("enabled", False)
+                loaded = f"thetower.bot.cogs.{cog_name}" in bot.extensions
+                public = config.get("public", False)
+
+                # Create description showing status
+                status_parts = []
+                if enabled:
+                    status_parts.append("✅")
+                else:
+                    status_parts.append("❌")
+
+                if loaded:
+                    status_parts.append("🟢")
+                else:
+                    status_parts.append("🔴")
+
+                if public:
+                    status_parts.append("🌐")
+                else:
+                    status_parts.append("🔒")
+
+                description = " ".join(status_parts)
+
+                option = discord.SelectOption(label=cog_name, value=cog_name, description=description)
+                self.cog_select.options.append(option)
+
+        # Show all cogs status
+        if all_cogs:
+            cog_status_lines = []
+            for cog_name in sorted(all_cogs.keys()):
+                config = all_cogs[cog_name]
+                enabled = config.get("enabled", False)
+                loaded = f"thetower.bot.cogs.{cog_name}" in bot.extensions
+                public = config.get("public", False)
+
+                # Create status indicators
+                status_parts = []
+                if enabled:
+                    status_parts.append("✅")
+                else:
+                    status_parts.append("❌")
+
+                if loaded:
+                    status_parts.append("🟢")
+                else:
+                    status_parts.append("🔴")
+
+                if public:
+                    status_parts.append("🌐")
+                else:
+                    status_parts.append("🔒")
+
+                status = " ".join(status_parts)
+
+                # Highlight selected cog
+                if self.selected_cog == cog_name:
+                    cog_status_lines.append(f"**`{cog_name}`** {status} ← Selected")
+                else:
+                    cog_status_lines.append(f"`{cog_name}` {status}")
+
+            embed.add_field(name=f"All Cogs ({len(all_cogs)})", value="\n".join(cog_status_lines), inline=False)
+
+            # Show selected cog details if any
+            if self.selected_cog and self.selected_cog in all_cogs:
+                config = all_cogs[self.selected_cog]
+                enabled = config.get("enabled", False)
+                loaded = f"thetower.bot.cogs.{self.selected_cog}" in bot.extensions
+                public = config.get("public", False)
+
+                embed.add_field(
+                    name=f"Details: {self.selected_cog}",
+                    value=f"**Enabled:** {'✅ Yes' if enabled else '❌ No'}\n"
+                    f"**Loaded:** {'🟢 Yes' if loaded else '🔴 No'}\n"
+                    f"**Visibility:** {'🌐 Public' if public else '🔒 Private'}",
+                    inline=False,
+                )
+
+        # Enable/disable action buttons based on selection
+        has_selection = self.selected_cog is not None
+        has_cogs = len(all_cogs) > 0
+        self.cog_select.disabled = not has_cogs
+        self.enable_btn.disabled = not (has_selection and has_cogs)
+        self.visibility_btn.disabled = not (has_selection and has_cogs)
+        self.control_btn.disabled = not (has_selection and has_cogs)
+
+        await interaction.followup.send(embed=embed, view=self)
 
     async def do_unload(self, interaction: discord.Interaction):
         """Unload the selected cog."""
+        await interaction.response.defer()
         success = await interaction.client.cog_manager.unload_cog(self.selected_cog)
         if success:
             self.status_message = f"✅ Cog `{self.selected_cog}` unloaded successfully."
         else:
             self.status_message = f"❌ Failed to unload cog `{self.selected_cog}`. Check logs for details."
 
-        # Refresh display
-        await self.update_display(interaction)
+        # Send follow-up with updated display
+        embed = discord.Embed(
+            title="⚙️ Cog Management",
+            description="View all cogs and their status. Select a cog from the dropdown to manage it.",
+            color=discord.Color.blue(),
+        )
+
+        # Add status message
+        embed.add_field(name="Status", value=self.status_message, inline=False)
+        self.status_message = None  # Clear after displaying
+
+        # Re-populate the view for the follow-up
+        bot = interaction.client
+        all_cogs = bot.cog_manager.get_all_cogs_with_config()
+
+        # Update cog selector options
+        self.cog_select.options = []
+        if all_cogs:
+            for cog_name in sorted(all_cogs.keys()):
+                config = all_cogs[cog_name]
+                enabled = config.get("enabled", False)
+                loaded = f"thetower.bot.cogs.{cog_name}" in bot.extensions
+                public = config.get("public", False)
+
+                # Create description showing status
+                status_parts = []
+                if enabled:
+                    status_parts.append("✅")
+                else:
+                    status_parts.append("❌")
+
+                if loaded:
+                    status_parts.append("🟢")
+                else:
+                    status_parts.append("🔴")
+
+                if public:
+                    status_parts.append("🌐")
+                else:
+                    status_parts.append("🔒")
+
+                description = " ".join(status_parts)
+
+                option = discord.SelectOption(label=cog_name, value=cog_name, description=description)
+                self.cog_select.options.append(option)
+
+        # Show all cogs status
+        if all_cogs:
+            cog_status_lines = []
+            for cog_name in sorted(all_cogs.keys()):
+                config = all_cogs[cog_name]
+                enabled = config.get("enabled", False)
+                loaded = f"thetower.bot.cogs.{cog_name}" in bot.extensions
+                public = config.get("public", False)
+
+                # Create status indicators
+                status_parts = []
+                if enabled:
+                    status_parts.append("✅")
+                else:
+                    status_parts.append("❌")
+
+                if loaded:
+                    status_parts.append("🟢")
+                else:
+                    status_parts.append("🔴")
+
+                if public:
+                    status_parts.append("🌐")
+                else:
+                    status_parts.append("🔒")
+
+                status = " ".join(status_parts)
+
+                # Highlight selected cog
+                if self.selected_cog == cog_name:
+                    cog_status_lines.append(f"**`{cog_name}`** {status} ← Selected")
+                else:
+                    cog_status_lines.append(f"`{cog_name}` {status}")
+
+            embed.add_field(name=f"All Cogs ({len(all_cogs)})", value="\n".join(cog_status_lines), inline=False)
+
+            # Show selected cog details if any
+            if self.selected_cog and self.selected_cog in all_cogs:
+                config = all_cogs[self.selected_cog]
+                enabled = config.get("enabled", False)
+                loaded = f"thetower.bot.cogs.{self.selected_cog}" in bot.extensions
+                public = config.get("public", False)
+
+                embed.add_field(
+                    name=f"Details: {self.selected_cog}",
+                    value=f"**Enabled:** {'✅ Yes' if enabled else '❌ No'}\n"
+                    f"**Loaded:** {'🟢 Yes' if loaded else '🔴 No'}\n"
+                    f"**Visibility:** {'🌐 Public' if public else '🔒 Private'}",
+                    inline=False,
+                )
+
+        # Enable/disable action buttons based on selection
+        has_selection = self.selected_cog is not None
+        has_cogs = len(all_cogs) > 0
+        self.cog_select.disabled = not has_cogs
+        self.enable_btn.disabled = not (has_selection and has_cogs)
+        self.visibility_btn.disabled = not (has_selection and has_cogs)
+        self.control_btn.disabled = not (has_selection and has_cogs)
+
+        await interaction.followup.send(embed=embed, view=self)
 
     async def back_to_bot_settings(self, interaction: discord.Interaction):
         """Go back to bot settings."""

@@ -19,7 +19,7 @@ class UserRoleManagementView(ui.View):
     """Main view for users to manage their tournament roles."""
 
     def __init__(self, cog: BaseCog, user_id: int, guild_id: int):
-        super().__init__(timeout=300)
+        super().__init__(timeout=900)
         self.cog = cog
         self.user_id = user_id
         self.guild_id = guild_id

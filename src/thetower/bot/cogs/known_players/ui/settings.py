@@ -5,17 +5,19 @@ import discord
 
 # Local
 from thetower.bot.basecog import BaseCog
+from thetower.bot.ui.context import SettingsViewContext
 
 
 class KnownPlayersSettingsView(discord.ui.View):
     """Settings view for Known Players cog that integrates with global settings."""
 
-    def __init__(self, cog: BaseCog, interaction: discord.Interaction = None, is_bot_owner: bool = False):
-        super().__init__(timeout=300)
-        self.cog = cog
-        self.interaction = interaction
-        self.is_bot_owner = is_bot_owner
-        self.guild_id = str(interaction.guild.id) if interaction and interaction.guild else None
+    def __init__(self, context: SettingsViewContext):
+        super().__init__(timeout=900)
+        self.cog = context.cog_instance
+        self.context = context
+        self.interaction = context.interaction
+        self.is_bot_owner = context.is_bot_owner
+        self.guild_id = str(context.guild_id) if context.guild_id else None
 
         # Get current global settings (stored in bot config under known_players)
         known_players_config = self.cog.config.config.get("known_players", {})
@@ -309,7 +311,14 @@ class SettingModal(discord.ui.Modal):
             )
 
             # Update the view with new settings
-            view = KnownPlayersSettingsView(self.cog, interaction, await self.cog.bot.is_owner(interaction.user))
+            view = KnownPlayersSettingsView(
+                self.cog.SettingsViewContext(
+                    guild_id=interaction.guild.id if interaction.guild else None,
+                    cog_instance=self.cog,
+                    interaction=interaction,
+                    is_bot_owner=await self.cog.bot.is_owner(interaction.user),
+                )
+            )
             await interaction.response.edit_message(embed=embed, view=view)
 
         except ValueError as e:
@@ -324,7 +333,7 @@ class ChannelSelectView(discord.ui.View):
     """View for selecting multiple channels for profile posting."""
 
     def __init__(self, cog: BaseCog, interaction: discord.Interaction, current_channels: List[int]):
-        super().__init__(timeout=300)
+        super().__init__(timeout=900)
         self.cog = cog
         self.original_interaction = interaction
         self.current_channels = set(current_channels)
@@ -426,7 +435,14 @@ class ChannelSelectView(discord.ui.View):
         )
 
         # Return to the main settings view
-        view = KnownPlayersSettingsView(self.cog, interaction, await self.cog.bot.is_owner(interaction.user))
+        view = KnownPlayersSettingsView(
+            self.cog.SettingsViewContext(
+                guild_id=interaction.guild.id if interaction.guild else None,
+                cog_instance=self.cog,
+                interaction=interaction,
+                is_bot_owner=await self.cog.bot.is_owner(interaction.user),
+            )
+        )
         await interaction.response.edit_message(embed=embed, view=view)
 
     @discord.ui.button(label="Cancel", style=discord.ButtonStyle.secondary, emoji="❌")
@@ -435,5 +451,12 @@ class ChannelSelectView(discord.ui.View):
         embed = discord.Embed(title="Cancelled", description="Channel selection cancelled. No changes were made.", color=discord.Color.orange())
 
         # Return to the main settings view
-        view = KnownPlayersSettingsView(self.cog, interaction, await self.cog.bot.is_owner(interaction.user))
+        view = KnownPlayersSettingsView(
+            self.cog.SettingsViewContext(
+                guild_id=interaction.guild.id if interaction.guild else None,
+                cog_instance=self.cog,
+                interaction=interaction,
+                is_bot_owner=await self.cog.bot.is_owner(interaction.user),
+            )
+        )
         await interaction.response.edit_message(embed=embed, view=view)

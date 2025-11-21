@@ -2,90 +2,62 @@
 
 import discord
 
+from thetower.bot.ui.context import SettingsViewContext
+
 from .core import DEFAULT_ENABLED_LEAGUES
 
 
 class BattleConditionsSettingsView(discord.ui.View):
     """Settings view for Battle Conditions cog."""
 
-    def __init__(self, guild_id: int):
-        super().__init__(timeout=600)
-        self.guild_id = guild_id
+    def __init__(self, context: SettingsViewContext):
+        super().__init__(timeout=900)
+        self.cog = context.cog_instance
+        self.context = context
+        self.guild_id = context.guild_id
 
         # Configure leagues button
-        self.add_item(BattleConditionsConfigureLeaguesButton())
+        self.add_item(BattleConditionsConfigureLeaguesButton(self.cog))
 
         # Configure permissions button
-        self.add_item(BattleConditionsConfigurePermissionsButton())
+        self.add_item(BattleConditionsConfigurePermissionsButton(self.cog))
 
         # Manage schedules button
-        self.add_item(BattleConditionsManageSchedulesButton())
+        self.add_item(BattleConditionsManageSchedulesButton(self.cog))
 
         # Back button
-        back_btn = discord.ui.Button(
-            label="Back to Cog Settings",
-            style=discord.ButtonStyle.gray,
-            emoji="⬅️",
-            custom_id="back_to_cog_settings"
-        )
+        back_btn = discord.ui.Button(label="Back to Cog Settings", style=discord.ButtonStyle.gray, emoji="⬅️", custom_id="back_to_cog_settings")
         back_btn.callback = self.back_to_cog_settings
         self.add_item(back_btn)
 
     async def update_display(self, interaction: discord.Interaction):
         """Update the embed with current battle conditions settings."""
-        bot = interaction.client
-
-        # Get the battle conditions cog
-        bc_cog = None
-        for cog in bot.cogs.values():
-            if cog.__class__.__name__ == 'BattleConditions':
-                bc_cog = cog
-                break
-
-        if not bc_cog:
-            await interaction.response.send_message("❌ Battle Conditions cog not found.", ephemeral=True)
-            return
-
         embed = discord.Embed(
-            title="⚙️ Battle Conditions Settings",
-            description="Configure battle conditions for this server",
-            color=discord.Color.blue()
+            title="⚙️ Battle Conditions Settings", description="Configure battle conditions for this server", color=discord.Color.blue()
         )
 
         # Current enabled leagues
-        enabled_leagues = bc_cog.get_setting("enabled_leagues", guild_id=self.guild_id)
+        enabled_leagues = self.cog.get_setting("enabled_leagues", guild_id=self.guild_id)
         if not enabled_leagues:
             enabled_leagues = DEFAULT_ENABLED_LEAGUES
 
-        embed.add_field(
-            name="Enabled Leagues",
-            value=", ".join(enabled_leagues),
-            inline=False
-        )
+        embed.add_field(name="Enabled Leagues", value=", ".join(enabled_leagues), inline=False)
 
         # Current schedules
-        schedules = bc_cog.get_setting("destination_schedules", guild_id=self.guild_id) or []
+        schedules = self.cog.get_setting("destination_schedules", guild_id=self.guild_id) or []
         if schedules:
             schedule_info = []
             for i, schedule in enumerate(schedules):
                 dest_id = schedule.get("destination_id")
-                channel = bot.get_channel(int(dest_id))
+                channel = self.cog.bot.get_channel(int(dest_id))
                 channel_name = channel.mention if channel else f"ID: {dest_id}"
                 leagues = ", ".join(schedule.get("leagues", [])[:3])
                 paused = " (⏸️)" if schedule.get("paused", False) else ""
                 schedule_info.append(f"#{i}: {channel_name} - {leagues}{paused}")
 
-            embed.add_field(
-                name=f"Schedules ({len(schedules)})",
-                value="\n".join(schedule_info[:5]),  # Limit to 5 for embed size
-                inline=False
-            )
+            embed.add_field(name=f"Schedules ({len(schedules)})", value="\n".join(schedule_info[:5]), inline=False)  # Limit to 5 for embed size
         else:
-            embed.add_field(
-                name="Schedules",
-                value="No schedules configured",
-                inline=False
-            )
+            embed.add_field(name="Schedules", value="No schedules configured", inline=False)
 
         await interaction.response.edit_message(embed=embed, view=self)
 
@@ -102,44 +74,24 @@ class BattleConditionsSettingsView(discord.ui.View):
 class BattleConditionsConfigureLeaguesButton(discord.ui.Button):
     """Button to configure enabled leagues for battle conditions."""
 
-    def __init__(self):
-        super().__init__(
-            label="Configure Leagues",
-            style=discord.ButtonStyle.primary,
-            emoji="🏆"
-        )
+    def __init__(self, bc_cog):
+        super().__init__(label="Configure Leagues", style=discord.ButtonStyle.primary, emoji="🏆")
+        self.bc_cog = bc_cog
 
     async def callback(self, interaction: discord.Interaction):
-        bot = interaction.client
-
-        # Get the battle conditions cog
-        bc_cog = None
-        for cog in bot.cogs.values():
-            if cog.__class__.__name__ == 'BattleConditions':
-                bc_cog = cog
-                break
-
-        if not bc_cog:
-            await interaction.response.send_message("❌ Battle Conditions cog not found.", ephemeral=True)
-            return
-
         guild_id = interaction.guild.id
 
         # Get current enabled leagues
-        enabled_leagues = bc_cog.get_setting("enabled_leagues", guild_id=guild_id)
+        enabled_leagues = self.bc_cog.get_setting("enabled_leagues", guild_id=guild_id)
         if not enabled_leagues:
             enabled_leagues = DEFAULT_ENABLED_LEAGUES
 
         # Create select menu with all leagues
-        league_select = BattleConditionsLeagueSelect(bc_cog, enabled_leagues)
-        select_view = discord.ui.View(timeout=300)
+        league_select = BattleConditionsLeagueSelect(self.bc_cog, enabled_leagues)
+        select_view = discord.ui.View(timeout=900)
         select_view.add_item(league_select)
 
-        await interaction.response.send_message(
-            "Select which leagues to enable for battle conditions:",
-            view=select_view,
-            ephemeral=True
-        )
+        await interaction.response.send_message("Select which leagues to enable for battle conditions:", view=select_view, ephemeral=True)
 
 
 class BattleConditionsLeagueSelect(discord.ui.Select):
@@ -148,21 +100,9 @@ class BattleConditionsLeagueSelect(discord.ui.Select):
     def __init__(self, bc_cog, current_enabled: list):
         from .core import ALL_LEAGUES
 
-        options = [
-            discord.SelectOption(
-                label=league,
-                value=league,
-                default=league in current_enabled
-            )
-            for league in ALL_LEAGUES
-        ]
+        options = [discord.SelectOption(label=league, value=league, default=league in current_enabled) for league in ALL_LEAGUES]
 
-        super().__init__(
-            placeholder="Select leagues to enable...",
-            min_values=1,
-            max_values=len(ALL_LEAGUES),
-            options=options
-        )
+        super().__init__(placeholder="Select leagues to enable...", min_values=1, max_values=len(ALL_LEAGUES), options=options)
         self.bc_cog = bc_cog
 
     async def callback(self, interaction: discord.Interaction):
@@ -172,133 +112,90 @@ class BattleConditionsLeagueSelect(discord.ui.Select):
         # Save to settings
         self.bc_cog.set_setting("enabled_leagues", selected_leagues, guild_id=guild_id)
 
-        await interaction.response.send_message(
-            f"✅ Enabled leagues updated: {', '.join(selected_leagues)}",
-            ephemeral=True
-        )
+        await interaction.response.send_message(f"✅ Enabled leagues updated: {', '.join(selected_leagues)}", ephemeral=True)
 
 
 class BattleConditionsConfigurePermissionsButton(discord.ui.Button):
     """Button to configure battle conditions permissions."""
 
-    def __init__(self):
-        super().__init__(
-            label="Configure Permissions",
-            style=discord.ButtonStyle.secondary,
-            emoji="🔒"
-        )
+    def __init__(self, bc_cog):
+        super().__init__(label="Configure Permissions", style=discord.ButtonStyle.secondary, emoji="🔒")
+        self.bc_cog = bc_cog
 
     async def callback(self, interaction: discord.Interaction):
         # Show permission configuration view
-        perm_view = BattleConditionsPermissionsView()
+        perm_view = BattleConditionsPermissionsView(self.bc_cog)
 
         await interaction.response.send_message(
-            "**Permission Configuration**\n\n"
-            "Choose which action to configure permissions for:",
-            view=perm_view,
-            ephemeral=True
+            "**Permission Configuration**\n\n" "Choose which action to configure permissions for:", view=perm_view, ephemeral=True
         )
 
 
 class BattleConditionsManageSchedulesButton(discord.ui.Button):
     """Button to manage battle conditions schedules."""
 
-    def __init__(self):
-        super().__init__(
-            label="Manage Schedules",
-            style=discord.ButtonStyle.primary,
-            emoji="📅"
-        )
+    def __init__(self, bc_cog):
+        super().__init__(label="Manage Schedules", style=discord.ButtonStyle.primary, emoji="📅")
+        self.bc_cog = bc_cog
 
     async def callback(self, interaction: discord.Interaction):
-        bot = interaction.client
-
-        # Get the battle conditions cog
-        bc_cog = None
-        for cog in bot.cogs.values():
-            if cog.__class__.__name__ == 'BattleConditions':
-                bc_cog = cog
-                break
-
-        if not bc_cog:
-            await interaction.response.send_message("❌ Battle Conditions cog not found.", ephemeral=True)
-            return
-
         guild_id = interaction.guild.id
 
         # Check manage_schedules permission
-        can_manage = await bc_cog.check_slash_action_permission(interaction, "manage_schedules")
-        is_owner = interaction.guild.owner_id == interaction.user.id or await bc_cog.bot.is_owner(interaction.user)
+        can_manage = await self.bc_cog.check_slash_action_permission(interaction, "manage_schedules")
+        is_owner = interaction.guild.owner_id == interaction.user.id or await self.bc_cog.bot.is_owner(interaction.user)
 
         # Get schedules for this guild
-        schedules = bc_cog.get_setting("destination_schedules", guild_id=guild_id) or []
+        schedules = self.bc_cog.get_setting("destination_schedules", guild_id=guild_id) or []
 
         # Show schedule management view
-        schedule_view = BattleConditionsScheduleManagementView(bc_cog, guild_id, schedules, can_manage or is_owner)
+        schedule_view = BattleConditionsScheduleManagementView(self.bc_cog, guild_id, schedules, can_manage or is_owner)
 
         if schedules:
             schedule_list = []
             for idx, schedule in enumerate(schedules):
                 dest_id = schedule.get("destination_id")
-                channel = bc_cog.bot.get_channel(int(dest_id))
+                channel = self.bc_cog.bot.get_channel(int(dest_id))
                 channel_name = channel.mention if channel else f"ID: {dest_id}"
                 leagues = ", ".join(schedule.get("leagues", [])[:3])
                 paused = "⏸️ " if schedule.get("paused", False) else ""
                 schedule_list.append(f"{paused}**#{idx}**: {channel_name} - {leagues}")
 
             schedule_text = (
-                f"**Current Schedules** ({len(schedules)})\n\n" +
-                "\n".join(schedule_list[:10]) +
-                (f"\n\n...and {len(schedules) - 10} more" if len(schedules) > 10 else "")
+                f"**Current Schedules** ({len(schedules)})\n\n"
+                + "\n".join(schedule_list[:10])
+                + (f"\n\n...and {len(schedules) - 10} more" if len(schedules) > 10 else "")
             )
         else:
             schedule_text = "**No schedules configured**\n\nClick 'Create Schedule' to add one."
 
-        await interaction.response.send_message(
-            schedule_text,
-            view=schedule_view,
-            ephemeral=True
-        )
+        await interaction.response.send_message(schedule_text, view=schedule_view, ephemeral=True)
 
 
 class BattleConditionsPermissionsView(discord.ui.View):
     """View for configuring BC action permissions."""
 
-    def __init__(self):
-        super().__init__(timeout=300)
+    def __init__(self, bc_cog):
+        super().__init__(timeout=900)
+        self.bc_cog = bc_cog
 
-        self.add_item(BattleConditionsConfigureGeneratePermButton())
-        self.add_item(BattleConditionsConfigureRunSchedulePermButton())
-        self.add_item(BattleConditionsConfigureManageSchedulesPermButton())
+        self.add_item(BattleConditionsConfigureGeneratePermButton(self.bc_cog))
+        self.add_item(BattleConditionsConfigureRunSchedulePermButton(self.bc_cog))
+        self.add_item(BattleConditionsConfigureManageSchedulesPermButton(self.bc_cog))
 
 
 class BattleConditionsConfigureGeneratePermButton(discord.ui.Button):
     """Button to configure generate permissions."""
 
-    def __init__(self):
-        super().__init__(
-            label="Generate Permissions",
-            style=discord.ButtonStyle.primary
-        )
+    def __init__(self, bc_cog):
+        super().__init__(label="Generate Permissions", style=discord.ButtonStyle.primary)
+        self.bc_cog = bc_cog
 
     async def callback(self, interaction: discord.Interaction):
-        bot = interaction.client
-
-        # Get the battle conditions cog
-        bc_cog = None
-        for cog in bot.cogs.values():
-            if cog.__class__.__name__ == 'BattleConditions':
-                bc_cog = cog
-                break
-
-        if not bc_cog:
-            await interaction.response.send_message("❌ Battle Conditions cog not found.", ephemeral=True)
-            return
-
         guild_id = interaction.guild.id
 
         # Get current permissions
-        perms = bc_cog.get_setting("slash_permissions.generate", guild_id=guild_id) or {}
+        perms = self.bc_cog.get_setting("slash_permissions.generate", guild_id=guild_id) or {}
         current_users = perms.get("allowed_users", [])
         current_roles = perms.get("allowed_roles", [])
 
@@ -315,45 +212,29 @@ class BattleConditionsConfigureGeneratePermButton(discord.ui.Button):
             current_text = "**Current permissions:** Owner only (default)\n\n"
 
         # Create mentionable select
-        mentionable_select = BattleConditionsActionMentionableSelect(bc_cog, "generate", guild_id)
-        select_view = discord.ui.View(timeout=300)
+        mentionable_select = BattleConditionsActionMentionableSelect(self.bc_cog, "generate", guild_id)
+        select_view = discord.ui.View(timeout=900)
         select_view.add_item(mentionable_select)
 
         await interaction.response.send_message(
-            f"{current_text}Select roles/users that can use **Generate to Channel**:\n"
-            "(Select none to clear and revert to owner-only)",
+            f"{current_text}Select roles/users that can use **Generate to Channel**:\n" "(Select none to clear and revert to owner-only)",
             view=select_view,
-            ephemeral=True
+            ephemeral=True,
         )
 
 
 class BattleConditionsConfigureRunSchedulePermButton(discord.ui.Button):
     """Button to configure run schedule permissions."""
 
-    def __init__(self):
-        super().__init__(
-            label="Run Schedule Permissions",
-            style=discord.ButtonStyle.primary
-        )
+    def __init__(self, bc_cog):
+        super().__init__(label="Run Schedule Permissions", style=discord.ButtonStyle.primary)
+        self.bc_cog = bc_cog
 
     async def callback(self, interaction: discord.Interaction):
-        bot = interaction.client
-
-        # Get the battle conditions cog
-        bc_cog = None
-        for cog in bot.cogs.values():
-            if cog.__class__.__name__ == 'BattleConditions':
-                bc_cog = cog
-                break
-
-        if not bc_cog:
-            await interaction.response.send_message("❌ Battle Conditions cog not found.", ephemeral=True)
-            return
-
         guild_id = interaction.guild.id
 
         # Get current permissions
-        perms = bc_cog.get_setting("slash_permissions.run_schedule", guild_id=guild_id) or {}
+        perms = self.bc_cog.get_setting("slash_permissions.run_schedule", guild_id=guild_id) or {}
         current_users = perms.get("allowed_users", [])
         current_roles = perms.get("allowed_roles", [])
 
@@ -370,45 +251,29 @@ class BattleConditionsConfigureRunSchedulePermButton(discord.ui.Button):
             current_text = "**Current permissions:** Owner only (default)\n\n"
 
         # Create mentionable select
-        mentionable_select = BattleConditionsActionMentionableSelect(bc_cog, "run_schedule", guild_id)
-        select_view = discord.ui.View(timeout=300)
+        mentionable_select = BattleConditionsActionMentionableSelect(self.bc_cog, "run_schedule", guild_id)
+        select_view = discord.ui.View(timeout=900)
         select_view.add_item(mentionable_select)
 
         await interaction.response.send_message(
-            f"{current_text}Select roles/users that can use **Run Schedule**:\n"
-            "(Select none to clear and revert to owner-only)",
+            f"{current_text}Select roles/users that can use **Run Schedule**:\n" "(Select none to clear and revert to owner-only)",
             view=select_view,
-            ephemeral=True
+            ephemeral=True,
         )
 
 
 class BattleConditionsConfigureManageSchedulesPermButton(discord.ui.Button):
     """Button to configure manage schedules permissions."""
 
-    def __init__(self):
-        super().__init__(
-            label="Manage Schedules Permissions",
-            style=discord.ButtonStyle.primary
-        )
+    def __init__(self, bc_cog):
+        super().__init__(label="Manage Schedules Permissions", style=discord.ButtonStyle.primary)
+        self.bc_cog = bc_cog
 
     async def callback(self, interaction: discord.Interaction):
-        bot = interaction.client
-
-        # Get the battle conditions cog
-        bc_cog = None
-        for cog in bot.cogs.values():
-            if cog.__class__.__name__ == 'BattleConditions':
-                bc_cog = cog
-                break
-
-        if not bc_cog:
-            await interaction.response.send_message("❌ Battle Conditions cog not found.", ephemeral=True)
-            return
-
         guild_id = interaction.guild.id
 
         # Get current permissions
-        perms = bc_cog.get_setting("slash_permissions.manage_schedules", guild_id=guild_id) or {}
+        perms = self.bc_cog.get_setting("slash_permissions.manage_schedules", guild_id=guild_id) or {}
         current_users = perms.get("allowed_users", [])
         current_roles = perms.get("allowed_roles", [])
 
@@ -425,15 +290,15 @@ class BattleConditionsConfigureManageSchedulesPermButton(discord.ui.Button):
             current_text = "**Current permissions:** Owner only (default)\n\n"
 
         # Create mentionable select
-        mentionable_select = BattleConditionsActionMentionableSelect(bc_cog, "manage_schedules", guild_id)
-        select_view = discord.ui.View(timeout=300)
+        mentionable_select = BattleConditionsActionMentionableSelect(self.bc_cog, "manage_schedules", guild_id)
+        select_view = discord.ui.View(timeout=900)
         select_view.add_item(mentionable_select)
 
         await interaction.response.send_message(
             f"{current_text}Select roles/users that can use **Manage Schedules** (Create/Edit/Delete/Pause):\n"
             "(Select none to clear and revert to owner-only)",
             view=select_view,
-            ephemeral=True
+            ephemeral=True,
         )
 
 
@@ -457,7 +322,7 @@ class BattleConditionsActionMentionableSelect(discord.ui.MentionableSelect):
             placeholder=f"Select roles/users for {action_name.replace('_', ' ')}...",
             min_values=0,
             max_values=25,
-            default_values=default_values if default_values else None
+            default_values=default_values if default_values else None,
         )
         self.bc_cog = bc_cog
         self.action_name = action_name
@@ -476,12 +341,7 @@ class BattleConditionsActionMentionableSelect(discord.ui.MentionableSelect):
                 user_ids.append(value.id)
 
         # Save to permissions
-        self.bc_cog.set_slash_action_permission(
-            guild_id,
-            self.action_name,
-            allowed_roles=role_ids,
-            allowed_users=user_ids
-        )
+        self.bc_cog.set_slash_action_permission(guild_id, self.action_name, allowed_roles=role_ids, allowed_users=user_ids)
 
         # Build response message
         mentions = []
@@ -493,13 +353,11 @@ class BattleConditionsActionMentionableSelect(discord.ui.MentionableSelect):
         if mentions:
             mention_list = ", ".join(mentions)
             await interaction.response.send_message(
-                f"✅ {self.action_name.replace('_', ' ').title()} permissions updated for: {mention_list}",
-                ephemeral=True
+                f"✅ {self.action_name.replace('_', ' ').title()} permissions updated for: {mention_list}", ephemeral=True
             )
         else:
             await interaction.response.send_message(
-                f"✅ {self.action_name.replace('_', ' ').title()} permissions cleared (owner-only default)",
-                ephemeral=True
+                f"✅ {self.action_name.replace('_', ' ').title()} permissions cleared (owner-only default)", ephemeral=True
             )
 
 
@@ -507,7 +365,7 @@ class BattleConditionsScheduleManagementView(discord.ui.View):
     """View for managing BC schedules."""
 
     def __init__(self, bc_cog, guild_id: int, schedules: list, can_manage: bool = False):
-        super().__init__(timeout=300)
+        super().__init__(timeout=900)
         self.bc_cog = bc_cog
         self.guild_id = guild_id
         self.schedules = schedules
@@ -528,21 +386,15 @@ class BattleConditionsCreateScheduleButton(discord.ui.Button):
     """Button to create a new schedule."""
 
     def __init__(self):
-        super().__init__(
-            label="Create Schedule",
-            style=discord.ButtonStyle.success,
-            emoji="➕"
-        )
+        super().__init__(label="Create Schedule", style=discord.ButtonStyle.success, emoji="➕")
 
     async def callback(self, interaction: discord.Interaction):
         # Step 1: Show channel picker
-        channel_view = discord.ui.View(timeout=300)
+        channel_view = discord.ui.View(timeout=900)
         channel_view.add_item(BattleConditionsScheduleChannelSelect(self.view.bc_cog, self.view.guild_id))
 
         await interaction.response.send_message(
-            "**Step 1/3:** Select the channel or thread for battle conditions:",
-            view=channel_view,
-            ephemeral=True
+            "**Step 1/3:** Select the channel or thread for battle conditions:", view=channel_view, ephemeral=True
         )
 
 
@@ -552,7 +404,7 @@ class BattleConditionsScheduleChannelSelect(discord.ui.ChannelSelect):
     def __init__(self, bc_cog, guild_id: int):
         super().__init__(
             placeholder="Select channel or thread...",
-            channel_types=[discord.ChannelType.text, discord.ChannelType.public_thread, discord.ChannelType.private_thread]
+            channel_types=[discord.ChannelType.text, discord.ChannelType.public_thread, discord.ChannelType.private_thread],
         )
         self.bc_cog = bc_cog
         self.guild_id = guild_id
@@ -562,6 +414,7 @@ class BattleConditionsScheduleChannelSelect(discord.ui.ChannelSelect):
 
         # Step 2: Show time configuration modal
         from .core import ScheduleTimeModal
+
         modal = ScheduleTimeModal(self.bc_cog, self.guild_id, channel.id)
         await interaction.response.send_modal(modal)
 
@@ -570,24 +423,16 @@ class BattleConditionsEditScheduleButton(discord.ui.Button):
     """Button to edit an existing schedule."""
 
     def __init__(self):
-        super().__init__(
-            label="Edit Schedule",
-            style=discord.ButtonStyle.primary,
-            emoji="✏️"
-        )
+        super().__init__(label="Edit Schedule", style=discord.ButtonStyle.primary, emoji="✏️")
 
     async def callback(self, interaction: discord.Interaction):
         view: BattleConditionsScheduleManagementView = self.view
 
         # Show schedule selector
-        select_view = discord.ui.View(timeout=300)
+        select_view = discord.ui.View(timeout=900)
         select_view.add_item(BattleConditionsEditScheduleSelect(view.bc_cog, view.schedules, view.guild_id))
 
-        await interaction.response.send_message(
-            "Select a schedule to edit:",
-            view=select_view,
-            ephemeral=True
-        )
+        await interaction.response.send_message("Select a schedule to edit:", view=select_view, ephemeral=True)
 
 
 class BattleConditionsEditScheduleSelect(discord.ui.Select):
@@ -604,16 +449,9 @@ class BattleConditionsEditScheduleSelect(discord.ui.Select):
             leagues = ", ".join(schedule.get("leagues", [])[:2])
             description = f"{leagues}"[:100]
 
-            options.append(discord.SelectOption(
-                label=label,
-                value=str(idx),
-                description=description
-            ))
+            options.append(discord.SelectOption(label=label, value=str(idx), description=description))
 
-        super().__init__(
-            placeholder="Choose schedule to edit...",
-            options=options
-        )
+        super().__init__(placeholder="Choose schedule to edit...", options=options)
         self.bc_cog = bc_cog
         self.schedules = schedules
         self.guild_id = guild_id
@@ -624,6 +462,7 @@ class BattleConditionsEditScheduleSelect(discord.ui.Select):
 
         # Show edit modal
         from .core import EditScheduleModal
+
         modal = EditScheduleModal(self.bc_cog, self.guild_id, idx, schedule)
         await interaction.response.send_modal(modal)
 
@@ -632,24 +471,16 @@ class BattleConditionsDeleteScheduleButton(discord.ui.Button):
     """Button to delete a schedule."""
 
     def __init__(self):
-        super().__init__(
-            label="Delete Schedule",
-            style=discord.ButtonStyle.danger,
-            emoji="🗑️"
-        )
+        super().__init__(label="Delete Schedule", style=discord.ButtonStyle.danger, emoji="🗑️")
 
     async def callback(self, interaction: discord.Interaction):
         view: BattleConditionsScheduleManagementView = self.view
 
         # Show schedule selector
-        select_view = discord.ui.View(timeout=300)
+        select_view = discord.ui.View(timeout=900)
         select_view.add_item(BattleConditionsDeleteScheduleSelect(view.bc_cog, view.schedules, view.guild_id))
 
-        await interaction.response.send_message(
-            "Select a schedule to delete:",
-            view=select_view,
-            ephemeral=True
-        )
+        await interaction.response.send_message("Select a schedule to delete:", view=select_view, ephemeral=True)
 
 
 class BattleConditionsDeleteScheduleSelect(discord.ui.Select):
@@ -666,17 +497,9 @@ class BattleConditionsDeleteScheduleSelect(discord.ui.Select):
             leagues = ", ".join(schedule.get("leagues", [])[:2])
             description = f"{leagues}"[:100]
 
-            options.append(discord.SelectOption(
-                label=label,
-                value=str(idx),
-                description=description,
-                emoji="🗑️"
-            ))
+            options.append(discord.SelectOption(label=label, value=str(idx), description=description, emoji="🗑️"))
 
-        super().__init__(
-            placeholder="Choose schedule to delete...",
-            options=options
-        )
+        super().__init__(placeholder="Choose schedule to delete...", options=options)
         self.bc_cog = bc_cog
         self.schedules = schedules
         self.guild_id = guild_id
@@ -696,34 +519,23 @@ class BattleConditionsDeleteScheduleSelect(discord.ui.Select):
         self.cog.set_setting("destination_schedules", schedules, guild_id=self.guild_id)
         self.cog.mark_data_modified()
 
-        await interaction.response.send_message(
-            f"✅ Deleted schedule #{idx} for {channel_name}",
-            ephemeral=True
-        )
+        await interaction.response.send_message(f"✅ Deleted schedule #{idx} for {channel_name}", ephemeral=True)
 
 
 class BattleConditionsTogglePauseScheduleButton(discord.ui.Button):
     """Button to pause/resume schedules."""
 
     def __init__(self):
-        super().__init__(
-            label="Pause/Resume",
-            style=discord.ButtonStyle.secondary,
-            emoji="⏯️"
-        )
+        super().__init__(label="Pause/Resume", style=discord.ButtonStyle.secondary, emoji="⏯️")
 
     async def callback(self, interaction: discord.Interaction):
         view: BattleConditionsScheduleManagementView = self.view
 
         # Show schedule selector
-        select_view = discord.ui.View(timeout=300)
+        select_view = discord.ui.View(timeout=900)
         select_view.add_item(BattleConditionsTogglePauseSelect(view.bc_cog, view.schedules, view.guild_id))
 
-        await interaction.response.send_message(
-            "Select a schedule to pause/resume:",
-            view=select_view,
-            ephemeral=True
-        )
+        await interaction.response.send_message("Select a schedule to pause/resume:", view=select_view, ephemeral=True)
 
 
 class BattleConditionsTogglePauseSelect(discord.ui.Select):
@@ -741,17 +553,9 @@ class BattleConditionsTogglePauseSelect(discord.ui.Select):
             status = "⏸️ PAUSED" if paused else "▶️ ACTIVE"
             description = f"{status}"[:100]
 
-            options.append(discord.SelectOption(
-                label=label,
-                value=str(idx),
-                description=description,
-                emoji="⏸️" if paused else "▶️"
-            ))
+            options.append(discord.SelectOption(label=label, value=str(idx), description=description, emoji="⏸️" if paused else "▶️"))
 
-        super().__init__(
-            placeholder="Choose schedule to toggle...",
-            options=options
-        )
+        super().__init__(placeholder="Choose schedule to toggle...", options=options)
         self.bc_cog = bc_cog
         self.schedules = schedules
         self.guild_id = guild_id
@@ -773,7 +577,4 @@ class BattleConditionsTogglePauseSelect(discord.ui.Select):
         channel_name = channel.mention if channel else f"ID: {dest_id}"
 
         action = "Paused" if not current_paused else "Resumed"
-        await interaction.response.send_message(
-            f"✅ {action} schedule #{idx} for {channel_name}",
-            ephemeral=True
-        )
+        await interaction.response.send_message(f"✅ {action} schedule #{idx} for {channel_name}", ephemeral=True)

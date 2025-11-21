@@ -6,6 +6,8 @@ from typing import TYPE_CHECKING
 import discord
 from discord.ui import Button, Modal, TextInput, View
 
+from thetower.bot.ui.context import SettingsViewContext
+
 if TYPE_CHECKING:
     from ..cog import UnifiedAdvertise
 
@@ -20,14 +22,15 @@ class AdvertisementType:
 class AdTypeSelection(View):
     """View with buttons to select advertisement type."""
 
-    def __init__(self, cog: "UnifiedAdvertise") -> None:
+    def __init__(self, context: SettingsViewContext) -> None:
         """Initialize the view with a reference to the cog.
 
         Args:
-            cog: The UnifiedAdvertise cog instance
+            context: The settings view context
         """
         super().__init__(timeout=900)  # 15 minute timeout
-        self.cog = cog
+        self.cog = context.cog_instance
+        self.context = context
 
     @discord.ui.button(label="Guild Advertisement", style=discord.ButtonStyle.primary, emoji="🏰")
     async def guild_button(self, interaction: discord.Interaction, button: Button) -> None:
@@ -35,7 +38,7 @@ class AdTypeSelection(View):
         if not interaction.response.is_done():
             await interaction.response.defer(ephemeral=True)
 
-        form = GuildAdvertisementForm(self.cog)
+        form = GuildAdvertisementForm(self.context)
         view = NotificationView(form)
 
         if interaction.response.is_done():
@@ -49,7 +52,7 @@ class AdTypeSelection(View):
         if not interaction.response.is_done():
             await interaction.response.defer(ephemeral=True)
 
-        form = MemberAdvertisementForm(self.cog)
+        form = MemberAdvertisementForm(self.context)
         view = NotificationView(form)  # Reuse the same NotificationView
 
         if interaction.response.is_done():
@@ -72,14 +75,15 @@ class AdTypeSelection(View):
 class GuildAdvertisementForm(Modal, title="Guild Advertisement Form"):
     """Modal form for collecting guild advertisement information."""
 
-    def __init__(self, cog: "UnifiedAdvertise") -> None:
+    def __init__(self, context: SettingsViewContext) -> None:
         """Initialize the view with a reference to the cog.
 
         Args:
-            cog: The UnifiedAdvertise cog instance
+            context: The settings view context
         """
         super().__init__(timeout=900)  # 15 minute timeout
-        self.cog = cog
+        self.cog = context.cog_instance
+        self.context = context
         self.notify = True
         self.interaction = None  # Store interaction object
 
@@ -146,8 +150,7 @@ class GuildAdvertisementForm(Modal, title="Guild Advertisement Form"):
         cooldown_hours = self.cog._get_cooldown_hours(discord_guild_id) if discord_guild_id else 168
 
         await interaction.response.send_message(
-            f"Thank you! Your {AdvertisementType.GUILD} advertisement is being posted. "
-            f"It will remain visible for {cooldown_hours} hours.",
+            f"Thank you! Your {AdvertisementType.GUILD} advertisement is being posted. " f"It will remain visible for {cooldown_hours} hours.",
             ephemeral=True,
         )
 
@@ -250,8 +253,7 @@ class MemberAdvertisementForm(Modal, title="Member Advertisement Form"):
         cooldown_hours = self.cog._get_cooldown_hours(discord_guild_id) if discord_guild_id else 168
 
         await interaction.response.send_message(
-            f"Thank you! Your {AdvertisementType.MEMBER} advertisement is being posted. "
-            f"It will remain visible for {cooldown_hours} hours.",
+            f"Thank you! Your {AdvertisementType.MEMBER} advertisement is being posted. " f"It will remain visible for {cooldown_hours} hours.",
             ephemeral=True,
         )
 

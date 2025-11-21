@@ -11,7 +11,7 @@ class BCManagementView(discord.ui.View):
     """Main view for battle conditions management."""
 
     def __init__(self, cog, can_generate: bool, can_run_schedule: bool, is_owner: bool):
-        super().__init__(timeout=300)
+        super().__init__(timeout=900)
         self.cog = cog
 
         # Always add View button (anyone can view)
@@ -79,7 +79,7 @@ class ViewBCButton(discord.ui.Button):
             return
 
         # Show league selection dropdown
-        select_view = discord.ui.View(timeout=300)
+        select_view = discord.ui.View(timeout=900)
         select_view.add_item(ViewLeagueSelect(cog, enabled_leagues, tourney_date, outside_window))
 
         warning_msg = ""
@@ -170,7 +170,7 @@ class GenerateBCButton(discord.ui.Button):
             return
 
         # Show league selection dropdown
-        select_view = discord.ui.View(timeout=300)
+        select_view = discord.ui.View(timeout=900)
         select_view.add_item(GenerateLeagueSelect(cog, enabled_leagues, interaction.channel))
 
         await interaction.response.send_message("Select which leagues to generate battle conditions for:", view=select_view, ephemeral=True)
@@ -245,7 +245,7 @@ class ResendBCButton(discord.ui.Button):
             return
 
         # Show schedule selection dropdown
-        select_view = discord.ui.View(timeout=300)
+        select_view = discord.ui.View(timeout=900)
         select_view.add_item(ScheduleSelect(cog, destination_schedules, guild_id))
 
         await interaction.response.send_message("Select a schedule to run immediately:", view=select_view, ephemeral=True)

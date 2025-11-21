@@ -105,7 +105,7 @@ class PlayerView(discord.ui.View):
         user_id: int = None,
         guild_id: int = None,
     ):
-        super().__init__(timeout=300)
+        super().__init__(timeout=900)
         self.cog = cog
         self.show_creator_code_button = show_creator_code_button
         self.current_code = current_code

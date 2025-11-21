@@ -1,17 +1,15 @@
-from typing import TYPE_CHECKING
-
 import discord
 
-if TYPE_CHECKING:
-    from ..cog import TourneyStats
+from thetower.bot.ui.context import SettingsViewContext
 
 
 class TourneyStatsSettingsView(discord.ui.View):
     """Settings view for TourneyStats cog - only accessible to bot owner."""
 
-    def __init__(self, cog: "TourneyStats"):
-        super().__init__(timeout=300)  # 5 minute timeout
-        self.cog = cog
+    def __init__(self, context: SettingsViewContext):
+        super().__init__(timeout=900)  # 5 minute timeout
+        self.cog = context.cog_instance
+        self.context = context
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         """Check if the user is the bot owner."""
@@ -36,7 +34,11 @@ class TourneyStatsSettingsView(discord.ui.View):
         )
 
         # Create buttons for editing
-        view = CacheSettingsView(self.cog)
+        view = CacheSettingsView(
+            self.cog.SettingsViewContext(
+                guild_id=self.context.guild_id, cog_instance=self.cog, interaction=interaction, is_bot_owner=self.context.is_bot_owner
+            )
+        )
         await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
 
     @discord.ui.button(label="Display Settings", style=discord.ButtonStyle.secondary, emoji="📊")
@@ -50,7 +52,11 @@ class TourneyStatsSettingsView(discord.ui.View):
         embed.add_field(name="Current Settings", value=f"**Recent Tournaments Display Count:** {display_count}", inline=False)
 
         # Create buttons for editing
-        view = DisplaySettingsView(self.cog)
+        view = DisplaySettingsView(
+            self.cog.SettingsViewContext(
+                guild_id=self.context.guild_id, cog_instance=self.cog, interaction=interaction, is_bot_owner=self.context.is_bot_owner
+            )
+        )
         await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
 
     @discord.ui.button(label="System Control", style=discord.ButtonStyle.danger, emoji="⚙️")
@@ -63,50 +69,57 @@ class TourneyStatsSettingsView(discord.ui.View):
 
         embed.add_field(name="Current Status", value=f"**Updates Paused:** {'Yes' if is_paused else 'No'}", inline=False)
 
-        view = SystemControlView(self.cog)
+        view = SystemControlView(
+            self.cog.SettingsViewContext(
+                guild_id=self.context.guild_id, cog_instance=self.cog, interaction=interaction, is_bot_owner=self.context.is_bot_owner
+            )
+        )
         await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
 
 
 class CacheSettingsView(discord.ui.View):
     """View for editing cache settings."""
 
-    def __init__(self, cog: "TourneyStats"):
-        super().__init__(timeout=300)
-        self.cog = cog
+    def __init__(self, context: SettingsViewContext):
+        super().__init__(timeout=900)
+        self.cog = context.cog_instance
+        self.context = context
 
     @discord.ui.button(label="Change Cache Filename", style=discord.ButtonStyle.primary)
     async def change_cache_filename(self, interaction: discord.Interaction, button: discord.ui.Button):
         """Change the cache filename."""
-        modal = CacheFilenameModal(self.cog)
+        modal = CacheFilenameModal(self.context)
         await interaction.response.send_modal(modal)
 
     @discord.ui.button(label="Change Update Interval", style=discord.ButtonStyle.primary)
     async def change_update_interval(self, interaction: discord.Interaction, button: discord.ui.Button):
         """Change the update check interval."""
-        modal = UpdateIntervalModal(self.cog)
+        modal = UpdateIntervalModal(self.context)
         await interaction.response.send_modal(modal)
 
 
 class DisplaySettingsView(discord.ui.View):
     """View for editing display settings."""
 
-    def __init__(self, cog: "TourneyStats"):
-        super().__init__(timeout=300)
-        self.cog = cog
+    def __init__(self, context: SettingsViewContext):
+        super().__init__(timeout=900)
+        self.cog = context.cog_instance
+        self.context = context
 
     @discord.ui.button(label="Change Display Count", style=discord.ButtonStyle.primary)
     async def change_display_count(self, interaction: discord.Interaction, button: discord.ui.Button):
         """Change the recent tournaments display count."""
-        modal = DisplayCountModal(self.cog)
+        modal = DisplayCountModal(self.context)
         await interaction.response.send_modal(modal)
 
 
 class SystemControlView(discord.ui.View):
     """View for system control options."""
 
-    def __init__(self, cog: "TourneyStats"):
-        super().__init__(timeout=300)
-        self.cog = cog
+    def __init__(self, context: SettingsViewContext):
+        super().__init__(timeout=900)
+        self.cog = context.cog_instance
+        self.context = context
 
     @discord.ui.button(label="Toggle Pause", style=discord.ButtonStyle.danger)
     async def toggle_pause(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -143,9 +156,9 @@ class CacheFilenameModal(discord.ui.Modal, title="Change Cache Filename"):
 
     filename = discord.ui.TextInput(label="Cache Filename", placeholder="tourney_stats_data.pkl", default="tourney_stats_data.pkl", max_length=100)
 
-    def __init__(self, cog: "TourneyStats"):
+    def __init__(self, context: SettingsViewContext):
         super().__init__()
-        self.cog = cog
+        self.cog = context.cog_instance
 
     async def on_submit(self, interaction: discord.Interaction):
         """Handle modal submission."""
@@ -162,9 +175,9 @@ class UpdateIntervalModal(discord.ui.Modal, title="Change Update Interval"):
 
     hours = discord.ui.TextInput(label="Update Interval (hours)", placeholder="6", default="6", max_length=3)
 
-    def __init__(self, cog: "TourneyStats"):
+    def __init__(self, context: SettingsViewContext):
         super().__init__()
-        self.cog = cog
+        self.cog = context.cog_instance
 
     async def on_submit(self, interaction: discord.Interaction):
         """Handle modal submission."""
@@ -193,9 +206,9 @@ class DisplayCountModal(discord.ui.Modal, title="Change Display Count"):
 
     count = discord.ui.TextInput(label="Recent Tournaments Display Count", placeholder="3", default="3", max_length=2)
 
-    def __init__(self, cog: "TourneyStats"):
+    def __init__(self, context: SettingsViewContext):
         super().__init__()
-        self.cog = cog
+        self.cog = context.cog_instance
 
     async def on_submit(self, interaction: discord.Interaction):
         """Handle modal submission."""
