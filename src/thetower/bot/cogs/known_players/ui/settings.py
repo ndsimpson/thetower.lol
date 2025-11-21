@@ -38,6 +38,15 @@ class KnownPlayersSettingsView(discord.ui.View):
         else:
             self.profile_post_channels = []
 
+        # Get privileged groups setting
+        self.privileged_groups_for_full_ids = known_players_config.get("privileged_groups_for_full_ids", [])
+
+        # Get moderation display setting
+        self.show_moderation_records_in_profiles = known_players_config.get("show_moderation_records_in_profiles", False)
+
+        # Get privileged groups for moderation records
+        self.privileged_groups_for_moderation_records = known_players_config.get("privileged_groups_for_moderation_records", [])
+
         # Add toggle buttons for boolean settings
         self.add_toggle_button("Auto Refresh", "auto_refresh", self.auto_refresh)
         self.add_toggle_button("Save on Update", "save_on_update", self.save_on_update)
@@ -47,6 +56,9 @@ class KnownPlayersSettingsView(discord.ui.View):
         # Add security toggle for bot owners
         if self.is_bot_owner:
             self.add_toggle_button("Restrict Lookups", "restrict_lookups_to_known_users", self.restrict_lookups_to_known_users, security=True)
+            self.add_toggle_button(
+                "Show Moderation Records", "show_moderation_records_in_profiles", self.show_moderation_records_in_profiles, security=True
+            )
 
         # Build options list for numeric settings only
         options = [
@@ -61,6 +73,16 @@ class KnownPlayersSettingsView(discord.ui.View):
             ),
             discord.SelectOption(
                 label="Profile Post Channels", value="profile_post_channels", description="Channels where profiles can be posted publicly"
+            ),
+            discord.SelectOption(
+                label="Privileged Groups for Full IDs",
+                value="privileged_groups_for_full_ids",
+                description="Django groups that can see all player IDs",
+            ),
+            discord.SelectOption(
+                label="Privileged Groups for Moderation Records",
+                value="privileged_groups_for_moderation_records",
+                description="Django groups that can see moderation records",
             ),
         ]
 
@@ -180,8 +202,8 @@ class KnownPlayersSettingsView(discord.ui.View):
         )
 
         embed.add_field(
-            name="📢 Profile Posting",
-            value=f"**Allowed Channels:** {len(self.profile_post_channels)} channels configured",
+            name="🔐 Permission Settings",
+            value=f"**Privileged Groups for Full IDs:** {len(self.privileged_groups_for_full_ids)} groups configured",
             inline=True,
         )
 
@@ -194,6 +216,9 @@ class KnownPlayersSettingsView(discord.ui.View):
 
         if self.is_bot_owner:
             behavior_parts.append(f"**Restrict Lookups:** {'🔒 ON' if self.restrict_lookups_to_known_users else '🔓 OFF'} *(Bot Owner Only)*")
+            behavior_parts.append(
+                f"**Show Moderation Records:** {'🔒 ON' if self.show_moderation_records_in_profiles else '🔓 OFF'} *(Bot Owner Only)*"
+            )
 
         embed.add_field(
             name="🔧 Behavior Settings",
@@ -211,6 +236,22 @@ class KnownPlayersSettingsView(discord.ui.View):
         # Special handling for profile_post_channels
         if setting_name == "profile_post_channels":
             view = ChannelSelectView(self.cog, interaction, self.profile_post_channels)
+            embed = view.create_selection_embed()
+            await interaction.response.edit_message(embed=embed, view=view)
+            return
+
+        # Special handling for privileged_groups_for_full_ids
+        if setting_name == "privileged_groups_for_full_ids":
+            view = GroupsSelectView(self.cog, interaction, self.privileged_groups_for_full_ids)
+            embed = view.create_selection_embed()
+            await interaction.response.edit_message(embed=embed, view=view)
+            return
+
+        # Special handling for privileged_groups_for_moderation_records
+        if setting_name == "privileged_groups_for_moderation_records":
+            view = GroupsSelectView(
+                self.cog, interaction, self.privileged_groups_for_moderation_records, setting_key="privileged_groups_for_moderation_records"
+            )
             embed = view.create_selection_embed()
             await interaction.response.edit_message(embed=embed, view=view)
             return
@@ -240,7 +281,14 @@ class SettingModal(discord.ui.Modal):
 
     def __init__(self, cog: BaseCog, setting_name: str, current_value):
         # Create appropriate title and input based on setting type
-        if setting_name in ["auto_refresh", "save_on_update", "allow_partial_matches", "case_sensitive", "restrict_lookups_to_known_users"]:
+        if setting_name in [
+            "auto_refresh",
+            "save_on_update",
+            "allow_partial_matches",
+            "case_sensitive",
+            "restrict_lookups_to_known_users",
+            "show_moderation_records_in_profiles",
+        ]:
             title = f"Set {setting_name.replace('_', ' ').title()}"
             self.input_type = "boolean"
         elif setting_name in ["results_per_page", "cache_refresh_interval", "cache_save_interval", "info_max_results", "refresh_check_interval"]:
@@ -275,7 +323,7 @@ class SettingModal(discord.ui.Modal):
 
         try:
             # Check if this is a bot owner only setting
-            if self.setting_name == "restrict_lookups_to_known_users":
+            if self.setting_name in ["restrict_lookups_to_known_users", "show_moderation_records_in_profiles"]:
                 # Check if user is bot owner
                 if interaction.user.id not in self.cog.bot.owner_ids:
                     embed = discord.Embed(
@@ -326,6 +374,293 @@ class SettingModal(discord.ui.Modal):
             await interaction.response.send_message(embed=embed, ephemeral=True)
         except Exception as e:
             embed = discord.Embed(title="Error", description=f"Failed to update setting: {str(e)}", color=discord.Color.red())
+            await interaction.response.send_message(embed=embed, ephemeral=True)
+
+
+class GroupsSelectView(discord.ui.View):
+    """View for managing privileged Django groups for full ID access."""
+
+    def __init__(
+        self, cog: BaseCog, interaction: discord.Interaction, current_groups: List[str], setting_key: str = "privileged_groups_for_full_ids"
+    ):
+        super().__init__(timeout=900)
+        self.cog = cog
+        self.original_interaction = interaction
+        self.current_groups = set(current_groups)
+        self.selected_groups = self.current_groups.copy()
+        self.setting_key = setting_key
+        self.available_groups = []
+
+        # Get available Django groups
+        self._load_available_groups()
+
+        # Add remove buttons for current groups (max 4 to fit Discord limits)
+        # Note: Individual remove buttons removed in favor of single "Remove Groups" button
+
+        # Add the "Add Group" button
+        add_button = discord.ui.Button(label="Add Group", style=discord.ButtonStyle.primary, emoji="➕", custom_id="add_group")
+        add_button.callback = self.add_group_callback
+        self.add_item(add_button)
+
+        # Add the "Remove Groups" button
+        if self.current_groups:  # Only show if there are groups to remove
+            remove_button = discord.ui.Button(label="Remove Groups", style=discord.ButtonStyle.danger, emoji="🗑️", custom_id="remove_groups")
+            remove_button.callback = self.remove_groups_callback
+            self.add_item(remove_button)
+
+    def _load_available_groups(self):
+        """Load available Django groups synchronously."""
+        # For now, we'll use common defaults. In a future update, this could query Django directly
+        self.available_groups = ["admin", "moderators", "staff", "verified", "premium", "beta_testers", "supporters"]
+
+    async def add_group_callback(self, interaction: discord.Interaction):
+        """Handle adding a new group."""
+        # Query Django for available groups
+        try:
+            from asgiref.sync import sync_to_async
+            from django.contrib.auth.models import Group
+
+            # Get all Django groups
+            django_groups = await sync_to_async(list)(Group.objects.all().order_by("name"))
+            available_groups = [group.name for group in django_groups]
+        except Exception as e:
+            self.cog.logger.warning(f"Could not query Django groups: {e}, using defaults")
+            available_groups = self.available_groups
+
+        # Create dropdown of available groups not already selected
+        available_options = [g for g in available_groups if g not in self.selected_groups]
+
+        if not available_options:
+            embed = discord.Embed(
+                title="No Groups Available",
+                description="All available Django groups are already selected, or no groups are configured in Django.",
+                color=discord.Color.orange(),
+            )
+            await interaction.response.send_message(embed=embed, ephemeral=True)
+            return
+
+        # Create select dropdown
+        options = [discord.SelectOption(label=group, value=group) for group in available_options[:25]]  # Discord limit
+
+        select = discord.ui.Select(
+            placeholder="Select Django groups to add",
+            options=options,
+            max_values=len(options),  # Allow selecting multiple
+            min_values=1,
+            custom_id="add_group_select",
+        )
+
+        # Create a temporary view with just the select
+        temp_view = discord.ui.View(timeout=300)
+        temp_view.add_item(select)
+
+        async def select_callback(select_interaction: discord.Interaction):
+            selected_groups = select_interaction.data["values"]
+            for group in selected_groups:
+                self.selected_groups.add(group)
+
+            # Update the view
+            embed = self.create_selection_embed()
+            await select_interaction.response.edit_message(embed=embed, view=self)
+
+        select.callback = select_callback
+
+        embed = discord.Embed(
+            title="Add Django Groups",
+            description="Select one or more Django groups to add to the privileged groups list.",
+            color=discord.Color.blue(),
+        )
+
+        await interaction.response.send_message(embed=embed, view=temp_view, ephemeral=True)
+
+    async def remove_groups_callback(self, interaction: discord.Interaction):
+        """Handle removing multiple groups via dropdown."""
+        if not self.selected_groups:
+            embed = discord.Embed(
+                title="No Groups to Remove",
+                description="There are no groups currently selected to remove.",
+                color=discord.Color.orange(),
+            )
+            await interaction.response.send_message(embed=embed, ephemeral=True)
+            return
+
+        # Create select dropdown of currently selected groups
+        options = [discord.SelectOption(label=group, value=group) for group in sorted(self.selected_groups)[:25]]  # Discord limit
+
+        select = discord.ui.Select(
+            placeholder="Select groups to remove",
+            options=options,
+            max_values=len(options),  # Allow selecting all
+            min_values=1,
+            custom_id="remove_groups_select",
+        )
+
+        # Create a temporary view with just the select
+        temp_view = discord.ui.View(timeout=300)
+        temp_view.add_item(select)
+
+        async def select_callback(select_interaction: discord.Interaction):
+            groups_to_remove = select_interaction.data["values"]
+            for group in groups_to_remove:
+                self.selected_groups.discard(group)
+
+            # Update the view
+            embed = self.create_selection_embed()
+            await select_interaction.response.edit_message(embed=embed, view=self)
+
+        select.callback = select_callback
+
+        embed = discord.Embed(
+            title="Remove Django Groups",
+            description="Select one or more Django groups to remove from the privileged groups list.",
+            color=discord.Color.red(),
+        )
+
+        await interaction.response.send_message(embed=embed, view=temp_view, ephemeral=True)
+
+    def create_selection_embed(self) -> discord.Embed:
+        """Create embed showing current group selection."""
+        if self.setting_key == "privileged_groups_for_full_ids":
+            title = "🔐 Manage Privileged Groups for Full IDs"
+            description = "Configure which Django groups can see all player IDs in lookup commands.\n\n**Current Groups:**"
+            no_groups_message = "*No groups selected - only primary IDs will be shown*"
+        else:
+            title = "🔐 Manage Privileged Groups for Moderation Records"
+            description = "Configure which Django groups can see moderation records in profiles.\n\n**Current Groups:**"
+            no_groups_message = "*No groups selected - moderation records will be hidden*"
+
+        embed = discord.Embed(
+            title=title,
+            description=description,
+            color=discord.Color.blue(),
+        )
+
+        if self.selected_groups:
+            group_list = "\n".join(f"• {group}" for group in sorted(self.selected_groups))
+            embed.add_field(name=f"Selected Groups ({len(self.selected_groups)})", value=group_list, inline=False)
+        else:
+            embed.add_field(name="Selected Groups (0)", value=no_groups_message, inline=False)
+
+        embed.set_footer(text="Use 'Add Group' to add more groups • Use 'Remove Groups' to delete groups • Click Save when done")
+        return embed
+
+    @discord.ui.button(label="Save Changes", style=discord.ButtonStyle.success, emoji="💾", row=4)
+    async def save_changes(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Save the selected groups."""
+        new_groups = sorted(list(self.selected_groups))
+
+        # Save the setting globally in bot config
+        known_players_config = self.cog.config.config.setdefault("known_players", {})
+        known_players_config[self.setting_key] = new_groups
+        self.cog.config.save_config()
+
+        setting_name = (
+            "Privileged Groups for Full IDs" if self.setting_key == "privileged_groups_for_full_ids" else "Privileged Groups for Moderation Records"
+        )
+        description = f"**{setting_name}:** {len(new_groups)} groups configured\n"
+        if new_groups:
+            description += f"**Groups:** {', '.join(new_groups)}"
+        else:
+            description += "**No groups configured**"
+
+        embed = discord.Embed(
+            title=f"{setting_name} Updated",
+            description=description,
+            color=discord.Color.green(),
+        )
+
+        # Return to the main settings view
+        view = KnownPlayersSettingsView(
+            self.cog.SettingsViewContext(
+                guild_id=interaction.guild.id if interaction.guild else None,
+                cog_instance=self.cog,
+                interaction=interaction,
+                is_bot_owner=await self.cog.bot.is_owner(interaction.user),
+            )
+        )
+        await interaction.response.edit_message(embed=embed, view=view)
+
+    @discord.ui.button(label="Cancel", style=discord.ButtonStyle.secondary, emoji="❌", row=4)
+    async def cancel(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Cancel and return to main settings."""
+        embed = discord.Embed(title="Cancelled", description="Group selection cancelled. No changes were made.", color=discord.Color.orange())
+
+        # Return to the main settings view
+        view = KnownPlayersSettingsView(
+            self.cog.SettingsViewContext(
+                guild_id=interaction.guild.id if interaction.guild else None,
+                cog_instance=self.cog,
+                interaction=interaction,
+                is_bot_owner=await self.cog.bot.is_owner(interaction.user),
+            )
+        )
+        await interaction.response.edit_message(embed=embed, view=view)
+
+
+class GroupsModal(discord.ui.Modal):
+    """Modal for editing privileged Django groups for full ID access."""
+
+    def __init__(self, cog: BaseCog, current_groups: List[str]):
+        super().__init__(title="Set Privileged Groups for Full IDs")
+
+        self.cog = cog
+        self.current_groups = current_groups
+
+        # Create input field for comma-separated group names
+        current_value = ", ".join(current_groups) if current_groups else ""
+        self.groups_input = discord.ui.TextInput(
+            label="Django Group Names",
+            placeholder="Enter group names separated by commas (e.g., admin, moderators, staff)",
+            default=current_value,
+            required=False,
+            max_length=500,
+            style=discord.TextStyle.paragraph,
+        )
+        self.add_item(self.groups_input)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        """Handle group names submission."""
+        try:
+            # Parse the input
+            groups_str = self.groups_input.value.strip()
+            if groups_str:
+                # Split by comma and clean up whitespace
+                new_groups = [group.strip() for group in groups_str.split(",") if group.strip()]
+                # Remove duplicates while preserving order
+                new_groups = list(dict.fromkeys(new_groups))
+            else:
+                new_groups = []
+
+            # Save the setting globally in bot config
+            known_players_config = self.cog.config.config.setdefault("known_players", {})
+            known_players_config["privileged_groups_for_full_ids"] = new_groups
+            self.cog.config.save_config()
+
+            description = f"**Privileged Groups for Full IDs:** {len(new_groups)} groups configured\n"
+            if new_groups:
+                description += f"**Groups:** {', '.join(new_groups)}"
+            else:
+                description += "**No groups configured**"
+
+            embed = discord.Embed(
+                title="Privileged Groups Updated",
+                description=description,
+                color=discord.Color.green(),
+            )
+
+            # Update the view with new settings
+            view = KnownPlayersSettingsView(
+                self.cog.SettingsViewContext(
+                    guild_id=interaction.guild.id if interaction.guild else None,
+                    cog_instance=self.cog,
+                    interaction=interaction,
+                    is_bot_owner=await self.cog.bot.is_owner(interaction.user),
+                )
+            )
+            await interaction.response.edit_message(embed=embed, view=view)
+
+        except Exception as e:
+            embed = discord.Embed(title="Error", description=f"Failed to update privileged groups: {str(e)}", color=discord.Color.red())
             await interaction.response.send_message(embed=embed, ephemeral=True)
 
 

@@ -65,6 +65,11 @@ class KnownPlayers(BaseCog, name="Known Players", description="Player identity m
             "restrict_lookups_to_known_users": True,
             # Profile posting settings
             "profile_post_channels": [],  # List of channel IDs where profiles can be posted publicly
+            # Permission settings
+            "privileged_groups_for_full_ids": [],  # Django groups that can see all player IDs
+            # Moderation display settings
+            "show_moderation_records_in_profiles": False,  # Whether to show active moderation records in profiles
+            "privileged_groups_for_moderation_records": [],  # Django groups that can see moderation records
         }
 
         # Initialize UI interactions
@@ -136,6 +141,107 @@ class KnownPlayers(BaseCog, name="Known Players", description="Player identity m
     def profile_post_channels(self) -> List[int]:
         """Get profile post channels setting."""
         return self.config.config.get("known_players", {}).get("profile_post_channels", self.default_settings["profile_post_channels"])
+
+    @property
+    def privileged_groups_for_full_ids(self) -> List[str]:
+        """Get privileged groups that can see all player IDs."""
+        return self.config.config.get("known_players", {}).get(
+            "privileged_groups_for_full_ids", self.default_settings["privileged_groups_for_full_ids"]
+        )
+
+    @property
+    def show_moderation_records_in_profiles(self) -> bool:
+        """Get whether to show active moderation records in profiles."""
+        return self.config.config.get("known_players", {}).get(
+            "show_moderation_records_in_profiles", self.default_settings["show_moderation_records_in_profiles"]
+        )
+
+    @property
+    def privileged_groups_for_moderation_records(self) -> List[str]:
+        """Get privileged groups that can see moderation records."""
+        return self.config.config.get("known_players", {}).get(
+            "privileged_groups_for_moderation_records", self.default_settings["privileged_groups_for_moderation_records"]
+        )
+
+    async def check_show_all_ids_permission(self, discord_user: discord.User) -> bool:
+        """Check if a Discord user can see all player IDs based on Django group membership.
+
+        Args:
+            discord_user: The Discord user to check permissions for
+
+        Returns:
+            True if the user can see all IDs, False if they should only see primary ID
+        """
+        if not self.privileged_groups_for_full_ids:
+            # No privileged groups configured, deny by default
+            return False
+
+        try:
+            # Import here to avoid circular imports
+            from thetower.backend.sus.models import KnownPlayer
+
+            # Get the KnownPlayer linked to this Discord user by Discord ID
+            known_player = await sync_to_async(KnownPlayer.objects.filter(discord_id=str(discord_user.id)).first)()
+
+            if not known_player:
+                return False
+
+            # Check if the KnownPlayer has a django_user linked
+            django_user = await sync_to_async(lambda: known_player.django_user)()
+            if not django_user:
+                return False
+
+            # Check if the Django user is in any of the privileged groups
+            user_groups = await sync_to_async(lambda: list(django_user.groups.values_list("name", flat=True)))()
+
+            # Check if user is in any privileged group
+            has_permission = any(group_name in self.privileged_groups_for_full_ids for group_name in user_groups)
+            return has_permission
+
+        except Exception as e:
+            self.logger.error(f"Error checking permissions for user {discord_user.id}: {e}", exc_info=True)
+            # On error, deny access for security
+            return False
+
+    async def check_show_moderation_records_permission(self, discord_user: discord.User) -> bool:
+        """Check if a Discord user can see moderation records based on Django group membership.
+
+        Args:
+            discord_user: The Discord user to check permissions for
+
+        Returns:
+            True if the user can see moderation records, False otherwise
+        """
+        if not self.privileged_groups_for_moderation_records:
+            # No privileged groups configured, deny by default
+            return False
+
+        try:
+            # Import here to avoid circular imports
+            from thetower.backend.sus.models import KnownPlayer
+
+            # Get the KnownPlayer linked to this Discord user by Discord ID
+            known_player = await sync_to_async(KnownPlayer.objects.filter(discord_id=str(discord_user.id)).first)()
+
+            if not known_player:
+                return False
+
+            # Check if the KnownPlayer has a django_user linked
+            django_user = await sync_to_async(lambda: known_player.django_user)()
+            if not django_user:
+                return False
+
+            # Check if the Django user is in any of the privileged groups
+            user_groups = await sync_to_async(lambda: list(django_user.groups.values_list("name", flat=True)))()
+
+            # Check if user is in any privileged group
+            has_permission = any(group_name in self.privileged_groups_for_moderation_records for group_name in user_groups)
+            return has_permission
+
+        except Exception as e:
+            self.logger.error(f"Error checking moderation permissions for user {discord_user.id}: {e}", exc_info=True)
+            # On error, deny access for security
+            return False
 
     def get_profile_post_channels(self, guild_id: int) -> List[int]:
         """Get profile post channels setting for a specific guild."""

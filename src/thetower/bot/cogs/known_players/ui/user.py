@@ -34,7 +34,14 @@ class UserInteractions:
         return identifier  # Return original if no mention found
 
     async def create_player_embed(
-        self, player, details: dict, title_prefix: str = "Player Profile", show_verification_message: bool = True, discord_display_format: str = "id"
+        self,
+        player,
+        details: dict,
+        title_prefix: str = "Player Profile",
+        show_verification_message: bool = True,
+        discord_display_format: str = "id",
+        show_all_ids: bool = True,
+        show_moderation_records: bool = False,
     ) -> discord.Embed:
         """Create player embed with configurable display options.
 
@@ -44,9 +51,11 @@ class UserInteractions:
             title_prefix: Prefix for the embed title (e.g., "Player Profile", "Player Details")
             show_verification_message: Whether to show verification message in description
             discord_display_format: "id" for Discord ID, "mention" for Discord mention
+            show_all_ids: Whether to show all player IDs or just the primary ID
+            show_moderation_records: Whether to show active moderation records
         """
         # Create embed with configurable title and description
-        description = "✅ Your Discord account is verified!" if show_verification_message else None
+        description = "✅ Account is verified" if show_verification_message else None
         embed = discord.Embed(
             title=f"{title_prefix}: {details['name'] or 'Unknown'}",
             description=description,
@@ -78,31 +87,109 @@ class UserInteractions:
 
         formatted_ids = []
         if primary_id:
-            formatted_ids.append(f"✅ **{primary_id}** (Primary)")
-            ids_list = [pid for pid in ids_list if pid != primary_id]
+            if show_all_ids:
+                formatted_ids.append(f"✅ **{primary_id}** (Primary)")
+                # Show all IDs except primary (already added)
+                ids_list = [pid for pid in ids_list if pid != primary_id]
+                formatted_ids.extend(ids_list)
+            else:
+                # Just show the primary ID without special formatting
+                formatted_ids.append(primary_id)
+        elif show_all_ids:
+            # No primary ID, show all IDs
+            formatted_ids.extend(ids_list)
 
-        formatted_ids.extend(ids_list)
+        # Use singular "Player ID" when showing only primary, plural when showing all
+        field_name = "Player IDs" if show_all_ids else "Player ID"
+        if show_all_ids:
+            field_name += f" ({len(details['all_ids'])})"
 
         embed.add_field(
-            name=f"Player IDs ({len(details['all_ids'])})", value="\n".join(formatted_ids) if formatted_ids else "No IDs found", inline=False
+            name=field_name,
+            value="\n".join(formatted_ids) if formatted_ids else "No IDs found",
+            inline=False,
         )
+
+        # Add moderation records if enabled
+        if show_moderation_records:
+            from asgiref.sync import sync_to_async
+
+            from thetower.backend.sus.models import ModerationRecord
+
+            # Get active moderation records for this player
+            active_moderations = await sync_to_async(list)(
+                ModerationRecord.objects.filter(known_player=player, resolved_at__isnull=True).order_by(  # Only active (unresolved) records
+                    "started_at"
+                )
+            )
+
+            if active_moderations:
+                moderation_lines = []
+                for mod in active_moderations:
+                    status_emoji = {"sus": "🚨", "ban": "🚫", "shun": "🔇", "soft_ban": "⚠️"}.get(mod.moderation_type, "❓")
+
+                    started_date = mod.started_at.strftime("%Y-%m-%d")
+                    reason = mod.reason[:50] + "..." if mod.reason and len(mod.reason) > 50 else mod.reason or "No reason provided"
+
+                    moderation_lines.append(f"{status_emoji} **{mod.get_moderation_type_display()}** - {started_date}")
+                    moderation_lines.append(f"   └ {reason}")
+
+                embed.add_field(
+                    name=f"Active Moderation ({len(active_moderations)})",
+                    value="\n".join(moderation_lines),
+                    inline=False,
+                )
+            else:
+                embed.add_field(
+                    name="Moderation Status",
+                    value="✅ No active moderation records",
+                    inline=False,
+                )
 
         return embed
 
-    async def create_profile_embed(self, player, details: dict) -> discord.Embed:
+    async def create_profile_embed(self, player, details: dict, requesting_user: discord.User) -> discord.Embed:
         """Create profile embed for a verified player (legacy method)."""
+        # Check if the requesting user can see all IDs (even for their own profile)
+        show_all_ids = await self.cog.check_show_all_ids_permission(requesting_user)
+        # Check if the requesting user can see moderation records
+        show_moderation_records = (
+            await self.cog.check_show_moderation_records_permission(requesting_user) and self.cog.show_moderation_records_in_profiles
+        )
         return await self.create_player_embed(
-            player, details, title_prefix="Player Profile", show_verification_message=True, discord_display_format="id"
+            player,
+            details,
+            title_prefix="Player Profile",
+            show_verification_message=True,
+            discord_display_format="id",
+            show_all_ids=show_all_ids,
+            show_moderation_records=show_moderation_records,
         )
 
-    async def create_lookup_embed(self, player, details: dict) -> discord.Embed:
+    async def create_lookup_embed(self, player, details: dict, requesting_user: discord.User) -> discord.Embed:
         """Create lookup embed for player details."""
-        return await self.create_player_embed(
-            player, details, title_prefix="Player Details", show_verification_message=False, discord_display_format="mention"
+        # Check if the requesting user can see all IDs
+        show_all_ids = await self.cog.check_show_all_ids_permission(requesting_user)
+        # Check if the requesting user can see moderation records
+        show_moderation_records = (
+            await self.cog.check_show_moderation_records_permission(requesting_user) and self.cog.show_moderation_records_in_profiles
         )
 
-    async def create_multiple_results_embed(self, results: list, search_term: str) -> discord.Embed:
+        return await self.create_player_embed(
+            player,
+            details,
+            title_prefix="Player Details",
+            show_verification_message=False,
+            discord_display_format="mention",
+            show_all_ids=show_all_ids,
+            show_moderation_records=show_moderation_records,
+        )
+
+    async def create_multiple_results_embed(self, results: list, search_term: str, requesting_user: discord.User) -> discord.Embed:
         """Create embed for multiple search results."""
+        # Check if the requesting user can see all IDs
+        show_all_ids = await self.cog.check_show_all_ids_permission(requesting_user)
+
         embed = discord.Embed(
             title="Multiple Players Found",
             description=f"Found {len(results)} players matching '{search_term}'. Showing first 5:",
@@ -117,14 +204,21 @@ class UserInteractions:
 
             formatted_ids = []
             if primary_id:
-                formatted_ids.append(f"✅ {primary_id}")
-
-            other_ids = [pid.id for pid in player_ids if pid.id != primary_id]
-            formatted_ids.extend(other_ids[:2])
+                if show_all_ids:
+                    formatted_ids.append(f"✅ {primary_id}")
+                    other_ids = [pid.id for pid in player_ids if pid.id != primary_id]
+                    formatted_ids.extend(other_ids[:2])
+                else:
+                    # Just show primary ID without special formatting
+                    formatted_ids.append(primary_id)
+            elif show_all_ids:
+                formatted_ids.extend([pid.id for pid in player_ids[:3]])
 
             id_list = ", ".join(formatted_ids)
-            if len(player_ids) > 3:
+            if show_all_ids and len(player_ids) > 3:
                 id_list += f" (+{len(player_ids) - 3} more)"
+            elif not show_all_ids and len(player_ids) > 1:
+                id_list += f" (+{len(player_ids) - 1} more)"
 
             discord_mention = f"<@{player.discord_id}>" if player.discord_id else "Not set"
             player_info = f"**Name:** {player.name}\n" f"**Discord:** {discord_mention}\n" f"**Player IDs:** {id_list}"
@@ -141,9 +235,7 @@ class UserInteractions:
         embed = discord.Embed(
             title="Not Verified", description="You don't have a verified player account linked to your Discord ID.", color=discord.Color.orange()
         )
-        embed.add_field(
-            name="How to Get Verified", value="Contact a server administrator to link your player ID to your Discord account.", inline=False
-        )
+        embed.add_field(name="How to Get Verified", value="Verify your player id in <#", inline=False)
         return embed
 
     async def handle_profile_command(self, interaction: discord.Interaction) -> None:
@@ -166,7 +258,7 @@ class UserInteractions:
         details = await get_player_details(player)
 
         # Create profile embed
-        embed = await self.create_profile_embed(player, details)
+        embed = await self.create_profile_embed(player, details, interaction.user)
 
         # Check if tournament roles button should be shown
         show_tourney_roles_button = False
@@ -174,6 +266,11 @@ class UserInteractions:
         if tourney_cog and hasattr(self.cog.bot, "cog_manager"):
             cog_manager = self.cog.bot.cog_manager
             show_tourney_roles_button = cog_manager.can_guild_use_cog("tourney_roles", interaction.guild.id)
+
+        # Check if user can see moderation records for the enhanced button
+        can_see_moderation = (
+            await self.cog.check_show_moderation_records_permission(interaction.user) and self.cog.show_moderation_records_in_profiles
+        )
 
         # Create view with set creator code button and optionally tournament roles button
         view = PlayerView(
@@ -186,6 +283,8 @@ class UserInteractions:
             show_tourney_roles_button=show_tourney_roles_button,
             user_id=int(discord_id),
             guild_id=interaction.guild.id,
+            requesting_user=interaction.user,
+            can_see_moderation=can_see_moderation,
         )
 
         await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
@@ -234,11 +333,24 @@ class UserInteractions:
         if len(results) == 1:
             player = results[0]
             details = await get_player_details(player)
-            embed = await self.create_lookup_embed(player, details)
+            embed = await self.create_lookup_embed(player, details, interaction.user)
+            # Check if user can see moderation records for the enhanced button
+            can_see_moderation = (
+                await self.cog.check_show_moderation_records_permission(interaction.user) and self.cog.show_moderation_records_in_profiles
+            )
             # Create view with post publicly button
-            view = PlayerView(self.cog, show_creator_code_button=False, player=player, details=details, embed_title="Player Details")
+            view = PlayerView(
+                self.cog,
+                show_creator_code_button=False,
+                player=player,
+                details=details,
+                embed_title="Player Details",
+                requesting_user=interaction.user,
+                can_see_moderation=can_see_moderation,
+            )
             await interaction.followup.send(embed=embed, view=view, ephemeral=True)
         else:
             # Multiple results
-            embed = await self.create_multiple_results_embed(results, identifier or str(user))
+            embed = await self.create_multiple_results_embed(results, identifier or str(user), interaction.user)
+            await interaction.followup.send(embed=embed, ephemeral=True)
             await interaction.followup.send(embed=embed, ephemeral=True)

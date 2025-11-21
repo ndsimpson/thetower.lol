@@ -104,6 +104,8 @@ class PlayerView(discord.ui.View):
         show_tourney_roles_button: bool = False,
         user_id: int = None,
         guild_id: int = None,
+        requesting_user: discord.User = None,
+        can_see_moderation: bool = False,
     ):
         super().__init__(timeout=900)
         self.cog = cog
@@ -115,6 +117,8 @@ class PlayerView(discord.ui.View):
         self.show_tourney_roles_button = show_tourney_roles_button
         self.user_id = user_id
         self.guild_id = guild_id
+        self.requesting_user = requesting_user
+        self.can_see_moderation = can_see_moderation
 
         # Only add the creator code button if allowed
         if self.show_creator_code_button:
@@ -124,85 +128,18 @@ class PlayerView(discord.ui.View):
         if self.show_tourney_roles_button and self.user_id and self.guild_id:
             self.add_item(RefreshTourneyRolesButton(self.cog, self.user_id, self.guild_id))
 
-    @discord.ui.button(label="Post Publicly", style=discord.ButtonStyle.secondary, emoji="📢")
-    async def post_publicly_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        """Button to post profile publicly to the channel."""
-        guild_id = interaction.guild.id
-        channel_id = interaction.channel.id
+        # Only add the post publicly button if user has permission and we have required data
+        if self.requesting_user and self.player and self.details:
+            # Always add the basic post publicly button
+            self.add_item(PostPubliclyButton(self.cog, self.player, self.details, self.embed_title, self.requesting_user, include_moderation=False))
 
-        # Check if this channel is configured for profile posting
-        allowed_channels = self.cog.get_setting("profile_post_channels", [], guild_id=guild_id)
-
-        if channel_id not in allowed_channels:
-            embed = discord.Embed(
-                title="Channel Not Authorized", description="This channel is not configured for public profile posting.", color=discord.Color.red()
-            )
-            embed.add_field(
-                name="What you can do",
-                value="• The profile is still visible privately above\n• Ask a server admin to add this channel to the profile posting list\n• Use `/profile` or `/lookup` in authorized channels to post publicly",
-                inline=False,
-            )
-            await interaction.response.send_message(embed=embed, ephemeral=True)
-            return
-
-        # Check if user has permission to post in this channel (basic permission check)
-        try:
-            # Check if user can send messages in this channel
-            if not interaction.channel.permissions_for(interaction.user).send_messages:
-                embed = discord.Embed(
-                    title="Permission Denied", description="You don't have permission to send messages in this channel.", color=discord.Color.red()
+            # Add the enhanced button only if user can see moderation records
+            if self.can_see_moderation:
+                self.add_item(
+                    PostPubliclyButton(self.cog, self.player, self.details, self.embed_title, self.requesting_user, include_moderation=True)
                 )
-                await interaction.response.send_message(embed=embed, ephemeral=True)
-                return
-        except Exception as e:
-            self.cog.logger.error(f"Error checking channel permissions: {e}")
-            await interaction.response.send_message("❌ Error checking permissions. Please try again.", ephemeral=True)
-            return
 
-        # User has permission, create the public profile embed
-        if not self.details:
-            await interaction.response.send_message("❌ Unable to load profile details. Please try again.", ephemeral=True)
-            return
-
-        # Create embed using unified logic
-        embed = discord.Embed(
-            title=f"{self.embed_title}: {self.details['name'] or 'Unknown'}",
-            description="✅ Verified Player Account",
-            color=discord.Color.green(),
-        )
-
-        # Add basic info
-        embed.add_field(
-            name="Basic Info",
-            value=(
-                f"**Name:** {self.details['name'] or 'Not set'}\n"
-                f"**Discord:** <@{self.details['discord_id']}>\n"
-                f"**Creator Code:** {self.details.get('creator_code') or 'Not set'}"
-            ),
-            inline=False,
-        )
-
-        # Format player IDs
-        primary_id = self.details["primary_id"]
-        ids_list = self.details["all_ids"]
-
-        formatted_ids = []
-        if primary_id:
-            formatted_ids.append(f"✅ **{primary_id}** (Primary)")
-            ids_list = [pid for pid in ids_list if pid != primary_id]
-
-        formatted_ids.extend(ids_list)
-
-        embed.add_field(
-            name=f"Player IDs ({len(self.details['all_ids'])})", value="\n".join(formatted_ids) if formatted_ids else "No IDs found", inline=False
-        )
-
-        # Post publicly to the channel
-        try:
-            await interaction.response.send_message(embed=embed)
-        except Exception as e:
-            self.cog.logger.error(f"Error posting public profile: {e}")
-            await interaction.response.send_message("❌ Failed to post profile publicly. Please try again.", ephemeral=True)
+    # Remove the old post_publicly_button method - replaced by PostPubliclyButton class
 
 
 class SetCreatorCodeButton(discord.ui.Button):
@@ -257,6 +194,80 @@ class RefreshTourneyRolesButton(discord.ui.Button):
         except Exception as e:
             self.cog.logger.error(f"Error refreshing tournament roles for user {self.user_id}: {e}")
             await interaction.followup.send(f"❌ Error updating roles: {str(e)}", ephemeral=True)
+
+
+class PostPubliclyButton(discord.ui.Button):
+    """Button to post profile publicly with permission checks."""
+
+    def __init__(self, cog, player, details: dict, embed_title: str, requesting_user: discord.User, include_moderation: bool = False):
+        label = "Post Publicly (with Mod Records)" if include_moderation else "Post Publicly"
+        emoji = "🚨" if include_moderation else "📢"
+        super().__init__(label=label, style=discord.ButtonStyle.secondary, emoji=emoji)
+        self.cog = cog
+        self.player = player
+        self.details = details
+        self.embed_title = embed_title
+        self.requesting_user = requesting_user
+        self.include_moderation = include_moderation
+
+    async def callback(self, interaction: discord.Interaction):
+        """Button to post profile publicly to the channel."""
+        guild_id = interaction.guild.id
+        channel_id = interaction.channel.id
+
+        # Check if this channel is configured for profile posting
+        allowed_channels = self.cog.get_setting("profile_post_channels", [], guild_id=guild_id)
+
+        if channel_id not in allowed_channels:
+            embed = discord.Embed(
+                title="Channel Not Authorized", description="This channel is not configured for public profile posting.", color=discord.Color.red()
+            )
+            embed.add_field(
+                name="What you can do",
+                value="• The profile is still visible privately above\n• Ask a server admin to add this channel to the profile posting list\n• Use `/profile` or `/lookup` in authorized channels to post publicly",
+                inline=False,
+            )
+            await interaction.response.send_message(embed=embed, ephemeral=True)
+            return
+
+        # Check if user has permission to post in this channel (basic permission check)
+        try:
+            # Check if user can send messages in this channel
+            if not interaction.channel.permissions_for(interaction.user).send_messages:
+                embed = discord.Embed(
+                    title="Permission Denied", description="You don't have permission to send messages in this channel.", color=discord.Color.red()
+                )
+                await interaction.response.send_message(embed=embed, ephemeral=True)
+                return
+        except Exception as e:
+            self.cog.logger.error(f"Error checking channel permissions: {e}")
+            await interaction.response.send_message("❌ Error checking permissions. Please try again.", ephemeral=True)
+            return
+
+        # Check permissions for what information can be shown publicly
+        show_all_ids = await self.cog.check_show_all_ids_permission(self.requesting_user)
+        show_moderation_records = self.include_moderation
+
+        # Create embed using the same logic as private profiles but with permission checks
+        from .user import UserInteractions
+
+        user_interactions = UserInteractions(self.cog)
+        embed = await user_interactions.create_player_embed(
+            self.player,
+            self.details,
+            title_prefix=self.embed_title,
+            show_verification_message=True,
+            discord_display_format="mention",
+            show_all_ids=show_all_ids,
+            show_moderation_records=show_moderation_records,
+        )
+
+        # Post publicly to the channel
+        try:
+            await interaction.response.send_message(embed=embed)
+        except Exception as e:
+            self.cog.logger.error(f"Error posting public profile: {e}")
+            await interaction.response.send_message("❌ Failed to post profile publicly. Please try again.", ephemeral=True)
 
 
 class ProfileView(discord.ui.View):
