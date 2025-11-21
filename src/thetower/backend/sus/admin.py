@@ -22,45 +22,42 @@ from .models import ApiKey
 class ModerationRecordForm(forms.ModelForm):
     class Meta:
         model = ModerationRecord
-        fields = '__all__'
+        fields = "__all__"
 
     def clean(self):
         cleaned_data = super().clean()
-        tower_id = cleaned_data.get('tower_id')
-        moderation_type = cleaned_data.get('moderation_type')
-        source = cleaned_data.get('source')
+        tower_id = cleaned_data.get("tower_id")
+        moderation_type = cleaned_data.get("moderation_type")
+        source = cleaned_data.get("source")
 
         # Only validate for new records that are not API-created
-        if not self.instance.pk and tower_id and moderation_type and source != 'api':
+        if not self.instance.pk and tower_id and moderation_type and source != "api":
             # Get existing active records for this player
-            existing_active = ModerationRecord.objects.filter(
-                tower_id=tower_id,
-                resolved_at__isnull=True  # Only active records
-            )
+            existing_active = ModerationRecord.objects.filter(tower_id=tower_id, resolved_at__isnull=True)  # Only active records
 
-            existing_sus = existing_active.filter(moderation_type='sus').first()
-            existing_ban = existing_active.filter(moderation_type='ban').first()
+            existing_sus = existing_active.filter(moderation_type="sus").first()
+            existing_ban = existing_active.filter(moderation_type="ban").first()
             existing_same_type = existing_active.filter(moderation_type=moderation_type).first()
 
-            if moderation_type == 'sus':
+            if moderation_type == "sus":
                 # Manual SUS creation rules
                 if existing_sus:
                     raise ValidationError(
-                        f'A sus record already exists for player {tower_id}. '
-                        f'Please go to the ModerationRecord list and find record ID {existing_sus.pk} to edit it.'
+                        f"A sus record already exists for player {tower_id}. "
+                        f"Please go to the ModerationRecord list and find record ID {existing_sus.pk} to edit it."
                     )
                 elif existing_ban:
                     raise ValidationError(
-                        f'Player {tower_id} is already banned. Cannot create sus record for banned player. '
-                        f'Please go to the ModerationRecord list and find record ID {existing_ban.pk} to view the ban.'
+                        f"Player {tower_id} is already banned. Cannot create sus record for banned player. "
+                        f"Please go to the ModerationRecord list and find record ID {existing_ban.pk} to view the ban."
                     )
 
-            elif moderation_type == 'ban':
+            elif moderation_type == "ban":
                 # Manual BAN creation rules
                 if existing_ban:
                     raise ValidationError(
-                        f'A ban record already exists for player {tower_id}. '
-                        f'Please go to the ModerationRecord list and find record ID {existing_ban.pk} to edit it.'
+                        f"A ban record already exists for player {tower_id}. "
+                        f"Please go to the ModerationRecord list and find record ID {existing_ban.pk} to edit it."
                     )
                 # Note: We'll handle sus resolution in save_model since it requires database writes
 
@@ -68,8 +65,8 @@ class ModerationRecordForm(forms.ModelForm):
                 # Other moderation types (shun, soft_ban, etc.)
                 if existing_same_type:
                     raise ValidationError(
-                        f'An active {moderation_type} record already exists for player {tower_id}. '
-                        f'Please go to the ModerationRecord list and find record ID {existing_same_type.pk} to edit it.'
+                        f"An active {moderation_type} record already exists for player {tower_id}. "
+                        f"Please go to the ModerationRecord list and find record ID {existing_same_type.pk} to edit it."
                     )
 
         return cleaned_data
@@ -113,6 +110,7 @@ class SusPersonAdmin(SimpleHistoryAdmin):
     READ-ONLY admin for legacy SusPerson model.
     This model is deprecated - use ModerationRecord instead.
     """
+
     change_form_template = "admin/sus/susperson/change_form.html"
 
     def get_urls(self):
@@ -183,9 +181,8 @@ class SusPersonAdmin(SimpleHistoryAdmin):
 
     def changelist_view(self, request, extra_context=None):
         extra_context = extra_context or {}
-        extra_context['deprecation_message'] = (
-            "⚠️ SusPerson model is deprecated and read-only. "
-            "For new moderation actions, please use the ModerationRecord admin."
+        extra_context["deprecation_message"] = (
+            "⚠️ SusPerson model is deprecated and read-only. " "For new moderation actions, please use the ModerationRecord admin."
         )
         return super().changelist_view(request, extra_context)
 
@@ -256,9 +253,9 @@ class KnownPlayerAdmin(SimpleHistoryAdmin):
 
     _ids.short_description = "Ids"
 
-    list_display = ("name", "approved", "discord_id", "creator_code", "_ids")
+    list_display = ("name", "approved", "discord_id", "creator_code", "django_user", "_ids")
     list_editable = ("approved", "creator_code")
-    search_fields = ("name", "discord_id", "creator_code", "ids__id")
+    search_fields = ("name", "discord_id", "creator_code", "ids__id", "django_user__username")
     inlines = (IdInline,)
 
 
@@ -319,11 +316,10 @@ class ModerationRecordAdmin(SimpleHistoryAdmin):
         if obj.zendesk_ticket_id:
             try:
                 from ..zendesk_utils import get_zendesk_ticket_web_url
+
                 ticket_url = get_zendesk_ticket_web_url(obj.zendesk_ticket_id)
                 return format_html(
-                    '<a href="{}" target="_blank" style="color: green; text-decoration: none;">✅ #{}</a>',
-                    ticket_url,
-                    obj.zendesk_ticket_id
+                    '<a href="{}" target="_blank" style="color: green; text-decoration: none;">✅ #{}</a>', ticket_url, obj.zendesk_ticket_id
                 )
             except Exception:
                 return format_html('<span style="color: green;">✅ #{}</span>', obj.zendesk_ticket_id)
@@ -379,22 +375,45 @@ class ModerationRecordAdmin(SimpleHistoryAdmin):
     )
 
     fieldsets = (
-        ("Moderation Details", {
-            "fields": ("tower_id", "known_player", "moderation_type", "source", "created_at", "_created_by_display", "resolved_at", "_resolved_by_display", "reason"),
-            "description": "Enter the Tower ID. If this player is verified (has a Discord account), they will be auto-linked."
-        }),
-        ("Zendesk Integration", {
-            "fields": ("_zendesk_status_display", "needs_zendesk_ticket"),
-            "description": "Zendesk ticket creation status and controls. Click status for direct ticket access. Once a ticket is created, the toggle becomes read-only as the queue ignores records with existing tickets.",
-            "classes": ("collapse",)
-        }),
-        ("Audit Trail", {
-            "fields": (
-                "created_by", "created_by_discord_id", "created_by_api_key",
-                "resolved_by", "resolved_by_discord_id", "resolved_by_api_key"
-            ),
-            "classes": ("collapse",)
-        }),
+        (
+            "Moderation Details",
+            {
+                "fields": (
+                    "tower_id",
+                    "known_player",
+                    "moderation_type",
+                    "source",
+                    "created_at",
+                    "_created_by_display",
+                    "resolved_at",
+                    "_resolved_by_display",
+                    "reason",
+                ),
+                "description": "Enter the Tower ID. If this player is verified (has a Discord account), they will be auto-linked.",
+            },
+        ),
+        (
+            "Zendesk Integration",
+            {
+                "fields": ("_zendesk_status_display", "needs_zendesk_ticket"),
+                "description": "Zendesk ticket creation status and controls. Click status for direct ticket access. Once a ticket is created, the toggle becomes read-only as the queue ignores records with existing tickets.",
+                "classes": ("collapse",),
+            },
+        ),
+        (
+            "Audit Trail",
+            {
+                "fields": (
+                    "created_by",
+                    "created_by_discord_id",
+                    "created_by_api_key",
+                    "resolved_by",
+                    "resolved_by_discord_id",
+                    "resolved_by_api_key",
+                ),
+                "classes": ("collapse",),
+            },
+        ),
     )
 
     def get_queryset(self, request):
@@ -412,8 +431,12 @@ class ModerationRecordAdmin(SimpleHistoryAdmin):
         if not request.user.is_superuser:
             protected_fields = [
                 "source",  # Only superusers can change the source
-                "created_by", "created_by_discord_id", "created_by_api_key",
-                "resolved_by", "resolved_by_discord_id", "resolved_by_api_key"
+                "created_by",
+                "created_by_discord_id",
+                "created_by_api_key",
+                "resolved_by",
+                "resolved_by_discord_id",
+                "resolved_by_api_key",
             ]
             readonly.extend(protected_fields)
 
@@ -425,13 +448,13 @@ class ModerationRecordAdmin(SimpleHistoryAdmin):
 
     def has_change_permission(self, request, obj=None):
         # Allow viewing for all users, but restrict editing of API-created records
-        if obj and obj.source == 'api' and not request.user.is_superuser:
+        if obj and obj.source == "api" and not request.user.is_superuser:
             return False  # Non-superusers cannot edit API-created records
         return True  # Allow editing for manual/bot records or superusers
 
     def delete_model(self, request, obj):
         # Trigger recalc before deletion if this was an active record affecting tournaments
-        if obj.moderation_type in ['sus', 'shun', 'ban'] and obj.resolved_at is None:
+        if obj.moderation_type in ["sus", "shun", "ban"] and obj.resolved_at is None:
             affected = queue_recalculation_for_player(obj.tower_id)
             if affected:
                 messages.info(request, f"Triggered tournament recalculation before deleting record for {obj.tower_id}")
@@ -443,7 +466,7 @@ class ModerationRecordAdmin(SimpleHistoryAdmin):
         # Trigger recalc for all affected players before bulk deletion
         affected_players = set()
         for obj in queryset:
-            if obj.moderation_type in ['sus', 'shun', 'ban'] and obj.resolved_at is None:
+            if obj.moderation_type in ["sus", "shun", "ban"] and obj.resolved_at is None:
                 affected_players.add(obj.tower_id)
 
         # Trigger recalculation for each affected player
@@ -454,7 +477,10 @@ class ModerationRecordAdmin(SimpleHistoryAdmin):
                 total_affected += affected
 
         if total_affected:
-            messages.info(request, f"Triggered tournament recalculation for {len(affected_players)} player(s) before bulk deletion ({total_affected} tournaments affected)")
+            messages.info(
+                request,
+                f"Triggered tournament recalculation for {len(affected_players)} player(s) before bulk deletion ({total_affected} tournaments affected)",
+            )
 
         # Perform the actual bulk deletion
         super().delete_queryset(request, queryset)
@@ -466,10 +492,7 @@ class ModerationRecordAdmin(SimpleHistoryAdmin):
             try:
                 original = ModerationRecord.objects.get(pk=obj.pk)
                 # Check if the original record affected tournaments (sus/shun/ban)
-                original_affects_tournaments = (
-                    original.moderation_type in ['sus', 'shun', 'ban'] and
-                    original.resolved_at is None
-                )
+                original_affects_tournaments = original.moderation_type in ["sus", "shun", "ban"] and original.resolved_at is None
             except ModerationRecord.DoesNotExist:
                 pass
 
@@ -477,15 +500,11 @@ class ModerationRecordAdmin(SimpleHistoryAdmin):
             obj.created_by = request.user
 
             # Handle ban escalation logic (resolve sus when creating ban)
-            if obj.tower_id and obj.moderation_type == 'ban':
+            if obj.tower_id and obj.moderation_type == "ban":
                 from django.utils import timezone
 
                 # Get existing active sus records
-                existing_sus_records = ModerationRecord.objects.filter(
-                    tower_id=obj.tower_id,
-                    moderation_type='sus',
-                    resolved_at__isnull=True
-                )
+                existing_sus_records = ModerationRecord.objects.filter(tower_id=obj.tower_id, moderation_type="sus", resolved_at__isnull=True)
 
                 sus_notes_to_copy = []
                 for existing_sus in existing_sus_records:
@@ -505,10 +524,7 @@ class ModerationRecordAdmin(SimpleHistoryAdmin):
                     existing_sus.resolved_by = request.user
                     existing_sus.save()
 
-                    messages.success(
-                        request,
-                        f"Resolved existing sus record for player {obj.tower_id} due to ban escalation."
-                    )
+                    messages.success(request, f"Resolved existing sus record for player {obj.tower_id} due to ban escalation.")
 
                 # Copy sus notes into ban reason
                 if sus_notes_to_copy:
@@ -524,7 +540,7 @@ class ModerationRecordAdmin(SimpleHistoryAdmin):
             if obj.tower_id:
                 try:
                     # Look for a KnownPlayer who has this tower_id
-                    player_id_obj = PlayerId.objects.select_related('player').get(id=obj.tower_id)
+                    player_id_obj = PlayerId.objects.select_related("player").get(id=obj.tower_id)
                     obj.known_player = player_id_obj.player
                 except PlayerId.DoesNotExist:
                     # No KnownPlayer has this tower_id - leave as unverified
@@ -534,19 +550,15 @@ class ModerationRecordAdmin(SimpleHistoryAdmin):
 
         # Check if we need to trigger tournament recalculation
         # Sus, shun, and ban moderation types affect tournament positions
-        current_affects_tournaments = (
-            obj.moderation_type in ['sus', 'shun', 'ban'] and
-            obj.resolved_at is None  # Active moderation
-        )
+        current_affects_tournaments = obj.moderation_type in ["sus", "shun", "ban"] and obj.resolved_at is None  # Active moderation
 
         # Trigger recalc if:
         # 1. New active sus/shun/ban record, OR
         # 2. Existing record changed from affecting tournaments to not affecting (resolved), OR
         # 3. Existing record changed from not affecting to affecting (reactivated)
-        should_recalc = (
-            (not change and current_affects_tournaments) or  # New active sus/shun
-            (change and original_affects_tournaments != current_affects_tournaments)  # Status change
-        )
+        should_recalc = (not change and current_affects_tournaments) or (  # New active sus/shun
+            change and original_affects_tournaments != current_affects_tournaments
+        )  # Status change
 
         if should_recalc:
             affected = queue_recalculation_for_player(obj.tower_id)
@@ -591,7 +603,7 @@ def resolve_moderation_records(modeladmin, request, queryset):
     for obj in queryset:
         if obj.resolved_at is None:  # Only resolve active records
             # Check if this record affects tournaments before resolving
-            if obj.moderation_type in ['sus', 'shun', 'ban']:
+            if obj.moderation_type in ["sus", "shun", "ban"]:
                 players_to_recalc.add(obj.tower_id)
 
             obj.resolved_at = timezone.now()

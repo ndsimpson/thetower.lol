@@ -42,13 +42,22 @@ class KnownPlayer(models.Model):
     discord_id = models.CharField(max_length=50, blank=True, null=True, help_text="Discord numeric id")
     creator_code = models.CharField(max_length=50, blank=True, null=True, help_text="Creator/supporter code to promote in shop")
     approved = models.BooleanField(blank=False, null=False, default=True, help_text="Has this entry been validated?")
+    django_user = models.OneToOneField(
+        User, null=True, blank=True, on_delete=models.SET_NULL, related_name="known_player", help_text="Linked Django user account"
+    )
 
     def __str__(self):
-        return f"{self.name} ({self.ids.filter(primary=True).first().id if self.ids.filter(primary=True).first() else ''})"
+        user_info = f" ({self.django_user.username})" if self.django_user else ""
+        return f"{self.name} ({self.ids.filter(primary=True).first().id if self.ids.filter(primary=True).first() else ''}){user_info}"
 
     def save(self, *args, **kwargs):
         self.nname = self.name.strip()
         super().save(*args, **kwargs)
+
+    @property
+    def is_linked_to_django_user(self):
+        """Check if this KnownPlayer is linked to a Django user account."""
+        return self.django_user is not None
 
     history = HistoricalRecords()
 
@@ -81,23 +90,20 @@ class ModerationRecord(models.Model):
 
     # Moderation Types
     class ModerationType(models.TextChoices):
-        SUS = 'sus', 'Suspicious'
-        BAN = 'ban', 'Banned'
-        SHUN = 'shun', 'Shunned (Discord)'
-        SOFT_BAN = 'soft_ban', 'Soft Banned'
+        SUS = "sus", "Suspicious"
+        BAN = "ban", "Banned"
+        SHUN = "shun", "Shunned (Discord)"
+        SOFT_BAN = "soft_ban", "Soft Banned"
 
     # Moderation Sources
     class ModerationSource(models.TextChoices):
-        MANUAL = 'manual', 'Manual (Admin)'
-        API = 'api', 'API'
-        BOT = 'bot', 'Discord Bot'
-        AUTOMATED = 'automated', 'Automated System'
+        MANUAL = "manual", "Manual (Admin)"
+        API = "api", "API"
+        BOT = "bot", "Discord Bot"
+        AUTOMATED = "automated", "Automated System"
 
     # Moderation timeline - using datetime fields instead of status
-    started_at = models.DateTimeField(
-        default=timezone.now,
-        help_text="When this moderation action began"
-    )
+    started_at = models.DateTimeField(default=timezone.now, help_text="When this moderation action began")
 
     # Core identification - hybrid linking approach
     known_player = models.ForeignKey(
@@ -106,25 +112,14 @@ class ModerationRecord(models.Model):
         blank=True,
         on_delete=models.CASCADE,
         related_name="moderation_records",
-        help_text="Linked KnownPlayer (null for unverified players)"
+        help_text="Linked KnownPlayer (null for unverified players)",
     )
-    tower_id = models.CharField(
-        max_length=32,
-        db_index=True,
-        help_text="Tower ID being moderated (always stored regardless of verification status)"
-    )
+    tower_id = models.CharField(max_length=32, db_index=True, help_text="Tower ID being moderated (always stored regardless of verification status)")
 
     # Moderation details
-    moderation_type = models.CharField(
-        max_length=20,
-        choices=ModerationType.choices,
-        help_text="Type of moderation action"
-    )
+    moderation_type = models.CharField(max_length=20, choices=ModerationType.choices, help_text="Type of moderation action")
     source = models.CharField(
-        max_length=20,
-        choices=ModerationSource.choices,
-        default=ModerationSource.MANUAL,
-        help_text="Source of the moderation action"
+        max_length=20, choices=ModerationSource.choices, default=ModerationSource.MANUAL, help_text="Source of the moderation action"
     )
 
     # Audit trail - dual attribution system
@@ -137,15 +132,12 @@ class ModerationRecord(models.Model):
         blank=True,
         on_delete=models.SET_NULL,
         related_name="created_moderation_records",
-        help_text="Django admin user who created this moderation record"
+        help_text="Django admin user who created this moderation record",
     )
 
     # Bot/Discord attribution
     created_by_discord_id = models.CharField(
-        max_length=20,
-        null=True,
-        blank=True,
-        help_text="Discord ID of user who created this record via bot command"
+        max_length=20, null=True, blank=True, help_text="Discord ID of user who created this record via bot command"
     )
 
     # API attribution
@@ -155,15 +147,11 @@ class ModerationRecord(models.Model):
         blank=True,
         on_delete=models.SET_NULL,
         related_name="created_moderation_records",
-        help_text="API key used to create this record"
+        help_text="API key used to create this record",
     )
 
     # Resolution audit trail
-    resolved_at = models.DateTimeField(
-        null=True,
-        blank=True,
-        help_text="When this moderation was resolved"
-    )
+    resolved_at = models.DateTimeField(null=True, blank=True, help_text="When this moderation was resolved")
 
     # Admin interface resolution
     resolved_by = models.ForeignKey(
@@ -172,15 +160,12 @@ class ModerationRecord(models.Model):
         blank=True,
         on_delete=models.SET_NULL,
         related_name="resolved_moderation_records",
-        help_text="Django admin user who resolved this moderation record"
+        help_text="Django admin user who resolved this moderation record",
     )
 
     # Bot/Discord resolution
     resolved_by_discord_id = models.CharField(
-        max_length=20,
-        null=True,
-        blank=True,
-        help_text="Discord ID of user who resolved this record via bot command"
+        max_length=20, null=True, blank=True, help_text="Discord ID of user who resolved this record via bot command"
     )
 
     # API resolution
@@ -190,53 +175,34 @@ class ModerationRecord(models.Model):
         blank=True,
         on_delete=models.SET_NULL,
         related_name="resolved_moderation_records",
-        help_text="API key used to resolve this record"
+        help_text="API key used to resolve this record",
     )
 
     # Notes and context
-    reason = models.TextField(
-        null=True,
-        blank=True,
-        max_length=1000,
-        help_text="Reason for this moderation action"
-    )
+    reason = models.TextField(null=True, blank=True, max_length=1000, help_text="Reason for this moderation action")
 
     # Zendesk ticket creation queue fields
-    needs_zendesk_ticket = models.BooleanField(
-        default=True,
-        help_text="Moderation record needs a Zendesk ticket created"
-    )
-    zendesk_ticket_id = models.IntegerField(
-        null=True,
-        blank=True,
-        help_text="Zendesk ticket ID once created"
-    )
-    zendesk_last_attempt = models.DateTimeField(
-        null=True,
-        blank=True,
-        help_text="When Zendesk ticket creation was last attempted"
-    )
-    zendesk_retry_count = models.SmallIntegerField(
-        default=0,
-        help_text="Number of failed Zendesk ticket creation attempts"
-    )
+    needs_zendesk_ticket = models.BooleanField(default=True, help_text="Moderation record needs a Zendesk ticket created")
+    zendesk_ticket_id = models.IntegerField(null=True, blank=True, help_text="Zendesk ticket ID once created")
+    zendesk_last_attempt = models.DateTimeField(null=True, blank=True, help_text="When Zendesk ticket creation was last attempted")
+    zendesk_retry_count = models.SmallIntegerField(default=0, help_text="Number of failed Zendesk ticket creation attempts")
 
     class Meta:
-        ordering = ['-started_at']
+        ordering = ["-started_at"]
         indexes = [
             # Fast tower_id lookups for tournament filtering
-            models.Index(fields=['tower_id', 'resolved_at']),
-            models.Index(fields=['tower_id', 'moderation_type', 'resolved_at']),
+            models.Index(fields=["tower_id", "resolved_at"]),
+            models.Index(fields=["tower_id", "moderation_type", "resolved_at"]),
             # Known player lookups
-            models.Index(fields=['known_player', 'resolved_at']),
+            models.Index(fields=["known_player", "resolved_at"]),
             # Source and type filtering
-            models.Index(fields=['source', 'moderation_type']),
+            models.Index(fields=["source", "moderation_type"]),
             # Time-based queries
-            models.Index(fields=['started_at']),
-            models.Index(fields=['created_at']),
+            models.Index(fields=["started_at"]),
+            models.Index(fields=["created_at"]),
             # Zendesk queue processing
-            models.Index(fields=['needs_zendesk_ticket', 'zendesk_retry_count', 'created_at'], name='idx_zendesk_queue'),
-            models.Index(fields=['needs_zendesk_ticket'], name='idx_needs_zendesk'),
+            models.Index(fields=["needs_zendesk_ticket", "zendesk_retry_count", "created_at"], name="idx_zendesk_queue"),
+            models.Index(fields=["needs_zendesk_ticket"], name="idx_needs_zendesk"),
         ]
 
     def __str__(self):
@@ -290,30 +256,25 @@ class ModerationRecord(models.Model):
     def create_for_admin(cls, tower_id, moderation_type, admin_user, reason=None, **kwargs):
         """Create a moderation record from admin interface"""
         # Don't override needs_zendesk_ticket if explicitly set
-        if 'needs_zendesk_ticket' not in kwargs:
-            kwargs['needs_zendesk_ticket'] = True
+        if "needs_zendesk_ticket" not in kwargs:
+            kwargs["needs_zendesk_ticket"] = True
         return cls.objects.create(
-            tower_id=tower_id,
-            moderation_type=moderation_type,
-            source=cls.ModerationSource.MANUAL,
-            created_by=admin_user,
-            reason=reason,
-            **kwargs
+            tower_id=tower_id, moderation_type=moderation_type, source=cls.ModerationSource.MANUAL, created_by=admin_user, reason=reason, **kwargs
         )
 
     @classmethod
     def create_for_bot(cls, tower_id, moderation_type, discord_id, reason=None, **kwargs):
         """Create a moderation record from Discord bot"""
         # Don't override needs_zendesk_ticket if explicitly set
-        if 'needs_zendesk_ticket' not in kwargs:
-            kwargs['needs_zendesk_ticket'] = True
+        if "needs_zendesk_ticket" not in kwargs:
+            kwargs["needs_zendesk_ticket"] = True
         return cls.objects.create(
             tower_id=tower_id,
             moderation_type=moderation_type,
             source=cls.ModerationSource.BOT,
             created_by_discord_id=discord_id,
             reason=reason,
-            **kwargs
+            **kwargs,
         )
 
     @classmethod
@@ -322,29 +283,22 @@ class ModerationRecord(models.Model):
         from django.utils import timezone
 
         # API-sourced records should NOT create Zendesk tickets to avoid circular loops
-        if 'needs_zendesk_ticket' not in kwargs:
-            kwargs['needs_zendesk_ticket'] = False
+        if "needs_zendesk_ticket" not in kwargs:
+            kwargs["needs_zendesk_ticket"] = False
 
         # Get existing active records for this player
-        existing_active = cls.objects.filter(
-            tower_id=tower_id,
-            resolved_at__isnull=True  # Only active records
-        )
+        existing_active = cls.objects.filter(tower_id=tower_id, resolved_at__isnull=True)  # Only active records
 
-        existing_sus = existing_active.filter(moderation_type='sus').first()
-        existing_ban = existing_active.filter(moderation_type='ban').first()
+        existing_sus = existing_active.filter(moderation_type="sus").first()
+        existing_ban = existing_active.filter(moderation_type="ban").first()
         existing_same_type = existing_active.filter(moderation_type=moderation_type).first()
 
-        if moderation_type == 'sus':
+        if moderation_type == "sus":
             # API SUS creation rules
             if existing_sus:
-                if existing_sus.source == 'api':
+                if existing_sus.source == "api":
                     # Already sus by API - return success message
-                    return {
-                        'record': existing_sus,
-                        'created': False,
-                        'message': f"Player {tower_id} is already marked as suspicious by API"
-                    }
+                    return {"record": existing_sus, "created": False, "message": f"Player {tower_id} is already marked as suspicious by API"}
                 else:
                     # Manual sus exists - reinforce with API
                     api_note = f"Reinforced by API (key: {api_key.key_suffix})"
@@ -359,9 +313,9 @@ class ModerationRecord(models.Model):
                     existing_sus.save()
 
                     return {
-                        'record': existing_sus,
-                        'created': False,
-                        'message': f"Reinforced existing manual sus record for player {tower_id} with API"
+                        "record": existing_sus,
+                        "created": False,
+                        "message": f"Reinforced existing manual sus record for player {tower_id} with API",
                     }
             else:
                 # No existing sus - create new
@@ -371,24 +325,16 @@ class ModerationRecord(models.Model):
                     source=cls.ModerationSource.API,
                     created_by_api_key=api_key,
                     reason=reason,
-                    **kwargs
+                    **kwargs,
                 )
-                return {
-                    'record': new_record,
-                    'created': True,
-                    'message': f"Created new sus record for player {tower_id}"
-                }
+                return {"record": new_record, "created": True, "message": f"Created new sus record for player {tower_id}"}
 
-        elif moderation_type == 'ban':
+        elif moderation_type == "ban":
             # API BAN creation rules
             if existing_ban:
-                if existing_ban.source == 'api':
+                if existing_ban.source == "api":
                     # Already banned by API - return success message
-                    return {
-                        'record': existing_ban,
-                        'created': False,
-                        'message': f"Player {tower_id} is already banned by API"
-                    }
+                    return {"record": existing_ban, "created": False, "message": f"Player {tower_id} is already banned by API"}
                 else:
                     # Manual ban exists - reinforce with API
                     api_note = f"Reinforced by API (key: {api_key.key_suffix})"
@@ -403,9 +349,9 @@ class ModerationRecord(models.Model):
                     existing_ban.save()
 
                     return {
-                        'record': existing_ban,
-                        'created': False,
-                        'message': f"Reinforced existing manual ban record for player {tower_id} with API"
+                        "record": existing_ban,
+                        "created": False,
+                        "message": f"Reinforced existing manual ban record for player {tower_id} with API",
                     }
             else:
                 # Resolve any existing sus records first
@@ -428,18 +374,14 @@ class ModerationRecord(models.Model):
                     source=cls.ModerationSource.API,
                     created_by_api_key=api_key,
                     reason=reason,
-                    **kwargs
+                    **kwargs,
                 )
 
                 message = f"Created new ban record for player {tower_id}"
                 if existing_sus:
                     message += " and resolved existing sus record"
 
-                return {
-                    'record': new_record,
-                    'created': True,
-                    'message': message
-                }
+                return {"record": new_record, "created": True, "message": message}
 
         else:
             # Other moderation types (shun, soft_ban, etc.)
@@ -456,9 +398,9 @@ class ModerationRecord(models.Model):
                 existing_same_type.save()
 
                 return {
-                    'record': existing_same_type,
-                    'created': False,
-                    'message': f"Reinforced existing {moderation_type} record for player {tower_id} with API"
+                    "record": existing_same_type,
+                    "created": False,
+                    "message": f"Reinforced existing {moderation_type} record for player {tower_id} with API",
                 }
             else:
                 # Create new record
@@ -468,21 +410,16 @@ class ModerationRecord(models.Model):
                     source=cls.ModerationSource.API,
                     created_by_api_key=api_key,
                     reason=reason,
-                    **kwargs
+                    **kwargs,
                 )
-                return {
-                    'record': new_record,
-                    'created': True,
-                    'message': f"Created new {moderation_type} record for player {tower_id}"
-                }
+                return {"record": new_record, "created": True, "message": f"Created new {moderation_type} record for player {tower_id}"}
 
     @classmethod
     def get_active_moderation_ids(cls, moderation_type):
         """Get tower_ids with active moderation of specified type"""
-        return set(cls.objects.filter(
-            moderation_type=moderation_type,
-            resolved_at__isnull=True  # Active = not resolved
-        ).values_list('tower_id', flat=True))
+        return set(
+            cls.objects.filter(moderation_type=moderation_type, resolved_at__isnull=True).values_list("tower_id", flat=True)  # Active = not resolved
+        )
 
     history = HistoricalRecords()
 
@@ -666,9 +603,8 @@ class SusPerson(models.Model):
         """Queue recalculation for tournaments involving this player."""
         try:
             from ..tourney_results.models import TourneyResult
-            TourneyResult.objects.filter(rows__player_id=self.player_id).update(
-                needs_recalc=True, recalc_retry_count=0
-            )
+
+            TourneyResult.objects.filter(rows__player_id=self.player_id).update(needs_recalc=True, recalc_retry_count=0)
         except Exception:
             # Swallow exceptions - recalculation queuing should not block API operations
             pass
