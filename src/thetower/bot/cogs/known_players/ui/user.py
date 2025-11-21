@@ -289,7 +289,7 @@ class UserInteractions:
 
         await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
 
-    async def handle_lookup_command(self, interaction: discord.Interaction, identifier: str = None, user: discord.User = None) -> None:
+    async def handle_lookup_command(self, interaction: discord.Interaction, identifier: str = None) -> None:
         """Handle the /lookup slash command."""
         if not await self.cog.wait_until_ready():
             await interaction.response.send_message("⏳ Still initializing, please try again shortly.", ephemeral=True)
@@ -309,24 +309,17 @@ class UserInteractions:
                 return
 
         # Determine what to search for
-        if user:
-            search_term = str(user.id)
-            player = await self.cog.get_player_by_discord_id(search_term)
-            if player:
-                results = [player]
-            else:
-                results = []
-        elif identifier:
+        if identifier:
             identifier = identifier.strip()
             # Parse Discord mentions to extract user ID
             identifier = self.parse_discord_mention(identifier)
             results = await self.cog.search_player(identifier)
         else:
-            await interaction.followup.send("❌ Please provide either an identifier or mention a user.", ephemeral=True)
+            await interaction.followup.send("❌ Please provide an identifier.", ephemeral=True)
             return
 
         if not results:
-            search_display = f"<@{user.id}>" if user else f"'{identifier}'"
+            search_display = f"'{identifier}'"
             await interaction.followup.send(f"No players found matching {search_display}", ephemeral=True)
             return
 
@@ -351,6 +344,5 @@ class UserInteractions:
             await interaction.followup.send(embed=embed, view=view, ephemeral=True)
         else:
             # Multiple results
-            embed = await self.create_multiple_results_embed(results, identifier or str(user), interaction.user)
-            await interaction.followup.send(embed=embed, ephemeral=True)
+            embed = await self.create_multiple_results_embed(results, identifier, interaction.user)
             await interaction.followup.send(embed=embed, ephemeral=True)

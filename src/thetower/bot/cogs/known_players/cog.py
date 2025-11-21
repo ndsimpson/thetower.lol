@@ -554,11 +554,11 @@ class KnownPlayers(BaseCog, name="Known Players", description="Player identity m
         """View your own player profile and verification status."""
         await self.user_interactions.handle_profile_command(interaction)
 
-    @app_commands.command(name="lookup", description="Look up a player by ID, name, or Discord user")
-    @app_commands.describe(identifier="Player ID, name, or mention a Discord user", user="Discord user to look up (optional)")
-    async def lookup_slash(self, interaction: discord.Interaction, identifier: str = None, user: discord.User = None) -> None:
+    @app_commands.command(name="lookup", description="Look up a player by ID, name, or Discord mention")
+    @app_commands.describe(identifier="Player ID, name, or mention a Discord user")
+    async def lookup_slash(self, interaction: discord.Interaction, identifier: str = None) -> None:
         """Look up a player by various identifiers."""
-        await self.user_interactions.handle_lookup_command(interaction, identifier, user)
+        await self.user_interactions.handle_lookup_command(interaction, identifier)
 
     # === Background Tasks ===
 
