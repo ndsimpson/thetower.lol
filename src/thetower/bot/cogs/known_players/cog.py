@@ -556,7 +556,7 @@ class KnownPlayers(BaseCog, name="Known Players", description="Player identity m
 
     @app_commands.command(name="lookup", description="Look up a player by ID, name, or Discord mention")
     @app_commands.describe(identifier="Player ID, name, or mention a Discord user")
-    async def lookup_slash(self, interaction: discord.Interaction, identifier: str = None) -> None:
+    async def lookup_slash(self, interaction: discord.Interaction, identifier: str) -> None:
         """Look up a player by various identifiers."""
         await self.user_interactions.handle_lookup_command(interaction, identifier)
 

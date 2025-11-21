@@ -289,7 +289,7 @@ class UserInteractions:
 
         await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
 
-    async def handle_lookup_command(self, interaction: discord.Interaction, identifier: str = None) -> None:
+    async def handle_lookup_command(self, interaction: discord.Interaction, identifier: str) -> None:
         """Handle the /lookup slash command."""
         if not await self.cog.wait_until_ready():
             await interaction.response.send_message("⏳ Still initializing, please try again shortly.", ephemeral=True)
@@ -309,14 +309,10 @@ class UserInteractions:
                 return
 
         # Determine what to search for
-        if identifier:
-            identifier = identifier.strip()
-            # Parse Discord mentions to extract user ID
-            identifier = self.parse_discord_mention(identifier)
-            results = await self.cog.search_player(identifier)
-        else:
-            await interaction.followup.send("❌ Please provide an identifier.", ephemeral=True)
-            return
+        identifier = identifier.strip()
+        # Parse Discord mentions to extract user ID
+        identifier = self.parse_discord_mention(identifier)
+        results = await self.cog.search_player(identifier)
 
         if not results:
             search_display = f"'{identifier}'"
