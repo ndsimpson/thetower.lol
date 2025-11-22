@@ -1,4 +1,4 @@
-﻿# Standard library
+# Standard library
 import re
 from typing import Any, Dict, List, Optional
 
@@ -64,12 +64,7 @@ class CreatorCodeModal(discord.ui.Modal, title="Set Creator Code"):
             player.creator_code = creator_code
             await _save_player_async(player)
 
-            # Clear cache for this player to force refresh
-            player_cache_key = discord_id.lower()
-            if player_cache_key in self.cog.player_details_cache:
-                del self.cog.player_details_cache[player_cache_key]
-            if player_cache_key in self.cog.player_cache:
-                del self.cog.player_cache[player_cache_key]
+            # Note: Cache clearing removed as known_players cog no longer exists
 
             # Create response embed
             if creator_code:
@@ -139,7 +134,17 @@ class PlayerView(discord.ui.View):
                     PostPubliclyButton(self.cog, self.player, self.details, self.embed_title, self.requesting_user, include_moderation=True)
                 )
 
-    # Remove the old post_publicly_button method - replaced by PostPubliclyButton class
+        # Check if manage_sus cog is available and add moderation button
+        if self.requesting_user and self.player and self.guild_id:
+            manage_sus_cog = self.cog.bot.get_cog("Manage Sus")
+            if manage_sus_cog:
+                # Check if the cog is enabled for this guild
+                if hasattr(self.cog.bot, "cog_manager"):
+                    cog_manager = self.cog.bot.cog_manager
+                    if cog_manager.can_guild_use_cog("manage_sus", self.guild_id):
+                        moderation_button = manage_sus_cog.get_moderation_button_for_player(self.player, self.requesting_user, self.guild_id)
+                        if moderation_button:
+                            self.add_item(moderation_button)
 
 
 class SetCreatorCodeButton(discord.ui.Button):
@@ -216,7 +221,9 @@ class PostPubliclyButton(discord.ui.Button):
         channel_id = interaction.channel.id
 
         # Check if this channel is configured for profile posting
-        allowed_channels = self.cog.get_setting("profile_post_channels", [], guild_id=guild_id)
+        allowed_channels = []
+        if hasattr(self.cog.bot, "player_lookup") and self.cog.bot.player_lookup:
+            allowed_channels = self.cog.bot.player_lookup.get_profile_post_channels(guild_id)
 
         if channel_id not in allowed_channels:
             embed = discord.Embed(
@@ -245,7 +252,9 @@ class PostPubliclyButton(discord.ui.Button):
             return
 
         # Check permissions for what information can be shown publicly
-        show_all_ids = await self.cog.check_show_all_ids_permission(self.requesting_user)
+        show_all_ids = False
+        if hasattr(self.cog.bot, "player_lookup") and self.cog.bot.player_lookup:
+            show_all_ids = await self.cog.bot.player_lookup.check_show_all_ids_permission(self.requesting_user)
         show_moderation_records = self.include_moderation
 
         # Create embed using the same logic as private profiles but with permission checks

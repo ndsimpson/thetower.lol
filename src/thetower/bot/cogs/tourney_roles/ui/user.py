@@ -33,10 +33,11 @@ class UserRoleManagementView(ui.View):
 
         # Get player data
         try:
-            known_players_cog = self.cog.bot.get_cog("Known Players")
-            if known_players_cog:
-                discord_mapping = await known_players_cog.get_discord_to_player_mapping()
-                player_data = discord_mapping.get(str(member.id))
+            player_lookup_cog = self.cog.bot.get_cog("Player Lookup")
+            if player_lookup_cog:
+                discord_mapping = await player_lookup_cog.get_discord_to_player_mapping(str(member.id))
+                if discord_mapping:
+                    player_data = discord_mapping
 
                 if player_data:
                     primary_id = player_data.get("primary_id", "None")
@@ -75,7 +76,7 @@ class UserRoleManagementView(ui.View):
                 else:
                     embed.add_field(name="Player Data", value="❌ No player data found. Use `/player register` to link your account.", inline=False)
             else:
-                embed.add_field(name="Player Data", value="❌ Known Players cog not available", inline=False)
+                embed.add_field(name="Player Data", value="❌ Player Lookup cog not available", inline=False)
 
         except Exception as e:
             embed.add_field(name="Player Data", value=f"❌ Error loading data: {str(e)}", inline=False)
@@ -113,9 +114,9 @@ class UserRoleManagementView(ui.View):
                 return
 
             # Get required cogs
-            known_players_cog = self.cog.bot.get_cog("Known Players")
-            if not known_players_cog:
-                await interaction.followup.send("❌ Known Players cog not available", ephemeral=True)
+            player_lookup_cog = self.cog.bot.get_cog("Player Lookup")
+            if not player_lookup_cog:
+                await interaction.followup.send("❌ Player Lookup cog not available", ephemeral=True)
                 return
 
             tourney_stats_cog = self.cog.bot.get_cog("Tourney Stats")
@@ -124,8 +125,9 @@ class UserRoleManagementView(ui.View):
                 return
 
             # Get user's player data
-            discord_mapping = await known_players_cog.get_discord_to_player_mapping()
-            player_data = discord_mapping.get(str(self.user_id))
+            discord_mapping = await player_lookup_cog.get_discord_to_player_mapping(str(self.user_id))
+            if discord_mapping:
+                player_data = discord_mapping
             if not player_data:
                 await interaction.followup.send("❌ No player data found. Use `/player register` to link your account.", ephemeral=True)
                 return

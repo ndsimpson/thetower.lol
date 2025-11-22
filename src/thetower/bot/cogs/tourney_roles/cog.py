@@ -179,24 +179,24 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
             self.logger.debug("Saved updated config with default settings")
 
     async def get_known_players_cog(self):
-        """Get the KnownPlayers cog instance."""
-        return self.bot.get_cog("Known Players")
+        """Get the PlayerLookup cog instance."""
+        return self.bot.get_cog("Player Lookup")
 
     async def get_tourney_stats_cog(self):
         """Get the TourneyStats cog instance."""
         return self.bot.get_cog("Tourney Stats")
 
     async def get_discord_to_player_mapping(self):
-        """Get mapping of Discord IDs to player information from KnownPlayers"""
+        """Get mapping of Discord IDs to player information from PlayerLookup"""
         known_players_cog = await self.get_known_players_cog()
         if not known_players_cog:
-            self.logger.error("Failed to get KnownPlayers cog")
+            self.logger.error("Failed to get PlayerLookup cog")
             return {}
 
         try:
-            # Wait for KnownPlayers to be ready
+            # Wait for PlayerLookup to be ready
             if not known_players_cog.is_ready:
-                self.logger.info("Waiting for KnownPlayers to be ready...")
+                self.logger.info("Waiting for PlayerLookup to be ready...")
                 await known_players_cog.wait_until_ready()
 
             # Get the mapping
@@ -204,19 +204,14 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
 
             # Add detailed debug logging
             if mapping:
-                self.logger.debug(f"Retrieved {len(mapping)} entries from KnownPlayers")
+                self.logger.debug(f"Retrieved {len(mapping)} entries from PlayerLookup")
                 sample_entry = next(iter(mapping.items()))
                 self.logger.debug(f"Sample mapping entry: {sample_entry}")
             else:
-                self.logger.warning("KnownPlayers returned empty mapping")
-                # Check if KnownPlayers has any data at all
-                if hasattr(known_players_cog, "player_details_cache"):
-                    cache_size = len(known_players_cog.player_details_cache)
-                    self.logger.debug(f"KnownPlayers cache size: {cache_size}")
-                    if cache_size > 0:
-                        self.logger.debug("KnownPlayers has data but mapping is empty")
-                    else:
-                        self.logger.warning("KnownPlayers cache is empty")
+                self.logger.warning("PlayerLookup returned empty mapping")
+                # Check if PlayerLookup has any data at all
+                # Note: PlayerLookup doesn't have a cache like KnownPlayers did
+                self.logger.debug("PlayerLookup returned empty mapping")
 
             return mapping or {}  # Ensure we return at least an empty dict
 
@@ -925,7 +920,7 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
             # Get required cogs
             known_players_cog = await self.get_known_players_cog()
             if not known_players_cog:
-                return "❌ Known Players system unavailable"
+                return "❌ Player Lookup system unavailable"
 
             tourney_stats_cog = await self.get_tourney_stats_cog()
             if not tourney_stats_cog:

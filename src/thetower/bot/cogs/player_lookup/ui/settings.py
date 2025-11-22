@@ -1,0 +1,391 @@
+# Settings interface for the Player Lookup cog
+
+# Third-party
+from typing import List
+
+import discord
+
+from thetower.bot.basecog import BaseCog
+from thetower.bot.ui.context import SettingsViewContext
+
+
+class PlayerLookupSettingsView(discord.ui.View):
+    """Settings view for Player Lookup cog that integrates with global settings."""
+
+    def __init__(self, context: SettingsViewContext):
+        super().__init__(timeout=900)
+        self.cog = context.cog_instance
+        self.context = context
+        self.interaction = context.interaction
+        self.is_bot_owner = context.is_bot_owner
+        self.guild_id = str(context.guild_id) if context.guild_id else None
+
+        # Get current global settings (stored in bot config under player_lookup)
+        player_lookup_config = self.cog.config.config.get("player_lookup", {})
+        self.results_per_page = player_lookup_config.get("results_per_page", 5)
+        self.allow_partial_matches = player_lookup_config.get("allow_partial_matches", True)
+        self.case_sensitive = player_lookup_config.get("case_sensitive", False)
+        self.restrict_lookups_to_known_users = player_lookup_config.get("restrict_lookups_to_known_users", True)
+
+        # Get guild-specific profile_post_channels setting
+        if self.guild_id:
+            self.profile_post_channels = self.get_setting("profile_post_channels", default=[], guild_id=int(self.guild_id))
+        else:
+            self.profile_post_channels = []
+
+        # Add toggle buttons for boolean settings
+        self.add_toggle_button("Allow Partial Matches", "allow_partial_matches", self.allow_partial_matches)
+        self.add_toggle_button("Case Sensitive", "case_sensitive", self.case_sensitive)
+
+        # Add security toggle for bot owners
+        if self.is_bot_owner:
+            self.add_toggle_button("Restrict Lookups", "restrict_lookups_to_known_users", self.restrict_lookups_to_known_users, security=True)
+
+        # Build options list for numeric settings only
+        options = [
+            discord.SelectOption(label="Results Per Page", value="results_per_page", description="Number of results shown per page"),
+            discord.SelectOption(
+                label="Profile Post Channels", value="profile_post_channels", description="Channels where profiles can be posted publicly"
+            ),
+        ]
+
+        # Create the select for numeric settings
+        self.setting_select = discord.ui.Select(
+            placeholder="Modify settings",
+            options=options,
+        )
+        self.setting_select.callback = self.setting_select_callback
+        self.add_item(self.setting_select)
+
+    def get_setting(self, key: str, default=None):
+        """Get a setting value from global config."""
+        player_lookup_config = self.cog.config.config.get("player_lookup", {})
+        return player_lookup_config.get(key, default)
+
+    def set_setting(self, key: str, value):
+        """Set a setting value in global config."""
+        player_lookup_config = self.cog.config.config.setdefault("player_lookup", {})
+        player_lookup_config[key] = value
+        self.cog.config.save_config()
+
+    def add_toggle_button(self, label: str, setting_name: str, current_value: bool):
+        """Add a toggle button for a boolean setting."""
+        emoji = "✅" if current_value else "❌"
+        style = discord.ButtonStyle.success if current_value else discord.ButtonStyle.secondary
+
+        button = discord.ui.Button(label=f"{label}: {'ON' if current_value else 'OFF'}", style=style, emoji=emoji, custom_id=f"toggle_{setting_name}")
+        button.callback = self.create_toggle_callback(setting_name)
+        self.add_item(button)
+
+    def create_toggle_callback(self, setting_name: str):
+        """Create a callback for a toggle button."""
+
+        async def toggle_callback(interaction: discord.Interaction):
+            # Toggle the setting
+            current_value = getattr(self, setting_name)
+            new_value = not current_value
+
+            # Save the setting
+            self.set_setting(setting_name, new_value)
+
+            # Update the instance variable
+            setattr(self, setting_name, new_value)
+
+            # Update the button
+            self.update_toggle_button(setting_name, new_value)
+
+            # Update the display
+            embed = self.create_settings_embed()
+            await interaction.response.edit_message(embed=embed, view=self)
+
+        return toggle_callback
+
+    def update_toggle_button(self, setting_name: str, new_value: bool):
+        """Update a toggle button's appearance."""
+        emoji = "✅" if new_value else "❌"
+        style = discord.ButtonStyle.success if new_value else discord.ButtonStyle.secondary
+
+        # Find and update the button
+        for item in self.children:
+            if isinstance(item, discord.ui.Button) and item.custom_id == f"toggle_{setting_name}":
+                item.label = f"{setting_name.replace('_', ' ').title()}: {'ON' if new_value else 'OFF'}"
+                item.style = style
+                item.emoji = emoji
+                break
+
+    def create_settings_embed(self) -> discord.Embed:
+        """Create the settings embed with current values."""
+        embed = discord.Embed(title="🔍 Player Lookup Settings", color=discord.Color.blue())
+
+        embed.add_field(
+            name="📊 Display Settings",
+            value=f"**Results Per Page:** {self.results_per_page}",
+            inline=True,
+        )
+
+        embed.add_field(
+            name="🔧 Search Settings",
+            value=(
+                f"**Allow Partial Matches:** {'✅ ON' if self.allow_partial_matches else '❌ OFF'}\n"
+                f"**Case Sensitive:** {'✅ ON' if self.case_sensitive else '❌ OFF'}"
+            ),
+            inline=True,
+        )
+
+        embed.add_field(
+            name="📢 Profile Posting",
+            value=f"**Allowed Channels:** {len(self.profile_post_channels)} channels configured",
+            inline=True,
+        )
+
+        behavior_parts = []
+        if self.is_bot_owner:
+            behavior_parts.append(f"**Restrict Lookups:** {'🔒 ON' if self.restrict_lookups_to_known_users else '🔓 OFF'} *(Bot Owner Only)*")
+
+        if behavior_parts:
+            embed.add_field(
+                name="🔧 Behavior Settings",
+                value="\n".join(behavior_parts),
+                inline=False,
+            )
+
+        embed.set_footer(text="Moderation permissions are configured in the Manage Sus cog")
+        return embed
+
+    async def setting_select_callback(self, interaction: discord.Interaction):
+        """Handle setting selection for numeric settings."""
+        setting_name = self.setting_select.values[0]
+
+        # Special handling for profile_post_channels
+        if setting_name == "profile_post_channels":
+            view = ChannelSelectView(self.cog, interaction, self.profile_post_channels)
+            embed = view.create_selection_embed()
+            await interaction.response.edit_message(embed=embed, view=view)
+            return
+
+        # Create a modal for the selected setting
+        modal = SettingModal(self.cog, setting_name, getattr(self, setting_name))
+        await interaction.response.send_modal(modal)
+
+    @discord.ui.button(label="Back", style=discord.ButtonStyle.secondary, emoji="⬅️")
+    async def back_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Return to cog management."""
+        embed = discord.Embed(
+            title="Returned to Cog Management",
+            description="Use the cog management interface to select another cog or return to the main menu.",
+            color=discord.Color.blue(),
+        )
+        await interaction.response.edit_message(embed=embed, view=None)
+
+
+class SettingModal(discord.ui.Modal):
+    """Modal for editing individual settings."""
+
+    def __init__(self, cog: BaseCog, setting_name: str, current_value):
+        # Create appropriate title and input based on setting type
+        if setting_name in ["allow_partial_matches", "case_sensitive", "restrict_lookups_to_known_users"]:
+            title = f"Set {setting_name.replace('_', ' ').title()}"
+            self.input_type = "boolean"
+        elif setting_name in ["results_per_page"]:
+            title = f"Set {setting_name.replace('_', ' ').title()}"
+            self.input_type = "integer"
+        else:
+            title = f"Set {setting_name.replace('_', ' ').title()}"
+            self.input_type = "string"
+
+        super().__init__(title=title)
+
+        self.cog = cog
+        self.setting_name = setting_name
+        self.current_value = current_value
+
+        # Create input field based on type
+        if self.input_type == "boolean":
+            placeholder = f"Enter 'true' or 'false' (current: {current_value})"
+        elif self.input_type == "integer":
+            placeholder = f"Enter a number (current: {current_value})"
+        else:
+            placeholder = f"Enter value (current: {current_value})"
+
+        self.value_input = discord.ui.TextInput(
+            label=f"New {setting_name.replace('_', ' ').title()}", placeholder=placeholder, default=str(current_value), required=True, max_length=50
+        )
+        self.add_item(self.value_input)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        """Handle setting value submission."""
+        new_value_str = self.value_input.value.strip()
+
+        try:
+            # Check if this is a bot owner only setting
+            if self.setting_name in ["restrict_lookups_to_known_users"]:
+                # Check if user is bot owner
+                if interaction.user.id not in self.cog.bot.owner_ids:
+                    embed = discord.Embed(
+                        title="Permission Denied", description="Only bot owners can modify this security setting.", color=discord.Color.red()
+                    )
+                    await interaction.response.send_message(embed=embed, ephemeral=True)
+                    return
+
+            # Convert value based on type
+            if self.input_type == "boolean":
+                if new_value_str.lower() in ["true", "1", "yes", "on"]:
+                    new_value = True
+                elif new_value_str.lower() in ["false", "0", "no", "off"]:
+                    new_value = False
+                else:
+                    raise ValueError("Boolean values must be true/false, yes/no, 1/0, or on/off")
+            elif self.input_type == "integer":
+                new_value = int(new_value_str)
+                if new_value < 1:
+                    raise ValueError("Results per page must be at least 1")
+            else:
+                new_value = new_value_str
+
+            # Save the setting globally
+            player_lookup_config = self.cog.config.config.setdefault("player_lookup", {})
+            player_lookup_config[self.setting_name] = new_value
+            self.cog.config.save_config()
+
+            embed = discord.Embed(
+                title="Setting Updated",
+                description=f"**{self.setting_name.replace('_', ' ').title()}:** {self.current_value} → {new_value}",
+                color=discord.Color.green(),
+            )
+
+            # Update the view with new settings
+            view = PlayerLookupSettingsView(
+                self.cog.SettingsViewContext(
+                    guild_id=interaction.guild.id if interaction.guild else None,
+                    cog_instance=self.cog,
+                    interaction=interaction,
+                    is_bot_owner=await self.cog.bot.is_owner(interaction.user),
+                )
+            )
+            await interaction.response.edit_message(embed=embed, view=view)
+
+        except ValueError as e:
+            embed = discord.Embed(title="Invalid Value", description=f"Error: {str(e)}", color=discord.Color.red())
+            await interaction.response.send_message(embed=embed, ephemeral=True)
+            await interaction.response.send_message(embed=embed, ephemeral=True)
+
+
+class ChannelSelectView(discord.ui.View):
+    """View for selecting multiple channels for profile posting."""
+
+    def __init__(self, cog: BaseCog, interaction: discord.Interaction, current_channels: List[int]):
+        super().__init__(timeout=900)
+        self.cog = cog
+        self.original_interaction = interaction
+        self.current_channels = set(current_channels)
+        self.selected_channels = self.current_channels.copy()
+
+        # Get available text channels from the guild
+        guild = interaction.guild
+        if guild:
+            text_channels = [channel for channel in guild.channels if isinstance(channel, discord.TextChannel)]
+            # Sort channels by position
+            text_channels.sort(key=lambda c: c.position)
+
+            # Create options for the select (max 25 options for Discord)
+            options = []
+            for channel in text_channels[:25]:  # Discord limit
+                is_selected = channel.id in self.current_channels
+                option = discord.SelectOption(label=f"#{channel.name}", value=str(channel.id), description=f"ID: {channel.id}", default=is_selected)
+                options.append(option)
+
+            # Create the multi-select
+            self.channel_select = discord.ui.Select(
+                placeholder="Select channels for profile posting", options=options, max_values=len(options), min_values=0  # Allow selecting all
+            )
+            self.channel_select.callback = self.channel_select_callback
+            self.add_item(self.channel_select)
+
+    def set_setting(self, key: str, value, guild_id: int = None):
+        """Set a setting value, either global or guild-specific."""
+        if guild_id is not None:
+            # Guild-specific setting
+            guilds_config = self.cog.config.config.setdefault("guilds", {})
+            guild_config = guilds_config.setdefault(str(guild_id), {})
+            player_lookup_config = guild_config.setdefault("player_lookup", {})
+            player_lookup_config[key] = value
+        else:
+            # Global setting
+            player_lookup_config = self.cog.config.config.setdefault("player_lookup", {})
+            player_lookup_config[key] = value
+
+        self.cog.config.save_config()
+
+    async def channel_select_callback(self, interaction: discord.Interaction):
+        """Handle channel selection changes."""
+        # Update selected channels based on the current selection
+        selected_ids = [int(value) for value in self.channel_select.values]
+        self.selected_channels = set(selected_ids)
+
+        # Update the select options to reflect current selection
+        for option in self.channel_select.options:
+            channel_id = int(option.value)
+            option.default = channel_id in self.selected_channels
+
+        # Update the embed to show current selection
+        embed = self.create_selection_embed()
+        await interaction.response.edit_message(embed=embed, view=self)
+
+    def create_selection_embed(self) -> discord.Embed:
+        """Create embed showing current channel selection."""
+        embed = discord.Embed(
+            title="📢 Select Profile Post Channels",
+            description="Choose which channels should allow users to post their profiles publicly.",
+            color=discord.Color.blue(),
+        )
+
+        if self.selected_channels:
+            channel_mentions = []
+            for channel_id in sorted(self.selected_channels):
+                channel = self.original_interaction.guild.get_channel(channel_id)
+                if channel:
+                    channel_mentions.append(channel.mention)
+                else:
+                    channel_mentions.append(f"#{channel_id}")
+
+            embed.add_field(name=f"Selected Channels ({len(self.selected_channels)})", value="\n".join(channel_mentions), inline=False)
+        else:
+            embed.add_field(name="Selected Channels (0)", value="*No channels selected*", inline=False)
+
+        embed.set_footer(text="Use the dropdown above to select/deselect channels • Click Save when done")
+        return embed
+
+    @discord.ui.button(label="Save Changes", style=discord.ButtonStyle.success, emoji="💾")
+    async def save_changes(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Save the selected channels."""
+        new_channels = sorted(list(self.selected_channels))
+
+        # Save the setting using ConfigManager's proper method
+        self.set_setting("profile_post_channels", new_channels, guild_id=interaction.guild.id)
+
+        description = f"**New Channels:** {len(new_channels)} channels configured\n"
+        if new_channels:
+            description += f"**Channels:** {', '.join(f'<#{ch}>' for ch in new_channels)}"
+        else:
+            description += "**No channels configured**"
+
+        embed = discord.Embed(
+            title="Profile Post Channels Updated",
+            description=description,
+            color=discord.Color.green(),
+        )
+
+        # Return to the main settings view
+        view = PlayerLookupSettingsView(
+            self.cog.SettingsViewContext(
+                guild_id=interaction.guild.id if interaction.guild else None,
+                cog_instance=self.cog,
+                interaction=interaction,
+                is_bot_owner=await self.cog.bot.is_owner(interaction.user),
+            )
+        )
+        await interaction.response.edit_message(embed=embed, view=view)
+
+    @discord.ui.button(label="Cancel", style=discord.ButtonStyle.secondary, emoji="❌")
+    async def cancel(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Cancel and return to main settings."""
