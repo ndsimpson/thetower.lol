@@ -467,5 +467,3 @@ class UserInteractions:
         )
 
         await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
-
-        await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
