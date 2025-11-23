@@ -1103,7 +1103,7 @@ class CogSettingsView(View):
         else:
             self.configure_btn.disabled = True
 
-        await interaction.followup.send(embed=embed, view=self)
+        await interaction.followup.send(embed=embed, view=self, ephemeral=True)
 
     async def configure_cog(self, interaction: discord.Interaction):
         """Open the settings view for the selected cog."""
@@ -1528,6 +1528,381 @@ class CogVisibilityView(View):
         await view.update_display(interaction)
 
 
+class AddVisibilityView(View):
+    """View for selecting a cog to add visibility to a guild."""
+
+    def __init__(self, guild_id: int, available_cogs: list):
+        super().__init__(timeout=900)
+        self.guild_id = guild_id
+        self.available_cogs = available_cogs
+
+        # Cog selector dropdown
+        self.cog_select = ui.Select(
+            placeholder="Select a cog to authorize...",
+            options=[],
+            custom_id="add_cog_selector",
+        )
+        self.cog_select.callback = self.select_cog
+        self.add_item(self.cog_select)
+
+        # Back button
+        back_btn = Button(label="Back", style=discord.ButtonStyle.gray, emoji="⬅️", custom_id="back_to_guild_visibility")
+        back_btn.callback = self.back_to_guild_visibility
+        self.add_item(back_btn)
+
+        # Populate options
+        for cog_name in sorted(available_cogs):
+            option = discord.SelectOption(label=cog_name, value=cog_name, description="Click to authorize this cog")
+            self.cog_select.options.append(option)
+
+    async def update_display(self, interaction: discord.Interaction):
+        """Update the embed."""
+        bot = interaction.client
+        guild = bot.get_guild(self.guild_id)
+
+        embed = discord.Embed(
+            title="➕ Add Cog Visibility",
+            description=f"Select a cog to authorize for server `{guild.name if guild else 'Unknown'}`.",
+            color=discord.Color.green(),
+        )
+
+        embed.add_field(
+            name=f"Available Cogs ({len(self.available_cogs)})",
+            value="\n".join([f"• `{cog}`" for cog in sorted(self.available_cogs)]),
+            inline=False,
+        )
+
+        await interaction.response.edit_message(embed=embed, view=self)
+
+    async def select_cog(self, interaction: discord.Interaction):
+        """Handle cog selection and authorization."""
+        selected_cog = self.cog_select.values[0] if self.cog_select.values else None
+        if not selected_cog:
+            return
+
+        bot = interaction.client
+        guild = bot.get_guild(self.guild_id)
+
+        try:
+            bot.cog_manager.config.add_guild_cog_authorization(self.guild_id, selected_cog, allow=True)
+            await interaction.response.send_message(
+                f"✅ Successfully authorized cog `{selected_cog}` for server `{guild.name if guild else 'Unknown'}`.", ephemeral=True
+            )
+        except Exception as e:
+            print(f"Error authorizing {selected_cog} for guild {self.guild_id}: {e}")
+            await interaction.response.send_message(f"❌ Failed to authorize cog `{selected_cog}`.", ephemeral=True)
+
+    async def back_to_guild_visibility(self, interaction: discord.Interaction):
+        """Go back to guild visibility view."""
+        view = GuildCogVisibilityView()
+        view.selected_guild = str(self.guild_id)
+        await view.update_display(interaction)
+
+
+class RemoveVisibilityView(View):
+    """View for selecting a cog to remove visibility from a guild."""
+
+    def __init__(self, guild_id: int, authorized_cogs: list):
+        super().__init__(timeout=900)
+        self.guild_id = guild_id
+        self.authorized_cogs = authorized_cogs
+
+        # Cog selector dropdown
+        self.cog_select = ui.Select(
+            placeholder="Select a cog to revoke...",
+            options=[],
+            custom_id="remove_cog_selector",
+        )
+        self.cog_select.callback = self.select_cog
+        self.add_item(self.cog_select)
+
+        # Back button
+        back_btn = Button(label="Back", style=discord.ButtonStyle.gray, emoji="⬅️", custom_id="back_to_guild_visibility")
+        back_btn.callback = self.back_to_guild_visibility
+        self.add_item(back_btn)
+
+        # Populate options
+        for cog_name in sorted(authorized_cogs):
+            option = discord.SelectOption(label=cog_name, value=cog_name, description="Click to revoke authorization")
+            self.cog_select.options.append(option)
+
+    async def update_display(self, interaction: discord.Interaction):
+        """Update the embed."""
+        bot = interaction.client
+        guild = bot.get_guild(self.guild_id)
+
+        embed = discord.Embed(
+            title="➖ Remove Cog Visibility",
+            description=f"Select a cog to revoke authorization for server `{guild.name if guild else 'Unknown'}`.",
+            color=discord.Color.red(),
+        )
+
+        embed.add_field(
+            name=f"Authorized Cogs ({len(self.authorized_cogs)})",
+            value="\n".join([f"• `{cog}`" for cog in sorted(self.authorized_cogs)]),
+            inline=False,
+        )
+
+        await interaction.response.edit_message(embed=embed, view=self)
+
+    async def select_cog(self, interaction: discord.Interaction):
+        """Handle cog selection and revocation."""
+        selected_cog = self.cog_select.values[0] if self.cog_select.values else None
+        if not selected_cog:
+            return
+
+        bot = interaction.client
+        guild = bot.get_guild(self.guild_id)
+
+        try:
+            # Try to remove from allowed list
+            success = bot.cog_manager.config.remove_guild_cog_authorization(self.guild_id, selected_cog, from_allowed=True)
+            if success:
+                await interaction.response.send_message(
+                    f"❌ Successfully revoked authorization for cog `{selected_cog}` in server `{guild.name if guild else 'Unknown'}`.",
+                    ephemeral=True,
+                )
+            else:
+                await interaction.response.send_message(f"ℹ️ Cog `{selected_cog}` was not authorized for this server.", ephemeral=True)
+        except Exception as e:
+            print(f"Error revoking {selected_cog} for guild {self.guild_id}: {e}")
+            await interaction.response.send_message(f"❌ Failed to revoke authorization for cog `{selected_cog}`.", ephemeral=True)
+
+    async def back_to_guild_visibility(self, interaction: discord.Interaction):
+        """Go back to guild visibility view."""
+        view = GuildCogVisibilityView()
+        view.selected_guild = str(self.guild_id)
+        await view.update_display(interaction)
+
+
+class GuildCogVisibilityView(View):
+    """View for managing cog visibility for a specific guild with individual operations."""
+
+    def __init__(self):
+        super().__init__(timeout=900)
+        self.selected_guild = None
+        self.status_message = None
+
+        # Guild selector dropdown
+        self.guild_select = ui.Select(
+            placeholder="Select a server to manage...",
+            options=[discord.SelectOption(label="Loading...", value="loading", description="Please wait while servers are loaded")],
+            custom_id="guild_selector",
+        )
+        self.guild_select.callback = self.select_guild
+        self.add_item(self.guild_select)
+
+        # Action buttons
+        self.add_visibility_btn = Button(
+            label="Add Visibility", style=discord.ButtonStyle.primary, emoji="➕", custom_id="add_visibility", disabled=True
+        )
+        self.add_visibility_btn.callback = self.add_visibility
+        self.add_item(self.add_visibility_btn)
+
+        self.remove_visibility_btn = Button(
+            label="Remove Visibility", style=discord.ButtonStyle.danger, emoji="➖", custom_id="remove_visibility", disabled=True
+        )
+        self.remove_visibility_btn.callback = self.remove_visibility
+        self.add_item(self.remove_visibility_btn)
+
+        # Back button
+        back_btn = Button(label="Back to Cog Management", style=discord.ButtonStyle.gray, emoji="⬅️", custom_id="back_to_cog_mgmt")
+        back_btn.callback = self.back_to_cog_management
+        self.add_item(back_btn)
+
+    async def update_display(self, interaction: discord.Interaction):
+        """Update the embed and populate selectors."""
+        bot = interaction.client
+
+        embed = discord.Embed(
+            title="🏰 Guild Cog Visibility",
+            description="Manage which cogs are available for specific servers. Select a server, then use the buttons to add or remove cog visibility.",
+            color=discord.Color.blue(),
+        )
+
+        # Show status message if any
+        if self.status_message:
+            embed.add_field(name="Status", value=self.status_message, inline=False)
+            self.status_message = None  # Clear after displaying
+
+        # Populate guild selector
+        self.guild_select.options = []
+        for guild in sorted(bot.guilds, key=lambda g: g.name):
+            option = discord.SelectOption(label=f"{guild.name}", value=str(guild.id), description=f"ID: {guild.id} | Members: {guild.member_count}")
+            self.guild_select.options.append(option)
+
+        # Update display based on guild selection
+        if self.selected_guild:
+            try:
+                guild_id = int(self.selected_guild)
+                guild = bot.get_guild(guild_id)
+                if guild:
+                    # Get all enabled cogs
+                    all_cogs = bot.cog_manager.get_all_cogs_with_config()
+                    enabled_cogs = {name: config for name, config in all_cogs.items() if config.get("enabled", False)}
+
+                    # Get current authorizations for this guild
+                    guild_auths = {}
+                    for cog_name in enabled_cogs.keys():
+                        guild_auth = bot.cog_manager.config.get_cog_guild_authorizations(cog_name)
+                        authorized = guild_id in guild_auth["allowed"]
+                        disallowed = guild_id in guild_auth["disallowed"]
+                        if authorized:
+                            guild_auths[cog_name] = "authorized"
+                        elif disallowed:
+                            guild_auths[cog_name] = "disallowed"
+                        else:
+                            guild_auths[cog_name] = "default"
+
+                    # Show guild info
+                    embed.add_field(
+                        name=f"Selected Server: {guild.name}",
+                        value=f"**ID:** {guild.id}\n**Members:** {guild.member_count}",
+                        inline=False,
+                    )
+
+                    # Show detailed cog status list for enabled cogs
+                    cog_status_lines = []
+                    for cog_name in sorted(enabled_cogs.keys()):
+                        config = enabled_cogs[cog_name]
+                        loaded = f"thetower.bot.cogs.{cog_name}" in bot.extensions
+                        public = config.get("public", False)
+                        auth_status = guild_auths[cog_name]
+
+                        # Create status indicators
+                        auth_indicator = {"authorized": "✅", "disallowed": "🚫", "default": "⏸️"}.get(auth_status, "❓")
+
+                        load_indicator = "🟢" if loaded else "🔴"
+                        visibility_indicator = "🌐" if public else "🔒"
+
+                        status = f"{auth_indicator} {load_indicator} {visibility_indicator}"
+                        cog_status_lines.append(f"`{cog_name}` {status}")
+
+                    if cog_status_lines:
+                        embed.add_field(
+                            name=f"Cog Status ({len(enabled_cogs)} enabled cogs)",
+                            value="\n".join(cog_status_lines),
+                            inline=False,
+                        )
+
+                    embed.add_field(
+                        name="Actions",
+                        value="Use the buttons below to add or remove cog visibility for this server.",
+                        inline=False,
+                    )
+
+            except ValueError:
+                pass
+        else:
+            embed.add_field(
+                name="Instructions",
+                value="Select a server from the dropdown above to manage cog visibility for that server.",
+                inline=False,
+            )
+
+        # Enable/disable buttons based on guild selection
+        has_guild = self.selected_guild is not None
+        self.add_visibility_btn.disabled = not has_guild
+        self.remove_visibility_btn.disabled = not has_guild
+
+        try:
+            await interaction.response.edit_message(embed=embed, view=self)
+        except discord.NotFound:
+            # Interaction has expired, ignore the error
+            pass
+
+    async def select_guild(self, interaction: discord.Interaction):
+        """Handle guild selection."""
+        selected_value = self.guild_select.values[0] if self.guild_select.values else None
+        if selected_value in ["loading"]:
+            self.selected_guild = None
+        else:
+            self.selected_guild = selected_value
+        await self.update_display(interaction)
+
+    async def add_visibility(self, interaction: discord.Interaction):
+        """Show available cogs to add visibility for."""
+        if not self.selected_guild:
+            await interaction.response.send_message("❌ No server selected.", ephemeral=True)
+            return
+
+        try:
+            guild_id = int(self.selected_guild)
+        except ValueError:
+            await interaction.response.send_message("❌ Invalid server selection.", ephemeral=True)
+            return
+
+        bot = interaction.client
+        guild = bot.get_guild(guild_id)
+
+        if not guild:
+            await interaction.response.send_message("❌ Server not found.", ephemeral=True)
+            return
+
+        # Get available cogs (not currently authorized)
+        all_cogs = bot.cog_manager.get_all_cogs_with_config()
+        enabled_cogs = {name: config for name, config in all_cogs.items() if config.get("enabled", False)}
+
+        available_cogs = []
+        for cog_name in enabled_cogs.keys():
+            guild_auth = bot.cog_manager.config.get_cog_guild_authorizations(cog_name)
+            authorized = guild_id in guild_auth["allowed"]
+            if not authorized:  # Only show cogs that are not already authorized
+                available_cogs.append(cog_name)
+
+        if not available_cogs:
+            await interaction.response.send_message(f"ℹ️ All available cogs are already authorized for `{guild.name}`.", ephemeral=True)
+            return
+
+        # Create view with available cogs
+        view = AddVisibilityView(guild_id, available_cogs)
+        await view.update_display(interaction)
+
+    async def remove_visibility(self, interaction: discord.Interaction):
+        """Show currently visible cogs to remove visibility for."""
+        if not self.selected_guild:
+            await interaction.response.send_message("❌ No server selected.", ephemeral=True)
+            return
+
+        try:
+            guild_id = int(self.selected_guild)
+        except ValueError:
+            await interaction.response.send_message("❌ Invalid server selection.", ephemeral=True)
+            return
+
+        bot = interaction.client
+        guild = bot.get_guild(guild_id)
+
+        if not guild:
+            await interaction.response.send_message("❌ Server not found.", ephemeral=True)
+            return
+
+        # Get currently authorized cogs
+        all_cogs = bot.cog_manager.get_all_cogs_with_config()
+        enabled_cogs = {name: config for name, config in all_cogs.items() if config.get("enabled", False)}
+
+        authorized_cogs = []
+        for cog_name in enabled_cogs.keys():
+            guild_auth = bot.cog_manager.config.get_cog_guild_authorizations(cog_name)
+            authorized = guild_id in guild_auth["allowed"]
+            if authorized:  # Only show cogs that are currently authorized
+                authorized_cogs.append(cog_name)
+
+        if not authorized_cogs:
+            await interaction.response.send_message(f"ℹ️ No cogs are currently authorized for `{guild.name}`.", ephemeral=True)
+            return
+
+        # Create view with authorized cogs
+        view = RemoveVisibilityView(guild_id, authorized_cogs)
+        await view.update_display(interaction)
+
+    async def back_to_cog_management(self, interaction: discord.Interaction):
+        """Go back to cog management view."""
+        # Recreate cog management view
+        view = CogManagementView()
+        await view.update_display(interaction)
+
+
 class PrefixModal(ui.Modal, title="Set Server Prefix"):
     """Modal for setting a custom prefix."""
 
@@ -1814,6 +2189,12 @@ class CogManagementView(View):
         self.control_btn.callback = self.control_cog
         self.add_item(self.control_btn)
 
+        self.bulk_visibility_btn = Button(
+            label="Bulk Guild Visibility", style=discord.ButtonStyle.secondary, emoji="🏰", custom_id="bulk_guild_visibility"
+        )
+        self.bulk_visibility_btn.callback = self.bulk_guild_visibility
+        self.add_item(self.bulk_visibility_btn)
+
         # Back button
         back_btn = Button(label="Back", style=discord.ButtonStyle.gray, emoji="⬅️", custom_id="back_to_bot_settings")
         back_btn.callback = self.back_to_bot_settings
@@ -1932,6 +2313,7 @@ class CogManagementView(View):
         self.enable_btn.disabled = not (has_selection and has_cogs)
         self.visibility_btn.disabled = not (has_selection and has_cogs)
         self.control_btn.disabled = not (has_selection and has_cogs)
+        self.bulk_visibility_btn.disabled = not has_cogs
 
         try:
             await interaction.response.edit_message(embed=embed, view=self)
@@ -1975,7 +2357,7 @@ class CogManagementView(View):
 
         self.status_message = f"✅ Cog `{self.selected_cog}` has been {action}."
 
-        # Send follow-up message since we deferred
+        # Update the existing message instead of sending a followup
         embed = discord.Embed(
             title="⚙️ Cog Management",
             description="View all cogs and their status. Select a cog from the dropdown to manage it.",
@@ -1986,7 +2368,7 @@ class CogManagementView(View):
         embed.add_field(name="Status", value=self.status_message, inline=False)
         self.status_message = None  # Clear after displaying
 
-        # Re-populate the view for the follow-up
+        # Re-populate the view for the update
         all_cogs = bot.cog_manager.get_all_cogs_with_config()
 
         # Update cog selector options
@@ -2079,7 +2461,7 @@ class CogManagementView(View):
         self.visibility_btn.disabled = not (has_selection and has_cogs)
         self.control_btn.disabled = not (has_selection and has_cogs)
 
-        await interaction.followup.send(embed=embed, view=self)
+        await interaction.response.edit_message(embed=embed, view=self)
 
     async def set_visibility(self, interaction: discord.Interaction):
         """Set a cog's visibility with granular server control."""
@@ -2231,7 +2613,13 @@ class CogManagementView(View):
             self.visibility_btn.disabled = not (has_selection and has_cogs)
             self.control_btn.disabled = not (has_selection and has_cogs)
 
-            await interaction.followup.send(embed=embed, view=self)
+            await interaction.followup.send(embed=embed, view=self, ephemeral=True)
+
+    async def bulk_guild_visibility(self, interaction: discord.Interaction):
+        """Open bulk guild visibility management view."""
+        # Create bulk visibility management view
+        view = GuildCogVisibilityView()
+        await view.update_display(interaction)
 
     async def do_reload(self, interaction: discord.Interaction):
         """Reload the selected cog."""
@@ -2347,7 +2735,7 @@ class CogManagementView(View):
         self.visibility_btn.disabled = not (has_selection and has_cogs)
         self.control_btn.disabled = not (has_selection and has_cogs)
 
-        await interaction.followup.send(embed=embed, view=self)
+        await interaction.followup.send(embed=embed, view=self, ephemeral=True)
 
     async def do_unload(self, interaction: discord.Interaction):
         """Unload the selected cog."""
@@ -2463,7 +2851,7 @@ class CogManagementView(View):
         self.visibility_btn.disabled = not (has_selection and has_cogs)
         self.control_btn.disabled = not (has_selection and has_cogs)
 
-        await interaction.followup.send(embed=embed, view=self)
+        await interaction.followup.send(embed=embed, view=self, ephemeral=True)
 
     async def back_to_bot_settings(self, interaction: discord.Interaction):
         """Go back to bot settings."""
