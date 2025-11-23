@@ -20,16 +20,15 @@ class PlayerLookupSettingsView(discord.ui.View):
         self.is_bot_owner = context.is_bot_owner
         self.guild_id = str(context.guild_id) if context.guild_id else None
 
-        # Get current global settings (stored in bot config under player_lookup)
-        player_lookup_config = self.cog.config.config.get("player_lookup", {})
-        self.results_per_page = player_lookup_config.get("results_per_page", 5)
-        self.allow_partial_matches = player_lookup_config.get("allow_partial_matches", True)
-        self.case_sensitive = player_lookup_config.get("case_sensitive", False)
-        self.restrict_lookups_to_known_users = player_lookup_config.get("restrict_lookups_to_known_users", True)
+        # Get current global settings
+        self.results_per_page = self.cog.get_global_setting("results_per_page", 5)
+        self.allow_partial_matches = self.cog.get_global_setting("allow_partial_matches", True)
+        self.case_sensitive = self.cog.get_global_setting("case_sensitive", False)
+        self.restrict_lookups_to_known_users = self.cog.get_global_setting("restrict_lookups_to_known_users", True)
 
         # Get guild-specific profile_post_channels setting
         if self.guild_id:
-            self.profile_post_channels = self.get_setting("profile_post_channels", default=[], guild_id=int(self.guild_id))
+            self.profile_post_channels = self.cog.get_setting("profile_post_channels", default=[], guild_id=int(self.guild_id))
         else:
             self.profile_post_channels = []
 
@@ -58,15 +57,12 @@ class PlayerLookupSettingsView(discord.ui.View):
         self.add_item(self.setting_select)
 
     def get_setting(self, key: str, default=None):
-        """Get a setting value from global config."""
-        player_lookup_config = self.cog.config.config.get("player_lookup", {})
-        return player_lookup_config.get(key, default)
+        """Get a global setting value."""
+        return self.cog.get_global_setting(key, default)
 
     def set_setting(self, key: str, value):
-        """Set a setting value in global config."""
-        player_lookup_config = self.cog.config.config.setdefault("player_lookup", {})
-        player_lookup_config[key] = value
-        self.cog.config.save_config()
+        """Set a global setting value."""
+        self.cog.set_global_setting(key, value)
 
     def add_toggle_button(self, label: str, setting_name: str, current_value: bool):
         """Add a toggle button for a boolean setting."""
@@ -243,9 +239,7 @@ class SettingModal(discord.ui.Modal):
                 new_value = new_value_str
 
             # Save the setting globally
-            player_lookup_config = self.cog.config.config.setdefault("player_lookup", {})
-            player_lookup_config[self.setting_name] = new_value
-            self.cog.config.save_config()
+            self.cog.set_global_setting(self.setting_name, new_value)
 
             embed = discord.Embed(
                 title="Setting Updated",
@@ -302,19 +296,8 @@ class ChannelSelectView(discord.ui.View):
             self.add_item(self.channel_select)
 
     def set_setting(self, key: str, value, guild_id: int = None):
-        """Set a setting value, either global or guild-specific."""
-        if guild_id is not None:
-            # Guild-specific setting
-            guilds_config = self.cog.config.config.setdefault("guilds", {})
-            guild_config = guilds_config.setdefault(str(guild_id), {})
-            player_lookup_config = guild_config.setdefault("player_lookup", {})
-            player_lookup_config[key] = value
-        else:
-            # Global setting
-            player_lookup_config = self.cog.config.config.setdefault("player_lookup", {})
-            player_lookup_config[key] = value
-
-        self.cog.config.save_config()
+        """Set a setting value."""
+        self.cog.set_setting(key, value, guild_id)
 
     async def channel_select_callback(self, interaction: discord.Interaction):
         """Handle channel selection changes."""

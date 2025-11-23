@@ -42,14 +42,17 @@ class PlayerLookup(BaseCog, name="Player Lookup", description="Universal player 
         # Store reference on bot
         self.bot.player_lookup = self
 
-        # Define default settings
-        self.default_settings = {
+        # Define default global settings
+        self.global_settings = {
             "results_per_page": 5,
             "allow_partial_matches": True,
             "case_sensitive": False,
             # Security settings
             "restrict_lookups_to_known_users": True,
-            # Profile posting settings
+        }
+
+        # Define default guild-specific settings
+        self.guild_settings = {
             "profile_post_channels": [],
         }
 
@@ -63,35 +66,32 @@ class PlayerLookup(BaseCog, name="Player Lookup", description="Universal player 
         at the button level, not at the command level. This allows everyone to
         open the UI and see what actions they can perform based on their permissions.
         """
+        # Check cog authorization first
+        if not await self._check_cog_authorization(interaction):
+            return False
+
         # Allow all slash commands through - permissions checked in button callbacks
         return True
 
     @property
     def results_per_page(self) -> int:
         """Get results per page setting."""
-        return self.config.config.get("player_lookup", {}).get("results_per_page", self.default_settings["results_per_page"])
+        return self.get_global_setting("results_per_page", 5)
 
     @property
     def allow_partial_matches(self) -> bool:
         """Get allow partial matches setting."""
-        return self.config.config.get("player_lookup", {}).get("allow_partial_matches", self.default_settings["allow_partial_matches"])
+        return self.get_global_setting("allow_partial_matches", True)
 
     @property
     def case_sensitive(self) -> bool:
         """Get case sensitive setting."""
-        return self.config.config.get("player_lookup", {}).get("case_sensitive", self.default_settings["case_sensitive"])
+        return self.get_global_setting("case_sensitive", False)
 
     @property
     def restrict_lookups_to_known_users(self) -> bool:
         """Get restrict lookups to known users setting."""
-        return self.config.config.get("player_lookup", {}).get(
-            "restrict_lookups_to_known_users", self.default_settings["restrict_lookups_to_known_users"]
-        )
-
-    @property
-    def profile_post_channels(self) -> List[int]:
-        """Get profile post channels setting."""
-        return self.config.config.get("player_lookup", {}).get("profile_post_channels", self.default_settings["profile_post_channels"])
+        return self.get_global_setting("restrict_lookups_to_known_users", True)
 
     async def check_show_moderation_records_permission(self, discord_user: discord.User) -> bool:
         """Check if a Discord user can see moderation records based on Django group membership.
@@ -240,8 +240,7 @@ class PlayerLookup(BaseCog, name="Player Lookup", description="Universal player 
 
     def get_profile_post_channels(self, guild_id: int) -> List[int]:
         """Get profile post channels setting for a specific guild."""
-        guild_config = self.config.config.get("guilds", {}).get(str(guild_id), {}).get("player_lookup", {})
-        return guild_config.get("profile_post_channels", [])
+        return self.get_setting("profile_post_channels", [], guild_id=guild_id)
 
     async def search_player(self, search_term: str) -> List[KnownPlayer]:
         """
@@ -313,19 +312,35 @@ class PlayerLookup(BaseCog, name="Player Lookup", description="Universal player 
 
     async def _load_settings(self) -> None:
         """Load and initialize default settings."""
-        # Ensure player_lookup config section exists
-        lookup_config = self.config.config.setdefault("player_lookup", {})
+        # Initialize global settings
+        for key, default_value in self.global_settings.items():
+            if not self.has_global_setting(key):
+                self.set_global_setting(key, default_value)
+                self.logger.debug(f"Set default global setting {key} = {default_value}")
 
-        # Set defaults for any missing settings
-        for key, default_value in self.default_settings.items():
-            if key not in lookup_config:
-                lookup_config[key] = default_value
-                self.logger.debug(f"Set default setting {key} = {default_value}")
+        # Clean up settings for guilds where this cog is no longer enabled
+        enabled_guild_ids = set()
+        for guild in self.bot.guilds:
+            try:
+                if self.bot.cog_manager.can_guild_use_cog(self.cog_name, guild.id, False):
+                    enabled_guild_ids.add(guild.id)
+                    # Initialize guild-specific settings
+                    self.ensure_settings_initialized(guild_id=guild.id, default_settings=self.guild_settings)
+            except Exception as e:
+                self.logger.debug(f"Error initializing settings for guild {guild.id}: {e}")
 
-        # Save the config if any defaults were set
-        if lookup_config:
-            self.config.save_config()
-            self.logger.debug("Saved updated config with default settings")
+        # Remove settings for guilds where cog is no longer enabled
+        try:
+            all_guild_settings = self.config.get_all_cog_settings(self.cog_name)
+            for guild_id_str in list(all_guild_settings.keys()):
+                guild_id = int(guild_id_str)
+                if guild_id not in enabled_guild_ids:
+                    # Remove all settings for this guild
+                    for setting_key in list(all_guild_settings[guild_id_str].keys()):
+                        self.config.remove_cog_setting(self.cog_name, setting_key, guild_id)
+                    self.logger.debug(f"Removed settings for disabled guild {guild_id}")
+        except Exception as e:
+            self.logger.debug(f"Error cleaning up settings for disabled guilds: {e}")
 
     # === Slash Commands ===
 
