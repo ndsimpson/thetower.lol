@@ -79,10 +79,8 @@ class TournamentRolesSettingsView(ui.View):
 
         lines = []
         interval = update_settings["update_interval"]
-        cooldown = update_settings["role_update_cooldown"]
 
         lines.append(f"**Update Interval:** {self._format_duration(interval)}")
-        lines.append(f"**Role Update Cooldown:** {self._format_duration(cooldown)}")
         lines.append(f"**Update on Startup:** {'Enabled' if update_settings['update_on_startup'] else 'Disabled'}")
 
         return "\n".join(lines)
@@ -375,7 +373,6 @@ class UpdateSettingsView(ui.View):
         update_settings = self.core.get_update_settings(self.guild_id)
 
         embed.add_field(name="Update Interval", value=self._format_duration(update_settings["update_interval"]), inline=True)
-        embed.add_field(name="Role Update Cooldown", value=self._format_duration(update_settings["role_update_cooldown"]), inline=True)
         embed.add_field(name="Update on Startup", value="Enabled" if update_settings["update_on_startup"] else "Disabled", inline=True)
 
         return embed
@@ -408,21 +405,6 @@ class UpdateSettingsView(ui.View):
             hours = modal.result
             seconds = hours * 3600
             self.cog.set_setting("update_interval", seconds, guild_id=self.guild_id)
-
-            embed = await self.get_embed()
-            await interaction.followup.edit_message(interaction.message.id, embed=embed, view=self)
-
-    @ui.button(label="Set Cooldown", style=discord.ButtonStyle.primary, emoji="⏳")
-    async def set_cooldown(self, interaction: discord.Interaction, button: ui.Button):
-        """Set the role update cooldown."""
-        modal = DurationModal("Role Update Cooldown", "role_update_cooldown", "Cooldown between manual updates (in hours)")
-        await interaction.response.send_modal(modal)
-
-        await modal.wait()
-        if hasattr(modal, "result"):
-            hours = modal.result
-            seconds = hours * 3600
-            self.cog.set_setting("role_update_cooldown", seconds, guild_id=self.guild_id)
 
             embed = await self.get_embed()
             await interaction.followup.edit_message(interaction.message.id, embed=embed, view=self)
