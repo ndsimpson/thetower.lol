@@ -8,9 +8,7 @@ This module contains:
 - Core tournament data processing
 """
 
-import asyncio
-import datetime
-from typing import Dict, List, Optional, Tuple, Any
+from typing import Any, Dict, List, Optional
 
 import discord
 from discord import ui
@@ -65,20 +63,13 @@ class TournamentRolesCore:
 
     def get_league_hierarchy(self, guild_id: int) -> List[str]:
         """Get the league hierarchy for a guild."""
-        return self.cog.get_setting("league_hierarchy", [
-            "Legend", "Champion", "Platinum", "Gold", "Silver", "Copper"
-        ], guild_id=guild_id)
+        return self.cog.get_global_setting("league_hierarchy", ["Legend", "Champion", "Platinum", "Gold", "Silver", "Copper"])
 
     def get_roles_config(self, guild_id: int) -> Dict[str, TournamentRoleConfig]:
         """Get the roles configuration for a guild."""
         roles_config = self.cog.get_setting("roles_config", {}, guild_id=guild_id)
         return {
-            name: TournamentRoleConfig(
-                role_id=config["id"],
-                method=config["method"],
-                threshold=config["threshold"],
-                league=config.get("league")
-            )
+            name: TournamentRoleConfig(role_id=config["id"], method=config["method"], threshold=config["threshold"], league=config.get("league"))
             for name, config in roles_config.items()
         }
 
@@ -94,7 +85,6 @@ class TournamentRolesCore:
         """Get update-related settings."""
         return {
             "update_interval": self.cog.get_setting("update_interval", 6 * 60 * 60, guild_id=guild_id),
-            "role_update_cooldown": self.cog.get_setting("role_update_cooldown", 24 * 60 * 60, guild_id=guild_id),
             "update_on_startup": self.cog.get_setting("update_on_startup", True, guild_id=guild_id),
         }
 
@@ -221,8 +211,9 @@ class TournamentRolesCore:
 
         return TournamentStats(result)
 
-    def determine_best_role(self, player_stats: TournamentStats, roles_config: Dict[str, TournamentRoleConfig],
-                          league_hierarchy: List[str], debug_logging: bool = False) -> Optional[str]:
+    def determine_best_role(
+        self, player_stats: TournamentStats, roles_config: Dict[str, TournamentRoleConfig], league_hierarchy: List[str], debug_logging: bool = False
+    ) -> Optional[str]:
         """
         Determine the best role for a player based on tournament performance.
 
@@ -421,9 +412,14 @@ class TournamentRolesCore:
 
         return None
 
-    async def update_member_roles(self, member: discord.Member, player_stats: TournamentStats,
-                                roles_config: Dict[str, TournamentRoleConfig],
-                                verified_role_id: Optional[str], dry_run: bool = False) -> RoleAssignmentResult:
+    async def update_member_roles(
+        self,
+        member: discord.Member,
+        player_stats: TournamentStats,
+        roles_config: Dict[str, TournamentRoleConfig],
+        verified_role_id: Optional[str],
+        dry_run: bool = False,
+    ) -> RoleAssignmentResult:
         """
         Update a member's roles based on tournament performance
 
@@ -523,7 +519,7 @@ class LeagueHierarchyModal(ui.Modal, title="Set League Hierarchy"):
             placeholder="Legend, Champion, Platinum, Gold, Silver, Copper",
             default=", ".join(current_hierarchy),
             style=discord.TextStyle.long,
-            required=True
+            required=True,
         )
         self.add_item(self.leagues_input)
 
@@ -551,26 +547,10 @@ class AddRoleModal(ui.Modal, title="Add Tournament Role"):
 
     def __init__(self, available_leagues: List[str]):
         super().__init__()
-        self.role_select = ui.TextInput(
-            label="Discord Role",
-            placeholder="@RoleName or Role ID",
-            required=True
-        )
-        self.method_select = ui.TextInput(
-            label="Assignment Method",
-            placeholder="Champion, Placement, or Wave",
-            required=True
-        )
-        self.threshold_input = ui.TextInput(
-            label="Threshold",
-            placeholder="1 for Champion, 100 for Top100, 500 for Wave500",
-            required=True
-        )
-        self.league_input = ui.TextInput(
-            label="League (required for Wave method)",
-            placeholder="Champion, Platinum, etc.",
-            required=False
-        )
+        self.role_select = ui.TextInput(label="Discord Role", placeholder="@RoleName or Role ID", required=True)
+        self.method_select = ui.TextInput(label="Assignment Method", placeholder="Champion, Placement, or Wave", required=True)
+        self.threshold_input = ui.TextInput(label="Threshold", placeholder="1 for Champion, 100 for Top100, 500 for Wave500", required=True)
+        self.league_input = ui.TextInput(label="League (required for Wave method)", placeholder="Champion, Platinum, etc.", required=False)
 
         self.add_item(self.role_select)
         self.add_item(self.method_select)
@@ -592,8 +572,7 @@ class AddRoleModal(ui.Modal, title="Add Tournament Role"):
                 role_id = role_input
             else:
                 # Try to find role by name
-                role = discord.utils.find(lambda r: r.name.lower() == role_input.lower(),
-                                        interaction.guild.roles)
+                role = discord.utils.find(lambda r: r.name.lower() == role_input.lower(), interaction.guild.roles)
                 if not role:
                     await interaction.response.send_message(f"❌ Could not find role: {role_input}", ephemeral=True)
                     return
@@ -634,16 +613,9 @@ class AddRoleModal(ui.Modal, title="Add Tournament Role"):
                 role_name = f"{league}{threshold}"
 
             # Store result for calling view
-            self.result = {
-                "role_id": role_id,
-                "role_name": role_name,
-                "method": method,
-                "threshold": threshold,
-                "league": league
-            }
+            self.result = {"role_id": role_id, "role_name": role_name, "method": method, "threshold": threshold, "league": league}
 
             await interaction.response.send_message(f"✅ Role '{role_name}' configured successfully", ephemeral=True)
 
         except Exception as e:
             await interaction.response.send_message(f"❌ Error configuring role: {str(e)}", ephemeral=True)
-            
