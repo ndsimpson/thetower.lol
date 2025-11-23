@@ -25,12 +25,26 @@ class ConfigManager:
 
             self.config_path = Path(config_path) / "config.json"
             if not self.config_path.exists():
-                logger.error(f"Config file not found at: {self.config_path}")
-                sys.exit(1)
+                logger.warning(f"Config file not found at: {self.config_path}. Creating blank config file.")
+                self._create_blank_config()
+            else:
+                self.load_config()
 
-            self.config: Dict[str, Any] = {}
             self.initialized = True
-            self.load_config()
+
+    def _create_blank_config(self) -> None:
+        """Create a blank configuration file with empty JSON object."""
+        # Ensure the directory exists
+        self.config_path.parent.mkdir(parents=True, exist_ok=True)
+
+        # Create blank config (empty JSON object)
+        self.config = {}
+
+        # Write the blank config
+        with open(self.config_path, "w") as f:
+            json.dump(self.config, f, indent=4)
+
+        logger.info(f"Created blank config file at: {self.config_path}")
 
     def load_config(self) -> None:
         """Load configuration from JSON file."""
@@ -627,13 +641,95 @@ class ConfigManager:
         # Add to disallowed list
         self.add_guild_cog_authorization(guild_id, cog_name, allow=False)
 
-    def clear_guild_cog_authorization(self, guild_id: int, cog_name: str) -> None:
-        """Clear any custom authorization for a cog (remove from both lists).
+    def get_global_cog_setting(self, cog_name: str, setting_name: str, default: Any = None) -> Any:
+        """Get a global cog-specific setting (bot owner level).
 
         Args:
-            guild_id: The guild ID
             cog_name: The name of the cog
+            setting_name: The name of the setting
+            default: Default value if setting doesn't exist
+
+        Returns:
+            The setting value or default
         """
-        # Remove from both lists
-        self.remove_guild_cog_authorization(guild_id, cog_name, from_allowed=True)
-        self.remove_guild_cog_authorization(guild_id, cog_name, from_allowed=False)
+        # Global cog settings are stored under bot_owner_settings.cogs.{cog_name}.settings
+        cog_config = self.config.setdefault("bot_owner_settings", {}).setdefault("cogs", {}).setdefault(cog_name, {})
+        settings = cog_config.setdefault("settings", {})
+        return settings.get(setting_name, default)
+
+    def set_global_cog_setting(self, cog_name: str, setting_name: str, value: Any) -> None:
+        """Set a global cog-specific setting (bot owner level).
+
+        Args:
+            cog_name: The name of the cog
+            setting_name: The name of the setting
+            value: The value to set
+        """
+        cog_config = self.config.setdefault("bot_owner_settings", {}).setdefault("cogs", {}).setdefault(cog_name, {})
+        settings = cog_config.setdefault("settings", {})
+        settings[setting_name] = value
+        self.save_config()
+        logger.info(f"Set global {cog_name} setting '{setting_name}' = {value}")
+
+    def update_global_cog_settings(self, cog_name: str, settings: Dict[str, Any]) -> None:
+        """Update multiple global cog settings at once.
+
+        Args:
+            cog_name: The name of the cog
+            settings: Dictionary of setting names and values
+        """
+        cog_config = self.config.setdefault("bot_owner_settings", {}).setdefault("cogs", {}).setdefault(cog_name, {})
+        existing_settings = cog_config.setdefault("settings", {})
+        existing_settings.update(settings)
+        self.save_config()
+        logger.info(f"Updated global settings for {cog_name}: {settings}")
+
+    def remove_global_cog_setting(self, cog_name: str, setting_name: str) -> bool:
+        """Remove a global cog-specific setting.
+
+        Args:
+            cog_name: The name of the cog
+            setting_name: The name of the setting
+
+        Returns:
+            True if setting was removed, False if it didn't exist
+        """
+        try:
+            settings = self.config["bot_owner_settings"]["cogs"][cog_name]["settings"]
+            if setting_name in settings:
+                del settings[setting_name]
+                self.save_config()
+                logger.info(f"Removed global {cog_name} setting '{setting_name}'")
+                return True
+            return False
+        except KeyError:
+            return False
+
+    def has_global_cog_setting(self, cog_name: str, setting_name: str) -> bool:
+        """Check if a global cog-specific setting exists.
+
+        Args:
+            cog_name: The name of the cog
+            setting_name: The name of the setting
+
+        Returns:
+            True if the setting exists, False otherwise
+        """
+        try:
+            return setting_name in self.config["bot_owner_settings"]["cogs"][cog_name]["settings"]
+        except KeyError:
+            return False
+
+    def get_all_global_cog_settings(self, cog_name: str) -> Dict[str, Any]:
+        """Get all global settings for a specific cog.
+
+        Args:
+            cog_name: The name of the cog
+
+        Returns:
+            Dictionary of all global cog settings
+        """
+        try:
+            return self.config["bot_owner_settings"]["cogs"][cog_name]["settings"].copy()
+        except KeyError:
+            return {}

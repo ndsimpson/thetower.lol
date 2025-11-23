@@ -566,23 +566,64 @@ class BaseCog(commands.Cog):
         guild_id = self._extract_guild_id(guild_id, ctx, interaction)
         return self.config.has_cog_setting(self.cog_name, key, guild_id)
 
-    def get_all_settings(self, guild_id: int = None, ctx: Context = None, interaction: discord.Interaction = None) -> Dict[str, Any]:
-        """Get all settings for this cog.
+    def get_global_setting(self, key: str, default: Any = None) -> Any:
+        """Get a global cog-specific setting (bot owner level).
 
         Args:
-            guild_id: Guild ID (auto-detected from ctx/interaction if not provided)
-            ctx: Command context (optional, used for auto-detecting guild_id)
-            interaction: Discord interaction (optional, used for auto-detecting guild_id)
+            key: Setting name
+            default: Default value if setting doesn't exist
 
         Returns:
-            Dictionary of all cog settings
-
-        Example:
-            all_settings = self.get_all_settings(ctx=ctx)
-            print(f"Current configuration: {all_settings}")
+            The setting value or default
         """
-        guild_id = self._extract_guild_id(guild_id, ctx, interaction)
-        return self.config.get_all_cog_settings(self.cog_name, guild_id)
+        return self.config.get_global_cog_setting(self.cog_name, key, default)
+
+    def set_global_setting(self, key: str, value: Any) -> None:
+        """Save a global cog-specific setting (bot owner level).
+
+        Args:
+            key: Setting name
+            value: Setting value
+        """
+        self.config.set_global_cog_setting(self.cog_name, key, value)
+
+    def update_global_settings(self, settings: Dict[str, Any]) -> None:
+        """Update multiple global cog settings at once.
+
+        Args:
+            settings: Dictionary of settings to update
+        """
+        self.config.update_global_cog_settings(self.cog_name, settings)
+
+    def remove_global_setting(self, key: str) -> bool:
+        """Remove a global cog-specific setting.
+
+        Args:
+            key: Setting name to remove
+
+        Returns:
+            True if setting was removed, False if it didn't exist
+        """
+        return self.config.remove_global_cog_setting(self.cog_name, key)
+
+    def has_global_setting(self, key: str) -> bool:
+        """Check if a global cog-specific setting exists.
+
+        Args:
+            key: Setting name to check
+
+        Returns:
+            True if setting exists, False otherwise
+        """
+        return self.config.has_global_cog_setting(self.cog_name, key)
+
+    def get_all_global_settings(self) -> Dict[str, Any]:
+        """Get all global settings for this cog.
+
+        Returns:
+            Dictionary of all global cog settings
+        """
+        return self.config.get_all_global_cog_settings(self.cog_name)
 
     # ----- Data Management Methods -----
 
