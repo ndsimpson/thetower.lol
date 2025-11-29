@@ -385,6 +385,31 @@ class PlayerLookup(BaseCog, name="Player Lookup", description="Universal player 
             self._has_errors = True
             raise
 
+    def _validate_creator_code(self, creator_code: str) -> tuple[bool, str]:
+        """Validate creator code format.
+
+        Args:
+            creator_code: The creator code to validate
+
+        Returns:
+            tuple: (is_valid, error_message)
+        """
+        if not creator_code:
+            return True, ""  # Empty is allowed
+
+        # Check if alphanumeric only
+        if not creator_code.isalnum():
+            return False, "Creator code must contain only letters and numbers (no spaces, punctuation, or special characters)"
+
+        # Check length (reasonable limits)
+        if len(creator_code) < 3:
+            return False, "Creator code must be at least 3 characters long"
+
+        if len(creator_code) > 50:
+            return False, "Creator code must be no more than 50 characters long"
+
+        return True, ""
+
     async def cog_unload(self) -> None:
         """Clean up when cog is unloaded"""
         # Call parent unload
