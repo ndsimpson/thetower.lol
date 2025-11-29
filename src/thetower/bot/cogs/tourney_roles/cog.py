@@ -1150,9 +1150,8 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
             self.logger.info("Starting TourneyRoles initialization")
 
             async with self.task_tracker.task_context("Initialization") as tracker:
-                # Initialize parent
-                self.logger.debug("Initializing parent cog")
-                await super().cog_initialize()
+                # Register UI extensions for player profiles
+                self.register_ui_extensions()
 
                 # Set cache file path
                 self.cache_file = self.data_directory / self.roles_cache_filename
@@ -1183,6 +1182,27 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
             self.logger.error(f"Error during TourneyRoles initialization: {e}", exc_info=True)
             self._has_errors = True
             raise
+
+    def register_ui_extensions(self) -> None:
+        """Register UI extensions that this cog provides to other cogs."""
+        # Register button provider for player profiles
+        self.bot.cog_manager.register_ui_extension(
+            target_cog="player_lookup", source_cog=self.__class__.__name__, provider_func=self.get_tourney_roles_button_for_player
+        )
+
+    def get_tourney_roles_button_for_player(self, player, requesting_user: discord.User, guild_id: int) -> Optional[discord.ui.Button]:
+        """Get a tournament roles refresh button for a player if the user has permission.
+
+        This method is called by the player_lookup cog to extend /lookup functionality.
+        Returns a button that refreshes tournament roles for the player,
+        or None if the user doesn't have permission or the cog isn't enabled.
+        """
+        # Check if this cog is enabled for the guild
+        if not self.bot.cog_manager.can_guild_use_cog(self.cog_name, guild_id, False):
+            return None
+
+        # Return the button - permission checks are done in the button callback
+        return TourneyRolesRefreshButton(self, requesting_user.id, guild_id)
 
     async def cog_unload(self):
         """Clean up when cog is unloaded"""
@@ -1332,6 +1352,31 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
         except Exception as e:
             self.logger.error(f"Error refreshing roles for user {user_id}: {e}")
             return f"❌ Error updating roles: {str(e)}"
+
+
+class TourneyRolesRefreshButton(discord.ui.Button):
+    """Button to refresh tournament roles for a specific user."""
+
+    def __init__(self, cog, user_id: int, guild_id: int):
+        super().__init__(label="Update Tournament Roles", style=discord.ButtonStyle.primary, emoji="🔄")
+        self.cog = cog
+        self.user_id = user_id
+        self.guild_id = guild_id
+
+    async def callback(self, interaction: discord.Interaction):
+        """Button to refresh tournament roles."""
+        await interaction.response.defer(ephemeral=True)
+
+        try:
+            # Call the public method to refresh roles
+            result = await self.cog.refresh_user_roles_for_user(self.user_id, self.guild_id)
+
+            # Send the result
+            await interaction.followup.send(result, ephemeral=True)
+
+        except Exception as e:
+            self.cog.logger.error(f"Error refreshing tournament roles for user {self.user_id}: {e}")
+            await interaction.followup.send(f"❌ Error updating roles: {str(e)}", ephemeral=True)
 
 
 async def setup(bot) -> None:

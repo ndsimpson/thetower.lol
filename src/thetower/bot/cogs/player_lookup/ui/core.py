@@ -120,8 +120,7 @@ class PlayerView(discord.ui.View):
             self.add_item(SetCreatorCodeButton(self.cog, self.current_code))
 
         # Only add the tournament roles button if allowed and we have the required IDs
-        if self.show_tourney_roles_button and self.user_id and self.guild_id:
-            self.add_item(RefreshTourneyRolesButton(self.cog, self.user_id, self.guild_id))
+        # Note: Tournament roles button is now provided via UI extension registry
 
         # Only add the post publicly button if user has permission and we have required data
         if self.requesting_user and self.player and self.details:
@@ -164,44 +163,6 @@ class SetCreatorCodeButton(discord.ui.Button):
         if self.current_code:
             modal.creator_code_input.default = self.current_code
         await interaction.response.send_modal(modal)
-
-
-class RefreshTourneyRolesButton(discord.ui.Button):
-    """Button to refresh tournament roles."""
-
-    def __init__(self, cog, user_id: int, guild_id: int):
-        super().__init__(label="Update Tournament Roles", style=discord.ButtonStyle.primary, emoji="🔄")
-        self.cog = cog
-        self.user_id = user_id
-        self.guild_id = guild_id
-
-    async def callback(self, interaction: discord.Interaction):
-        """Button to refresh tournament roles."""
-        await interaction.response.defer(ephemeral=True)
-
-        try:
-            # Get the Tournament Roles cog
-            tourney_cog = self.cog.bot.get_cog("Tournament Roles")
-            if not tourney_cog:
-                await interaction.followup.send("❌ Tournament Roles system unavailable", ephemeral=True)
-                return
-
-            # Check if the cog is enabled for this guild
-            if hasattr(self.cog.bot, "cog_manager"):
-                cog_manager = self.cog.bot.cog_manager
-                if not cog_manager.can_guild_use_cog("tourney_roles", self.guild_id):
-                    await interaction.followup.send("❌ Tournament Roles not enabled for this server", ephemeral=True)
-                    return
-
-            # Call the public method to refresh roles
-            result = await tourney_cog.refresh_user_roles_for_user(self.user_id, self.guild_id)
-
-            # Send the result
-            await interaction.followup.send(result, ephemeral=True)
-
-        except Exception as e:
-            self.cog.logger.error(f"Error refreshing tournament roles for user {self.user_id}: {e}")
-            await interaction.followup.send(f"❌ Error updating roles: {str(e)}", ephemeral=True)
 
 
 class PostPubliclyButton(discord.ui.Button):
