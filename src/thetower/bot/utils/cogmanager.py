@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import sys
 from pathlib import Path
 
 from discord.ext.commands import Context, Paginator
@@ -308,7 +309,20 @@ class CogManager:
             if cog_name in self.loaded_cogs:
                 self.loaded_cogs.remove(cog_name)
                 self.unloaded_cogs.append(cog_name)
-            logger.info(f"Unloaded cog '{cog_name}'")
+
+            # Clear the module from Python's import cache to ensure fresh imports
+            module_name = f"thetower.bot.cogs.{cog_name}"
+            if module_name in sys.modules:
+                del sys.modules[module_name]
+                logger.debug(f"Cleared module '{module_name}' from import cache")
+
+            # Also clear any submodules that might be part of this cog
+            modules_to_remove = [k for k in sys.modules.keys() if k.startswith(f"{module_name}.")]
+            for mod in modules_to_remove:
+                del sys.modules[mod]
+                logger.debug(f"Cleared submodule '{mod}' from import cache")
+
+            logger.info(f"Unloaded cog '{cog_name}' and cleared from cache")
             return True
         except Exception as e:
             logger.error(f"Failed to unload cog '{cog_name}': {str(e)}")
