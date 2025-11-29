@@ -390,17 +390,20 @@ async def sync_commands_slash(interaction: discord.Interaction):
 @bot.tree.command(name="settings", description="Open the bot settings interface")
 async def settings_slash(interaction: discord.Interaction):
     """Open the interactive settings interface."""
+    # Defer the response to prevent timeout during permission checks
+    await interaction.response.defer(ephemeral=True)
+
     is_bot_owner = await bot.is_owner(interaction.user)
     guild_id = interaction.guild.id if interaction.guild else None
 
     # Check if user has permission
     if not is_bot_owner:
         if not interaction.guild:
-            return await interaction.response.send_message(
+            return await interaction.followup.send(
                 "❌ Settings can only be accessed in a server (unless you're the bot owner).", ephemeral=True
             )
         if interaction.user.id != interaction.guild.owner_id:
-            return await interaction.response.send_message("❌ Only the server owner or bot owner can access settings.", ephemeral=True)
+            return await interaction.followup.send("❌ Only the server owner or bot owner can access settings.", ephemeral=True)
 
     # Create main settings view
     view = SettingsMainView(is_bot_owner, guild_id)
@@ -410,7 +413,7 @@ async def settings_slash(interaction: discord.Interaction):
     if is_bot_owner:
         embed.add_field(name="👑 Bot Owner", value="You have full access to all settings", inline=False)
 
-    await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+    await interaction.followup.send(embed=embed, view=view, ephemeral=True)
 
 
 def main():
