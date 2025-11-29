@@ -399,9 +399,7 @@ async def settings_slash(interaction: discord.Interaction):
     # Check if user has permission
     if not is_bot_owner:
         if not interaction.guild:
-            return await interaction.followup.send(
-                "❌ Settings can only be accessed in a server (unless you're the bot owner).", ephemeral=True
-            )
+            return await interaction.followup.send("❌ Settings can only be accessed in a server (unless you're the bot owner).", ephemeral=True)
         if interaction.user.id != interaction.guild.owner_id:
             return await interaction.followup.send("❌ Only the server owner or bot owner can access settings.", ephemeral=True)
 
