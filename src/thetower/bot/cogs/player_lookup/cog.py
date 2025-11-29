@@ -35,6 +35,9 @@ class PlayerLookup(BaseCog, name="Player Lookup", description="Universal player 
     # Settings view class for the cog manager
     settings_view_class = PlayerLookupSettingsView
 
+    # Make UnverifiedPlayer accessible as a class attribute
+    UnverifiedPlayer = UnverifiedPlayer
+
     def __init__(self, bot):
         super().__init__(bot)
         self.logger.info("Initializing PlayerLookup")
