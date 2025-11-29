@@ -52,6 +52,9 @@ class ManageSus(BaseCog, name="Manage Sus"):
                 tracker.update_status("Loading data")
                 await super().cog_initialize()
 
+                # Register UI extensions for player profiles
+                self.register_ui_extensions()
+
                 # Update status variables
                 self._last_operation_time = datetime.datetime.utcnow()
                 self._operation_count = 0
@@ -64,6 +67,13 @@ class ManageSus(BaseCog, name="Manage Sus"):
             self._has_errors = True
             self.logger.error(f"Failed to initialize Manage Sus module: {e}", exc_info=True)
             raise
+
+    def register_ui_extensions(self) -> None:
+        """Register UI extensions that this cog provides to other cogs."""
+        # Register button provider for player profiles
+        self.bot.cog_manager.register_ui_extension(
+            target_cog="player_lookup", source_cog=self.__class__.__name__, provider_func=self.get_moderation_button_for_player
+        )
 
     async def cog_unload(self) -> None:
         """Clean up when cog is unloaded."""
@@ -126,8 +136,7 @@ class ManageSus(BaseCog, name="Manage Sus"):
             self.logger.info(f"User groups: {user_groups}")
 
             # Get allowed view groups from settings
-            manage_sus_config = self.config.config.get("manage_sus", {})
-            view_groups = manage_sus_config.get("view_groups", [])
+            view_groups = self.config.get_global_cog_setting("manage_sus", "view_groups", self.default_settings["view_groups"])
             self.logger.info(f"Required view groups: {view_groups}")
 
             # Check if user is in any of the allowed groups
@@ -174,8 +183,7 @@ class ManageSus(BaseCog, name="Manage Sus"):
             self.logger.info(f"User groups: {user_groups}")
 
             # Get allowed manage groups from settings
-            manage_sus_config = self.config.config.get("manage_sus", {})
-            manage_groups = manage_sus_config.get("manage_groups", [])
+            manage_groups = self.config.get_global_cog_setting("manage_sus", "manage_groups", self.default_settings["manage_groups"])
             self.logger.info(f"Required manage groups: {manage_groups}")
 
             # Check if user is in any of the allowed groups
@@ -285,20 +293,23 @@ class ManageSus(BaseCog, name="Manage Sus"):
     @property
     def privileged_groups_for_full_ids(self) -> List[str]:
         """Get the list of Django groups that can see all player IDs."""
-        manage_sus_config = self.config.config.get("manage_sus", {})
-        return manage_sus_config.get("privileged_groups_for_full_ids", self.default_settings["privileged_groups_for_full_ids"])
+        return self.config.get_global_cog_setting(
+            "manage_sus", "privileged_groups_for_full_ids", self.default_settings["privileged_groups_for_full_ids"]
+        )
 
     @property
     def show_moderation_records_in_profiles(self) -> bool:
         """Get whether moderation records should be shown in profiles."""
-        manage_sus_config = self.config.config.get("manage_sus", {})
-        return manage_sus_config.get("show_moderation_records_in_profiles", self.default_settings["show_moderation_records_in_profiles"])
+        return self.config.get_global_cog_setting(
+            "manage_sus", "show_moderation_records_in_profiles", self.default_settings["show_moderation_records_in_profiles"]
+        )
 
     @property
     def privileged_groups_for_moderation_records(self) -> List[str]:
         """Get the list of Django groups that can see moderation records in profiles."""
-        manage_sus_config = self.config.config.get("manage_sus", {})
-        return manage_sus_config.get("privileged_groups_for_moderation_records", self.default_settings["privileged_groups_for_moderation_records"])
+        return self.config.get_global_cog_setting(
+            "manage_sus", "privileged_groups_for_moderation_records", self.default_settings["privileged_groups_for_moderation_records"]
+        )
 
 
 class ManageSusButton(discord.ui.Button):

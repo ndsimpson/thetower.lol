@@ -134,17 +134,20 @@ class PlayerView(discord.ui.View):
                     PostPubliclyButton(self.cog, self.player, self.details, self.embed_title, self.requesting_user, include_moderation=True)
                 )
 
-        # Check if manage_sus cog is available and add moderation button
+        # Add buttons from registered UI extensions
         if self.requesting_user and self.player and self.guild_id:
-            manage_sus_cog = self.cog.bot.get_cog("Manage Sus")
-            if manage_sus_cog:
-                # Check if the cog is enabled for this guild
-                if hasattr(self.cog.bot, "cog_manager"):
-                    cog_manager = self.cog.bot.cog_manager
-                    if cog_manager.can_guild_use_cog("manage_sus", self.guild_id):
-                        moderation_button = manage_sus_cog.get_moderation_button_for_player(self.player, self.requesting_user, self.guild_id)
-                        if moderation_button:
-                            self.add_item(moderation_button)
+            # Get all registered UI extension providers for player profiles
+            extension_providers = self.cog.bot.cog_manager.get_ui_extensions("player_lookup")
+
+            # Call each provider and add any buttons they return
+            for provider_func in extension_providers:
+                try:
+                    button = provider_func(self.player, self.requesting_user, self.guild_id)
+                    if button:
+                        self.add_item(button)
+                except Exception as e:
+                    self.cog.logger.error(f"Error getting button from UI extension provider: {e}")
+                    # Continue with other providers even if one fails
 
 
 class SetCreatorCodeButton(discord.ui.Button):

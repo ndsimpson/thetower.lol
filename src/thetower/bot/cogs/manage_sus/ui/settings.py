@@ -18,12 +18,13 @@ class ManageSusSettingsView(discord.ui.View):
         self.guild_id = str(context.guild_id) if context.guild_id else None
 
         # Get current global settings (stored in bot config under manage_sus)
-        manage_sus_config = self.cog.config.config.get("manage_sus", {})
-        self.view_groups = manage_sus_config.get("view_groups", [])
-        self.manage_groups = manage_sus_config.get("manage_groups", [])
-        self.privileged_groups_for_full_ids = manage_sus_config.get("privileged_groups_for_full_ids", [])
-        self.show_moderation_records_in_profiles = manage_sus_config.get("show_moderation_records_in_profiles", True)
-        self.privileged_groups_for_moderation_records = manage_sus_config.get("privileged_groups_for_moderation_records", [])
+        self.view_groups = self.cog.config.get_global_cog_setting("manage_sus", "view_groups", [])
+        self.manage_groups = self.cog.config.get_global_cog_setting("manage_sus", "manage_groups", [])
+        self.privileged_groups_for_full_ids = self.cog.config.get_global_cog_setting("manage_sus", "privileged_groups_for_full_ids", [])
+        self.show_moderation_records_in_profiles = self.cog.config.get_global_cog_setting("manage_sus", "show_moderation_records_in_profiles", True)
+        self.privileged_groups_for_moderation_records = self.cog.config.get_global_cog_setting(
+            "manage_sus", "privileged_groups_for_moderation_records", []
+        )
 
         # Add toggle buttons for boolean settings
         self.add_toggle_button("Show Moderation Records", "show_moderation_records_in_profiles", self.show_moderation_records_in_profiles)
@@ -62,14 +63,11 @@ class ManageSusSettingsView(discord.ui.View):
 
     def get_setting(self, key: str, default=None):
         """Get a setting value from global config."""
-        manage_sus_config = self.cog.config.config.get("manage_sus", {})
-        return manage_sus_config.get(key, default)
+        return self.cog.config.get_global_cog_setting("manage_sus", key, default)
 
     def set_setting(self, key: str, value):
         """Set a setting value in global config."""
-        manage_sus_config = self.cog.config.config.setdefault("manage_sus", {})
-        manage_sus_config[key] = value
-        self.cog.config.save_config()
+        self.cog.config.set_global_cog_setting("manage_sus", key, value)
 
     def add_toggle_button(self, label: str, setting_name: str, current_value: bool):
         """Add a toggle button for a boolean setting."""
@@ -185,9 +183,7 @@ class SettingModal(discord.ui.Modal):
             new_value = new_value_str
 
             # Save the setting globally
-            manage_sus_config = self.cog.config.config.setdefault("manage_sus", {})
-            manage_sus_config[self.setting_name] = new_value
-            self.cog.config.save_config()
+            self.cog.config.set_global_cog_setting("manage_sus", self.setting_name, new_value)
 
             embed = discord.Embed(
                 title="Setting Updated",
@@ -397,9 +393,7 @@ class GroupsSelectView(discord.ui.View):
         new_groups = sorted(list(self.selected_groups))
 
         # Save the setting globally in bot config
-        manage_sus_config = self.cog.config.config.setdefault("manage_sus", {})
-        manage_sus_config[self.setting_key] = new_groups
-        self.cog.config.save_config()
+        self.cog.config.set_global_cog_setting("manage_sus", self.setting_key, new_groups)
 
         setting_name = (
             "View Groups"
