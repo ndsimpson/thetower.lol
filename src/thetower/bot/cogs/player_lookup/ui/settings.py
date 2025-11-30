@@ -38,7 +38,7 @@ class PlayerLookupSettingsView(discord.ui.View):
 
         # Add security toggle for bot owners
         if self.is_bot_owner:
-            self.add_toggle_button("Restrict Lookups", "restrict_lookups_to_known_users", self.restrict_lookups_to_known_users, security=True)
+            self.add_toggle_button("Restrict Lookups", "restrict_lookups_to_known_users", self.restrict_lookups_to_known_users)
 
         # Build options list for numeric settings only
         options = [
