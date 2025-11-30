@@ -74,26 +74,37 @@ class TourneyStats(BaseCog, name="Tourney Stats"):
         cache_filename = self.global_settings["cache_filename"]
         return self.data_directory / cache_filename
 
-    async def cog_initialize(self):
+    async def cog_initialize(self) -> None:
         """Initialize the cog - called by BaseCog during ready process"""
+        self.logger.info("Initializing TourneyStats module...")
+
         try:
-            # Load saved data first
-            await self.load_data()
+            async with self.task_tracker.task_context("Initialization") as tracker:
+                # Initialize parent
+                self.logger.debug("Initializing parent cog")
+                tracker.update_status("Loading saved data")
+                await super().cog_initialize()
 
-            # Refresh if needed
-            if not self.league_dfs:
-                await self.get_tournament_data(refresh=True)
+                # Load saved data first
+                tracker.update_status("Loading tournament data")
+                await self.load_data()
 
-            # Start the update check task with tasks.loop
-            self.periodic_update_check.start()
+                # Refresh if needed
+                if not self.league_dfs:
+                    tracker.update_status("Refreshing tournament data")
+                    await self.get_tournament_data(refresh=True)
 
-            self.logger.info("Tournament stats modular initialization complete")
+                # Start the update check task
+                tracker.update_status("Starting background tasks")
+                self.periodic_update_check.start()
 
-            # Mark the cog as ready
-            self.set_ready(True)
+                # Mark the cog as ready
+                self.set_ready(True)
+                self.logger.info("TourneyStats initialization complete")
 
         except Exception as e:
-            self.logger.error(f"Error during tournament stats modular initialization: {e}", exc_info=True)
+            self._has_errors = True
+            self.logger.error(f"Failed to initialize TourneyStats module: {e}", exc_info=True)
             raise
 
     @tasks.loop(seconds=None)  # Will set interval in before_loop
