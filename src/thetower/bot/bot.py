@@ -310,9 +310,6 @@ class DiscordBot(commands.Bot):
         else:
             raise error
 
-    async def async_cleanup(self):
-        self.logger.info("Cleaning up!")
-
     async def on_ready(self):
         self.logger.debug("Bot on_ready event triggered")
         self.logger.info("Bot is ready!")
