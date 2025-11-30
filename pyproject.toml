@@ -46,7 +46,7 @@ dependencies = [
     "pyarrow==21.0.0",
 
     # Discord bot
-    "discord.py==2.5.2",
+    "discord.py @ git+https://github.com/Rapptz/discord.py.git@2d7e0614ad91e0544d0bf3f20f6ec615ca2b6d25",
     "psutil==7.0.0",
 
     # Utilities
@@ -67,7 +67,7 @@ dev = [
 
 
 bot = [
-    "discord.py==2.5.2",
+    "discord.py @ git+https://github.com/Rapptz/discord.py.git@2d7e0614ad91e0544d0bf3f20f6ec615ca2b6d25",
     "easyocr==1.7.2",
     "psutil==7.0.0",
     "Django==5.2.4",
