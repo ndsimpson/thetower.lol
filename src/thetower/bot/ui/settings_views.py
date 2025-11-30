@@ -2461,7 +2461,7 @@ class CogManagementView(View):
         self.visibility_btn.disabled = not (has_selection and has_cogs)
         self.control_btn.disabled = not (has_selection and has_cogs)
 
-        await interaction.response.edit_message(embed=embed, view=self)
+        await interaction.followup.send(embed=embed, view=self, ephemeral=True)
 
     async def set_visibility(self, interaction: discord.Interaction):
         """Set a cog's visibility with granular server control."""
