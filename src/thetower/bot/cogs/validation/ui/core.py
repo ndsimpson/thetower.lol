@@ -8,15 +8,25 @@ from discord import ui
 class VerificationModal(ui.Modal, title="Player Verification"):
     """Modal for player verification with player ID input and file upload."""
 
-    player_id = ui.TextInput(
-        label="Player ID",
-        placeholder="Enter your 13-16 character player ID",
-        min_length=13,
-        max_length=16,
-        required=True,
+    player_id_label = ui.Label(
+        text="Player ID",
+        description="Enter your 13-16 character player ID",
+        component=ui.TextInput(
+            placeholder="Enter your 13-16 character player ID",
+            min_length=13,
+            max_length=16,
+            required=True,
+        ),
     )
 
-    image_upload = ui.FileUpload()
+    image_upload_label = ui.Label(
+        text="Verification Image",
+        description="Upload a screenshot showing your player ID",
+        component=ui.FileUpload(
+            custom_id="image_upload",
+            required=True,
+        ),
+    )
 
     def __init__(self, cog):
         super().__init__()
@@ -27,8 +37,8 @@ class VerificationModal(ui.Modal, title="Player Verification"):
         # Defer the response since validation might take time
         await interaction.response.defer(ephemeral=True)
 
-        player_id = self.player_id.value.upper().strip()
-        attachment = self.image_upload.attachment
+        player_id = self.player_id_label.component.value.upper().strip()
+        attachment = self.image_upload_label.component.values[0] if self.image_upload_label.component.values else None
 
         # Get current timestamp for logging
         verification_time = discord.utils.utcnow()
