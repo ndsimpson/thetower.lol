@@ -180,3 +180,82 @@ class VerificationModal(ui.Modal, title="Player Verification"):
         except Exception as log_exc:
             self.cog.logger.error(f"Failed to log verification to channel {log_channel_id}: {log_exc}")
             self.cog.logger.error(f"Failed to log verification to channel {log_channel_id}: {log_exc}")
+
+
+class UnverifyButton(discord.ui.Button):
+    """Button to un-verify a player (removes verified role and marks IDs as non-primary)."""
+
+    def __init__(self, cog, player, requesting_user, guild_id):
+        super().__init__(label="Un-verify Player", style=discord.ButtonStyle.danger, emoji="🚫")
+        self.cog = cog
+        self.player = player
+        self.requesting_user = requesting_user
+        self.guild_id = guild_id
+
+    async def callback(self, interaction: discord.Interaction):
+        """Handle un-verification request."""
+
+        # Check permissions first
+        approved_groups = self.cog.config.get_global_cog_setting("validation", "approved_unverify_groups", [])
+
+        if not approved_groups:
+            await interaction.response.send_message("❌ Un-verification is not configured for this server.", ephemeral=True)
+            return
+
+        try:
+            # Get Django user from Discord ID via KnownPlayer
+            from asgiref.sync import sync_to_async
+
+            from thetower.backend.sus.models import KnownPlayer
+
+            discord_id = str(self.requesting_user.id)
+
+            known_player = await sync_to_async(lambda: KnownPlayer.objects.filter(discord_id=discord_id).select_related("django_user").first())()
+
+            if not known_player:
+                await interaction.response.send_message("❌ No Django user account found for your Discord ID.", ephemeral=True)
+                return
+
+            if not known_player.django_user:
+                await interaction.response.send_message("❌ No Django user account found for your Discord ID.", ephemeral=True)
+                return
+
+            django_user = known_player.django_user
+
+            # Check if user is in approved groups
+            user_groups = [group.name for group in django_user.groups.all()]
+            has_permission = any(group in approved_groups for group in user_groups)
+
+            if not has_permission:
+                await interaction.response.send_message("❌ You don't have permission to un-verify players.", ephemeral=True)
+                return
+
+            # Perform the un-verification
+            result = await self.cog.unverify_player_complete(self.player.discord_id, django_user, [self.guild_id])
+
+            if result["success"]:
+                embed = discord.Embed(
+                    title="🚫 Player Un-verified",
+                    description=f"Successfully un-verified {self.player.name} (Discord ID: {self.player.discord_id}).",
+                    color=discord.Color.red(),
+                )
+
+                # Show role removal results
+                role_results = result.get("role_removal_results", [])
+                if role_results:
+                    role_status = []
+                    for res in role_results:
+                        status = "✅ Removed" if res["role_removed"] else "❌ Not removed"
+                        role_status.append(f"Guild {res['guild_id']}: {status}")
+                    embed.add_field(name="Role Removal", value="\n".join(role_status), inline=False)
+
+                await interaction.response.send_message(embed=embed, ephemeral=True)
+            else:
+                await interaction.response.send_message(f"❌ Un-verification failed: {result['message']}", ephemeral=True)
+
+        except Exception as e:
+            import traceback
+
+            traceback.print_exc()
+            self.cog.logger.error(f"Error during un-verification: {e}")
+            await interaction.response.send_message("❌ An error occurred during un-verification.", ephemeral=True)

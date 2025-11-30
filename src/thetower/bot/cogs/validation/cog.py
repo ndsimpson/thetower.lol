@@ -65,7 +65,32 @@ class Validation(BaseCog, name="Validation"):
 
     async def cog_initialize(self) -> None:
         """Initialize the cog."""
-        pass
+        # Register UI extension for un-verify button in player profiles
+        self.bot.cog_manager.register_ui_extension("player_lookup", "validation", self.provide_unverify_button)
+
+    def provide_unverify_button(self, player, requesting_user, guild_id):
+        """UI extension provider for un-verify button in player profiles.
+
+        Args:
+            player: The KnownPlayer instance
+            requesting_user: The Discord user requesting the profile
+            guild_id: The guild ID where the request is made
+
+        Returns:
+            UnverifyButton if user has permission, None otherwise
+        """
+        # Check if the requesting user has permission to un-verify
+        # Get approved groups from settings
+        approved_groups = self.config.get_global_cog_setting("validation", "approved_unverify_groups", [])
+
+        if not approved_groups:
+            return None  # No groups configured for un-verification
+
+        # For UI extension providers, we return the button and do permission checking in the callback
+        # This avoids async issues when called from the player_lookup cog
+        from .ui.core import UnverifyButton
+
+        return UnverifyButton(self, player, requesting_user, guild_id)
 
     async def cog_unload(self) -> None:
         """Clean up when unloading."""
