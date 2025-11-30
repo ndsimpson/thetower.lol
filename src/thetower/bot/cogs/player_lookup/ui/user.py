@@ -112,14 +112,14 @@ class UserInteractions:
             if show_all_ids:
                 formatted_ids.append(f"✅ **{primary_id}** (Primary)")
                 # Show all IDs except primary (already added)
-                ids_list = [pid for pid in ids_list if pid != primary_id]
+                ids_list = [pid["id"] for pid in ids_list if pid["id"] != primary_id]
                 formatted_ids.extend(ids_list)
             else:
                 # Just show the primary ID without special formatting
                 formatted_ids.append(primary_id)
         elif show_all_ids:
             # No primary ID, show all IDs
-            formatted_ids.extend(ids_list)
+            formatted_ids.extend([pid["id"] for pid in ids_list])
 
         # Use singular "Player ID" when showing only primary, plural when showing all
         field_name = "Player IDs" if show_all_ids else "Player ID"

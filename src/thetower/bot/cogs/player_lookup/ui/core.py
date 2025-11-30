@@ -277,7 +277,7 @@ async def get_player_details(player: KnownPlayer) -> Dict[str, Any]:
         "creator_code": player.creator_code,
         "approved": player.approved,
         "primary_id": primary_id,
-        "all_ids": [pid.id for pid in player_ids],
+        "all_ids": [{"id": pid.id, "primary": pid.primary} for pid in player_ids],
         "ids_count": len(player_ids),
     }
 
