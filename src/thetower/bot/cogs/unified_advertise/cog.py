@@ -229,52 +229,10 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
                 self.set_ready(True)
                 self.logger.info("Advertisement initialization complete")
 
-                # 5. Sync slash commands for all guilds where this cog is enabled
-                tracker.update_status("Syncing slash commands")
-                await self._sync_commands_for_enabled_guilds()
-
         except Exception as e:
             self._has_errors = True
             self.logger.error(f"Failed to initialize Advertisement module: {e}", exc_info=True)
             raise
-
-    async def _sync_commands_for_enabled_guilds(self) -> None:
-        """Sync slash commands for all guilds where this cog is enabled."""
-        try:
-            # Normalize the cog name for config lookups (e.g., "Unified Advertise" -> "unified_advertise")
-            normalized_cog_name = self.bot.cog_manager.class_name_to_filename(self.qualified_name.replace(" ", ""))
-            self.logger.info(f"Checking cog enablement using qualified_name: '{self.qualified_name}' (normalized: '{normalized_cog_name}')")
-
-            # Debug: Log what commands are in the tree
-            all_commands = self.bot.tree.get_commands()
-            self.logger.info(f"DEBUG: Bot tree has {len(all_commands)} global commands")
-            for cmd in all_commands:
-                self.logger.info(f"  - {cmd.name}: {cmd.description}")
-
-            self.logger.info(f"Starting slash command sync for {len(self.bot.guilds)} guilds...")
-            synced_count = 0
-            skipped_count = 0
-            for guild in self.bot.guilds:
-                can_use = self.bot.cog_manager.can_guild_use_cog(normalized_cog_name, guild.id)
-                self.logger.debug(f"Guild {guild.id} ({guild.name}): can_guild_use_cog('{normalized_cog_name}') = {can_use}")
-                if can_use:
-                    try:
-                        self.logger.info(f"Syncing slash commands for guild {guild.id} ({guild.name})...")
-                        # Note: Commands are synced automatically by Discord.py when registered
-                        # Manual sync per guild may cause duplication of global commands
-                        # synced = await self.bot.tree.sync(guild=guild)
-                        synced_count += 1
-                        self.logger.info(f"✓ Skipping manual sync for guild {guild.id} ({guild.name}) to avoid duplication")
-                        # for cmd in synced:
-                        #     self.logger.info(f"  - Synced: {cmd.name}")
-                    except Exception as e:
-                        self.logger.warning(f"✗ Failed to sync slash commands for guild {guild.id}: {e}")
-                else:
-                    skipped_count += 1
-                    # self.logger.info(f"⊘ Skipping guild {guild.id} ({guild.name}) - cog not enabled")
-            self.logger.info(f"Slash command sync complete: {synced_count} synced, {skipped_count} skipped out of {len(self.bot.guilds)} guilds")
-        except Exception as e:
-            self.logger.error(f"Error syncing commands for enabled guilds: {e}")
 
     async def cog_unload(self) -> None:
         """Clean up when cog is unloaded."""
