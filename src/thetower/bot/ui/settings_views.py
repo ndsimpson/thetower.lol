@@ -1136,7 +1136,18 @@ class CogSettingsView(View):
             # Try the new unified constructor first
             try:
                 view = settings_view_class(context)
-            except TypeError:
+            except TypeError as e:
+                # Check if the error is about the context parameter specifically
+                # If so, don't try fallback signatures that could pass wrong types
+                import inspect
+
+                sig = inspect.signature(settings_view_class.__init__)
+                params = list(sig.parameters.keys())
+
+                # If the first param (after self) is named 'context', don't try fallbacks
+                if len(params) > 1 and params[1] == "context":
+                    raise TypeError(f"Settings view {settings_view_class.__name__} expects SettingsViewContext but failed: {e}")
+
                 # Fallback to old signature-guessing logic for backwards compatibility
                 # Try different constructor signatures in order of preference
                 view = None
