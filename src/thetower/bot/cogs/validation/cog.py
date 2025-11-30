@@ -63,10 +63,14 @@ class Validation(BaseCog, name="Validation"):
         modal = VerificationModal(self)
         await interaction.response.send_modal(modal)
 
-    async def cog_initialize(self) -> None:
-        """Initialize the cog."""
-        # Register UI extension for un-verify button in player profiles
-        self.bot.cog_manager.register_ui_extension("player_lookup", "validation", self.provide_unverify_button)
+    async def _check_additional_interaction_permissions(self, interaction: discord.Interaction) -> bool:
+        """Override additional interaction permissions for slash commands.
+
+        For the validation cog:
+        - The /verify command should be usable in any channel where the bot can respond
+        """
+        # Allow /verify command in any channel (no channel restrictions)
+        return True
 
     def provide_unverify_button(self, player, requesting_user, guild_id):
         """UI extension provider for un-verify button in player profiles.
