@@ -97,6 +97,7 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
             "immediate_logging": True,
             "bulk_batch_size": 45,  # Concurrent operations per batch
             "bulk_batch_delay": 0.1,  # Delay between batches
+            "authorized_refresh_roles": [],  # List of Discord role IDs that can refresh tournament roles for others
         }
 
         # Hardcoded cache filename (not configurable)
@@ -1190,6 +1191,36 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
             target_cog="player_lookup", source_cog=self.__class__.__name__, provider_func=self.get_tourney_roles_button_for_player
         )
 
+    def _user_can_refresh_roles(self, user: discord.User, guild_id: int) -> bool:
+        """Check if a user has permission to refresh tournament roles for others.
+
+        Args:
+            user: The Discord user to check
+            guild_id: The guild ID to check permissions in
+
+        Returns:
+            True if user has an authorized role, False otherwise
+        """
+        # Get authorized role IDs from settings
+        authorized_role_ids = self.get_setting("authorized_refresh_roles", guild_id=guild_id, default=[])
+
+        if not authorized_role_ids:
+            # No roles configured - deny access
+            return False
+
+        # Get the guild and member
+        guild = self.bot.get_guild(guild_id)
+        if not guild:
+            return False
+
+        member = guild.get_member(user.id)
+        if not member:
+            return False
+
+        # Check if user has any of the authorized roles
+        user_role_ids = {role.id for role in member.roles}
+        return bool(user_role_ids.intersection(set(authorized_role_ids)))
+
     def get_tourney_roles_button_for_player(self, player, requesting_user: discord.User, guild_id: int) -> Optional[discord.ui.Button]:
         """Get a tournament roles refresh button for a player if the user has permission.
 
@@ -1201,8 +1232,16 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
         if not self.bot.cog_manager.can_guild_use_cog(self.cog_name, guild_id, False):
             return None
 
-        # Return the button - permission checks are done in the button callback
-        return TourneyRolesRefreshButton(self, requesting_user.id, guild_id)
+        # Only show button if the player has a Discord ID
+        if not player.discord_id:
+            return None
+
+        # Check if requesting user has permission to refresh roles
+        if not self._user_can_refresh_roles(requesting_user, guild_id):
+            return None
+
+        # Use the player's Discord ID (the person being looked up), not the requesting user's ID
+        return TourneyRolesRefreshButton(self, int(player.discord_id), guild_id, requesting_user.id)
 
     async def cog_unload(self):
         """Clean up when cog is unloaded"""
@@ -1357,17 +1396,23 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
 class TourneyRolesRefreshButton(discord.ui.Button):
     """Button to refresh tournament roles for a specific user."""
 
-    def __init__(self, cog, user_id: int, guild_id: int):
+    def __init__(self, cog, user_id: int, guild_id: int, requesting_user_id: int):
         super().__init__(label="Update Tournament Roles", style=discord.ButtonStyle.primary, emoji="🔄")
         self.cog = cog
         self.user_id = user_id
         self.guild_id = guild_id
+        self.requesting_user_id = requesting_user_id
 
     async def callback(self, interaction: discord.Interaction):
         """Button to refresh tournament roles."""
         await interaction.response.defer(ephemeral=True)
 
         try:
+            # Double-check permissions (defense in depth)
+            if not self.cog._user_can_refresh_roles(interaction.user, self.guild_id):
+                await interaction.followup.send("❌ You don't have permission to refresh tournament roles.", ephemeral=True)
+                return
+
             # Call the public method to refresh roles
             result = await self.cog.refresh_user_roles_for_user(self.user_id, self.guild_id)
 
