@@ -29,8 +29,11 @@ class ManageSus(BaseCog, name="Manage Sus"):
         super().__init__(bot)
         self.logger.info("Initializing ManageSus")
 
-        # Define default global settings (stored in bot config under manage_sus)
-        self.default_settings = {
+        # Store a reference to this cog
+        self.bot.manage_sus = self
+
+        # Global settings (bot-wide)
+        self.global_settings = {
             "view_groups": [],  # Django groups that can view moderation records
             "manage_groups": [],  # Django groups that can create/update moderation records
             "privileged_groups_for_full_ids": [],  # Django groups that can see all player IDs
@@ -38,8 +41,8 @@ class ManageSus(BaseCog, name="Manage Sus"):
             "privileged_groups_for_moderation_records": [],  # Django groups that can see moderation records in profiles
         }
 
-        # Store a reference to this cog
-        self.bot.manage_sus = self
+        # Guild-specific settings (none for this cog currently)
+        self.guild_settings = {}
 
     async def cog_initialize(self) -> None:
         """Initialize the cog - called by BaseCog during ready process."""

@@ -47,6 +47,9 @@ class TourneyStats(BaseCog, name="Tourney Stats"):
         super().__init__(bot)
         self.logger.info("Initializing TourneyStats")
 
+        # Store reference on bot
+        self.bot.tourney_stats = self
+
         # Initialize data storage variables
         self.league_dfs = {}
         self.latest_patch = None
@@ -54,18 +57,21 @@ class TourneyStats(BaseCog, name="Tourney Stats"):
         self.tournament_counts = {}
         self.total_tournaments = 0
 
-        # Define default settings - these are global, not per guild
-        self.default_settings = {
+        # Global settings (bot-wide)
+        self.global_settings = {
             "cache_filename": "tourney_stats_data.pkl",
             "update_check_interval": 6 * 60 * 60,
             "update_error_retry_interval": 30 * 60,
             "recent_tournaments_display_count": 3,
         }
 
+        # Guild-specific settings (none for this cog currently)
+        self.guild_settings = {}
+
     @property
     def cache_file(self) -> Path:
         """Get the cache file path using the cog's data directory"""
-        cache_filename = self.default_settings["cache_filename"]
+        cache_filename = self.global_settings["cache_filename"]
         return self.data_directory / cache_filename
 
     async def cog_initialize(self):

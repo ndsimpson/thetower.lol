@@ -40,6 +40,9 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
         super().__init__(bot)
         self.logger.info("Initializing TourneyRoles")
 
+        # Store reference on bot
+        self.bot.tourney_roles = self
+
         # Initialize core instance variables with descriptions
         self.member_roles = {}  # {guild_id: {user_id: roles}}
         self.processed_users = 0

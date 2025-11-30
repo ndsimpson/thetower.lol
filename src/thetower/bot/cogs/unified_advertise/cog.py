@@ -127,8 +127,14 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
         super().__init__(bot)
         self.logger.info("Initializing UnifiedAdvertise")
 
-        # Define default settings (per-guild)
-        self.default_settings = {
+        # Store a reference to this cog
+        self.bot.unified_advertise = self
+
+        # Global settings (bot-wide) - none for this cog currently
+        self.global_settings = {}
+
+        # Guild-specific settings
+        self.guild_settings = {
             "cooldown_hours": 24,
             "advertise_channel_id": None,
             "mod_channel_id": None,
@@ -144,15 +150,12 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
         # Format: [(thread_id, deletion_time, author_id, notify, guild_id), ...]
         self.pending_deletions = []
 
-        # Store a reference to this cog
-        self.bot.unified_advertise = self
-
     # === Settings Helper Methods ===
 
     def _ensure_guild_initialized(self, guild_id: int) -> None:
         """Ensure settings and data structures are initialized for a guild."""
         if guild_id:
-            self.ensure_settings_initialized(guild_id=guild_id, default_settings=self.default_settings)
+            self.ensure_settings_initialized(guild_id=guild_id, default_settings=self.guild_settings)
 
             # Initialize cooldowns for this guild if not present
             if guild_id not in self.cooldowns:

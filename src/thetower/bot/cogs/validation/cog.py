@@ -19,10 +19,19 @@ class Validation(BaseCog, name="Validation"):
 
     def __init__(self, bot):
         super().__init__(bot)
-        self.default_settings = {
+
+        # Store reference on bot
+        self.bot.validation = self
+
+        # Global settings (bot-wide)
+        self.global_settings = {
+            "approved_unverify_groups": [],  # List of Django group names that can un-verify players
+        }
+
+        # Guild-specific settings
+        self.guild_settings = {
             "verified_role_id": None,  # Role ID for verified users
             "verification_log_channel_id": None,  # Channel ID for logging verifications
-            "approved_unverify_groups": [],  # List of Django group names that can un-verify players
         }
 
     def _create_or_update_player(self, discord_id, author_name, player_id):

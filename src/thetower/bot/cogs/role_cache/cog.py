@@ -13,7 +13,6 @@ from thetower.bot.basecog import BaseCog
 
 from .ui import (
     AdminCommands,
-    RoleCacheConstants,
     RoleCacheSettingsView,
     UserCommands,
 )
@@ -45,8 +44,16 @@ class RoleCache(BaseCog, name="Role Cache", description="Cache for Discord role 
         # Store reference on bot
         self.bot.role_cache = self
 
-        # Define default settings
-        self.default_settings = RoleCacheConstants.DEFAULT_SETTINGS
+        # Global settings (bot-wide)
+        self.global_settings = {
+            "refresh_interval": 1800,  # 30 minutes
+            "staleness_threshold": 3600,  # 1 hour
+            "save_interval": 300,  # 5 minutes
+            "cache_filename": "role_cache_all.json",
+        }
+
+        # Guild-specific settings (none for this cog currently)
+        self.guild_settings = {}
 
     async def save_cache(self) -> bool:
         """Save the member role cache using BaseCog's utility."""
@@ -155,13 +162,13 @@ class RoleCache(BaseCog, name="Role Cache", description="Cache for Discord role 
         # Initialize settings in the config system for guilds where the cog is allowed
         for guild in self.bot.guilds:
             if self.bot.cog_manager.can_guild_use_cog("role_cache", guild.id):
-                self.ensure_settings_initialized(guild_id=guild.id, default_settings=self.default_settings)
+                self.ensure_settings_initialized(guild_id=guild.id, default_settings=self.guild_settings)
 
-        # Initialize instance attributes from default settings
-        self.refresh_interval = self.default_settings["refresh_interval"]
-        self.staleness_threshold = self.default_settings["staleness_threshold"]
-        self.save_interval = self.default_settings["save_interval"]
-        self.cache_file = self.default_settings["cache_filename"]
+        # Initialize instance attributes from global settings
+        self.refresh_interval = self.global_settings["refresh_interval"]
+        self.staleness_threshold = self.global_settings["staleness_threshold"]
+        self.save_interval = self.global_settings["save_interval"]
+        self.cache_file = self.global_settings["cache_filename"]
 
         self.logger.debug("Settings loaded and instance attributes initialized")
 

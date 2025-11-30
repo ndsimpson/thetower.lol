@@ -29,8 +29,16 @@ class BattleConditions(BaseCog, name="Battle Conditions"):
         super().__init__(bot)
         self.logger.info("Initializing BattleConditions")
 
-        # Define default settings (will be initialized per-guild on first use)
-        self.default_settings = {
+        # Store reference on bot
+        self.bot.battle_conditions = self
+
+        # Global settings (bot-wide)
+        self.global_settings = {
+            "bc_view_window_days": None,  # None = always available, or number of days before tourney
+        }
+
+        # Guild-specific settings
+        self.guild_settings = {
             # Time Settings
             "notification_hour": 0,
             "notification_minute": 0,
@@ -39,8 +47,6 @@ class BattleConditions(BaseCog, name="Battle Conditions"):
             "enabled_leagues": ["Legend", "Champion", "Platinum", "Gold", "Silver"],
             # Schedule Settings
             "destination_schedules": [],
-            # Global Settings (bot-wide, not per-guild)
-            "bc_view_window_days": None,  # None = always available, or number of days before tourney
         }
 
     async def _check_additional_interaction_permissions(self, interaction: discord.Interaction) -> bool:
