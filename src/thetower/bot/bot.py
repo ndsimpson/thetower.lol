@@ -18,8 +18,19 @@ from thetower.bot.utils import CogManager, ConfigManager, PermissionManager
 
 # Set up logging
 log_level = getenv("LOG_LEVEL", "INFO").upper()
-logging.basicConfig(level=getattr(logging, log_level))
+logging.basicConfig(level=getattr(logging, log_level))  # Keep basicConfig but modify its formatter
 logger = logging.getLogger(__name__)
+
+# Modify the root logger's formatter
+formatter = logging.Formatter("%(asctime)s UTC [%(name)s] %(levelname)s: %(message)s", datefmt="%Y-%m-%d %H:%M:%S")
+formatter.converter = lambda *args: datetime.datetime.now(timezone.utc).timetuple()
+root_logger = logging.getLogger()
+for handler in root_logger.handlers:
+    handler.setFormatter(formatter)
+
+# Prevent discord logs from duplicating
+discord_logger = logging.getLogger("discord")
+discord_logger.propagate = False
 
 # Discord setup
 intents = discord.Intents.default()
@@ -45,17 +56,6 @@ class DiscordBot(commands.Bot):
         )
         self.logger = logger
         self.cog_manager = CogManager(self)
-
-        # Set up logging with UTC timestamps
-        formatter = logging.Formatter("%(asctime)s UTC [%(name)s] %(levelname)s: %(message)s", datefmt="%Y-%m-%d %H:%M:%S")
-        formatter.converter = lambda *args: datetime.datetime.now(timezone.utc).timetuple()
-
-        # Configure the root logger
-        root_logger = logging.getLogger("thetower.bot")
-        if not root_logger.handlers:
-            handler = logging.StreamHandler()
-            handler.setFormatter(formatter)
-            root_logger.addHandler(handler)
 
     def _get_prefix(self, bot, message):
         """Get the command prefix(es) for a guild.
