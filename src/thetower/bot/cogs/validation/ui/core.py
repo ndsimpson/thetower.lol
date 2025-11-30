@@ -196,7 +196,7 @@ class UnverifyButton(discord.ui.Button):
     """Button to un-verify a player (removes verified role and marks IDs as non-primary)."""
 
     def __init__(self, cog, player, requesting_user, guild_id):
-        super().__init__(label="Un-verify Player", style=discord.ButtonStyle.danger, emoji="🚫")
+        super().__init__(label="Un-verify Player", style=discord.ButtonStyle.danger, emoji="🚫", row=1)
         self.cog = cog
         self.player = player
         self.requesting_user = requesting_user

@@ -316,7 +316,7 @@ class ManageSusButton(discord.ui.Button):
     """Button to manage moderation records for a specific player."""
 
     def __init__(self, cog, player, requesting_user: discord.User, guild_id: int):
-        super().__init__(label="Manage shun/sus/ban", style=discord.ButtonStyle.danger, emoji="⚖️", custom_id=f"manage_sus_{player.id}")
+        super().__init__(label="Manage shun/sus/ban", style=discord.ButtonStyle.danger, emoji="⚖️", custom_id=f"manage_sus_{player.id}", row=1)
         self.cog = cog
         self.player = player
         self.requesting_user = requesting_user
