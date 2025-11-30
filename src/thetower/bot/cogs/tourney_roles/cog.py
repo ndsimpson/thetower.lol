@@ -1252,11 +1252,40 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
 
     @discord.ext.commands.Cog.listener()
     async def on_member_update(self, before: discord.Member, after: discord.Member):
-        """Monitor role changes and correct tournament role issues."""
+        """Monitor role changes and correct tournament role issues.
+
+        Also monitors verified role changes to immediately apply/remove tournament roles.
+        """
         try:
             # Only process if this cog is enabled for the guild
             if not self.bot.cog_manager.can_guild_use_cog(self.cog_name, after.guild.id, False):
                 return
+
+            # Check if verified role changed
+            verified_role_id = self.core.get_verified_role_id(after.guild.id)
+            if verified_role_id:
+                verified_role_id_int = int(verified_role_id)
+                before_has_verified = any(role.id == verified_role_id_int for role in before.roles)
+                after_has_verified = any(role.id == verified_role_id_int for role in after.roles)
+
+                # If verified role was added or removed, refresh tournament roles immediately
+                if before_has_verified != after_has_verified:
+                    if after_has_verified:
+                        self.logger.info(f"Verified role added to {after.name} ({after.id}) - applying tournament roles")
+                        await self.add_log_message(f"✅ {after.name} verified - checking tournament roles")
+                    else:
+                        self.logger.info(f"Verified role removed from {after.name} ({after.id}) - removing tournament roles")
+                        await self.add_log_message(f"❌ {after.name} unverified - removing tournament roles")
+
+                    # Trigger immediate role refresh
+                    try:
+                        result = await self.refresh_user_roles_for_user(after.id, after.guild.id)
+                        self.logger.debug(f"Verification role change refresh result: {result}")
+                    except Exception as e:
+                        self.logger.error(f"Error refreshing roles after verification change for {after.name}: {e}")
+
+                    # Don't process tournament role corrections below - we just refreshed everything
+                    return
 
             # Check if tournament roles changed
             roles_config = self.core.get_roles_config(after.guild.id)
