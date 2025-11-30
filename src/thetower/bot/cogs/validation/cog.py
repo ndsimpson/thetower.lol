@@ -72,6 +72,14 @@ class Validation(BaseCog, name="Validation"):
         # Allow /verify command in any channel (no channel restrictions)
         return True
 
+    def register_ui_extensions(self) -> None:
+        """Register UI extensions for other cogs."""
+        self.bot.cog_manager.register_ui_extension(
+            "player_lookup",
+            "Validation",
+            self.provide_unverify_button,
+        )
+
     def provide_unverify_button(self, player, requesting_user, guild_id):
         """UI extension provider for un-verify button in player profiles.
 
