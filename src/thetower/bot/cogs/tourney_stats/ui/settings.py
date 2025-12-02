@@ -24,12 +24,11 @@ class TourneyStatsSettingsView(discord.ui.View):
         embed = discord.Embed(title="Cache Settings", description="Configure tournament data caching", color=discord.Color.blue())
 
         # Get current settings
-        cache_filename = self.cog.get_setting("cache_filename", "tourney_stats_data.pkl")
-        update_interval = self.cog.get_setting("update_check_interval", 6 * 60 * 60)
+        check_interval = self.cog.get_setting("cache_check_interval", 5 * 60)
 
         embed.add_field(
             name="Current Settings",
-            value=(f"**Cache Filename:** {cache_filename}\n" f"**Update Interval:** {update_interval // 3600} hours\n"),
+            value=f"**Cache Check Interval:** {check_interval // 60} minutes",
             inline=False,
         )
 
@@ -85,16 +84,10 @@ class CacheSettingsView(discord.ui.View):
         self.cog = context.cog_instance
         self.context = context
 
-    @discord.ui.button(label="Change Cache Filename", style=discord.ButtonStyle.primary)
-    async def change_cache_filename(self, interaction: discord.Interaction, button: discord.ui.Button):
-        """Change the cache filename."""
-        modal = CacheFilenameModal(self.context)
-        await interaction.response.send_modal(modal)
-
-    @discord.ui.button(label="Change Update Interval", style=discord.ButtonStyle.primary)
-    async def change_update_interval(self, interaction: discord.Interaction, button: discord.ui.Button):
-        """Change the update check interval."""
-        modal = UpdateIntervalModal(self.context)
+    @discord.ui.button(label="Change Check Interval", style=discord.ButtonStyle.primary)
+    async def change_check_interval(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Change the cache check interval."""
+        modal = CacheCheckIntervalModal(self.context)
         await interaction.response.send_modal(modal)
 
 
@@ -151,29 +144,10 @@ class SystemControlView(discord.ui.View):
             await interaction.followup.send(f"❌ Error refreshing data: {e}", ephemeral=True)
 
 
-class CacheFilenameModal(discord.ui.Modal, title="Change Cache Filename"):
-    """Modal for changing cache filename."""
+class CacheCheckIntervalModal(discord.ui.Modal, title="Change Cache Check Interval"):
+    """Modal for changing cache check interval."""
 
-    filename = discord.ui.TextInput(label="Cache Filename", placeholder="tourney_stats_data.pkl", default="tourney_stats_data.pkl", max_length=100)
-
-    def __init__(self, context: SettingsViewContext):
-        super().__init__()
-        self.cog = context.cog_instance
-
-    async def on_submit(self, interaction: discord.Interaction):
-        """Handle modal submission."""
-        try:
-            new_filename = str(self.filename)
-            self.cog.set_setting("cache_filename", new_filename)
-            await interaction.response.send_message(f"✅ Cache filename changed to: {new_filename}", ephemeral=True)
-        except Exception as e:
-            await interaction.response.send_message(f"❌ Error changing cache filename: {e}", ephemeral=True)
-
-
-class UpdateIntervalModal(discord.ui.Modal, title="Change Update Interval"):
-    """Modal for changing update interval."""
-
-    hours = discord.ui.TextInput(label="Update Interval (hours)", placeholder="6", default="6", max_length=3)
+    minutes = discord.ui.TextInput(label="Cache Check Interval (minutes)", placeholder="5", default="5", max_length=4)
 
     def __init__(self, context: SettingsViewContext):
         super().__init__()
@@ -182,23 +156,23 @@ class UpdateIntervalModal(discord.ui.Modal, title="Change Update Interval"):
     async def on_submit(self, interaction: discord.Interaction):
         """Handle modal submission."""
         try:
-            hours = int(str(self.hours))
-            if hours < 1 or hours > 168:  # 1 hour to 1 week
-                await interaction.response.send_message("❌ Hours must be between 1 and 168", ephemeral=True)
+            minutes = int(str(self.minutes))
+            if minutes < 1 or minutes > 1440:  # 1 minute to 1 day
+                await interaction.response.send_message("❌ Minutes must be between 1 and 1440 (24 hours)", ephemeral=True)
                 return
 
-            seconds = hours * 60 * 60
-            self.cog.set_setting("update_check_interval", seconds)
+            seconds = minutes * 60
+            self.cog.set_setting("cache_check_interval", seconds)
 
             # Update the running task interval
             if hasattr(self.cog, "periodic_update_check"):
                 self.cog.periodic_update_check.change_interval(seconds=seconds)
 
-            await interaction.response.send_message(f"✅ Update interval changed to: {hours} hours", ephemeral=True)
+            await interaction.response.send_message(f"✅ Cache check interval changed to: {minutes} minutes", ephemeral=True)
         except ValueError:
-            await interaction.response.send_message("❌ Please enter a valid number of hours", ephemeral=True)
+            await interaction.response.send_message("❌ Please enter a valid number of minutes", ephemeral=True)
         except Exception as e:
-            await interaction.response.send_message(f"❌ Error changing update interval: {e}", ephemeral=True)
+            await interaction.response.send_message(f"❌ Error changing cache check interval: {e}", ephemeral=True)
 
 
 class DisplayCountModal(discord.ui.Modal, title="Change Display Count"):

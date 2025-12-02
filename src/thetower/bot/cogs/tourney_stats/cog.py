@@ -53,6 +53,7 @@ class TourneyStats(BaseCog, name="Tourney Stats"):
         # Initialize data storage variables
         self.league_dfs = {}
         self.latest_patch = None
+        self.latest_tournament_date = None
         self.last_updated = None
         self.tournament_counts = {}
         self.total_tournaments = 0
@@ -60,7 +61,7 @@ class TourneyStats(BaseCog, name="Tourney Stats"):
         # Global settings (bot-wide)
         self.global_settings = {
             "cache_filename": "tourney_stats_data.pkl",
-            "update_check_interval": 6 * 60 * 60,
+            "cache_check_interval": 5 * 60,  # Check every 5 minutes for new tournaments
             "update_error_retry_interval": 30 * 60,
             "recent_tournaments_display_count": 3,
         }
@@ -73,6 +74,11 @@ class TourneyStats(BaseCog, name="Tourney Stats"):
         """Get the cache file path using the cog's data directory"""
         cache_filename = self.global_settings["cache_filename"]
         return self.data_directory / cache_filename
+
+    @property
+    def cache_check_interval(self) -> int:
+        """Get the cache check interval from settings"""
+        return self.get_setting("cache_check_interval", self.global_settings["cache_check_interval"])
 
     async def cog_initialize(self) -> None:
         """Initialize the cog - called by BaseCog during ready process"""
@@ -109,52 +115,59 @@ class TourneyStats(BaseCog, name="Tourney Stats"):
 
     @tasks.loop(seconds=None)  # Will set interval in before_loop
     async def periodic_update_check(self):
-        """Check for new patches and refresh data if needed."""
+        """Check for new tournament dates and refresh data if needed."""
         try:
             # Start the update check task
-            async with self.task_tracker.task_context("Update Check", "Checking for new game patch versions"):
-                # Get the current latest patch from DB
-                current_patch = await self.get_latest_patch_from_db()
+            async with self.task_tracker.task_context("Tournament Check", "Checking for new tournament data"):
+                # Get the latest tournament date from DB
+                latest_db_date = await self.get_latest_tournament_date_from_db()
 
-                # Check if patch is different
-                if self.latest_patch and str(current_patch) != str(self.latest_patch):
-                    self.logger.info(f"New patch detected: {current_patch} (was {self.latest_patch})")
-                    self.task_tracker.update_task_status("Update Check", f"New patch found: {current_patch}")
+                if latest_db_date is None:
+                    self.logger.debug("No tournaments found in database")
+                    return
 
-                    # Reset patch and force refresh
-                    self.latest_patch = None
+                # Check if we have a newer tournament date
+                if self.latest_tournament_date is None or latest_db_date > self.latest_tournament_date:
+                    if self.latest_tournament_date:
+                        self.logger.info(f"New tournament detected: {latest_db_date} (was {self.latest_tournament_date})")
+                        self.task_tracker.update_task_status("Tournament Check", f"New tournament found: {latest_db_date}")
+                    else:
+                        self.logger.info(f"Loading tournament data for: {latest_db_date}")
+                        self.task_tracker.update_task_status("Tournament Check", f"Loading tournament: {latest_db_date}")
 
                     # Track the data refresh as a separate task
-                    async with self.task_tracker.task_context("Data Refresh", f"Refreshing tournament data for patch {current_patch}"):
+                    async with self.task_tracker.task_context("Data Refresh", f"Refreshing tournament data for {latest_db_date}"):
                         await self.get_tournament_data(refresh=True)
 
                     # Update last_updated time
                     self.last_updated = datetime.datetime.now()
                     self.mark_data_modified()
                     await self.save_data()
+                else:
+                    self.logger.debug(f"No new tournaments (latest: {self.latest_tournament_date})")
 
         except asyncio.CancelledError:
-            self.logger.info("Update check task was cancelled")
+            self.logger.info("Tournament check task was cancelled")
             raise
         except Exception as e:
-            self.logger.error(f"Error checking for patch updates: {e}", exc_info=True)
+            self.logger.error(f"Error checking for new tournaments: {e}", exc_info=True)
             raise
 
     @periodic_update_check.before_loop
     async def before_periodic_update_check(self):
         """Setup before the update check task starts."""
-        self.logger.info(f"Starting tournament updates check task (interval: {self.update_check_interval}s)")
+        self.logger.info(f"Starting tournament check task (interval: {self.cache_check_interval}s)")
         await self.bot.wait_until_ready()
         await self.wait_until_ready()
 
         # Set the interval dynamically based on settings
-        self.periodic_update_check.change_interval(seconds=self.update_check_interval)
+        self.periodic_update_check.change_interval(seconds=self.cache_check_interval)
 
     @periodic_update_check.after_loop
     async def after_periodic_update_check(self):
         """Cleanup after the update check task ends."""
         if self.periodic_update_check.is_being_cancelled():
-            self.logger.info("Tournament update check task was cancelled")
+            self.logger.info("Tournament check task was cancelled")
 
     async def save_data(self) -> bool:
         """Save tournament data using BaseCog's utility."""
@@ -162,6 +175,7 @@ class TourneyStats(BaseCog, name="Tourney Stats"):
             # Prepare the data to save
             save_data = {
                 "latest_patch": self.latest_patch,
+                "latest_tournament_date": self.latest_tournament_date,
                 "league_dfs": self.league_dfs,
                 "last_updated": self.last_updated or datetime.datetime.now(),
                 "tournament_counts": self.tournament_counts,
@@ -190,12 +204,13 @@ class TourneyStats(BaseCog, name="Tourney Stats"):
 
             if save_data:
                 self.latest_patch = save_data.get("latest_patch")
+                self.latest_tournament_date = save_data.get("latest_tournament_date")
                 self.league_dfs = save_data.get("league_dfs", {})
                 self.last_updated = save_data.get("last_updated")
                 self.tournament_counts = save_data.get("tournament_counts", {})
                 self.total_tournaments = save_data.get("total_tournaments", 0)
 
-                self.logger.info(f"Loaded tournament data from {self.cache_file}")
+                self.logger.info(f"Loaded tournament data from {self.cache_file} (latest tournament: {self.latest_tournament_date})")
                 return True
 
             self.logger.info("No saved tournament data found, starting fresh")
@@ -212,6 +227,15 @@ class TourneyStats(BaseCog, name="Tourney Stats"):
         latest_patch = sorted(patches)[-1] if patches else None
         return latest_patch
 
+    async def get_latest_tournament_date_from_db(self):
+        """Get the latest tournament date from the database across all leagues."""
+        from thetower.backend.tourney_results.models import TourneyResult
+
+        # Get the most recent tournament date across all public tournaments
+        latest_result = await sync_to_async(lambda: TourneyResult.objects.filter(public=True).order_by("-date").first())()
+
+        return latest_result.date if latest_result else None
+
     async def get_latest_patch(self):
         """Get the latest patch or use cached value."""
         if not self.latest_patch:
@@ -224,88 +248,87 @@ class TourneyStats(BaseCog, name="Tourney Stats"):
         if refresh or not self.league_dfs:
             task_name = "Tournament Data Load"
             async with self.task_tracker.task_context(task_name, "Loading tournament data..."):
+                # Get patch info
+                patch = await self.get_latest_patch()
+                self.logger.info(f"Using patch: {patch}")
+
+                # Get and store the latest tournament date
+                self.latest_tournament_date = await self.get_latest_tournament_date_from_db()
+                if self.latest_tournament_date:
+                    self.logger.info(f"Latest tournament date: {self.latest_tournament_date}")
+
+                self.task_tracker.update_task_status(task_name, "Getting excluded player IDs...")
+                # Get sus IDs to filter out. The bot respects its own repo-root flag
+                # `include_shun_roles` — if present, shunned players are INCLUDED and
+                # therefore not added to the exclusion list.
+                if include_shun_roles_enabled():
+                    sus_ids = await sync_to_async(get_sus_ids)()
+                else:
+                    sus_ids = await sync_to_async(get_sus_ids)()
+                    shun_ids = await sync_to_async(get_shun_ids)()
+                    sus_ids = sus_ids.union(shun_ids)
+                self.logger.info(f"Found {len(sus_ids)} excluded player IDs")
+
+                # Clear existing data if refreshing
+                self.league_dfs = {}
+                self.tournament_counts = {}
+                self.total_tournaments = 0
+
+                # Load data for all leagues
+                total_leagues = len(leagues)
+                start_time = datetime.datetime.now()
+
+                for i, league_name in enumerate(leagues):
+                    self.task_tracker.update_task_status(task_name, f"Loading {league_name} league data ({i + 1}/{total_leagues})...")
+                    league_start_time = datetime.datetime.now()
+
+                    # Wrap the database operations in sync_to_async
+                    results = await sync_to_async(get_results_for_patch)(patch=patch, league=league_name)
+                    df = await sync_to_async(get_tourneys)(results, limit=how_many_results_hidden_site)
+
+                    # Count the number of tournaments (TourneyResult objects) for this league
+                    tournament_count_for_league = await sync_to_async(lambda: results.count())()
+                    self.total_tournaments += tournament_count_for_league
+
+                    # Filter out sus players
+                    original_rows = len(df)
+                    self.league_dfs[league_name] = df[~df.id.isin(sus_ids)]
+                    filtered_rows = len(self.league_dfs[league_name])
+
+                    # Record the tournament count
+                    self.tournament_counts[league_name] = filtered_rows
+
+                    # Calculate timing info
+                    league_time = datetime.datetime.now() - league_start_time
+
+                    # Log detailed stats
+                    stats_msg = (
+                        f"Loaded {league_name} data: {filtered_rows} rows "
+                        f"({original_rows - filtered_rows} filtered) in {league_time.total_seconds():.1f}s"
+                    )
+                    self.logger.info(stats_msg)
+
+                    # Give asyncio a chance to process other tasks
+                    await asyncio.sleep(0)
+
+                # Final status update
+                total_time = datetime.datetime.now() - start_time
+                total_rows = sum(len(df) for df in self.league_dfs.values())
+                final_msg = f"Loaded {len(self.league_dfs)} leagues with {total_rows} total rows in {total_time.total_seconds():.1f}s"
+                self.logger.info(final_msg)
+                self.task_tracker.update_task_status(task_name, final_msg)
+
+                # Update last updated timestamp
+                self.last_updated = datetime.datetime.now()
+
+                # Mark data as modified
+                self.mark_data_modified()
+
                 try:
-                    # Get patch info
-                    patch = await self.get_latest_patch()
-                    self.logger.info(f"Using patch: {patch}")
-
-                    self.task_tracker.update_task_status(task_name, "Getting excluded player IDs...")
-                    # Get sus IDs to filter out. The bot respects its own repo-root flag
-                    # `include_shun_roles` — if present, shunned players are INCLUDED and
-                    # therefore not added to the exclusion list.
-                    if include_shun_roles_enabled():
-                        sus_ids = await sync_to_async(get_sus_ids)()
-                    else:
-                        sus_ids = await sync_to_async(get_sus_ids)()
-                        shun_ids = await sync_to_async(get_shun_ids)()
-                        sus_ids = sus_ids.union(shun_ids)
-                    self.logger.info(f"Found {len(sus_ids)} excluded player IDs")
-
-                    # Clear existing data if refreshing
-                    self.league_dfs = {}
-                    self.tournament_counts = {}
-                    self.total_tournaments = 0
-
-                    # Load data for all leagues
-                    total_leagues = len(leagues)
-                    start_time = datetime.datetime.now()
-
-                    for i, league_name in enumerate(leagues):
-                        self.task_tracker.update_task_status(task_name, f"Loading {league_name} league data ({i + 1}/{total_leagues})...")
-                        league_start_time = datetime.datetime.now()
-
-                        # Wrap the database operations in sync_to_async
-                        results = await sync_to_async(get_results_for_patch)(patch=patch, league=league_name)
-                        df = await sync_to_async(get_tourneys)(results, limit=how_many_results_hidden_site)
-
-                        # Count the number of tournaments (TourneyResult objects) for this league
-                        tournament_count_for_league = await sync_to_async(lambda: results.count())()
-                        self.total_tournaments += tournament_count_for_league
-
-                        # Filter out sus players
-                        original_rows = len(df)
-                        self.league_dfs[league_name] = df[~df.id.isin(sus_ids)]
-                        filtered_rows = len(self.league_dfs[league_name])
-
-                        # Record the tournament count
-                        self.tournament_counts[league_name] = filtered_rows
-
-                        # Calculate timing info
-                        league_time = datetime.datetime.now() - league_start_time
-
-                        # Log detailed stats
-                        stats_msg = (
-                            f"Loaded {league_name} data: {filtered_rows} rows "
-                            f"({original_rows - filtered_rows} filtered) in {league_time.total_seconds():.1f}s"
-                        )
-                        self.logger.info(stats_msg)
-
-                        # Give asyncio a chance to process other tasks
-                        await asyncio.sleep(0)
-
-                    # Final status update
-                    total_time = datetime.datetime.now() - start_time
-                    total_rows = sum(len(df) for df in self.league_dfs.values())
-                    final_msg = f"Loaded {len(self.league_dfs)} leagues with {total_rows} total rows in {total_time.total_seconds():.1f}s"
-                    self.logger.info(final_msg)
-                    self.task_tracker.update_task_status(task_name, final_msg)
-
-                    # Update last updated timestamp
-                    self.last_updated = datetime.datetime.now()
-
-                    # Mark data as modified
-                    self.mark_data_modified()
-
-                    try:
-                        # Save the updated data
-                        await self.save_data()
-                    except Exception as e:
-                        self.logger.error(f"Error saving tournament data: {e}")
-
+                    # Save the updated data
+                    await self.save_data()
                 except Exception as e:
-                    error_msg = f"Error loading tournament data: {str(e)}"
-                    self.logger.error(error_msg)
-                    raise
+                    self.logger.error(f"Error saving tournament data: {e}")
 
         # Return either all data or just the requested league
         if league:

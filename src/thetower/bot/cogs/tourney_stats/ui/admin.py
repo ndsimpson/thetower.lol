@@ -53,12 +53,12 @@ class TourneyAdminView(discord.ui.View):
         settings = self.cog.get_all_settings()
         settings_text = []
         for name, value in settings.items():
-            if name == "update_check_interval":
-                hours = value // 3600
-                settings_text.append(f"**{name}:** {hours} hours")
+            if name == "cache_check_interval":
+                minutes = value // 60
+                settings_text.append(f"**{name}:** {minutes} minutes")
             elif name == "update_error_retry_interval":
-                hours = value // 3600
-                settings_text.append(f"**{name}:** {hours} hours")
+                minutes = value // 60
+                settings_text.append(f"**{name}:** {minutes} minutes")
             else:
                 settings_text.append(f"**{name}:** {value}")
         embed.add_field(name="⚙️ Current Settings", value="\n".join(settings_text), inline=False)
@@ -70,6 +70,7 @@ class TourneyAdminView(discord.ui.View):
                 f"📁 **Leagues Loaded:** {len(self.cog.league_dfs)}",
                 f"📈 **Total Entries:** {total_rows:,}",
                 f"🎯 **Current Patch:** {self.cog.latest_patch or 'None'}",
+                f"📅 **Latest Tournament:** {self.cog.latest_tournament_date or 'None'}",
             ]
             if self.cog.last_updated:
                 cache_stats.append(f"🔄 **Last Updated:** {self.cog.last_updated.strftime('%Y-%m-%d %H:%M:%S')}")
