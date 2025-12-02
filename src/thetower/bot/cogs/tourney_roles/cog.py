@@ -109,9 +109,16 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
     async def save_data(self) -> bool:
         """Save tournament role data using BaseCog's utility."""
         try:
+            # Collect roles_config from all guilds
+            roles_config = {}
+            for guild in self.bot.guilds:
+                guild_roles_config = self.get_setting("roles_config", {}, guild_id=guild.id)
+                if guild_roles_config:
+                    roles_config[str(guild.id)] = guild_roles_config
+
             # Prepare serializable data
             save_data = {
-                "roles_config": self.get_setting("roles_config", {}),
+                "roles_config": roles_config,
                 "last_full_update": self.last_full_update.isoformat() if self.last_full_update else None,
                 "processed_users": self.processed_users,
                 "roles_assigned": self.roles_assigned,
@@ -510,13 +517,17 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
         await self.bot.wait_until_ready()
         while not self.bot.is_closed():
             try:
+                # Skip checks if already updating
+                if self.currently_updating:
+                    await asyncio.sleep(300)  # Check every 5 minutes
+                    continue
+
                 # Check if it's time to run an update
                 should_update = False
                 if not self.last_full_update:
                     # Check if update_on_startup is enabled
                     if self.get_global_setting("update_on_startup", True):
                         should_update = True
-                        self.logger.info("No previous update found, running initial role update")
                     elif not self.startup_message_shown:
                         # Only log this message once
                         self.logger.info("No previous update found, but update_on_startup is disabled. Waiting for manual update.")
@@ -525,9 +536,14 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
                     time_since_update = (datetime.datetime.now(datetime.timezone.utc) - self.last_full_update).total_seconds()
                     if time_since_update >= self.update_interval:
                         should_update = True
-                        self.logger.info(f"Time since last update ({time_since_update:.1f}s) exceeds interval, running role update")
 
-                if should_update and not self.currently_updating:
+                if should_update:
+                    # Log what we're about to do
+                    if not self.last_full_update:
+                        self.logger.info("No previous update found, running initial role update")
+                    else:
+                        time_since_update = (datetime.datetime.now(datetime.timezone.utc) - self.last_full_update).total_seconds()
+                        self.logger.info(f"Time since last update ({time_since_update:.1f}s) exceeds interval, running role update")
                     # Check if the cog is enabled for any guilds
                     enabled_guilds = []
                     for guild in self.bot.guilds:
