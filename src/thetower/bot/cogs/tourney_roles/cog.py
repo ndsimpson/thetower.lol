@@ -544,7 +544,7 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
                             channel = self.bot.get_channel(int(log_channel_id))
                             if channel:
                                 # Get dry run status
-                                dry_run = self.default_settings.get("dry_run")
+                                dry_run = self.get_global_setting("dry_run", False)
                                 initial_message = (
                                     "🔍 Starting automatic role update in DRY RUN mode..." if dry_run else "🔄 Starting automatic role update..."
                                 )
