@@ -4,7 +4,7 @@ import datetime
 import re
 import time
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import List, Optional, Tuple
 
 # Third-party imports
 import discord
@@ -189,10 +189,6 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
         """Get cooldown filename for a guild."""
         return f"advertisement_cooldowns_{guild_id}.json"
 
-    def _get_pending_deletions_filename(self, guild_id: int) -> str:
-        """Get pending deletions filename for a guild."""
-        return f"advertisement_pending_deletions_{guild_id}.pkl"
-
     async def cog_initialize(self) -> None:
         """Initialize the cog - called by BaseCog during ready process."""
         self.logger.info("Initializing Advertisement module...")
@@ -307,16 +303,19 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
         is_admin = interaction.user.guild_permissions.administrator
         is_bot_owner = await self.bot.is_owner(interaction.user)
 
+        # Defer response immediately to prevent timeout
+        await interaction.response.defer(ephemeral=True)
+
         if is_admin or is_bot_owner:
             # Show admin view
             view = AdminAdManagementView(self, guild_id)
             embed = await view.update_view(interaction)
-            await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+            await interaction.followup.send(embed=embed, view=view, ephemeral=True)
         else:
             # Show user view
             view = AdManagementView(self, user_id, guild_id)
             embed = await view.update_view(interaction)
-            await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+            await interaction.followup.send(embed=embed, view=view, ephemeral=True)
 
     # ====================
     # Task Loops
@@ -399,10 +398,6 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
 
         # Wait until midnight to start the first run
         await asyncio.sleep(seconds_until_midnight)
-
-    async def before_orphaned_post_scan(self) -> None:
-        """Wait until the bot is ready before starting the orphaned post scan."""
-        await self.bot.wait_until_ready()
 
     # ====================
     # Helper Methods
@@ -549,11 +544,6 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
             self.logger.error(f"Error during cooldown cleanup: {e}")
             self._has_errors = True
 
-    async def _load_cooldowns(self) -> Dict[str, Dict[str, str]]:
-        """Deprecated: Load cooldowns for single guild. Use _load_all_guild_data instead."""
-        self.logger.warning("_load_cooldowns is deprecated, use _load_all_guild_data instead")
-        return {"users": {}, "guilds": {}}
-
     async def _save_cooldowns(self, guild_id: int = None) -> None:
         """Save cooldowns - updated for multi-guild support."""
         if guild_id:
@@ -567,11 +557,6 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
         else:
             # Save for all guilds
             await self._save_all_guild_cooldowns()
-
-    async def _load_pending_deletions(self) -> List[Tuple[int, datetime.datetime, int, bool]]:
-        """Deprecated: Use _load_pending_deletions_multi_guild instead."""
-        self.logger.warning("_load_pending_deletions is deprecated, use _load_pending_deletions_multi_guild instead")
-        return []
 
     async def _save_pending_deletions(self) -> None:
         """Save pending deletions - updated for multi-guild support."""

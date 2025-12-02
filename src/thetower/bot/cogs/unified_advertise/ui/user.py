@@ -4,7 +4,9 @@ from typing import TYPE_CHECKING
 
 # Third-party imports
 import discord
-from discord.ui import Button, Modal, Select, TextInput, View
+from discord.ui import Button, Select, View
+
+from thetower.bot.ui.context import SettingsViewContext
 
 if TYPE_CHECKING:
     from ..cog import UnifiedAdvertise
@@ -54,11 +56,7 @@ class AdManagementView(View):
                 cooldown_hours_left = cooldown_hours - (elapsed / 3600)
 
         # Build embed
-        embed = discord.Embed(
-            title="Advertisement Management",
-            description="Manage your advertisements in this server",
-            color=discord.Color.blue()
-        )
+        embed = discord.Embed(title="Advertisement Management", description="Manage your advertisements in this server", color=discord.Color.blue())
 
         if user_ads:
             ads_text = []
@@ -70,17 +68,9 @@ class AdManagementView(View):
             embed.add_field(name="Active Advertisements", value="You have no active advertisements", inline=False)
 
         if on_cooldown:
-            embed.add_field(
-                name="Cooldown Status",
-                value=f"⏳ You can post a new advertisement in {cooldown_hours_left:.1f} hours",
-                inline=False
-            )
+            embed.add_field(name="Cooldown Status", value=f"⏳ You can post a new advertisement in {cooldown_hours_left:.1f} hours", inline=False)
         else:
-            embed.add_field(
-                name="Cooldown Status",
-                value="✅ You can post a new advertisement now!",
-                inline=False
-            )
+            embed.add_field(name="Cooldown Status", value="✅ You can post a new advertisement now!", inline=False)
 
         # Update buttons
         self.clear_items()
@@ -147,9 +137,7 @@ class AdManagementView(View):
             await thread.delete()
 
             # Remove from pending deletions
-            self.cog.pending_deletions = [
-                entry for entry in self.cog.pending_deletions if entry[0] != thread_id
-            ]
+            self.cog.pending_deletions = [entry for entry in self.cog.pending_deletions if entry[0] != thread_id]
             await self.cog._save_pending_deletions()
 
             await interaction.response.send_message("✅ Advertisement deleted successfully.", ephemeral=True)
@@ -183,10 +171,7 @@ class AdManagementView(View):
             # Multiple ads, show selection dropdown
             options = [
                 discord.SelectOption(
-                    label=name[:80],
-                    value=str(tid),
-                    description=f"Notifications {'ON' if notify else 'OFF'}",
-                    emoji="🔔" if notify else "🔕"
+                    label=name[:80], value=str(tid), description=f"Notifications {'ON' if notify else 'OFF'}", emoji="🔔" if notify else "🔕"
                 )
                 for tid, name, notify in user_ads
             ]
@@ -229,7 +214,12 @@ class AdManagementView(View):
     async def create_advertisement(self, interaction: discord.Interaction):
         """Launch the advertisement creation flow."""
         from .core import AdTypeSelection
-        view = AdTypeSelection(self.cog)
+
+        # Create a proper context object for AdTypeSelection
+        context = SettingsViewContext(
+            guild_id=self.guild_id, cog_instance=self.cog, interaction=interaction, is_bot_owner=False  # This field is not critical for ad creation
+        )
+        view = AdTypeSelection(context)
         await interaction.response.send_message("What type of advertisement would you like to post?", view=view, ephemeral=True)
 
     async def refresh_view(self, interaction: discord.Interaction):

@@ -1,15 +1,11 @@
 # Standard library imports
 import re
-from typing import TYPE_CHECKING
 
 # Third-party imports
 import discord
 from discord.ui import Button, Modal, TextInput, View
 
 from thetower.bot.ui.context import SettingsViewContext
-
-if TYPE_CHECKING:
-    from ..cog import UnifiedAdvertise
 
 
 class AdvertisementType:
@@ -190,14 +186,15 @@ class NotificationView(View):
 class MemberAdvertisementForm(Modal, title="Member Advertisement Form"):
     """Modal form for collecting member advertisement information."""
 
-    def __init__(self, cog: "UnifiedAdvertise") -> None:
+    def __init__(self, context: SettingsViewContext) -> None:
         """Initialize the view with a reference to the cog.
 
         Args:
-            cog: The UnifiedAdvertise cog instance
+            context: The settings view context
         """
         super().__init__(timeout=900)  # 15 minute timeout
-        self.cog = cog
+        self.cog = context.cog_instance
+        self.context = context
         self.notify = True
         self.interaction = None  # Store interaction object
 
