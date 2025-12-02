@@ -145,7 +145,7 @@ class PlayerView(discord.ui.View):
                     if button:
                         self.add_item(button)
                 except Exception as e:
-                    self.cog.logger.error(f"Error getting button from UI extension provider: {e}")
+                    self.cog.logger.error(f"Error getting button from UI extension provider {provider_func.__name__}: {e}", exc_info=True)
                     # Continue with other providers even if one fails
 
 
@@ -184,12 +184,14 @@ class PostPubliclyButton(discord.ui.Button):
         guild_id = interaction.guild.id
         channel_id = interaction.channel.id
 
-        # Check if this channel is configured for profile posting
+        # Check if posting everywhere is allowed or if this channel is in the allowed list
+        allow_everywhere = False
         allowed_channels = []
         if hasattr(self.cog.bot, "player_lookup") and self.cog.bot.player_lookup:
+            allow_everywhere = self.cog.bot.player_lookup.is_post_publicly_allowed_everywhere(guild_id)
             allowed_channels = self.cog.bot.player_lookup.get_profile_post_channels(guild_id)
 
-        if channel_id not in allowed_channels:
+        if not allow_everywhere and channel_id not in allowed_channels:
             embed = discord.Embed(
                 title="Channel Not Authorized", description="This channel is not configured for public profile posting.", color=discord.Color.red()
             )

@@ -26,19 +26,29 @@ class PlayerLookupSettingsView(discord.ui.View):
         self.case_sensitive = self.cog.get_global_setting("case_sensitive", False)
         self.restrict_lookups_to_known_users = self.cog.get_global_setting("restrict_lookups_to_known_users", True)
 
-        # Get guild-specific profile_post_channels setting
+        # Get guild-specific settings
         if self.guild_id:
             self.profile_post_channels = self.cog.get_setting("profile_post_channels", default=[], guild_id=int(self.guild_id))
+            self.allow_post_publicly_everywhere = self.cog.get_setting("allow_post_publicly_everywhere", default=False, guild_id=int(self.guild_id))
         else:
             self.profile_post_channels = []
+            self.allow_post_publicly_everywhere = False
 
         # Add toggle buttons for boolean settings
-        self.add_toggle_button("Allow Partial Matches", "allow_partial_matches", self.allow_partial_matches)
-        self.add_toggle_button("Case Sensitive", "case_sensitive", self.case_sensitive)
+        self.add_toggle_button("Allow Partial Matches", "allow_partial_matches", self.allow_partial_matches, is_guild_setting=False)
+        self.add_toggle_button("Case Sensitive", "case_sensitive", self.case_sensitive, is_guild_setting=False)
+
+        # Add guild-specific toggle for post publicly everywhere
+        if self.guild_id:
+            self.add_toggle_button(
+                "Post Publicly Everywhere", "allow_post_publicly_everywhere", self.allow_post_publicly_everywhere, is_guild_setting=True
+            )
 
         # Add security toggle for bot owners
         if self.is_bot_owner:
-            self.add_toggle_button("Restrict Lookups", "restrict_lookups_to_known_users", self.restrict_lookups_to_known_users)
+            self.add_toggle_button(
+                "Restrict Lookups", "restrict_lookups_to_known_users", self.restrict_lookups_to_known_users, is_guild_setting=False
+            )
 
         # Build options list for numeric settings only
         options = [
@@ -64,16 +74,16 @@ class PlayerLookupSettingsView(discord.ui.View):
         """Set a global setting value."""
         self.cog.set_global_setting(key, value)
 
-    def add_toggle_button(self, label: str, setting_name: str, current_value: bool):
+    def add_toggle_button(self, label: str, setting_name: str, current_value: bool, is_guild_setting: bool = False):
         """Add a toggle button for a boolean setting."""
         emoji = "✅" if current_value else "❌"
         style = discord.ButtonStyle.success if current_value else discord.ButtonStyle.secondary
 
         button = discord.ui.Button(label=f"{label}: {'ON' if current_value else 'OFF'}", style=style, emoji=emoji, custom_id=f"toggle_{setting_name}")
-        button.callback = self.create_toggle_callback(setting_name)
+        button.callback = self.create_toggle_callback(setting_name, is_guild_setting)
         self.add_item(button)
 
-    def create_toggle_callback(self, setting_name: str):
+    def create_toggle_callback(self, setting_name: str, is_guild_setting: bool = False):
         """Create a callback for a toggle button."""
 
         async def toggle_callback(interaction: discord.Interaction):
@@ -81,8 +91,11 @@ class PlayerLookupSettingsView(discord.ui.View):
             current_value = getattr(self, setting_name)
             new_value = not current_value
 
-            # Save the setting
-            self.set_setting(setting_name, new_value)
+            # Save the setting (guild-specific or global)
+            if is_guild_setting and self.guild_id:
+                self.cog.set_setting(setting_name, new_value, guild_id=int(self.guild_id))
+            else:
+                self.set_setting(setting_name, new_value)
 
             # Update the instance variable
             setattr(self, setting_name, new_value)
@@ -128,10 +141,18 @@ class PlayerLookupSettingsView(discord.ui.View):
             inline=True,
         )
 
+        # Profile posting section - make it clear if global override is enabled
+        if self.guild_id and self.allow_post_publicly_everywhere:
+            posting_value = "🌐 **ENABLED EVERYWHERE** (Global Override Active)\n⚠️ Channel list is ignored"
+        elif self.profile_post_channels:
+            posting_value = f"📋 **Allowed Channels:** {len(self.profile_post_channels)} configured"
+        else:
+            posting_value = "❌ **No channels configured**\nPosting disabled unless global override is enabled"
+
         embed.add_field(
             name="📢 Profile Posting",
-            value=f"**Allowed Channels:** {len(self.profile_post_channels)} channels configured",
-            inline=True,
+            value=posting_value,
+            inline=False,
         )
 
         behavior_parts = []
@@ -276,11 +297,21 @@ class ChannelSelectView(discord.ui.View):
 
     def create_selection_embed(self) -> discord.Embed:
         """Create embed showing current channel configuration."""
-        embed = discord.Embed(
-            title="📢 Manage Profile Post Channels",
-            description="Configure which channels allow users to post their profiles publicly.",
-            color=discord.Color.blue(),
-        )
+        # Check if global override is enabled
+        allow_everywhere = self.cog.get_setting("allow_post_publicly_everywhere", default=False, guild_id=self.guild_id)
+
+        if allow_everywhere:
+            embed = discord.Embed(
+                title="📢 Manage Profile Post Channels",
+                description="⚠️ **GLOBAL OVERRIDE ENABLED** - Users can post publicly in ALL channels.\n\nThe channel list below is currently being ignored. Disable 'Post Publicly Everywhere' in the main settings to use the channel allowlist.",
+                color=discord.Color.gold(),
+            )
+        else:
+            embed = discord.Embed(
+                title="📢 Manage Profile Post Channels",
+                description="Configure which channels allow users to post their profiles publicly.",
+                color=discord.Color.blue(),
+            )
 
         if self.current_channels:
             channel_list = []

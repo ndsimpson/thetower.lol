@@ -57,6 +57,7 @@ class PlayerLookup(BaseCog, name="Player Lookup", description="Universal player 
         # Define default guild-specific settings
         self.guild_settings = {
             "profile_post_channels": [],
+            "allow_post_publicly_everywhere": False,
         }
 
         # Initialize UI interactions
@@ -244,6 +245,10 @@ class PlayerLookup(BaseCog, name="Player Lookup", description="Universal player 
     def get_profile_post_channels(self, guild_id: int) -> List[int]:
         """Get profile post channels setting for a specific guild."""
         return self.get_setting("profile_post_channels", [], guild_id=guild_id)
+
+    def is_post_publicly_allowed_everywhere(self, guild_id: int) -> bool:
+        """Check if posting publicly is allowed in all channels for a guild."""
+        return self.get_setting("allow_post_publicly_everywhere", False, guild_id=guild_id)
 
     async def search_player(self, search_term: str) -> List[KnownPlayer]:
         """
