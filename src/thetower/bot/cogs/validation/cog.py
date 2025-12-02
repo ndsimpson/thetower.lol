@@ -49,12 +49,6 @@ class Validation(BaseCog, name="Validation"):
         except Exception as exc:
             raise exc
 
-    @staticmethod
-    def only_made_of_hex(text: str) -> bool:
-        hex_digits = set("0123456789abcdef")
-        contents = set(text.strip().lower())
-        return contents | hex_digits == hex_digits
-
     @app_commands.command(name="verify", description="Verify your player ID to gain access to the server")
     @app_commands.guild_only()
     async def verify_slash(self, interaction: discord.Interaction) -> None:
