@@ -347,6 +347,7 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
         debug_logging = self.get_global_setting("debug_logging", False)
 
         latest_tourney_date = None
+        processed_count = 0
 
         for discord_id, player_data in discord_to_player.items():
             try:
@@ -377,6 +378,11 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
                 )
 
                 user_roles[str(discord_id)] = best_role_id
+
+                # Yield control to event loop every 10 users to prevent heartbeat blocking
+                processed_count += 1
+                if processed_count % 10 == 0:
+                    await asyncio.sleep(0)
 
             except Exception as e:
                 self.logger.error(f"Error calculating role for user {discord_id}: {e}")
@@ -718,6 +724,8 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
                 await self.add_log_message(f"❌ Error during role application: {e}")
                 await self.flush_log_buffer()
                 return False
+
+    async def update_guild_roles_bulk(self, guild, user_roles, discord_to_player):
         """Update roles for a single guild using bulk operations."""
         log_messages = []
         dry_run = self.get_global_setting("dry_run", False)
@@ -730,6 +738,8 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
         # Group operations by role
         roles_to_add = {}  # {role_id: [members]}
         roles_to_remove = {}  # {role_id: [members]}
+
+        processed_count = 0
 
         for discord_id_str, calculated_role_id in user_roles.items():
             discord_id = int(discord_id_str)
@@ -773,6 +783,11 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
                     log_messages.append(f"{member.name}: -{role.name}")
                     self.roles_removed += 1
 
+            # Yield control to event loop every 10 users to prevent heartbeat blocking
+            processed_count += 1
+            if processed_count % 10 == 0:
+                await asyncio.sleep(0)
+
         # Execute bulk operations
         bulk_batch_size = self.get_setting("bulk_batch_size", 45, guild_id=guild.id)
         bulk_batch_delay = self.get_setting("bulk_batch_delay", 0.1, guild_id=guild.id)
@@ -792,28 +807,60 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
         return log_messages
 
     async def bulk_add_role(self, role, members: list, batch_size: int, batch_delay: float, dry_run: bool):
-        """Add a role to multiple members in batches."""
-        for i in range(0, len(members), batch_size):
-            batch = members[i : i + batch_size]
+        """Add a role to multiple members in batches, respecting Discord rate limits."""
+        # Discord allows 10 role changes per 10 seconds per guild
+        # Use smaller batches to avoid rate limits
+        safe_batch_size = min(batch_size, 5)  # Conservative batch size
+
+        for i in range(0, len(members), safe_batch_size):
+            batch = members[i : i + safe_batch_size]
             if not dry_run:
                 try:
-                    await asyncio.gather(*[member.add_roles(role, reason="Tournament participation role update") for member in batch])
+                    # Apply roles sequentially within the batch to avoid rate limit spikes
+                    for member in batch:
+                        try:
+                            await member.add_roles(role, reason="Tournament participation role update")
+                        except discord.HTTPException as e:
+                            if e.status == 429:  # Rate limited
+                                self.logger.warning(f"Rate limited adding role to {member.name}, waiting...")
+                                await asyncio.sleep(2)  # Wait and retry
+                                await member.add_roles(role, reason="Tournament participation role update")
+                            else:
+                                raise
                 except Exception as e:
                     self.logger.error(f"Error adding role {role.name} to batch: {e}")
-            if i + batch_size < len(members):
-                await asyncio.sleep(batch_delay)
+
+            # Always add delay between batches
+            if i + safe_batch_size < len(members):
+                await asyncio.sleep(max(batch_delay, 2))  # Minimum 2 second delay
 
     async def bulk_remove_role(self, role, members: list, batch_size: int, batch_delay: float, dry_run: bool):
-        """Remove a role from multiple members in batches."""
-        for i in range(0, len(members), batch_size):
-            batch = members[i : i + batch_size]
+        """Remove a role from multiple members in batches, respecting Discord rate limits."""
+        # Discord allows 10 role changes per 10 seconds per guild
+        # Use smaller batches to avoid rate limits
+        safe_batch_size = min(batch_size, 5)  # Conservative batch size
+
+        for i in range(0, len(members), safe_batch_size):
+            batch = members[i : i + safe_batch_size]
             if not dry_run:
                 try:
-                    await asyncio.gather(*[member.remove_roles(role, reason="Tournament participation role update") for member in batch])
+                    # Remove roles sequentially within the batch to avoid rate limit spikes
+                    for member in batch:
+                        try:
+                            await member.remove_roles(role, reason="Tournament participation role update")
+                        except discord.HTTPException as e:
+                            if e.status == 429:  # Rate limited
+                                self.logger.warning(f"Rate limited removing role from {member.name}, waiting...")
+                                await asyncio.sleep(2)  # Wait and retry
+                                await member.remove_roles(role, reason="Tournament participation role update")
+                            else:
+                                raise
                 except Exception as e:
                     self.logger.error(f"Error removing role {role.name} from batch: {e}")
-            if i + batch_size < len(members):
-                await asyncio.sleep(batch_delay)
+
+            # Always add delay between batches
+            if i + safe_batch_size < len(members):
+                await asyncio.sleep(max(batch_delay, 2))  # Minimum 2 second delay
 
     async def update_member_roles(self, member, player_tournaments):
         """
