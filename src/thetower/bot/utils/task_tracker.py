@@ -267,30 +267,6 @@ class TaskTracker:
 
         return {"active_tasks": active_tasks, "recent_activity": recent_activity, "statistics": task_stats, "has_errors": self._has_errors}
 
-    async def task_wrapped(self, task_name: str, coroutine_func, *args, **kwargs):
-        """
-        Execute a coroutine with automatic task tracking.
-
-        Args:
-            task_name: Name of the task for tracking
-            coroutine_func: Async function to execute
-            *args, **kwargs: Arguments to pass to the coroutine function
-
-        Returns:
-            The result of the coroutine function
-
-        Example:
-            result = await tracker.task_wrapped('Data Refresh', self._refresh_data, user_id=123)
-        """
-        self.begin_task(task_name)
-        try:
-            result = await coroutine_func(*args, **kwargs)
-            self.end_task(task_name, success=True)
-            return result
-        except Exception as e:
-            self.end_task(task_name, success=False, status=f"Error: {str(e)}")
-            raise
-
     @asynccontextmanager
     async def task_context(self, task_name: str, initial_status: str = "Starting"):
         """
