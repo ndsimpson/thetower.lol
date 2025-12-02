@@ -17,6 +17,104 @@ from thetower.bot.basecog import BaseCog
 from .core import LeagueHierarchyModal, TournamentRolesCore
 
 
+class AddRoleSearchModal(ui.Modal, title="Add Tournament Role"):
+    """Modal for searching and selecting a role to add."""
+
+    role_input = ui.TextInput(
+        label="Role Name or ID",
+        placeholder="Enter role name or ID",
+        required=True,
+        max_length=100,
+    )
+
+    def __init__(self, cog, guild_id: int, original_interaction):
+        super().__init__()
+        self.cog = cog
+        self.guild_id = guild_id
+        self.original_interaction = original_interaction
+
+    async def on_submit(self, interaction: discord.Interaction):
+        """Handle the modal submission."""
+        guild = interaction.guild
+        input_value = self.role_input.value.strip()
+
+        # Try to find the role
+        role = None
+
+        # First, try as role ID
+        if input_value.isdigit():
+            role = guild.get_role(int(input_value))
+
+        # If not found, try by name (case-insensitive)
+        if not role:
+            role = discord.utils.get(guild.roles, name=input_value)
+
+        # If still not found, try partial match
+        if not role:
+            matching_roles = [r for r in guild.roles if input_value.lower() in r.name.lower()]
+            if len(matching_roles) == 1:
+                role = matching_roles[0]
+            elif len(matching_roles) > 1:
+                role_names = ", ".join([f"`{r.name}`" for r in matching_roles[:5]])
+                more = f" and {len(matching_roles) - 5} more" if len(matching_roles) > 5 else ""
+                await interaction.response.send_message(
+                    f"❌ Multiple roles match '{input_value}': {role_names}{more}\n" f"Please be more specific or use the role ID.",
+                    ephemeral=True,
+                )
+                return
+
+        # Validate the role
+        if not role:
+            await interaction.response.send_message(
+                f"❌ Could not find role '{input_value}'\n" f"Please enter a valid role name or ID.",
+                ephemeral=True,
+            )
+            return
+
+        if role.is_default():
+            await interaction.response.send_message("❌ Cannot use @everyone as a tournament role", ephemeral=True)
+            return
+
+        if role.managed:
+            await interaction.response.send_message(f"❌ Cannot use managed role {role.mention} (managed by bot/integration)", ephemeral=True)
+            return
+
+        if role >= guild.me.top_role:
+            await interaction.response.send_message(
+                f"❌ Cannot manage role {role.mention} - it's higher than or equal to the bot's highest role", ephemeral=True
+            )
+            return
+
+        # Move to method selection
+        method_view = AddRoleMethodView(self.cog, self.guild_id, role)
+        embed = discord.Embed(
+            title="Add Tournament Role - Step 2: Select Method",
+            description=f"Selected role: {role.mention}\n\nChoose how this role should be assigned based on tournament performance.",
+            color=discord.Color.blue(),
+        )
+        embed.add_field(
+            name="Assignment Methods",
+            value="• **Champion**: Awarded to the winner of the latest tournament in the top league\n"
+            "• **Placement**: Awarded based on best placement across all tournaments\n"
+            "• **Wave**: Awarded based on highest wave reached in a specific league",
+            inline=False,
+        )
+        await interaction.response.send_message(embed=embed, view=method_view, ephemeral=True)
+
+        # Update original message to show progress
+        try:
+            await self.original_interaction.edit_original_response(
+                embed=discord.Embed(
+                    title="Add Tournament Role - In Progress",
+                    description=f"Selected role: {role.mention}\nContinue in the new message above.",
+                    color=discord.Color.green(),
+                ),
+                view=None,
+            )
+        except Exception:
+            pass  # Original message might be gone
+
+
 class AdminRoleManagementView(ui.View):
     """Administrative view for managing tournament roles."""
 
@@ -34,17 +132,9 @@ class AdminRoleManagementView(ui.View):
         if not await self._check_admin_permission(interaction):
             return
 
-        # Start the role addition wizard
-        wizard = AddRoleWizardView(self.cog, self.guild_id)
-        embed = discord.Embed(
-            title="Add Tournament Role - Step 1: Select Role",
-            description="Choose the Discord role to assign based on tournament performance.",
-            color=discord.Color.blue(),
-        )
-        embed.add_field(
-            name="Instructions", value="Select a role from the dropdown below. Only roles that are manageable by the bot will be shown.", inline=False
-        )
-        await interaction.response.send_message(embed=embed, view=wizard, ephemeral=True)
+        # Show modal for role search
+        modal = AddRoleSearchModal(self.cog, self.guild_id, interaction)
+        await interaction.response.send_modal(modal)
 
     async def _handle_add_role(self, interaction: discord.Interaction, result: Dict[str, Any]):
         """Handle the result of adding a role."""
@@ -141,10 +231,21 @@ class AdminRoleManagementView(ui.View):
                 if config.method == "Champion":
                     champion_roles.append(role_info)
                 elif config.method == "Placement":
-                    placement_roles.append(f"{role_info} (Top {config.threshold})")
+                    placement_roles.append((config.threshold, f"{role_info} (Top {config.threshold})"))
                 else:  # Wave
                     league = config.league
-                    wave_roles.append(f"{role_info} ({league} wave {config.threshold}+)")
+                    # Get league hierarchy for sorting
+                    league_hierarchy = self.core.get_league_hierarchy(self.guild_id)
+                    league_index = league_hierarchy.index(league) if league in league_hierarchy else 999
+                    wave_roles.append((league_index, config.threshold, f"{role_info} ({league} wave {config.threshold}+)"))
+
+            # Sort placement roles by threshold (numerically)
+            placement_roles.sort(key=lambda x: x[0])
+            placement_roles = [role_str for _, role_str in placement_roles]
+
+            # Sort wave roles by league (hierarchy order) then by threshold
+            wave_roles.sort(key=lambda x: (x[0], x[1]))
+            wave_roles = [role_str for _, _, role_str in wave_roles]
 
             # Add fields for each method
             if champion_roles:
@@ -236,68 +337,6 @@ class ConfirmRemoveView(ui.View):
         await interaction.response.send_message("Role removal cancelled", ephemeral=True)
 
 
-class AddRoleWizardView(ui.View):
-    """Wizard view for adding a new tournament role step by step."""
-
-    def __init__(self, cog: BaseCog, guild_id: int):
-        super().__init__(timeout=900)
-        self.cog = cog
-        self.guild_id = guild_id
-        self.core = TournamentRolesCore(cog)
-
-        # Get manageable roles (exclude @everyone and managed roles)
-        guild = cog.bot.get_guild(guild_id)
-        if guild:
-            manageable_roles = [role for role in guild.roles if not role.is_default() and not role.managed and role < guild.me.top_role]
-            # Sort by position (highest first)
-            manageable_roles.sort(key=lambda r: r.position, reverse=True)
-
-            # Create role options (max 25 for Discord limit)
-            options = []
-            for role in manageable_roles[:25]:
-                options.append(
-                    discord.SelectOption(
-                        label=role.name,
-                        value=str(role.id),
-                        description=f"Position: {role.position}",
-                        emoji="👑" if role.permissions.administrator else "🔸",
-                    )
-                )
-
-            if options:
-                self.role_select = ui.Select(placeholder="Choose a Discord role...", options=options, min_values=1, max_values=1)
-                self.role_select.callback = self.role_selected
-                self.add_item(self.role_select)
-            else:
-                # No manageable roles - this shouldn't happen but handle gracefully
-                self.add_item(ui.Button(label="No roles available", disabled=True))
-
-    async def role_selected(self, interaction: discord.Interaction):
-        """Handle role selection."""
-        selected_role_id = self.role_select.values[0]
-        selected_role = interaction.guild.get_role(int(selected_role_id))
-
-        if not selected_role:
-            await interaction.response.send_message("❌ Selected role not found", ephemeral=True)
-            return
-
-        # Store selected role and move to method selection
-        method_view = AddRoleMethodView(self.cog, self.guild_id, selected_role)
-        embed = discord.Embed(
-            title="Add Tournament Role - Step 2: Select Method",
-            description=f"Selected role: {selected_role.mention}\n\nChoose how this role should be assigned based on tournament performance.",
-            color=discord.Color.blue(),
-        )
-        embed.add_field(
-            name="Assignment Methods",
-            value="• **Champion**: Awarded to the winner of the latest tournament in the top league\n"
-            "• **Placement**: Awarded based on best placement across all tournaments\n"
-            "• **Wave**: Awarded based on highest wave reached in a specific league",
-            inline=False,
-        )
-        await interaction.response.edit_message(embed=embed, view=method_view)
-
-
 class AddRoleMethodView(ui.View):
     """View for selecting the assignment method."""
 
@@ -347,20 +386,6 @@ class AddRoleMethodView(ui.View):
             name="How it works", value="Players who have reached this wave or higher in tournaments will receive this role.", inline=False
         )
         await interaction.response.edit_message(embed=embed, view=threshold_view)
-
-    @ui.button(label="Back", style=discord.ButtonStyle.gray, emoji="⬅️")
-    async def back(self, interaction: discord.Interaction, button: ui.Button):
-        """Go back to role selection."""
-        wizard = AddRoleWizardView(self.cog, self.guild_id)
-        embed = discord.Embed(
-            title="Add Tournament Role - Step 1: Select Role",
-            description="Choose the Discord role to assign based on tournament performance.",
-            color=discord.Color.blue(),
-        )
-        embed.add_field(
-            name="Instructions", value="Select a role from the dropdown below. Only roles that are manageable by the bot will be shown.", inline=False
-        )
-        await interaction.response.edit_message(embed=embed, view=wizard)
 
     async def _finalize_role(self, interaction: discord.Interaction, method: str, threshold: int, league: str = None):
         """Finalize the role configuration."""
@@ -535,17 +560,9 @@ class RoleCreationSuccessView(ui.View):
     @ui.button(label="Add Another Role", style=discord.ButtonStyle.secondary, emoji="➕")
     async def add_another_role(self, interaction: discord.Interaction, button: ui.Button):
         """Start the process to add another role."""
-        # Start the role addition wizard
-        wizard = AddRoleWizardView(self.cog, self.guild_id)
-        embed = discord.Embed(
-            title="Add Tournament Role - Step 1: Select Role",
-            description="Choose the Discord role to assign based on tournament performance.",
-            color=discord.Color.blue(),
-        )
-        embed.add_field(
-            name="Instructions", value="Select a role from the dropdown below. Only roles that are manageable by the bot will be shown.", inline=False
-        )
-        await interaction.response.edit_message(embed=embed, view=wizard)
+        # Show modal for role search in a new ephemeral message
+        modal = AddRoleSearchModal(self.cog, self.guild_id, interaction)
+        await interaction.response.send_modal(modal)
 
 
 class AddRoleLeagueView(ui.View):
