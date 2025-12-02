@@ -265,110 +265,238 @@ class SettingModal(discord.ui.Modal):
 
 
 class ChannelSelectView(discord.ui.View):
-    """View for selecting multiple channels for profile posting."""
+    """View for managing channels for profile posting."""
 
     def __init__(self, cog: BaseCog, interaction: discord.Interaction, current_channels: List[int]):
         super().__init__(timeout=900)
         self.cog = cog
         self.original_interaction = interaction
-        self.current_channels = set(current_channels)
-        self.selected_channels = self.current_channels.copy()
-
-        # Get available text channels from the guild
-        guild = interaction.guild
-        if guild:
-            text_channels = [channel for channel in guild.channels if isinstance(channel, discord.TextChannel)]
-            # Sort channels by position
-            text_channels.sort(key=lambda c: c.position)
-
-            # Create options for the select (max 25 options for Discord)
-            options = []
-            for channel in text_channels[:25]:  # Discord limit
-                is_selected = channel.id in self.current_channels
-                option = discord.SelectOption(label=f"#{channel.name}", value=str(channel.id), description=f"ID: {channel.id}", default=is_selected)
-                options.append(option)
-
-            # Create the multi-select
-            self.channel_select = discord.ui.Select(
-                placeholder="Select channels for profile posting", options=options, max_values=len(options), min_values=0  # Allow selecting all
-            )
-            self.channel_select.callback = self.channel_select_callback
-            self.add_item(self.channel_select)
-
-    def set_setting(self, key: str, value, guild_id: int = None):
-        """Set a setting value."""
-        self.cog.set_setting(key, value, guild_id)
-
-    async def channel_select_callback(self, interaction: discord.Interaction):
-        """Handle channel selection changes."""
-        # Update selected channels based on the current selection
-        selected_ids = [int(value) for value in self.channel_select.values]
-        self.selected_channels = set(selected_ids)
-
-        # Update the select options to reflect current selection
-        for option in self.channel_select.options:
-            channel_id = int(option.value)
-            option.default = channel_id in self.selected_channels
-
-        # Update the embed to show current selection
-        embed = self.create_selection_embed()
-        await interaction.response.edit_message(embed=embed, view=self)
+        self.current_channels = list(current_channels)
+        self.guild_id = interaction.guild.id if interaction.guild else None
 
     def create_selection_embed(self) -> discord.Embed:
-        """Create embed showing current channel selection."""
+        """Create embed showing current channel configuration."""
         embed = discord.Embed(
-            title="📢 Select Profile Post Channels",
-            description="Choose which channels should allow users to post their profiles publicly.",
+            title="📢 Manage Profile Post Channels",
+            description="Configure which channels allow users to post their profiles publicly.",
             color=discord.Color.blue(),
         )
 
-        if self.selected_channels:
-            channel_mentions = []
-            for channel_id in sorted(self.selected_channels):
+        if self.current_channels:
+            channel_list = []
+            for channel_id in sorted(self.current_channels):
                 channel = self.original_interaction.guild.get_channel(channel_id)
                 if channel:
-                    channel_mentions.append(channel.mention)
+                    channel_list.append(f"• {channel.mention} (ID: {channel_id})")
                 else:
-                    channel_mentions.append(f"#{channel_id}")
+                    channel_list.append(f"• Unknown Channel (ID: {channel_id})")
 
-            embed.add_field(name=f"Selected Channels ({len(self.selected_channels)})", value="\n".join(channel_mentions), inline=False)
+            embed.add_field(name=f"Configured Channels ({len(self.current_channels)})", value="\n".join(channel_list), inline=False)
         else:
-            embed.add_field(name="Selected Channels (0)", value="*No channels selected*", inline=False)
+            embed.add_field(name="Configured Channels (0)", value="*No channels configured*\nUse **Add Channel** to add channels.", inline=False)
 
-        embed.set_footer(text="Use the dropdown above to select/deselect channels • Click Save when done")
+        embed.set_footer(text="Use the buttons below to add or remove channels")
         return embed
 
-    @discord.ui.button(label="Save Changes", style=discord.ButtonStyle.success, emoji="💾")
-    async def save_changes(self, interaction: discord.Interaction, button: discord.ui.Button):
-        """Save the selected channels."""
-        new_channels = sorted(list(self.selected_channels))
+    @discord.ui.button(label="Add Channel", style=discord.ButtonStyle.success, emoji="➕")
+    async def add_channel(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Add a channel to the list."""
+        modal = AddChannelModal(self.cog, self.guild_id, self.current_channels, self, self.original_interaction)
+        await interaction.response.send_modal(modal)
 
-        # Save the setting using ConfigManager's proper method
-        self.set_setting("profile_post_channels", new_channels, guild_id=interaction.guild.id)
+    @discord.ui.button(label="Remove Channel", style=discord.ButtonStyle.danger, emoji="➖")
+    async def remove_channel(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Remove a channel from the list."""
+        if not self.current_channels:
+            await interaction.response.send_message("❌ No channels to remove.", ephemeral=True)
+            return
 
-        description = f"**New Channels:** {len(new_channels)} channels configured\n"
-        if new_channels:
-            description += f"**Channels:** {', '.join(f'<#{ch}>' for ch in new_channels)}"
-        else:
-            description += "**No channels configured**"
+        modal = RemoveChannelModal(self.cog, self.guild_id, self.current_channels, self, self.original_interaction)
+        await interaction.response.send_modal(modal)
 
-        embed = discord.Embed(
-            title="Profile Post Channels Updated",
-            description=description,
-            color=discord.Color.green(),
+    @discord.ui.button(label="Back", style=discord.ButtonStyle.secondary, emoji="⬅️")
+    async def back(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Return to main settings."""
+        from thetower.bot.ui.context import SettingsViewContext
+
+        context = SettingsViewContext(
+            guild_id=self.guild_id,
+            cog_instance=self.cog,
+            interaction=interaction,
+            is_bot_owner=await self.cog.bot.is_owner(interaction.user),
         )
-
-        # Return to the main settings view
-        view = PlayerLookupSettingsView(
-            self.cog.SettingsViewContext(
-                guild_id=interaction.guild.id if interaction.guild else None,
-                cog_instance=self.cog,
-                interaction=interaction,
-                is_bot_owner=await self.cog.bot.is_owner(interaction.user),
-            )
-        )
+        view = PlayerLookupSettingsView(context)
+        embed = view.create_settings_embed()
         await interaction.response.edit_message(embed=embed, view=view)
 
-    @discord.ui.button(label="Cancel", style=discord.ButtonStyle.secondary, emoji="❌")
-    async def cancel(self, interaction: discord.Interaction, button: discord.ui.Button):
-        """Cancel and return to main settings."""
+
+class AddChannelModal(discord.ui.Modal, title="Add Profile Post Channel"):
+    """Modal for adding a channel to profile post list."""
+
+    channel_input = discord.ui.TextInput(
+        label="Channel Name or ID",
+        placeholder="Enter channel name or ID",
+        required=True,
+        max_length=100,
+    )
+
+    def __init__(self, cog, guild_id: int, current_channels: List[int], parent_view, original_interaction):
+        super().__init__()
+        self.cog = cog
+        self.guild_id = guild_id
+        self.current_channels = current_channels
+        self.parent_view = parent_view
+        self.original_interaction = original_interaction
+
+    async def on_submit(self, interaction: discord.Interaction):
+        """Handle the modal submission."""
+        guild = interaction.guild
+        input_value = self.channel_input.value.strip()
+
+        # Try to find the channel
+        channel = None
+
+        # First, try as channel ID
+        if input_value.isdigit():
+            channel = guild.get_channel(int(input_value))
+
+        # If not found, try by name (case-insensitive, with or without #)
+        if not channel:
+            channel_name = input_value.lstrip("#")
+            channel = discord.utils.get(guild.text_channels, name=channel_name)
+
+        # If still not found, try partial match
+        if not channel:
+            channel_name = input_value.lstrip("#").lower()
+            matching_channels = [c for c in guild.text_channels if channel_name in c.name.lower()]
+            if len(matching_channels) == 1:
+                channel = matching_channels[0]
+            elif len(matching_channels) > 1:
+                channel_names = ", ".join([f"`#{c.name}`" for c in matching_channels[:5]])
+                more = f" and {len(matching_channels) - 5} more" if len(matching_channels) > 5 else ""
+                await interaction.response.send_message(
+                    f"❌ Multiple channels match '{input_value}': {channel_names}{more}\n" f"Please be more specific or use the channel ID.",
+                    ephemeral=True,
+                )
+                return
+
+        # Validate the channel
+        if not channel:
+            await interaction.response.send_message(
+                f"❌ Could not find channel '{input_value}'\n" f"Please enter a valid channel name or ID.",
+                ephemeral=True,
+            )
+            return
+
+        if not isinstance(channel, discord.TextChannel):
+            await interaction.response.send_message("❌ Channel must be a text channel", ephemeral=True)
+            return
+
+        # Check if already added
+        if channel.id in self.current_channels:
+            await interaction.response.send_message(f"❌ {channel.mention} is already in the list", ephemeral=True)
+            return
+
+        # Add the channel
+        self.current_channels.append(channel.id)
+        self.cog.set_setting("profile_post_channels", self.current_channels, guild_id=self.guild_id)
+
+        await interaction.response.send_message(f"✅ Added {channel.mention} to profile post channels", ephemeral=True)
+
+        # Update the embed
+        embed = self.parent_view.create_selection_embed()
+        await self.original_interaction.edit_original_response(embed=embed, view=self.parent_view)
+
+
+class RemoveChannelModal(discord.ui.Modal, title="Remove Profile Post Channel"):
+    """Modal for removing a channel from profile post list."""
+
+    channel_input = discord.ui.TextInput(
+        label="Channel Name or ID",
+        placeholder="Enter channel name or ID to remove",
+        required=True,
+        max_length=100,
+    )
+
+    def __init__(self, cog, guild_id: int, current_channels: List[int], parent_view, original_interaction):
+        super().__init__()
+        self.cog = cog
+        self.guild_id = guild_id
+        self.current_channels = current_channels
+        self.parent_view = parent_view
+        self.original_interaction = original_interaction
+
+    async def on_submit(self, interaction: discord.Interaction):
+        """Handle the modal submission."""
+        guild = interaction.guild
+        input_value = self.channel_input.value.strip()
+
+        # Try to find the channel
+        channel = None
+
+        # First, try as channel ID
+        if input_value.isdigit():
+            channel_id = int(input_value)
+            if channel_id in self.current_channels:
+                channel = guild.get_channel(channel_id)
+                if not channel:
+                    # Channel exists in list but not in guild anymore
+                    self.current_channels.remove(channel_id)
+                    self.cog.set_setting("profile_post_channels", self.current_channels, guild_id=self.guild_id)
+                    await interaction.response.send_message(f"✅ Removed channel (ID: {channel_id}) from profile post channels", ephemeral=True)
+                    embed = self.parent_view.create_selection_embed()
+                    await self.original_interaction.edit_original_response(embed=embed, view=self.parent_view)
+                    return
+
+        # If not found by ID, try by name (case-insensitive, with or without #)
+        if not channel:
+            channel_name = input_value.lstrip("#")
+            # Find among current channels only
+            for channel_id in self.current_channels:
+                ch = guild.get_channel(channel_id)
+                if ch and ch.name.lower() == channel_name.lower():
+                    channel = ch
+                    break
+
+        # If still not found, try partial match among current channels
+        if not channel:
+            channel_name = input_value.lstrip("#").lower()
+            matching_channels = []
+            for channel_id in self.current_channels:
+                ch = guild.get_channel(channel_id)
+                if ch and channel_name in ch.name.lower():
+                    matching_channels.append(ch)
+
+            if len(matching_channels) == 1:
+                channel = matching_channels[0]
+            elif len(matching_channels) > 1:
+                channel_names = ", ".join([f"`#{c.name}`" for c in matching_channels[:5]])
+                more = f" and {len(matching_channels) - 5} more" if len(matching_channels) > 5 else ""
+                await interaction.response.send_message(
+                    f"❌ Multiple channels match '{input_value}': {channel_names}{more}\n" f"Please be more specific or use the channel ID.",
+                    ephemeral=True,
+                )
+                return
+
+        # Validate the channel
+        if not channel:
+            await interaction.response.send_message(
+                f"❌ Could not find channel '{input_value}' in the configured list\n" f"Please enter a valid channel name or ID from the list above.",
+                ephemeral=True,
+            )
+            return
+
+        # Check if in list
+        if channel.id not in self.current_channels:
+            await interaction.response.send_message(f"❌ {channel.mention} is not in the list", ephemeral=True)
+            return
+
+        # Remove the channel
+        self.current_channels.remove(channel.id)
+        self.cog.set_setting("profile_post_channels", self.current_channels, guild_id=self.guild_id)
+
+        await interaction.response.send_message(f"✅ Removed {channel.mention} from profile post channels", ephemeral=True)
+
+        # Update the embed
+        embed = self.parent_view.create_selection_embed()
+        await self.original_interaction.edit_original_response(embed=embed, view=self.parent_view)
