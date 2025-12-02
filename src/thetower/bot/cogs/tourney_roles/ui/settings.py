@@ -16,6 +16,170 @@ from thetower.bot.ui.context import SettingsViewContext
 from .core import TournamentRolesCore
 
 
+class VerifiedRoleModal(ui.Modal, title="Set Verified Role"):
+    """Modal for setting the verified role requirement."""
+
+    role_input = ui.TextInput(
+        label="Role Name or ID",
+        placeholder="Enter role name or ID (leave blank to disable)",
+        required=False,
+        max_length=100,
+    )
+
+    def __init__(self, cog, guild_id: int, parent_view, original_interaction):
+        super().__init__()
+        self.cog = cog
+        self.guild_id = guild_id
+        self.parent_view = parent_view
+        self.original_interaction = original_interaction
+
+    async def on_submit(self, interaction: discord.Interaction):
+        """Handle the modal submission."""
+        guild = interaction.guild
+        input_value = self.role_input.value.strip()
+
+        # Handle blank input to disable verification
+        if not input_value:
+            self.cog.set_setting("verified_role_id", None, guild_id=self.guild_id)
+            await interaction.response.send_message("✅ Verification role requirement removed", ephemeral=True)
+
+            # Update the embed
+            embed = await self.parent_view.get_embed()
+            await self.original_interaction.edit_original_response(embed=embed, view=self.parent_view)
+            return  # Try to find the role
+        role = None
+
+        # First, try as role ID
+        if input_value.isdigit():
+            role = guild.get_role(int(input_value))
+
+        # If not found, try by name (case-insensitive)
+        if not role:
+            role = discord.utils.get(guild.roles, name=input_value)
+
+        # If still not found, try partial match
+        if not role:
+            matching_roles = [r for r in guild.roles if input_value.lower() in r.name.lower()]
+            if len(matching_roles) == 1:
+                role = matching_roles[0]
+            elif len(matching_roles) > 1:
+                role_names = ", ".join([f"`{r.name}`" for r in matching_roles[:5]])
+                more = f" and {len(matching_roles) - 5} more" if len(matching_roles) > 5 else ""
+                await interaction.response.send_message(
+                    f"❌ Multiple roles match '{input_value}': {role_names}{more}\n" f"Please be more specific or use the role ID.",
+                    ephemeral=True,
+                )
+                return
+
+        # Validate the role
+        if not role:
+            await interaction.response.send_message(
+                f"❌ Could not find role '{input_value}'\n" f"Please enter a valid role name or ID.",
+                ephemeral=True,
+            )
+            return
+
+        if role.is_default():
+            await interaction.response.send_message("❌ Cannot use @everyone as verification role", ephemeral=True)
+            return
+
+        if role.managed:
+            await interaction.response.send_message(f"❌ Cannot use managed role {role.mention} (managed by bot/integration)", ephemeral=True)
+            return
+
+        # Set the role
+        self.cog.set_setting("verified_role_id", str(role.id), guild_id=self.guild_id)
+        await interaction.response.send_message(f"✅ Users must have {role.mention} role to be eligible", ephemeral=True)
+
+        # Update the embed
+        embed = await self.parent_view.get_embed()
+        await self.original_interaction.edit_original_response(embed=embed, view=self.parent_view)
+
+
+class LogChannelModal(ui.Modal, title="Set Log Channel"):
+    """Modal for setting the log channel."""
+
+    channel_input = ui.TextInput(
+        label="Channel Name or ID",
+        placeholder="Enter channel name or ID (leave blank to disable)",
+        required=False,
+        max_length=100,
+    )
+
+    def __init__(self, cog, guild_id: int, parent_view, original_interaction):
+        super().__init__()
+        self.cog = cog
+        self.guild_id = guild_id
+        self.parent_view = parent_view
+        self.original_interaction = original_interaction
+
+    async def on_submit(self, interaction: discord.Interaction):
+        """Handle the modal submission."""
+        guild = interaction.guild
+        input_value = self.channel_input.value.strip()
+
+        # Handle blank input to disable logging
+        if not input_value:
+            self.cog.set_setting("log_channel_id", None, guild_id=self.guild_id)
+            await interaction.response.send_message("✅ Role update logging disabled", ephemeral=True)
+
+            # Update the embed
+            embed = await self.parent_view.get_embed()
+            await self.original_interaction.edit_original_response(embed=embed, view=self.parent_view)
+            return  # Try to find the channel
+        channel = None
+
+        # First, try as channel ID
+        if input_value.isdigit():
+            channel = guild.get_channel(int(input_value))
+
+        # If not found, try by name (case-insensitive, with or without #)
+        if not channel:
+            channel_name = input_value.lstrip("#")
+            channel = discord.utils.get(guild.text_channels, name=channel_name)
+
+        # If still not found, try partial match
+        if not channel:
+            channel_name = input_value.lstrip("#").lower()
+            matching_channels = [c for c in guild.text_channels if channel_name in c.name.lower()]
+            if len(matching_channels) == 1:
+                channel = matching_channels[0]
+            elif len(matching_channels) > 1:
+                channel_names = ", ".join([f"`#{c.name}`" for c in matching_channels[:5]])
+                more = f" and {len(matching_channels) - 5} more" if len(matching_channels) > 5 else ""
+                await interaction.response.send_message(
+                    f"❌ Multiple channels match '{input_value}': {channel_names}{more}\n" f"Please be more specific or use the channel ID.",
+                    ephemeral=True,
+                )
+                return
+
+        # Validate the channel
+        if not channel:
+            await interaction.response.send_message(
+                f"❌ Could not find channel '{input_value}'\n" f"Please enter a valid channel name or ID.",
+                ephemeral=True,
+            )
+            return
+
+        if not isinstance(channel, discord.TextChannel):
+            await interaction.response.send_message("❌ Channel must be a text channel", ephemeral=True)
+            return
+
+        # Check bot permissions
+        permissions = channel.permissions_for(guild.me)
+        if not permissions.send_messages:
+            await interaction.response.send_message(f"❌ Bot doesn't have permission to send messages in {channel.mention}", ephemeral=True)
+            return
+
+        # Set the channel
+        self.cog.set_setting("log_channel_id", str(channel.id), guild_id=self.guild_id)
+        await interaction.response.send_message(f"✅ Role update logs will be sent to {channel.mention}", ephemeral=True)
+
+        # Update the embed
+        embed = await self.parent_view.get_embed()
+        await self.original_interaction.edit_original_response(embed=embed, view=self.parent_view)
+
+
 class TournamentRolesSettingsView(ui.View):
     """Settings view for tournament roles that integrates with global settings."""
 
@@ -150,48 +314,54 @@ class TournamentRolesSettingsView(ui.View):
     @ui.button(label="Core Settings", style=discord.ButtonStyle.primary, emoji="⚙️", row=0)
     async def core_settings(self, interaction: discord.Interaction, button: ui.Button):
         """Open core settings menu."""
-        context = self.SettingsViewContext(self.guild_id, self.cog, interaction, False)  # is_bot_owner not needed here
+        await interaction.response.defer()
+        context = SettingsViewContext(guild_id=self.guild_id, cog_instance=self.cog, interaction=interaction, is_bot_owner=False)
         view = CoreSettingsView(context)
         embed = await view.get_embed()
-        await interaction.response.edit_message(embed=embed, view=view)
+        await interaction.followup.edit_message(interaction.message.id, embed=embed, view=view)
 
     @ui.button(label="Update Settings", style=discord.ButtonStyle.primary, emoji="🔄", row=0)
     async def update_settings(self, interaction: discord.Interaction, button: ui.Button):
         """Open update settings menu."""
-        context = self.SettingsViewContext(self.guild_id, self.cog, interaction, False)
+        await interaction.response.defer()
+        context = SettingsViewContext(guild_id=self.guild_id, cog_instance=self.cog, interaction=interaction, is_bot_owner=False)
         view = UpdateSettingsView(context)
         embed = await view.get_embed()
-        await interaction.response.edit_message(embed=embed, view=view)
+        await interaction.followup.edit_message(interaction.message.id, embed=embed, view=view)
 
     @ui.button(label="Processing Settings", style=discord.ButtonStyle.primary, emoji="⚡", row=0)
     async def processing_settings(self, interaction: discord.Interaction, button: ui.Button):
         """Open processing settings menu."""
-        context = self.SettingsViewContext(self.guild_id, self.cog, interaction, False)
+        await interaction.response.defer()
+        context = SettingsViewContext(guild_id=self.guild_id, cog_instance=self.cog, interaction=interaction, is_bot_owner=False)
         view = ProcessingSettingsView(context)
         embed = await view.get_embed()
-        await interaction.response.edit_message(embed=embed, view=view)
+        await interaction.followup.edit_message(interaction.message.id, embed=embed, view=view)
 
     @ui.button(label="Mode Settings", style=discord.ButtonStyle.secondary, emoji="🎭", row=1)
     async def mode_settings(self, interaction: discord.Interaction, button: ui.Button):
         """Open mode settings menu."""
-        context = self.SettingsViewContext(self.guild_id, self.cog, interaction, False)
+        await interaction.response.defer()
+        context = SettingsViewContext(guild_id=self.guild_id, cog_instance=self.cog, interaction=interaction, is_bot_owner=False)
         view = ModeSettingsView(context)
         embed = await view.get_embed()
-        await interaction.response.edit_message(embed=embed, view=view)
+        await interaction.followup.edit_message(interaction.message.id, embed=embed, view=view)
 
     @ui.button(label="Logging Settings", style=discord.ButtonStyle.secondary, emoji="📝", row=1)
     async def logging_settings(self, interaction: discord.Interaction, button: ui.Button):
         """Open logging settings menu."""
-        context = self.SettingsViewContext(self.guild_id, self.cog, interaction, False)
+        await interaction.response.defer()
+        context = SettingsViewContext(guild_id=self.guild_id, cog_instance=self.cog, interaction=interaction, is_bot_owner=False)
         view = LoggingSettingsView(context)
         embed = await view.get_embed()
-        await interaction.response.edit_message(embed=embed, view=view)
+        await interaction.followup.edit_message(interaction.message.id, embed=embed, view=view)
 
     @ui.button(label="Back to Main", style=discord.ButtonStyle.gray, emoji="⬅️", row=2)
     async def back_to_main(self, interaction: discord.Interaction, button: ui.Button):
         """Go back to main settings view."""
+        await interaction.response.defer()
         embed = await self.get_settings_embed()
-        await interaction.response.edit_message(embed=embed, view=self)
+        await interaction.followup.edit_message(interaction.message.id, embed=embed, view=self)
 
     @ui.button(label="User Management", style=discord.ButtonStyle.success, emoji="👤", row=3)
     async def user_management(self, interaction: discord.Interaction, button: ui.Button):
@@ -311,47 +481,13 @@ class CoreSettingsView(ui.View):
     @ui.button(label="Set Verified Role", style=discord.ButtonStyle.secondary, emoji="✅")
     async def set_verified_role(self, interaction: discord.Interaction, button: ui.Button):
         """Set the verified role requirement."""
-        # Create role select
-        guild = interaction.guild
-        roles = [role for role in guild.roles if not role.is_default() and not role.managed]
-
-        if not roles:
-            await interaction.response.send_message("❌ No eligible roles found", ephemeral=True)
-            return
-
-        options = []
-        for role in roles[:25]:  # Discord limit
-            options.append(discord.SelectOption(label=role.name, value=str(role.id), description=f"Position: {role.position}"))
-
-        # Add "None" option
-        options.insert(0, discord.SelectOption(label="No verification required", value="none", description="Remove verification requirement"))
-
-        select = ui.Select(placeholder="Select verified role", options=options)
-
-        async def select_callback(select_interaction: discord.Interaction):
-            if select.values[0] == "none":
-                self.cog.set_setting("verified_role_id", None, guild_id=self.guild_id)
-                await select_interaction.response.send_message("✅ Verification role requirement removed", ephemeral=True)
-            else:
-                role_id = select.values[0]
-                self.cog.set_setting("verified_role_id", role_id, guild_id=self.guild_id)
-                role = guild.get_role(int(role_id))
-                await select_interaction.response.send_message(f"✅ Users must have {role.mention} role to be eligible", ephemeral=True)
-
-            # Update the embed
-            embed = await self.get_embed()
-            await interaction.edit_original_response(embed=embed, view=self)
-
-        select.callback = select_callback
-
-        view = ui.View()
-        view.add_item(select)
-        await interaction.response.send_message("Select the role required for tournament role eligibility:", view=view, ephemeral=True)
+        modal = VerifiedRoleModal(self.cog, self.guild_id, self, interaction)
+        await interaction.response.send_modal(modal)
 
     @ui.button(label="Back", style=discord.ButtonStyle.gray, emoji="⬅️")
     async def back(self, interaction: discord.Interaction, button: ui.Button):
         """Go back to main settings."""
-        context = self.cog.SettingsViewContext(self.guild_id, self.cog, interaction, False)
+        context = SettingsViewContext(guild_id=self.guild_id, cog_instance=self.cog, interaction=interaction, is_bot_owner=False)
         main_view = TournamentRolesSettingsView(context)
         embed = await main_view.get_settings_embed()
         await interaction.response.edit_message(embed=embed, view=main_view)
@@ -424,7 +560,7 @@ class UpdateSettingsView(ui.View):
     @ui.button(label="Back", style=discord.ButtonStyle.gray, emoji="⬅️")
     async def back(self, interaction: discord.Interaction, button: ui.Button):
         """Go back to main settings."""
-        context = self.cog.SettingsViewContext(self.guild_id, self.cog, interaction, False)
+        context = SettingsViewContext(guild_id=self.guild_id, cog_instance=self.cog, interaction=interaction, is_bot_owner=False)
         main_view = TournamentRolesSettingsView(context)
         embed = await main_view.get_settings_embed()
         await interaction.response.edit_message(embed=embed, view=main_view)
@@ -533,7 +669,7 @@ class ProcessingSettingsView(ui.View):
     @ui.button(label="Back", style=discord.ButtonStyle.gray, emoji="⬅️")
     async def back(self, interaction: discord.Interaction, button: ui.Button):
         """Go back to main settings."""
-        context = self.cog.SettingsViewContext(self.guild_id, self.cog, interaction, False)
+        context = SettingsViewContext(guild_id=self.guild_id, cog_instance=self.cog, interaction=interaction, is_bot_owner=False)
         main_view = TournamentRolesSettingsView(context)
         embed = await main_view.get_settings_embed()
         await interaction.response.edit_message(embed=embed, view=main_view)
@@ -636,7 +772,7 @@ class ModeSettingsView(ui.View):
     @ui.button(label="Back", style=discord.ButtonStyle.gray, emoji="⬅️")
     async def back(self, interaction: discord.Interaction, button: ui.Button):
         """Go back to main settings."""
-        context = self.cog.SettingsViewContext(self.guild_id, self.cog, interaction, False)
+        context = SettingsViewContext(guild_id=self.guild_id, cog_instance=self.cog, interaction=interaction, is_bot_owner=False)
         main_view = TournamentRolesSettingsView(context)
         embed = await main_view.get_settings_embed()
         await interaction.response.edit_message(embed=embed, view=main_view)
@@ -678,42 +814,8 @@ class LoggingSettingsView(ui.View):
     @ui.button(label="Set Log Channel", style=discord.ButtonStyle.primary, emoji="📝")
     async def set_log_channel(self, interaction: discord.Interaction, button: ui.Button):
         """Set the logging channel."""
-        # Create channel select
-        guild = interaction.guild
-        text_channels = [channel for channel in guild.channels if isinstance(channel, discord.TextChannel)]
-
-        if not text_channels:
-            await interaction.response.send_message("❌ No text channels found", ephemeral=True)
-            return
-
-        options = []
-        for channel in text_channels[:25]:  # Discord limit
-            options.append(discord.SelectOption(label=f"#{channel.name}", value=str(channel.id), description=f"Position: {channel.position}"))
-
-        # Add "None" option
-        options.insert(0, discord.SelectOption(label="Disable logging", value="none", description="Stop logging role updates"))
-
-        select = ui.Select(placeholder="Select log channel", options=options)
-
-        async def select_callback(select_interaction: discord.Interaction):
-            if select.values[0] == "none":
-                self.cog.set_setting("log_channel_id", None, guild_id=self.guild_id)
-                await select_interaction.response.send_message("✅ Role update logging disabled", ephemeral=True)
-            else:
-                channel_id = select.values[0]
-                self.cog.set_setting("log_channel_id", channel_id, guild_id=self.guild_id)
-                channel = guild.get_channel(int(channel_id))
-                await select_interaction.response.send_message(f"✅ Role update logs will be sent to {channel.mention}", ephemeral=True)
-
-            # Update the embed
-            embed = await self.get_embed()
-            await interaction.edit_original_response(embed=embed, view=self)
-
-        select.callback = select_callback
-
-        view = ui.View()
-        view.add_item(select)
-        await interaction.response.send_message("Select a channel for role update logs:", view=view, ephemeral=True)
+        modal = LogChannelModal(self.cog, self.guild_id, self, interaction)
+        await interaction.response.send_modal(modal)
 
     @ui.button(label="Set Batch Size", style=discord.ButtonStyle.primary, emoji="📊")
     async def set_batch_size(self, interaction: discord.Interaction, button: ui.Button):
@@ -742,7 +844,7 @@ class LoggingSettingsView(ui.View):
     @ui.button(label="Back", style=discord.ButtonStyle.gray, emoji="⬅️")
     async def back(self, interaction: discord.Interaction, button: ui.Button):
         """Go back to main settings."""
-        context = self.cog.SettingsViewContext(self.guild_id, self.cog, interaction, False)
+        context = SettingsViewContext(guild_id=self.guild_id, cog_instance=self.cog, interaction=interaction, is_bot_owner=False)
         main_view = TournamentRolesSettingsView(context)
         embed = await main_view.get_settings_embed()
         await interaction.response.edit_message(embed=embed, view=main_view)
