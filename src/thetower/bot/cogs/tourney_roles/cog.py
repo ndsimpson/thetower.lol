@@ -1439,15 +1439,17 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
 
             # If tournament roles changed
             if before_tourney_roles != after_tourney_roles:
-                self.logger.info(f"Tournament role change detected for {after.name} ({after.id})")
-
                 # Check if user should have their cached role
                 cached_role_id = self.role_cache.get(after.guild.id, {}).get(str(after.id))
+
+                # Determine if any correction is actually needed
+                needs_correction = False
 
                 if cached_role_id:
                     # User should have this specific role
                     if cached_role_id not in after_tourney_roles:
                         # Role was removed, add it back
+                        needs_correction = True
                         role = after.guild.get_role(int(cached_role_id))
                         if role:
                             await after.add_roles(role, reason="Correcting tournament role removal")
@@ -1455,9 +1457,10 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
                             await self.add_log_message(f"🔧 Corrected: Restored {role.name} to {after.name}")
                     elif len(after_tourney_roles) > 1:
                         # User has multiple tournament roles, remove extras
+                        needs_correction = True
                         roles_to_remove = []
                         for role_id in after_tourney_roles:
-                            if role_id != cached_role_id:
+                            if role_id != int(cached_role_id):
                                 role = after.guild.get_role(role_id)
                                 if role:
                                     roles_to_remove.append(role)
@@ -1467,6 +1470,12 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
                             removed_names = [role.name for role in roles_to_remove]
                             self.logger.info(f"Removed extra tournament roles {removed_names} from {after.name}")
                             await self.add_log_message(f"🔧 Corrected: Removed extra roles {', '.join(removed_names)} from {after.name}")
+
+                # Only log if we actually made a correction
+                if needs_correction:
+                    self.logger.debug(f"Corrected tournament role change for {after.name} ({after.id})")
+                else:
+                    self.logger.debug(f"Tournament role change for {after.name} ({after.id}) - no correction needed")
 
         except Exception as e:
             self.logger.error(f"Error in on_member_update: {e}")
