@@ -9,7 +9,7 @@ __all__ = ["DjangoAdmin", "setup"]
 
 async def setup(bot: commands.Bot) -> None:
     """Load the Django Admin cog.
-    
+
     Args:
         bot: The Discord bot instance.
     """

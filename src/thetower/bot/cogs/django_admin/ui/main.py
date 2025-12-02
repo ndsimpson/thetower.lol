@@ -212,6 +212,7 @@ class GroupManagementView(discord.ui.View):
 
     async def create_embed(self) -> discord.Embed:
         """Create group management embed with current groups."""
+
         # Fetch current groups
         @sync_to_async
         def get_groups():
@@ -687,9 +688,7 @@ class RenameGroupModal(discord.ui.Modal):
         self.group_id = group_id
 
         # Get current group name to pre-populate
-        self.new_name_input = discord.ui.TextInput(
-            label="New Group Name", placeholder="Enter the new name", required=True, max_length=150
-        )
+        self.new_name_input = discord.ui.TextInput(label="New Group Name", placeholder="Enter the new name", required=True, max_length=150)
         self.add_item(self.new_name_input)
 
     async def on_submit(self, interaction: discord.Interaction):
@@ -917,9 +916,7 @@ class AddToGroupModal(discord.ui.Modal):
         self.group_id = group_id
         self.group_name = group_name
 
-        self.username_input = discord.ui.TextInput(
-            label="Username", placeholder="Enter the Django username", required=True, max_length=150
-        )
+        self.username_input = discord.ui.TextInput(label="Username", placeholder="Enter the Django username", required=True, max_length=150)
         self.add_item(self.username_input)
 
     async def on_submit(self, interaction: discord.Interaction):
