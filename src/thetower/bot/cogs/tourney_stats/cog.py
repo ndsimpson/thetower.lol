@@ -145,12 +145,15 @@ class TourneyStats(BaseCog, name="Tourney Stats"):
                     await self.save_data()
 
                     # Notify other cogs that tournament data has been refreshed
-                    self.bot.dispatch('tourney_data_refreshed', {
-                        'latest_date': latest_db_date,
-                        'patch': self.latest_patch,
-                        'total_tournaments': self.total_tournaments,
-                        'league_counts': self.tournament_counts
-                    })
+                    self.bot.dispatch(
+                        "tourney_data_refreshed",
+                        {
+                            "latest_date": latest_db_date,
+                            "patch": self.latest_patch,
+                            "total_tournaments": self.total_tournaments,
+                            "league_counts": self.tournament_counts,
+                        },
+                    )
                     self.logger.info(f"Dispatched tourney_data_refreshed event for {latest_db_date}")
                 else:
                     self.logger.debug(f"No new tournaments (latest: {self.latest_tournament_date})")

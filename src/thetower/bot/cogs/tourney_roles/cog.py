@@ -242,6 +242,68 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
         # Cache is valid until new tournament data arrives or admin clears it
         return True
 
+    async def _check_tournament_data_on_startup(self) -> None:
+        """Check for newer tournament data on startup to catch any missed events.
+
+        This ensures we don't miss tournament data updates that happened while
+        the bot was offline or during restarts. Uses TourneyStats cog as the
+        source of truth for tournament dates.
+        """
+        try:
+            self.logger.info("Checking for tournament data updates on startup")
+
+            # Get the TourneyStats cog
+            tourney_stats_cog = await self.get_tourney_stats_cog()
+            if not tourney_stats_cog:
+                self.logger.warning("TourneyStats cog not available for startup check")
+                return
+
+            # Wait for TourneyStats to be ready
+            if not tourney_stats_cog.is_ready:
+                self.logger.info("Waiting for TourneyStats to be ready...")
+                ready = await tourney_stats_cog.wait_until_ready(timeout=30)
+                if not ready:
+                    self.logger.warning("TourneyStats cog not ready within timeout, skipping startup check")
+                    return
+
+            # Get the latest tournament date from TourneyStats
+            latest_tourney_date = tourney_stats_cog.latest_tournament_date
+
+            if not latest_tourney_date:
+                self.logger.info("No tournament data loaded in TourneyStats yet")
+                return
+
+            # Compare with our cached date
+            if self.cache_latest_tourney_date is None:
+                # No cache, we'll need to calculate on first update
+                self.logger.info(f"No cached tournament date, will calculate on first update (TourneyStats has: {latest_tourney_date})")
+            elif latest_tourney_date > self.cache_latest_tourney_date:
+                # TourneyStats has newer data
+                self.logger.info(f"Newer tournament data found on startup: {latest_tourney_date} > {self.cache_latest_tourney_date}")
+                self.logger.info("Invalidating cache and triggering recalculation")
+
+                # Invalidate cache
+                self.cache_latest_tourney_date = None
+                self.cache_timestamp = None
+
+                # Trigger recalculation (calculation phase only)
+                if not self.get_setting("pause", guild_id=self.bot.guilds[0].id if self.bot.guilds else None):
+                    calc_success = await self.calculate_all_roles()
+                    if calc_success:
+                        self.logger.info("Startup role recalculation completed successfully")
+                        self.mark_data_modified()
+                        await self.save_data()
+                    else:
+                        self.logger.warning("Startup role recalculation failed")
+                else:
+                    self.logger.info("Role updates are paused, skipping startup recalculation")
+            else:
+                self.logger.info(f"Cache is current (latest: {self.cache_latest_tourney_date})")
+
+        except Exception as e:
+            self.logger.error(f"Error checking tournament data on startup: {e}", exc_info=True)
+            # Don't raise - this is a non-critical check
+
     async def is_cache_valid_with_tourney_check(self, guild_id: int) -> bool:
         """Check if cache is valid, including checking for newer tournament data."""
         if not self.is_cache_valid(guild_id):
@@ -726,7 +788,7 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
                 return False
 
     async def update_guild_roles_bulk(self, guild, user_roles, discord_to_player):
-        """Update roles for a single guild using bulk operations."""
+        """Update roles for a single guild using member.edit() for atomic updates."""
         log_messages = []
         dry_run = self.get_global_setting("dry_run", False)
         verified_role_id = self.core.get_verified_role_id(guild.id)
@@ -735,74 +797,80 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
         roles_config = self.core.get_roles_config(guild.id)
         all_managed_role_ids = set(config.id for config in roles_config.values())
 
-        # Group operations by role
-        roles_to_add = {}  # {role_id: [members]}
-        roles_to_remove = {}  # {role_id: [members]}
-
-        processed_count = 0
-
+        # Process each user individually with member.edit()
         for discord_id_str, calculated_role_id in user_roles.items():
             discord_id = int(discord_id_str)
             member = guild.get_member(discord_id)
             if not member:
                 continue
 
+            # Determine what changes are needed
+            current_tourney_roles = {str(role.id): role for role in member.roles if str(role.id) in all_managed_role_ids}
+            changes = []  # Track changes for logging
+
             # Check verification requirement
             if verified_role_id:
                 verified_role = guild.get_role(int(verified_role_id))
                 if not verified_role or verified_role not in member.roles:
-                    # Remove all tournament roles if not verified
-                    current_tourney_roles = [role for role in member.roles if str(role.id) in all_managed_role_ids]
-                    for role in current_tourney_roles:
-                        if str(role.id) not in roles_to_remove:
-                            roles_to_remove[str(role.id)] = []
-                        roles_to_remove[str(role.id)].append(member)
-                        log_messages.append(f"{member.name}: -{role.name} (not verified)")
-                        self.roles_removed += 1
+                    # User not verified - remove all tournament roles
+                    if current_tourney_roles:
+                        # Build new role list without tournament roles
+                        new_roles = [role for role in member.roles if str(role.id) not in all_managed_role_ids and not role.is_default()]
+
+                        if not dry_run:
+                            await member.edit(roles=new_roles, reason="Removing tournament roles - not verified")
+
+                        for role in current_tourney_roles.values():
+                            changes.append(f"-{role.name}")
+                            self.roles_removed += 1
+
+                        if changes:
+                            log_messages.append(f"{member.name}: {', '.join(changes)} (not verified)")
                     continue
 
-            # Determine what changes are needed
-            current_tourney_roles = {str(role.id): role for role in member.roles if str(role.id) in all_managed_role_ids}
+            # Build the new role list for this user
+            roles_to_add = []
+            roles_to_remove = []
 
-            # If user should have a role
-            if calculated_role_id:
-                if calculated_role_id not in current_tourney_roles:
-                    # Need to add this role
-                    if calculated_role_id not in roles_to_add:
-                        roles_to_add[calculated_role_id] = []
-                    roles_to_add[calculated_role_id].append(member)
-                    log_messages.append(f"{member.name}: +{guild.get_role(int(calculated_role_id)).name}")
+            # Check if user should have the calculated role
+            if calculated_role_id and calculated_role_id not in current_tourney_roles:
+                role = guild.get_role(int(calculated_role_id))
+                if role:
+                    roles_to_add.append(role)
+                    changes.append(f"+{role.name}")
                     self.roles_assigned += 1
 
-            # Remove roles they shouldn't have
+            # Check for roles to remove
             for role_id, role in current_tourney_roles.items():
                 if calculated_role_id != role_id:
-                    if role_id not in roles_to_remove:
-                        roles_to_remove[role_id] = []
-                    roles_to_remove[role_id].append(member)
-                    log_messages.append(f"{member.name}: -{role.name}")
+                    roles_to_remove.append(role)
+                    changes.append(f"-{role.name}")
                     self.roles_removed += 1
 
-            # Yield control to event loop every 10 users to prevent heartbeat blocking
-            processed_count += 1
-            if processed_count % 10 == 0:
-                await asyncio.sleep(0)
+            # Apply changes if any
+            if roles_to_add or roles_to_remove:
+                # Build new role list: current roles - tournament roles + new tournament role
+                new_roles = [role for role in member.roles if str(role.id) not in all_managed_role_ids and not role.is_default()]
 
-        # Execute bulk operations
-        bulk_batch_size = self.get_setting("bulk_batch_size", 45, guild_id=guild.id)
-        bulk_batch_delay = self.get_setting("bulk_batch_delay", 0.1, guild_id=guild.id)
+                # Add the calculated role if they should have one
+                if calculated_role_id:
+                    role = guild.get_role(int(calculated_role_id))
+                    if role:
+                        new_roles.append(role)
 
-        # Add roles in bulk
-        for role_id, members in roles_to_add.items():
-            role = guild.get_role(int(role_id))
-            if role:
-                await self.bulk_add_role(role, members, bulk_batch_size, bulk_batch_delay, dry_run)
+                if not dry_run:
+                    try:
+                        await member.edit(roles=new_roles, reason="Tournament participation role update")
+                    except Exception as e:
+                        self.logger.error(f"Error updating roles for {member.name}: {e}")
+                        continue
 
-        # Remove roles in bulk
-        for role_id, members in roles_to_remove.items():
-            role = guild.get_role(int(role_id))
-            if role:
-                await self.bulk_remove_role(role, members, bulk_batch_size, bulk_batch_delay, dry_run)
+                # Log the combined changes for this user
+                if changes:
+                    log_messages.append(f"{member.name}: {', '.join(changes)}")
+
+            # Yield control to the event loop
+            await asyncio.sleep(0)
 
         return log_messages
 
@@ -1220,12 +1288,17 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
                 else:
                     self.logger.info("No saved tournament role data found, using defaults")
 
-                # 3. Start the update task
+                # 3. Check for newer tournament data on startup
+                self.logger.debug("Checking for tournament data updates")
+                tracker.update_status("Checking tournament data")
+                await self._check_tournament_data_on_startup()
+
+                # 4. Start the update task
                 self.logger.debug("Starting update task")
                 tracker.update_status("Starting update task")
                 self.update_task = self.bot.loop.create_task(self.schedule_periodic_updates())
 
-                # 4. Mark as ready and complete initialization
+                # 5. Mark as ready and complete initialization
                 self.set_ready(True)
                 self.logger.info("TourneyRoles initialization complete")
 
@@ -1381,10 +1454,10 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
     @discord.ext.commands.Cog.listener()
     async def on_tourney_data_refreshed(self, data: dict):
         """Called when TourneyStats has refreshed its tournament data.
-        
+
         This event is dispatched by the TourneyStats cog when it detects
         new tournament data and refreshes its cache.
-        
+
         Args:
             data: Dictionary containing:
                 - latest_date: The newest tournament date
@@ -1393,29 +1466,29 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
                 - league_counts: Tournament counts per league
         """
         try:
-            latest_date = data.get('latest_date')
+            latest_date = data.get("latest_date")
             self.logger.info(f"Received tourney_data_refreshed event for date: {latest_date}")
-            
+
             # Check if this is actually newer than our cache
             if self.cache_latest_tourney_date and latest_date:
                 if latest_date <= self.cache_latest_tourney_date:
                     self.logger.debug(f"Event date {latest_date} not newer than cache {self.cache_latest_tourney_date}, ignoring")
                     return
-            
+
             # Invalidate our role cache
             self.logger.info("Invalidating role cache due to new tournament data")
             self.cache_latest_tourney_date = None
             self.cache_timestamp = None
-            
+
             # If we're not currently updating, trigger a recalculation
             if not self.currently_updating:
                 self.logger.info("Triggering role recalculation for new tournament data")
-                
+
                 # Check if updates are paused
                 if self.get_setting("pause", guild_id=self.bot.guilds[0].id if self.bot.guilds else None):
                     self.logger.info("Role updates are paused, skipping automatic recalculation")
                     return
-                
+
                 # Trigger calculation phase (not full update with application)
                 # This will recalculate roles but won't apply them until the next scheduled update
                 # or manual trigger. This prevents too many role changes in quick succession.
@@ -1429,7 +1502,7 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
                     self.logger.warning("Role recalculation failed")
             else:
                 self.logger.info("Role update already in progress, skipping event-triggered recalculation")
-                
+
         except Exception as e:
             self.logger.error(f"Error handling tourney_data_refreshed event: {e}", exc_info=True)
 
