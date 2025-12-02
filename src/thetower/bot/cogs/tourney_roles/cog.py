@@ -159,15 +159,22 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
                 self.roles_removed = save_data.get("roles_removed", 0)
                 self.users_with_no_player_data = save_data.get("users_with_no_player_data", 0)
 
-                # Load role cache
-                self.role_cache = save_data.get("role_cache", {})
+                # Load role cache - convert guild IDs from strings to integers
+                raw_cache = save_data.get("role_cache", {})
+                self.role_cache = {int(guild_id): users for guild_id, users in raw_cache.items()}
+
                 self.cache_timestamp = datetime.datetime.fromisoformat(save_data["cache_timestamp"]) if save_data.get("cache_timestamp") else None
                 self.cache_latest_tourney_date = (
                     datetime.datetime.fromisoformat(save_data["cache_latest_tourney_date"]) if save_data.get("cache_latest_tourney_date") else None
                 )
 
+                # Log cache loading details
+                total_guilds = len(self.role_cache)
+                total_users = sum(len(users) for users in self.role_cache.values())
                 self.logger.info(
-                    f"Loaded tournament role data - last_full_update: {self.last_full_update}, cache_latest_tourney_date: {self.cache_latest_tourney_date}"
+                    f"Loaded tournament role data - last_full_update: {self.last_full_update}, "
+                    f"cache_latest_tourney_date: {self.cache_latest_tourney_date}, "
+                    f"guilds in cache: {total_guilds}, total users: {total_users}"
                 )
                 return True
 
@@ -282,22 +289,25 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
                 self.logger.info("No tournament data loaded in TourneyStats yet")
                 return
 
-            # Normalize to datetime for comparison (TourneyStats stores as date, we store as datetime)
-            if isinstance(latest_tourney_date, datetime.date) and not isinstance(latest_tourney_date, datetime.datetime):
-                latest_tourney_date = datetime.datetime.combine(latest_tourney_date, datetime.time.max, tzinfo=datetime.timezone.utc)
+            # Normalize both to dates for comparison (ignore time component)
+            if isinstance(latest_tourney_date, datetime.datetime):
+                latest_date = latest_tourney_date.date()
+            else:
+                latest_date = latest_tourney_date
 
-            # Ensure cached date is timezone-aware for comparison
+            # Extract date from cached datetime
             cached_date = self.cache_latest_tourney_date
-            if cached_date and isinstance(cached_date, datetime.datetime) and cached_date.tzinfo is None:
-                cached_date = cached_date.replace(tzinfo=datetime.timezone.utc)
+            if cached_date:
+                if isinstance(cached_date, datetime.datetime):
+                    cached_date = cached_date.date()
 
-            # Compare with our cached date
+            # Compare dates only
             if cached_date is None:
                 # No cache, we'll need to calculate on first update
-                self.logger.info(f"No cached tournament date, will calculate on first update (TourneyStats has: {latest_tourney_date})")
-            elif latest_tourney_date > cached_date:
+                self.logger.info(f"No cached tournament date, will calculate on first update (TourneyStats has: {latest_date})")
+            elif latest_date > cached_date:
                 # TourneyStats has newer data
-                self.logger.info(f"Newer tournament data found on startup: {latest_tourney_date} > {cached_date}")
+                self.logger.info(f"Newer tournament data found on startup: {latest_date} > {cached_date}")
                 self.logger.info("Invalidating cache and triggering recalculation")
 
                 # Invalidate cache
@@ -1386,9 +1396,6 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
             self.logger.info("Starting TourneyRoles initialization")
 
             async with self.task_tracker.task_context("Initialization") as tracker:
-                # Register UI extensions for player profiles
-                self.register_ui_extensions()
-
                 # Set cache file path
                 self.cache_file = self.data_directory / self.roles_cache_filename
 
@@ -1752,7 +1759,7 @@ class TourneyStatsButton(discord.ui.Button):
     """Button to view tournament stats for a specific player."""
 
     def __init__(self, cog, user_id: int, guild_id: int, player):
-        super().__init__(label="View Tournament Stats", style=discord.ButtonStyle.secondary, emoji="📊")
+        super().__init__(label="View Tournament Stats", style=discord.ButtonStyle.secondary, emoji="📊", row=2)
         self.cog = cog
         self.user_id = user_id
         self.guild_id = guild_id
@@ -1760,19 +1767,25 @@ class TourneyStatsButton(discord.ui.Button):
 
     async def callback(self, interaction: discord.Interaction):
         """Show tournament statistics for the player."""
-        await interaction.response.defer(ephemeral=True)
+        # Send immediate response
+        loading_embed = discord.Embed(
+            title="📊 Loading Tournament Stats...", description="Please wait while we gather your tournament data...", color=discord.Color.orange()
+        )
+        await interaction.response.send_message(embed=loading_embed, ephemeral=True)
 
         try:
             # Get tournament stats cog
             tourney_stats_cog = await self.cog.get_tourney_stats_cog()
             if not tourney_stats_cog:
-                await interaction.followup.send("❌ Tournament stats not available", ephemeral=True)
+                error_embed = discord.Embed(title="❌ Error", description="Tournament stats not available", color=discord.Color.red())
+                await interaction.edit_original_response(embed=error_embed)
                 return
 
             # Get player lookup cog to get player IDs
             player_lookup_cog = await self.cog.get_known_players_cog()
             if not player_lookup_cog:
-                await interaction.followup.send("❌ Player lookup not available", ephemeral=True)
+                error_embed = discord.Embed(title="❌ Error", description="Player lookup not available", color=discord.Color.red())
+                await interaction.edit_original_response(embed=error_embed)
                 return
 
             # Get player data
@@ -1780,11 +1793,15 @@ class TourneyStatsButton(discord.ui.Button):
             player_data = discord_mapping.get(str(self.user_id))
 
             if not player_data or "all_ids" not in player_data:
-                await interaction.followup.send("❌ No player data found", ephemeral=True)
+                error_embed = discord.Embed(title="❌ Error", description="No player data found", color=discord.Color.red())
+                await interaction.edit_original_response(embed=error_embed)
                 return
 
             # Get tournament stats
             player_stats = await self.cog.core.get_player_tournament_stats(tourney_stats_cog, player_data["all_ids"])
+
+            # Get current patch info
+            current_patch = tourney_stats_cog.latest_patch if tourney_stats_cog.latest_patch else "Unknown"
 
             # Create embed
             embed = discord.Embed(
@@ -1793,18 +1810,10 @@ class TourneyStatsButton(discord.ui.Button):
                 color=discord.Color.blue(),
             )
 
-            # Add player IDs
-            primary_id = player_data.get("primary_id", "None")
-            all_ids = player_data.get("all_ids", [])
-            id_list = f"✅ {primary_id}"
-            if len(all_ids) > 1:
-                other_ids = [pid for pid in all_ids if pid != primary_id]
-                if other_ids:
-                    id_list += f"\n{', '.join(other_ids[:5])}"
-                    if len(other_ids) > 5:
-                        id_list += f"\n(+{len(other_ids) - 5} more)"
-
-            embed.add_field(name="Player IDs", value=id_list, inline=False)
+            # Add player ID (just primary)
+            primary_id = player_data.get("primary_id")
+            if primary_id:
+                embed.add_field(name="Player ID", value=f"`{primary_id}`", inline=False)
 
             # Add overall stats
             if player_stats.total_tourneys > 0:
@@ -1833,24 +1842,147 @@ class TourneyStatsButton(discord.ui.Button):
             else:
                 embed.add_field(name="📈 Performance", value="No tournament participation found", inline=False)
 
-            # Add current tournament roles
+            # Add current tournament roles with calculated role comparison
             guild = self.cog.bot.get_guild(self.guild_id)
             if guild:
                 member = guild.get_member(self.user_id)
                 if member:
+                    # Get what role they SHOULD have from TourneyRoles cache
+                    calculated_role_id = None
+                    if self.guild_id in self.cog.role_cache and str(self.user_id) in self.cog.role_cache[self.guild_id]:
+                        calculated_role_id = self.cog.role_cache[self.guild_id][str(self.user_id)]
+
+                    # Debug logging
+                    self.cog.logger.info(
+                        f"[TOURNEY STATS DEBUG] User {self.user_id} ({self.player.name}): "
+                        f"guild_id={self.guild_id}, "
+                        f"guild_in_cache={self.guild_id in self.cog.role_cache}, "
+                        f"user_in_cache={str(self.user_id) in self.cog.role_cache.get(self.guild_id, {})}, "
+                        f"calculated_role_id={calculated_role_id}"
+                    )
+
                     roles_config = self.cog.core.get_roles_config(self.guild_id)
-                    managed_role_ids = {config.id for config in roles_config.values()}
-                    tourney_roles = [role.name for role in member.roles if str(role.id) in managed_role_ids]
+                    managed_role_ids = {str(config.id) for config in roles_config.values()}
 
-                    if tourney_roles:
-                        embed.add_field(name="🎯 Current Tournament Roles", value="\n".join(f"• {role}" for role in tourney_roles), inline=False)
+                    # Check if role cache is populated
+                    if self.guild_id not in self.cog.role_cache:
+                        # Cache not populated yet
+                        embed.add_field(
+                            name="🎯 Current Tournament Roles",
+                            value="⏳ Role calculations are not ready yet. Please use `/tourneyroles update` to calculate roles.",
+                            inline=False,
+                        )
+                    else:
+                        # Build map of role_id -> role_name from guild
+                        guild_role_map = {str(role.id): role.name for role in guild.roles}
 
-            embed.set_footer(text="Stats from latest tournament patch")
-            await interaction.followup.send(embed=embed, ephemeral=True)
+                        # Get what tournament roles they ACTUALLY have in Discord
+                        current_tourney_roles = [role for role in member.roles if str(role.id) in managed_role_ids]
+                        current_role_ids = {str(r.id) for r in current_tourney_roles}
+
+                        # Build role status text
+                        role_status = []
+                        has_discrepancy = False
+
+                        # Show what they should have
+                        if calculated_role_id:
+                            calculated_role_name = guild_role_map.get(str(calculated_role_id), "Unknown")
+                            if str(calculated_role_id) in current_role_ids:
+                                # They have it - only show if there's a discrepancy
+                                role_status.append(f"✅ {calculated_role_name}")
+                            else:
+                                # They should have it but don't
+                                role_status.append(f"❌ {calculated_role_name} (should have)")
+                                has_discrepancy = True
+
+                        # Show roles they have but shouldn't
+                        for role in current_tourney_roles:
+                            if str(role.id) != str(calculated_role_id):
+                                role_status.append(f"⚠️ {role.name} (has but shouldn't)")
+                                has_discrepancy = True
+
+                        # If no discrepancy and they have a role, just show the checkmark version
+                        if not has_discrepancy and calculated_role_id and current_role_ids:
+                            # Already added with checkmark above
+                            pass
+
+                        if role_status:
+                            embed.add_field(name="🎯 Current Tournament Roles", value="\n".join(role_status), inline=False)
+
+            embed.set_footer(text=f"Stats from patch {current_patch}")
+
+            # Create a view with Post Publicly button
+            view = TourneyStatsPublicView(embed, interaction.guild.id, interaction.channel.id, self.cog)
+            await interaction.edit_original_response(embed=embed, view=view)
 
         except Exception as e:
             self.cog.logger.error(f"Error showing tournament stats for user {self.user_id}: {e}", exc_info=True)
-            await interaction.followup.send(f"❌ Error loading stats: {str(e)}", ephemeral=True)
+            error_embed = discord.Embed(title="❌ Error", description=f"Error loading stats: {str(e)}", color=discord.Color.red())
+            await interaction.edit_original_response(embed=error_embed)
+
+
+class TourneyStatsPublicView(discord.ui.View):
+    """View with Post Publicly button for tournament stats."""
+
+    def __init__(self, embed: discord.Embed, guild_id: int, channel_id: int, cog):
+        super().__init__(timeout=300)  # 5 minute timeout
+        self.embed = embed
+        self.guild_id = guild_id
+        self.channel_id = channel_id
+        self.cog = cog
+
+        # Add post publicly button
+        self.add_item(TourneyStatsPostPubliclyButton(embed, guild_id, channel_id, cog))
+
+
+class TourneyStatsPostPubliclyButton(discord.ui.Button):
+    """Button to post tournament stats publicly."""
+
+    def __init__(self, embed: discord.Embed, guild_id: int, channel_id: int, cog):
+        super().__init__(label="Post Publicly", style=discord.ButtonStyle.secondary, emoji="📢")
+        self.embed = embed
+        self.guild_id = guild_id
+        self.channel_id = channel_id
+        self.cog = cog
+
+    async def callback(self, interaction: discord.Interaction):
+        """Post tournament stats publicly to the channel."""
+        # Get player lookup cog to check authorized channels
+        player_lookup_cog = self.cog.bot.get_cog("Player Lookup")
+        if not player_lookup_cog:
+            await interaction.response.send_message("❌ Player lookup system not available.", ephemeral=True)
+            return
+
+        # Check if posting everywhere is allowed or if this channel is in the allowed list
+        allow_everywhere = player_lookup_cog.is_post_publicly_allowed_everywhere(self.guild_id)
+        allowed_channels = player_lookup_cog.get_profile_post_channels(self.guild_id)
+
+        if not allow_everywhere and self.channel_id not in allowed_channels:
+            embed = discord.Embed(
+                title="Channel Not Authorized", description="This channel is not configured for public profile posting.", color=discord.Color.red()
+            )
+            embed.add_field(
+                name="What you can do",
+                value="• The stats are still visible privately above\n• Ask a server admin to add this channel to the profile posting list",
+                inline=False,
+            )
+            await interaction.response.send_message(embed=embed, ephemeral=True)
+            return
+
+        # Check if user has permission to post in this channel
+        if not interaction.channel.permissions_for(interaction.user).send_messages:
+            embed = discord.Embed(
+                title="Permission Denied", description="You don't have permission to send messages in this channel.", color=discord.Color.red()
+            )
+            await interaction.response.send_message(embed=embed, ephemeral=True)
+            return
+
+        # Post publicly to the channel
+        try:
+            await interaction.response.send_message(embed=self.embed)
+        except Exception as e:
+            self.cog.logger.error(f"Error posting tournament stats publicly: {e}")
+            await interaction.response.send_message("❌ Failed to post stats publicly. Please try again.", ephemeral=True)
 
 
 class TourneyRolesRefreshButton(discord.ui.Button):
