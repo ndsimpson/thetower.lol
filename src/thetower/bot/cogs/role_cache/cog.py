@@ -250,23 +250,6 @@ class RoleCache(BaseCog, name="Role Cache", description="Cache for Discord role 
         else:
             self.logger.warning("Role cache save task ended unexpectedly")
 
-    async def _build_initial_cache(self):
-        """Build the initial role cache for all guilds."""
-        async with self.task_tracker.task_context("Initial Cache Build", "Building role cache for all guilds"):
-            try:
-                guild = self.guild
-                if not guild:
-                    self.logger.error("Could not find guild")
-                    return
-
-                self.task_tracker.update_status("Initial Cache Build", f"Building cache for guild {guild.name}")
-                await self.build_cache(guild)
-                self.logger.info("Initial role cache build complete")
-
-            except Exception as e:
-                self.logger.error(f"Error building initial cache: {e}")
-                raise
-
     async def get_all_members(self, guild: discord.Guild) -> list[discord.Member]:
         """Get all members from a guild, handling chunk requests and rate limits."""
         async with self.task_tracker.task_context("Member Fetch", f"Fetching members for {guild.name}"):
