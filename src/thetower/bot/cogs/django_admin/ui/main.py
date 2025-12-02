@@ -47,9 +47,10 @@ class DjangoAdminMainView(discord.ui.View):
     @discord.ui.button(label="Group Management", style=discord.ButtonStyle.primary, emoji="👥", row=0)
     async def group_management(self, interaction: discord.Interaction, button: discord.ui.Button):
         """Open group management interface."""
+        await interaction.response.defer()
         view = GroupManagementView(self.cog, interaction, self)
-        embed = view.create_embed()
-        await interaction.response.edit_message(embed=embed, view=view)
+        embed = await view.create_embed()
+        await interaction.followup.edit_message(message_id=interaction.message.id, embed=embed, view=view)
 
     @discord.ui.button(label="User Management", style=discord.ButtonStyle.primary, emoji="👤", row=0)
     async def user_management(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -67,6 +68,134 @@ class DjangoAdminMainView(discord.ui.View):
 
 
 # ====================
+# Group Selection View for Dropdown Actions
+# ====================
+
+
+class GroupSelectView(discord.ui.View):
+    """View with dropdown for selecting a group."""
+
+    def __init__(self, cog, parent_view, interaction: discord.Interaction, action: str):
+        super().__init__(timeout=300)
+        self.cog = cog
+        self.parent_view = parent_view
+        self.original_interaction = interaction
+        self.action = action
+
+        # Add the select menu
+        select = GroupSelect(cog, parent_view, action)
+        self.add_item(select)
+
+
+class GroupSelect(discord.ui.Select):
+    """Dropdown for selecting a group."""
+
+    def __init__(self, cog, parent_view, action: str):
+        self.cog = cog
+        self.parent_view = parent_view
+        self.action = action
+
+        # Build options from parent_view.groups
+        options = []
+        for gid, name, count in parent_view.groups[:25]:  # Discord limit of 25 options
+            options.append(discord.SelectOption(label=name, value=str(gid), description=f"ID: {gid} | {count} users"))
+
+        super().__init__(
+            placeholder="Select a group...",
+            min_values=1,
+            max_values=1,
+            options=options,
+        )
+
+    async def callback(self, interaction: discord.Interaction):
+        """Handle group selection."""
+        group_id = int(self.values[0])
+
+        if self.action == "rename":
+            # Show modal for new name
+            modal = RenameGroupModal(self.cog, self.parent_view, group_id)
+            await interaction.response.send_modal(modal)
+        elif self.action == "delete":
+            # Confirm and delete
+            await self._handle_delete(interaction, group_id)
+        elif self.action == "manage_members":
+            # Show member management view
+            await self._handle_manage_members(interaction, group_id)
+
+    async def _handle_delete(self, interaction: discord.Interaction, group_id: int):
+        """Handle group deletion."""
+        await interaction.response.defer(ephemeral=True)
+
+        try:
+
+            @sync_to_async
+            def delete_group():
+                try:
+                    group = Group.objects.get(id=group_id)
+                    group_name = group.name
+                    user_count = group.user_set.count()
+                    group.delete()
+                    return group_name, user_count, None
+                except Group.DoesNotExist:
+                    return None, None, f"Group with ID {group_id} not found"
+
+            group_name, user_count, error = await delete_group()
+
+            if error:
+                await interaction.followup.send(f"❌ {error}", ephemeral=True)
+                return
+
+            embed = discord.Embed(
+                title="✅ Group Deleted",
+                description=f"Successfully deleted group **{group_name}**",
+                color=discord.Color.red(),
+                timestamp=discord.utils.utcnow(),
+            )
+            embed.add_field(name="Group ID", value=f"`{group_id}`")
+            embed.add_field(name="Users Affected", value=str(user_count))
+
+            await interaction.followup.send(embed=embed, ephemeral=True)
+            self.cog.logger.info(f"Deleted group '{group_name}' (ID: {group_id}) by {interaction.user}")
+
+            # Refresh parent view
+            new_embed = await self.parent_view.create_embed()
+            await self.parent_view.interaction.edit_original_response(embed=new_embed, view=self.parent_view)
+
+        except Exception as e:
+            self.cog.logger.error(f"Error deleting group: {e}", exc_info=True)
+            await interaction.followup.send(f"❌ Error: {e}", ephemeral=True)
+
+    async def _handle_manage_members(self, interaction: discord.Interaction, group_id: int):
+        """Handle member management."""
+        await interaction.response.defer()
+
+        try:
+
+            @sync_to_async
+            def get_group_info():
+                try:
+                    group = Group.objects.get(id=group_id)
+                    members = list(group.user_set.all().order_by("username").values_list("id", "username"))
+                    return group.name, members, None
+                except Group.DoesNotExist:
+                    return None, None, f"Group with ID {group_id} not found"
+
+            group_name, members, error = await get_group_info()
+
+            if error:
+                await interaction.followup.send(f"❌ {error}", ephemeral=True)
+                return
+
+            view = GroupMemberManagementView(self.cog, interaction, self.parent_view, group_id, group_name, members)
+            embed = await view.create_embed()
+            await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+
+        except Exception as e:
+            self.cog.logger.error(f"Error loading member management: {e}", exc_info=True)
+            await interaction.followup.send(f"❌ Error: {e}", ephemeral=True)
+
+
+# ====================
 # Group Management Views
 # ====================
 
@@ -79,93 +208,81 @@ class GroupManagementView(discord.ui.View):
         self.cog = cog
         self.interaction = interaction
         self.parent_view = parent_view
+        self.groups = []  # Will be populated when view is created
 
-    def create_embed(self) -> discord.Embed:
-        """Create group management embed."""
+    async def create_embed(self) -> discord.Embed:
+        """Create group management embed with current groups."""
+        # Fetch current groups
+        @sync_to_async
+        def get_groups():
+            groups = Group.objects.all().order_by("name")
+            return [(g.id, g.name, g.user_set.count()) for g in groups]
+
+        self.groups = await get_groups()
+
         embed = discord.Embed(
             title="👥 Group Management",
-            description="Select an action to perform on Django groups",
+            description=f"**Current Groups:** {len(self.groups)}",
             color=discord.Color.blue(),
             timestamp=discord.utils.utcnow(),
         )
 
-        embed.add_field(name="List Groups", value="View all Django groups", inline=True)
-        embed.add_field(name="Create Group", value="Create a new group", inline=True)
-        embed.add_field(name="Group Info", value="View group details", inline=True)
-        embed.add_field(name="Rename Group", value="Rename an existing group", inline=True)
-        embed.add_field(name="Delete Group", value="Delete a group", inline=True)
-        embed.add_field(name="Manage Members", value="Add/remove users", inline=True)
+        if self.groups:
+            # Show groups sorted
+            group_lines = [f"`{gid}` - **{name}** ({count} users)" for gid, name, count in self.groups]
+            # Split into multiple fields if needed
+            chunk_size = 15
+            for i in range(0, len(group_lines), chunk_size):
+                chunk = group_lines[i : i + chunk_size]
+                field_name = "Groups" if i == 0 else "Groups (continued)"
+                embed.add_field(name=field_name, value="\n".join(chunk), inline=False)
+        else:
+            embed.add_field(name="Groups", value="No groups found", inline=False)
 
+        embed.set_footer(text="Use the buttons below to manage groups")
         return embed
-
-    @discord.ui.button(label="List Groups", style=discord.ButtonStyle.secondary, emoji="📋", row=0)
-    async def list_groups(self, interaction: discord.Interaction, button: discord.ui.Button):
-        """List all groups."""
-        await interaction.response.defer()
-
-        try:
-
-            @sync_to_async
-            def get_groups():
-                groups = Group.objects.all().order_by("name")
-                return [(g.id, g.name, g.user_set.count()) for g in groups]
-
-            groups = await get_groups()
-
-            if not groups:
-                embed = discord.Embed(title="No Groups Found", description="There are no Django groups configured.", color=discord.Color.orange())
-                await interaction.followup.send(embed=embed, ephemeral=True)
-                return
-
-            embed = discord.Embed(
-                title="Django Groups", description=f"Total: {len(groups)} groups", color=discord.Color.blue(), timestamp=discord.utils.utcnow()
-            )
-
-            # Add groups in chunks
-            chunk_size = 25
-            for i in range(0, len(groups), chunk_size):
-                chunk = groups[i : i + chunk_size]
-                group_lines = [f"`{gid}` - **{name}** ({count} users)" for gid, name, count in chunk]
-                embed.add_field(name=f"Groups {i+1}-{min(i+chunk_size, len(groups))}", value="\n".join(group_lines), inline=False)
-
-            await interaction.followup.send(embed=embed, ephemeral=True)
-
-        except Exception as e:
-            self.cog.logger.error(f"Error listing groups: {e}", exc_info=True)
-            await interaction.followup.send(f"❌ Error: {e}", ephemeral=True)
 
     @discord.ui.button(label="Create Group", style=discord.ButtonStyle.success, emoji="➕", row=0)
     async def create_group(self, interaction: discord.Interaction, button: discord.ui.Button):
         """Create a new group."""
-        modal = CreateGroupModal(self.cog)
+        modal = CreateGroupModal(self.cog, self)
         await interaction.response.send_modal(modal)
 
-    @discord.ui.button(label="Group Info", style=discord.ButtonStyle.secondary, emoji="ℹ️", row=1)
-    async def group_info(self, interaction: discord.Interaction, button: discord.ui.Button):
-        """View group details."""
-        modal = GroupInfoModal(self.cog)
-        await interaction.response.send_modal(modal)
-
-    @discord.ui.button(label="Rename Group", style=discord.ButtonStyle.secondary, emoji="✏️", row=1)
+    @discord.ui.button(label="Rename Group", style=discord.ButtonStyle.secondary, emoji="✏️", row=0)
     async def rename_group(self, interaction: discord.Interaction, button: discord.ui.Button):
         """Rename a group."""
-        modal = RenameGroupModal(self.cog)
-        await interaction.response.send_modal(modal)
+        if not self.groups:
+            await interaction.response.send_message("❌ No groups available to rename.", ephemeral=True)
+            return
+        view = GroupSelectView(self.cog, self, interaction, "rename")
+        await interaction.response.send_message("Select a group to rename:", view=view, ephemeral=True)
 
-    @discord.ui.button(label="Delete Group", style=discord.ButtonStyle.danger, emoji="🗑️", row=1)
+    @discord.ui.button(label="Delete Group", style=discord.ButtonStyle.danger, emoji="🗑️", row=0)
     async def delete_group(self, interaction: discord.Interaction, button: discord.ui.Button):
         """Delete a group."""
-        modal = DeleteGroupModal(self.cog)
-        await interaction.response.send_modal(modal)
+        if not self.groups:
+            await interaction.response.send_message("❌ No groups available to delete.", ephemeral=True)
+            return
+        view = GroupSelectView(self.cog, self, interaction, "delete")
+        await interaction.response.send_message("Select a group to delete:", view=view, ephemeral=True)
 
-    @discord.ui.button(label="Manage Members", style=discord.ButtonStyle.primary, emoji="👥", row=2)
+    @discord.ui.button(label="Manage Members", style=discord.ButtonStyle.primary, emoji="👥", row=1)
     async def manage_members(self, interaction: discord.Interaction, button: discord.ui.Button):
         """Manage group members."""
-        view = GroupMemberManagementView(self.cog, interaction, self)
-        embed = view.create_embed()
-        await interaction.response.edit_message(embed=embed, view=view)
+        if not self.groups:
+            await interaction.response.send_message("❌ No groups available.", ephemeral=True)
+            return
+        view = GroupSelectView(self.cog, self, interaction, "manage_members")
+        await interaction.response.send_message("Select a group to manage:", view=view, ephemeral=True)
 
-    @discord.ui.button(label="Back", style=discord.ButtonStyle.secondary, emoji="⬅️", row=2)
+    @discord.ui.button(label="Refresh", style=discord.ButtonStyle.secondary, emoji="🔄", row=1)
+    async def refresh(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Refresh the group list."""
+        await interaction.response.defer()
+        embed = await self.create_embed()
+        await interaction.followup.edit_message(message_id=interaction.message.id, embed=embed, view=self)
+
+    @discord.ui.button(label="Back", style=discord.ButtonStyle.secondary, emoji="⬅️", row=1)
     async def back(self, interaction: discord.Interaction, button: discord.ui.Button):
         """Return to main menu."""
         embed = self.parent_view.create_main_embed()
@@ -330,50 +447,177 @@ class UserLinkingView(discord.ui.View):
 class GroupMemberManagementView(discord.ui.View):
     """Manage group members."""
 
-    def __init__(self, cog, interaction: discord.Interaction, parent_view):
+    def __init__(self, cog, interaction: discord.Interaction, parent_view, group_id: int, group_name: str, members: list):
         super().__init__(timeout=900)
         self.cog = cog
         self.interaction = interaction
         self.parent_view = parent_view
+        self.group_id = group_id
+        self.group_name = group_name
+        self.members = members  # List of (user_id, username) tuples
 
-    def create_embed(self) -> discord.Embed:
+    async def create_embed(self) -> discord.Embed:
         """Create member management embed."""
         embed = discord.Embed(
-            title="👥 Group Member Management",
-            description="Add or remove users from groups",
+            title=f"👥 Managing Group: {self.group_name}",
+            description=f"Group ID: `{self.group_id}` | **{len(self.members)}** members",
             color=discord.Color.blue(),
             timestamp=discord.utils.utcnow(),
         )
 
-        embed.add_field(name="Add to Group", value="Add user to a group", inline=True)
-        embed.add_field(name="Remove from Group", value="Remove user from a group", inline=True)
-        embed.add_field(name="List User Groups", value="View user's groups", inline=True)
+        if self.members:
+            member_lines = [f"`{uid}` - {username}" for uid, username in self.members[:20]]
+            if len(self.members) > 20:
+                member_lines.append(f"... and {len(self.members) - 20} more")
+            embed.add_field(name="Current Members", value="\n".join(member_lines), inline=False)
+        else:
+            embed.add_field(name="Current Members", value="No members in this group", inline=False)
 
+        embed.set_footer(text="Use the buttons below to add or remove members")
         return embed
 
-    @discord.ui.button(label="Add to Group", style=discord.ButtonStyle.success, emoji="➕", row=0)
-    async def add_to_group(self, interaction: discord.Interaction, button: discord.ui.Button):
-        """Add user to group."""
-        modal = AddToGroupModal(self.cog)
+    @discord.ui.button(label="Add Member", style=discord.ButtonStyle.success, emoji="➕", row=0)
+    async def add_member(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Add member to group."""
+        modal = AddToGroupModal(self.cog, self, self.group_id, self.group_name)
         await interaction.response.send_modal(modal)
 
-    @discord.ui.button(label="Remove from Group", style=discord.ButtonStyle.danger, emoji="➖", row=0)
-    async def remove_from_group(self, interaction: discord.Interaction, button: discord.ui.Button):
-        """Remove user from group."""
-        modal = RemoveFromGroupModal(self.cog)
-        await interaction.response.send_modal(modal)
+    @discord.ui.button(label="Remove Member", style=discord.ButtonStyle.danger, emoji="➖", row=0)
+    async def remove_member(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Remove member from group."""
+        if not self.members:
+            await interaction.response.send_message("❌ No members to remove.", ephemeral=True)
+            return
+        view = MemberSelectView(self.cog, self, self.group_id, self.group_name, self.members)
+        await interaction.response.send_message("Select a member to remove:", view=view, ephemeral=True)
 
-    @discord.ui.button(label="List User Groups", style=discord.ButtonStyle.secondary, emoji="📋", row=0)
-    async def list_user_groups(self, interaction: discord.Interaction, button: discord.ui.Button):
-        """List groups for a user."""
-        modal = ListUserGroupsModal(self.cog)
-        await interaction.response.send_modal(modal)
+    @discord.ui.button(label="Refresh", style=discord.ButtonStyle.secondary, emoji="🔄", row=0)
+    async def refresh(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Refresh member list."""
+        await interaction.response.defer()
+
+        try:
+
+            @sync_to_async
+            def get_members():
+                try:
+                    group = Group.objects.get(id=self.group_id)
+                    return list(group.user_set.all().order_by("username").values_list("id", "username")), None
+                except Group.DoesNotExist:
+                    return None, "Group not found"
+
+            members, error = await get_members()
+
+            if error:
+                await interaction.followup.send(f"❌ {error}", ephemeral=True)
+                return
+
+            self.members = members
+            embed = await self.create_embed()
+            await interaction.followup.edit_message(message_id=interaction.message.id, embed=embed, view=self)
+
+        except Exception as e:
+            self.cog.logger.error(f"Error refreshing members: {e}", exc_info=True)
+            await interaction.followup.send(f"❌ Error: {e}", ephemeral=True)
 
     @discord.ui.button(label="Back", style=discord.ButtonStyle.secondary, emoji="⬅️", row=1)
     async def back(self, interaction: discord.Interaction, button: discord.ui.Button):
         """Return to group management."""
-        embed = self.parent_view.create_embed()
-        await interaction.response.edit_message(embed=embed, view=self.parent_view)
+        await interaction.response.defer()
+        embed = await self.parent_view.create_embed()
+        await self.parent_view.interaction.edit_original_response(embed=embed, view=self.parent_view)
+
+
+class MemberSelectView(discord.ui.View):
+    """View for selecting a member to remove."""
+
+    def __init__(self, cog, parent_view, group_id: int, group_name: str, members: list):
+        super().__init__(timeout=300)
+        self.cog = cog
+        self.parent_view = parent_view
+        self.group_id = group_id
+        self.group_name = group_name
+
+        # Add select menu
+        select = MemberSelect(cog, parent_view, group_id, group_name, members)
+        self.add_item(select)
+
+
+class MemberSelect(discord.ui.Select):
+    """Dropdown for selecting a member to remove."""
+
+    def __init__(self, cog, parent_view, group_id: int, group_name: str, members: list):
+        self.cog = cog
+        self.parent_view = parent_view
+        self.group_id = group_id
+        self.group_name = group_name
+
+        # Build options from members
+        options = []
+        for uid, username in members[:25]:  # Discord limit of 25 options
+            options.append(discord.SelectOption(label=username, value=str(uid), description=f"User ID: {uid}"))
+
+        super().__init__(
+            placeholder="Select a member to remove...",
+            min_values=1,
+            max_values=1,
+            options=options,
+        )
+
+    async def callback(self, interaction: discord.Interaction):
+        """Handle member removal."""
+        user_id = int(self.values[0])
+        await interaction.response.defer(ephemeral=True)
+
+        try:
+
+            @sync_to_async
+            def remove_user_from_group():
+                try:
+                    user = User.objects.get(id=user_id)
+                    group = Group.objects.get(id=self.group_id)
+
+                    if group not in user.groups.all():
+                        return None, None, f"User '{user.username}' is not in group '{group.name}'"
+
+                    user.groups.remove(group)
+                    return user, group, None
+                except User.DoesNotExist:
+                    return None, None, f"User with ID {user_id} not found"
+                except Group.DoesNotExist:
+                    return None, None, f"Group with ID {self.group_id} not found"
+
+            user, group, error = await remove_user_from_group()
+
+            if error:
+                await interaction.followup.send(f"❌ {error}", ephemeral=True)
+                return
+
+            embed = discord.Embed(
+                title="✅ Member Removed",
+                description=f"Successfully removed **{user.username}** from group **{group.name}**",
+                color=discord.Color.orange(),
+                timestamp=discord.utils.utcnow(),
+            )
+            embed.add_field(name="User ID", value=f"`{user.id}`")
+            embed.add_field(name="Group ID", value=f"`{group.id}`")
+
+            await interaction.followup.send(embed=embed, ephemeral=True)
+            self.cog.logger.info(f"Removed user '{user.username}' from group '{group.name}' by {interaction.user}")
+
+            # Refresh parent view
+            @sync_to_async
+            def get_updated_members():
+                group = Group.objects.get(id=self.group_id)
+                return list(group.user_set.all().order_by("username").values_list("id", "username"))
+
+            self.parent_view.members = await get_updated_members()
+            new_embed = await self.parent_view.create_embed()
+            await self.parent_view.interaction.edit_original_response(embed=new_embed, view=self.parent_view)
+
+        except Exception as e:
+            self.cog.logger.error(f"Error removing member: {e}", exc_info=True)
+            await interaction.followup.send(f"❌ Error: {e}", ephemeral=True)
 
 
 # ====================
@@ -384,9 +628,10 @@ class GroupMemberManagementView(discord.ui.View):
 class CreateGroupModal(discord.ui.Modal):
     """Modal for creating a new group."""
 
-    def __init__(self, cog):
+    def __init__(self, cog, parent_view):
         super().__init__(title="Create Django Group")
         self.cog = cog
+        self.parent_view = parent_view
 
         self.name_input = discord.ui.TextInput(label="Group Name", placeholder="Enter the group name", required=True, max_length=150)
         self.add_item(self.name_input)
@@ -423,81 +668,28 @@ class CreateGroupModal(discord.ui.Modal):
             await interaction.followup.send(embed=embed, ephemeral=True)
             self.cog.logger.info(f"Created group '{name}' (ID: {group.id}) by {interaction.user}")
 
+            # Refresh parent view
+            new_embed = await self.parent_view.create_embed()
+            await self.parent_view.interaction.edit_original_response(embed=new_embed, view=self.parent_view)
+
         except Exception as e:
             self.cog.logger.error(f"Error creating group: {e}", exc_info=True)
-            await interaction.followup.send(f"❌ Error: {e}", ephemeral=True)
-
-
-class GroupInfoModal(discord.ui.Modal):
-    """Modal for viewing group information."""
-
-    def __init__(self, cog):
-        super().__init__(title="View Group Information")
-        self.cog = cog
-
-        self.group_id_input = discord.ui.TextInput(label="Group ID", placeholder="Enter the group ID", required=True, max_length=10)
-        self.add_item(self.group_id_input)
-
-    async def on_submit(self, interaction: discord.Interaction):
-        """Handle group info display."""
-        await interaction.response.defer(ephemeral=True)
-
-        try:
-            group_id = int(self.group_id_input.value.strip())
-
-            @sync_to_async
-            def get_group_info():
-                try:
-                    group = Group.objects.get(id=group_id)
-                    users = list(group.user_set.all().order_by("username").values_list("id", "username"))
-                    permissions = list(group.permissions.all().values_list("codename", "name"))
-                    return group.name, users, permissions, None
-                except Group.DoesNotExist:
-                    return None, None, None, f"Group with ID {group_id} not found"
-
-            group_name, users, permissions, error = await get_group_info()
-
-            if error:
-                await interaction.followup.send(f"❌ {error}", ephemeral=True)
-                return
-
-            embed = discord.Embed(
-                title=f"Group: {group_name}", description=f"ID: `{group_id}`", color=discord.Color.blue(), timestamp=discord.utils.utcnow()
-            )
-
-            if users:
-                user_lines = [f"`{uid}` - {username}" for uid, username in users[:20]]
-                if len(users) > 20:
-                    user_lines.append(f"... and {len(users) - 20} more")
-                embed.add_field(name=f"Users ({len(users)})", value="\n".join(user_lines) if user_lines else "None", inline=False)
-            else:
-                embed.add_field(name="Users", value="No users in this group", inline=False)
-
-            if permissions:
-                perm_lines = [f"`{codename}`" for codename, name in permissions[:10]]
-                if len(permissions) > 10:
-                    perm_lines.append(f"... and {len(permissions) - 10} more")
-                embed.add_field(name=f"Permissions ({len(permissions)})", value="\n".join(perm_lines) if perm_lines else "None", inline=False)
-
-            await interaction.followup.send(embed=embed, ephemeral=True)
-
-        except ValueError:
-            await interaction.followup.send("❌ Invalid group ID", ephemeral=True)
-        except Exception as e:
-            self.cog.logger.error(f"Error getting group info: {e}", exc_info=True)
             await interaction.followup.send(f"❌ Error: {e}", ephemeral=True)
 
 
 class RenameGroupModal(discord.ui.Modal):
     """Modal for renaming a group."""
 
-    def __init__(self, cog):
+    def __init__(self, cog, parent_view, group_id: int):
         super().__init__(title="Rename Django Group")
         self.cog = cog
+        self.parent_view = parent_view
+        self.group_id = group_id
 
-        self.group_id_input = discord.ui.TextInput(label="Group ID", placeholder="Enter the group ID to rename", required=True, max_length=10)
-        self.new_name_input = discord.ui.TextInput(label="New Group Name", placeholder="Enter the new name", required=True, max_length=150)
-        self.add_item(self.group_id_input)
+        # Get current group name to pre-populate
+        self.new_name_input = discord.ui.TextInput(
+            label="New Group Name", placeholder="Enter the new name", required=True, max_length=150
+        )
         self.add_item(self.new_name_input)
 
     async def on_submit(self, interaction: discord.Interaction):
@@ -505,23 +697,22 @@ class RenameGroupModal(discord.ui.Modal):
         await interaction.response.defer(ephemeral=True)
 
         try:
-            group_id = int(self.group_id_input.value.strip())
             new_name = self.new_name_input.value.strip()
 
             @sync_to_async
             def rename_group():
                 try:
-                    group = Group.objects.get(id=group_id)
+                    group = Group.objects.get(id=self.group_id)
                     old_name = group.name
 
-                    if Group.objects.filter(name=new_name).exclude(id=group_id).exists():
+                    if Group.objects.filter(name=new_name).exclude(id=self.group_id).exists():
                         return None, None, f"Group with name '{new_name}' already exists"
 
                     group.name = new_name
                     group.save()
                     return old_name, new_name, None
                 except Group.DoesNotExist:
-                    return None, None, f"Group with ID {group_id} not found"
+                    return None, None, f"Group with ID {self.group_id} not found"
 
             old_name, new_name_result, error = await rename_group()
 
@@ -535,68 +726,17 @@ class RenameGroupModal(discord.ui.Modal):
                 color=discord.Color.green(),
                 timestamp=discord.utils.utcnow(),
             )
-            embed.add_field(name="Group ID", value=f"`{group_id}`")
+            embed.add_field(name="Group ID", value=f"`{self.group_id}`")
 
             await interaction.followup.send(embed=embed, ephemeral=True)
-            self.cog.logger.info(f"Renamed group '{old_name}' to '{new_name_result}' (ID: {group_id}) by {interaction.user}")
+            self.cog.logger.info(f"Renamed group '{old_name}' to '{new_name_result}' (ID: {self.group_id}) by {interaction.user}")
 
-        except ValueError:
-            await interaction.followup.send("❌ Invalid group ID", ephemeral=True)
+            # Refresh parent view
+            new_embed = await self.parent_view.create_embed()
+            await self.parent_view.interaction.edit_original_response(embed=new_embed, view=self.parent_view)
+
         except Exception as e:
             self.cog.logger.error(f"Error renaming group: {e}", exc_info=True)
-            await interaction.followup.send(f"❌ Error: {e}", ephemeral=True)
-
-
-class DeleteGroupModal(discord.ui.Modal):
-    """Modal for deleting a group."""
-
-    def __init__(self, cog):
-        super().__init__(title="Delete Django Group")
-        self.cog = cog
-
-        self.group_id_input = discord.ui.TextInput(label="Group ID", placeholder="Enter the group ID to delete", required=True, max_length=10)
-        self.add_item(self.group_id_input)
-
-    async def on_submit(self, interaction: discord.Interaction):
-        """Handle group deletion."""
-        await interaction.response.defer(ephemeral=True)
-
-        try:
-            group_id = int(self.group_id_input.value.strip())
-
-            @sync_to_async
-            def delete_group():
-                try:
-                    group = Group.objects.get(id=group_id)
-                    group_name = group.name
-                    user_count = group.user_set.count()
-                    group.delete()
-                    return group_name, user_count, None
-                except Group.DoesNotExist:
-                    return None, None, f"Group with ID {group_id} not found"
-
-            group_name, user_count, error = await delete_group()
-
-            if error:
-                await interaction.followup.send(f"❌ {error}", ephemeral=True)
-                return
-
-            embed = discord.Embed(
-                title="✅ Group Deleted",
-                description=f"Successfully deleted group **{group_name}**",
-                color=discord.Color.red(),
-                timestamp=discord.utils.utcnow(),
-            )
-            embed.add_field(name="Group ID", value=f"`{group_id}`")
-            embed.add_field(name="Users Affected", value=str(user_count))
-
-            await interaction.followup.send(embed=embed, ephemeral=True)
-            self.cog.logger.info(f"Deleted group '{group_name}' (ID: {group_id}) by {interaction.user}")
-
-        except ValueError:
-            await interaction.followup.send("❌ Invalid group ID", ephemeral=True)
-        except Exception as e:
-            self.cog.logger.error(f"Error deleting group: {e}", exc_info=True)
             await interaction.followup.send(f"❌ Error: {e}", ephemeral=True)
 
 
@@ -770,14 +910,17 @@ class CreateUserModal(discord.ui.Modal):
 class AddToGroupModal(discord.ui.Modal):
     """Modal for adding a user to a group."""
 
-    def __init__(self, cog):
-        super().__init__(title="Add User to Group")
+    def __init__(self, cog, parent_view, group_id: int, group_name: str):
+        super().__init__(title=f"Add Member to {group_name}")
         self.cog = cog
+        self.parent_view = parent_view
+        self.group_id = group_id
+        self.group_name = group_name
 
-        self.username_input = discord.ui.TextInput(label="Username", placeholder="Enter the Django username", required=True, max_length=150)
-        self.group_id_input = discord.ui.TextInput(label="Group ID", placeholder="Enter the group ID", required=True, max_length=10)
+        self.username_input = discord.ui.TextInput(
+            label="Username", placeholder="Enter the Django username", required=True, max_length=150
+        )
         self.add_item(self.username_input)
-        self.add_item(self.group_id_input)
 
     async def on_submit(self, interaction: discord.Interaction):
         """Handle adding user to group."""
@@ -785,13 +928,12 @@ class AddToGroupModal(discord.ui.Modal):
 
         try:
             username = self.username_input.value.strip()
-            group_id = int(self.group_id_input.value.strip())
 
             @sync_to_async
             def add_user_to_group():
                 try:
                     user = User.objects.get(username=username)
-                    group = Group.objects.get(id=group_id)
+                    group = Group.objects.get(id=self.group_id)
 
                     if group in user.groups.all():
                         return None, None, f"User '{username}' is already in group '{group.name}'"
@@ -801,7 +943,7 @@ class AddToGroupModal(discord.ui.Modal):
                 except User.DoesNotExist:
                     return None, None, f"User '{username}' not found"
                 except Group.DoesNotExist:
-                    return None, None, f"Group with ID {group_id} not found"
+                    return None, None, f"Group with ID {self.group_id} not found"
 
             user, group, error = await add_user_to_group()
 
@@ -810,7 +952,7 @@ class AddToGroupModal(discord.ui.Modal):
                 return
 
             embed = discord.Embed(
-                title="✅ User Added to Group",
+                title="✅ Member Added",
                 description=f"Successfully added **{user.username}** to group **{group.name}**",
                 color=discord.Color.green(),
                 timestamp=discord.utils.utcnow(),
@@ -821,123 +963,18 @@ class AddToGroupModal(discord.ui.Modal):
             await interaction.followup.send(embed=embed, ephemeral=True)
             self.cog.logger.info(f"Added user '{username}' to group '{group.name}' by {interaction.user}")
 
-        except ValueError:
-            await interaction.followup.send("❌ Invalid group ID", ephemeral=True)
+            # Refresh parent view
+            @sync_to_async
+            def get_updated_members():
+                group = Group.objects.get(id=self.group_id)
+                return list(group.user_set.all().order_by("username").values_list("id", "username"))
+
+            self.parent_view.members = await get_updated_members()
+            new_embed = await self.parent_view.create_embed()
+            await self.parent_view.interaction.edit_original_response(embed=new_embed, view=self.parent_view)
+
         except Exception as e:
             self.cog.logger.error(f"Error adding user to group: {e}", exc_info=True)
-            await interaction.followup.send(f"❌ Error: {e}", ephemeral=True)
-
-
-class RemoveFromGroupModal(discord.ui.Modal):
-    """Modal for removing a user from a group."""
-
-    def __init__(self, cog):
-        super().__init__(title="Remove User from Group")
-        self.cog = cog
-
-        self.username_input = discord.ui.TextInput(label="Username", placeholder="Enter the Django username", required=True, max_length=150)
-        self.group_id_input = discord.ui.TextInput(label="Group ID", placeholder="Enter the group ID", required=True, max_length=10)
-        self.add_item(self.username_input)
-        self.add_item(self.group_id_input)
-
-    async def on_submit(self, interaction: discord.Interaction):
-        """Handle removing user from group."""
-        await interaction.response.defer(ephemeral=True)
-
-        try:
-            username = self.username_input.value.strip()
-            group_id = int(self.group_id_input.value.strip())
-
-            @sync_to_async
-            def remove_user_from_group():
-                try:
-                    user = User.objects.get(username=username)
-                    group = Group.objects.get(id=group_id)
-
-                    if group not in user.groups.all():
-                        return None, None, f"User '{username}' is not in group '{group.name}'"
-
-                    user.groups.remove(group)
-                    return user, group, None
-                except User.DoesNotExist:
-                    return None, None, f"User '{username}' not found"
-                except Group.DoesNotExist:
-                    return None, None, f"Group with ID {group_id} not found"
-
-            user, group, error = await remove_user_from_group()
-
-            if error:
-                await interaction.followup.send(f"❌ {error}", ephemeral=True)
-                return
-
-            embed = discord.Embed(
-                title="✅ User Removed from Group",
-                description=f"Successfully removed **{user.username}** from group **{group.name}**",
-                color=discord.Color.orange(),
-                timestamp=discord.utils.utcnow(),
-            )
-            embed.add_field(name="User ID", value=f"`{user.id}`")
-            embed.add_field(name="Group ID", value=f"`{group.id}`")
-
-            await interaction.followup.send(embed=embed, ephemeral=True)
-            self.cog.logger.info(f"Removed user '{username}' from group '{group.name}' by {interaction.user}")
-
-        except ValueError:
-            await interaction.followup.send("❌ Invalid group ID", ephemeral=True)
-        except Exception as e:
-            self.cog.logger.error(f"Error removing user from group: {e}", exc_info=True)
-            await interaction.followup.send(f"❌ Error: {e}", ephemeral=True)
-
-
-class ListUserGroupsModal(discord.ui.Modal):
-    """Modal for listing a user's groups."""
-
-    def __init__(self, cog):
-        super().__init__(title="List User's Groups")
-        self.cog = cog
-
-        self.username_input = discord.ui.TextInput(label="Username", placeholder="Enter the Django username", required=True, max_length=150)
-        self.add_item(self.username_input)
-
-    async def on_submit(self, interaction: discord.Interaction):
-        """Handle listing user groups."""
-        await interaction.response.defer(ephemeral=True)
-
-        try:
-            username = self.username_input.value.strip()
-
-            @sync_to_async
-            def get_user_groups():
-                try:
-                    user = User.objects.get(username=username)
-                    groups = list(user.groups.all().order_by("name").values_list("id", "name"))
-                    return user.id, groups, None
-                except User.DoesNotExist:
-                    return None, None, f"User '{username}' not found"
-
-            user_id, groups, error = await get_user_groups()
-
-            if error:
-                await interaction.followup.send(f"❌ {error}", ephemeral=True)
-                return
-
-            embed = discord.Embed(
-                title=f"Groups for user: {username}",
-                description=f"User ID: `{user_id}`",
-                color=discord.Color.blue(),
-                timestamp=discord.utils.utcnow(),
-            )
-
-            if groups:
-                group_lines = [f"`{gid}` - {name}" for gid, name in groups]
-                embed.add_field(name=f"Groups ({len(groups)})", value="\n".join(group_lines), inline=False)
-            else:
-                embed.add_field(name="Groups", value="User is not in any groups", inline=False)
-
-            await interaction.followup.send(embed=embed, ephemeral=True)
-
-        except Exception as e:
-            self.cog.logger.error(f"Error listing user groups: {e}", exc_info=True)
             await interaction.followup.send(f"❌ Error: {e}", ephemeral=True)
 
 
