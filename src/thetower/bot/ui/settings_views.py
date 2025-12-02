@@ -102,6 +102,11 @@ class BotOwnerSettingsView(View):
         cog_mgmt_btn.callback = self.show_cog_management
         self.add_item(cog_mgmt_btn)
 
+        # Cog reload button (quick access)
+        cog_reload_btn = Button(label="Cog Reload", style=discord.ButtonStyle.secondary, emoji="🔄", custom_id="cog_reload")
+        cog_reload_btn.callback = self.show_cog_reload
+        self.add_item(cog_reload_btn)
+
         # Error log channel button
         error_channel_btn = Button(label="Set Error Channel", style=discord.ButtonStyle.secondary, emoji="📝", custom_id="set_error_channel")
         error_channel_btn.callback = self.set_error_channel
@@ -116,6 +121,12 @@ class BotOwnerSettingsView(View):
         """Show the default prefix management interface."""
         # Create prefix management view
         view = BotPrefixManagementView()
+        await view.update_display(interaction)
+
+    async def show_cog_reload(self, interaction: discord.Interaction):
+        """Show the quick cog reload interface."""
+        # Create cog reload view
+        view = CogReloadView()
         await view.update_display(interaction)
 
     async def show_cog_management(self, interaction: discord.Interaction):
@@ -2164,6 +2175,153 @@ class BotPrefixModal(ui.Modal, title="Manage Bot Prefix"):
         await interaction.response.send_message(
             f"✅ Bot prefix {action}\n\n*Click 'Refresh' in the prefix management view to see the updated list.*", ephemeral=True
         )
+
+
+class CogReloadView(View):
+    """Quick reload view for loaded cogs."""
+
+    def __init__(self):
+        super().__init__(timeout=900)
+        self.selected_cog = None
+
+        # Cog selector dropdown (only loaded cogs)
+        self.cog_select = ui.Select(
+            placeholder="Select a cog to reload...",
+            options=[discord.SelectOption(label="Loading...", value="loading", description="Please wait...")],
+            custom_id="reload_cog_selector",
+        )
+        self.cog_select.callback = self.select_cog
+        self.add_item(self.cog_select)
+
+        # Reload button
+        self.reload_btn = Button(label="Reload Cog", style=discord.ButtonStyle.primary, emoji="🔄", custom_id="reload_selected_cog", disabled=True)
+        self.reload_btn.callback = self.reload_selected_cog
+        self.add_item(self.reload_btn)
+
+        # Back button
+        back_btn = Button(label="Back", style=discord.ButtonStyle.gray, emoji="⬅️", custom_id="back_to_bot_settings")
+        back_btn.callback = self.back_to_bot_settings
+        self.add_item(back_btn)
+
+    async def update_display(self, interaction: discord.Interaction):
+        """Update the display with current loaded cogs."""
+        bot = interaction.client
+
+        # Get only loaded cogs
+        loaded_cogs = []
+        for extension_name in bot.extensions:
+            if extension_name.startswith("thetower.bot.cogs."):
+                cog_name = extension_name.replace("thetower.bot.cogs.", "")
+                loaded_cogs.append(cog_name)
+
+        # Populate dropdown
+        self.cog_select.options = []
+        if loaded_cogs:
+            for cog_name in sorted(loaded_cogs):
+                option = discord.SelectOption(label=cog_name, value=cog_name, description="🟢 Loaded", emoji="🔄")
+                self.cog_select.options.append(option)
+            self.cog_select.disabled = False
+        else:
+            # No loaded cogs
+            option = discord.SelectOption(label="No cogs loaded", value="none", description="No cogs are currently loaded")
+            self.cog_select.options.append(option)
+            self.cog_select.disabled = True
+
+        # Create embed
+        embed = discord.Embed(
+            title="🔄 Quick Cog Reload", description="Select a loaded cog from the dropdown and click Reload.", color=discord.Color.green()
+        )
+
+        if loaded_cogs:
+            cog_list = "\n".join([f"🟢 `{cog}`" for cog in sorted(loaded_cogs)])
+            embed.add_field(name=f"Loaded Cogs ({len(loaded_cogs)})", value=cog_list, inline=False)
+        else:
+            embed.add_field(name="No Loaded Cogs", value="No cogs are currently loaded.", inline=False)
+
+        # Show selected cog if any
+        if self.selected_cog:
+            embed.add_field(name="Selected", value=f"🔄 `{self.selected_cog}` - Ready to reload", inline=False)
+
+        try:
+            await interaction.response.edit_message(embed=embed, view=self)
+        except discord.NotFound:
+            # Interaction expired
+            pass
+
+    async def select_cog(self, interaction: discord.Interaction):
+        """Handle cog selection from dropdown."""
+        selected_value = self.cog_select.values[0] if self.cog_select.values else None
+        if selected_value in ["none", "loading"]:
+            self.selected_cog = None
+            self.reload_btn.disabled = True
+        else:
+            self.selected_cog = selected_value
+            self.reload_btn.disabled = False
+        await self.update_display(interaction)
+
+    async def reload_selected_cog(self, interaction: discord.Interaction):
+        """Reload the selected cog."""
+        if not self.selected_cog:
+            await interaction.response.send_message("❌ No cog selected.", ephemeral=True)
+            return
+
+        await interaction.response.defer()
+
+        bot = interaction.client
+        success = await bot.cog_manager.reload_cog(self.selected_cog)
+
+        # Create result embed
+        if success:
+            embed = discord.Embed(title="✅ Cog Reloaded", description=f"Successfully reloaded `{self.selected_cog}`", color=discord.Color.green())
+        else:
+            embed = discord.Embed(
+                title="❌ Reload Failed", description=f"Failed to reload `{self.selected_cog}`. Check logs for details.", color=discord.Color.red()
+            )
+
+        # Clear selection
+        self.selected_cog = None
+        self.reload_btn.disabled = True
+
+        # Update the view
+        loaded_cogs = []
+        for extension_name in bot.extensions:
+            if extension_name.startswith("thetower.bot.cogs."):
+                cog_name = extension_name.replace("thetower.bot.cogs.", "")
+                loaded_cogs.append(cog_name)
+
+        if loaded_cogs:
+            cog_list = "\n".join([f"🟢 `{cog}`" for cog in sorted(loaded_cogs)])
+            embed.add_field(name=f"Loaded Cogs ({len(loaded_cogs)})", value=cog_list, inline=False)
+
+        await interaction.followup.edit_message(message_id=interaction.message.id, embed=embed, view=self)
+
+    async def back_to_bot_settings(self, interaction: discord.Interaction):
+        """Return to bot settings view."""
+        view = BotOwnerSettingsView()
+
+        embed = discord.Embed(title="🤖 Bot Settings", description="Global bot configuration", color=discord.Color.blue())
+
+        bot = interaction.client
+
+        # Basic bot info
+        embed.add_field(
+            name="Bot Information", value=f"**Name:** {bot.user.name}\n**ID:** {bot.user.id}\n**Servers:** {len(bot.guilds)}", inline=False
+        )
+
+        # Configuration settings
+        default_prefixes = bot.config.get("prefixes", [])
+        prefix_display = ", ".join([f"`{p}`" for p in default_prefixes]) if default_prefixes else "None configured"
+        error_channel_id = bot.config.get("error_log_channel", None)
+        error_channel = bot.get_channel(int(error_channel_id)) if error_channel_id else None
+
+        config_info = [
+            f"**Default Prefixes:** {prefix_display}",
+            f"**Error Log Channel:** {error_channel.mention if error_channel else 'Not set'}",
+            f"**Load All Cogs:** {'Yes' if bot.config.get('load_all_cogs', False) else 'No'}",
+        ]
+        embed.add_field(name="Configuration", value="\n".join(config_info), inline=False)
+
+        await interaction.response.edit_message(embed=embed, view=view)
 
 
 class CogManagementView(View):
