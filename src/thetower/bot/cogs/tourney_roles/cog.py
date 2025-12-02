@@ -646,9 +646,22 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
             return False
 
         async with self.task_tracker.task_context("Role Calculation", "Calculating tournament roles"):
+            start_time = datetime.datetime.now(datetime.timezone.utc)
+            calculation_message = None
+            
             try:
                 self.currently_calculating = True
                 self.logger.info("Starting role calculation phase")
+                
+                # Send notification to log channel
+                log_channel_id = self.get_setting("log_channel_id", guild_id=self.bot.guilds[0].id if self.bot.guilds else None)
+                if log_channel_id:
+                    try:
+                        channel = self.bot.get_channel(int(log_channel_id))
+                        if channel:
+                            calculation_message = await channel.send("🔄 Starting tournament role calculation...")
+                    except Exception as e:
+                        self.logger.error(f"Error sending calculation start message: {e}")
 
                 # Get enabled guilds for this cog
                 enabled_guilds = []
@@ -697,10 +710,29 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
 
                 self.calculation_complete = True
                 self.logger.info("Role calculation phase completed successfully")
+                
+                # Update the calculation message with completion status
+                if calculation_message:
+                    try:
+                        duration = (datetime.datetime.now(datetime.timezone.utc) - start_time).total_seconds()
+                        total_users = sum(len(roles) for roles in self.calculated_roles.values())
+                        await calculation_message.edit(content=f"✅ Tournament role calculation completed in {duration:.1f}s ({total_users} users processed)")
+                    except Exception as e:
+                        self.logger.error(f"Error updating calculation message: {e}")
+                
                 return True
 
             except Exception as e:
                 self.logger.error(f"Error during role calculation: {e}")
+                
+                # Update message with error status
+                if calculation_message:
+                    try:
+                        duration = (datetime.datetime.now(datetime.timezone.utc) - start_time).total_seconds()
+                        await calculation_message.edit(content=f"❌ Tournament role calculation failed after {duration:.1f}s: {str(e)}")
+                    except Exception as edit_error:
+                        self.logger.error(f"Error updating calculation error message: {edit_error}")
+                
                 return False
             finally:
                 self.currently_calculating = False
