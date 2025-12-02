@@ -417,8 +417,8 @@ class TourneyStats(BaseCog, name="Tourney Stats"):
                 # Calculate and store league stats
                 batch_stats[player_id][league_name] = self._calculate_league_stats(player_df, league_name)
 
-            # Yield control periodically to avoid blocking
-            await asyncio.sleep(0)
+                # Yield control after each player to avoid blocking
+                await asyncio.sleep(0)
 
         return batch_stats
 
