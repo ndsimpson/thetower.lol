@@ -192,9 +192,9 @@ class BattleConditions(BaseCog, name="Battle Conditions"):
                             continue
 
                         # Get schedule timing
-                        hour = schedule.get("hour", self.default_settings.get("notification_hour", 0))
-                        minute = schedule.get("minute", self.default_settings.get("notification_minute", 0))
-                        days_before = schedule.get("days_before", self.default_settings.get("days_before_notification", 1))
+                        hour = schedule.get("hour", self.guild_settings["notification_hour"])
+                        minute = schedule.get("minute", self.guild_settings["notification_minute"])
+                        days_before = schedule.get("days_before", self.guild_settings["days_before_notification"])
 
                         # Check if this schedule should run now
                         time_match = current_hour == hour and (current_minute >= minute and current_minute < minute + 1)
