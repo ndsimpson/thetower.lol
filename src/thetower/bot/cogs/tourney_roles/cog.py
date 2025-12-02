@@ -1378,6 +1378,61 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
         except Exception as e:
             self.logger.error(f"Error in on_member_update: {e}")
 
+    @discord.ext.commands.Cog.listener()
+    async def on_tourney_data_refreshed(self, data: dict):
+        """Called when TourneyStats has refreshed its tournament data.
+        
+        This event is dispatched by the TourneyStats cog when it detects
+        new tournament data and refreshes its cache.
+        
+        Args:
+            data: Dictionary containing:
+                - latest_date: The newest tournament date
+                - patch: Current game patch
+                - total_tournaments: Total number of tournaments
+                - league_counts: Tournament counts per league
+        """
+        try:
+            latest_date = data.get('latest_date')
+            self.logger.info(f"Received tourney_data_refreshed event for date: {latest_date}")
+            
+            # Check if this is actually newer than our cache
+            if self.cache_latest_tourney_date and latest_date:
+                if latest_date <= self.cache_latest_tourney_date:
+                    self.logger.debug(f"Event date {latest_date} not newer than cache {self.cache_latest_tourney_date}, ignoring")
+                    return
+            
+            # Invalidate our role cache
+            self.logger.info("Invalidating role cache due to new tournament data")
+            self.cache_latest_tourney_date = None
+            self.cache_timestamp = None
+            
+            # If we're not currently updating, trigger a recalculation
+            if not self.currently_updating:
+                self.logger.info("Triggering role recalculation for new tournament data")
+                
+                # Check if updates are paused
+                if self.get_setting("pause", guild_id=self.bot.guilds[0].id if self.bot.guilds else None):
+                    self.logger.info("Role updates are paused, skipping automatic recalculation")
+                    return
+                
+                # Trigger calculation phase (not full update with application)
+                # This will recalculate roles but won't apply them until the next scheduled update
+                # or manual trigger. This prevents too many role changes in quick succession.
+                calc_success = await self.calculate_all_roles()
+                if calc_success:
+                    self.logger.info("Role recalculation completed successfully")
+                    # Mark data as modified and save
+                    self.mark_data_modified()
+                    await self.save_data()
+                else:
+                    self.logger.warning("Role recalculation failed")
+            else:
+                self.logger.info("Role update already in progress, skipping event-triggered recalculation")
+                
+        except Exception as e:
+            self.logger.error(f"Error handling tourney_data_refreshed event: {e}", exc_info=True)
+
     async def refresh_user_roles_for_user(self, user_id: int, guild_id: int) -> str:
         """Public method for other cogs to refresh tournament roles for a specific user.
 
