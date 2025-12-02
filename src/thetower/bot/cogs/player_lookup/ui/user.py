@@ -94,8 +94,11 @@ class UserInteractions:
         basic_info_parts = [
             f"**Name:** {details['name'] or 'Not set'}",
             f"**Discord:** {discord_display}",
-            f"**Creator Code:** {details.get('creator_code') or 'Not set'}",
         ]
+
+        # Only show creator code if it exists
+        if details.get("creator_code"):
+            basic_info_parts.append(f"**Creator Code:** {details['creator_code']}")
 
         embed.add_field(
             name="Basic Info",
