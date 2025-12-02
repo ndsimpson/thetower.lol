@@ -885,12 +885,15 @@ class CogManager:
         if target_cog not in self.ui_extension_registry:
             self.ui_extension_registry[target_cog] = []
 
-        # Remove any existing registration from this source cog to avoid duplicates
-        self.ui_extension_registry[target_cog] = [(src, provider) for src, provider in self.ui_extension_registry[target_cog] if src != source_cog]
+        # Remove any existing registration of this SPECIFIC provider function to avoid duplicates
+        # (but keep other providers from the same source cog)
+        self.ui_extension_registry[target_cog] = [
+            (src, provider) for src, provider in self.ui_extension_registry[target_cog] if not (src == source_cog and provider == provider_func)
+        ]
 
         # Add the new registration
         self.ui_extension_registry[target_cog].append((source_cog, provider_func))
-        logger.debug(f"Registered UI extension from '{source_cog}' for target cog '{target_cog}'")
+        logger.debug(f"Registered UI extension from '{source_cog}' for target cog '{target_cog}' (function: {provider_func.__name__})")
 
     def get_ui_extensions(self, target_cog: str) -> list:
         """Get all registered UI extension provider functions for a target cog.
