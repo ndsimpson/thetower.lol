@@ -159,7 +159,9 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
                     datetime.datetime.fromisoformat(save_data["cache_latest_tourney_date"]) if save_data.get("cache_latest_tourney_date") else None
                 )
 
-                self.logger.info("Loaded tournament role data")
+                self.logger.info(
+                    f"Loaded tournament role data - last_full_update: {self.last_full_update}, cache_latest_tourney_date: {self.cache_latest_tourney_date}"
+                )
                 return True
 
             self.logger.info("No saved tournament role data found")
