@@ -282,6 +282,10 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
                 self.logger.info("No tournament data loaded in TourneyStats yet")
                 return
 
+            # Normalize to datetime for comparison (TourneyStats stores as date, we store as datetime)
+            if isinstance(latest_tourney_date, datetime.date) and not isinstance(latest_tourney_date, datetime.datetime):
+                latest_tourney_date = datetime.datetime.combine(latest_tourney_date, datetime.time.max, tzinfo=datetime.timezone.utc)
+
             # Compare with our cached date
             if self.cache_latest_tourney_date is None:
                 # No cache, we'll need to calculate on first update
