@@ -4,7 +4,7 @@ import datetime
 import logging
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any, Callable, Dict, Optional, Union
+from typing import Any, Dict, Optional, Union
 
 # Third-party imports
 import discord
@@ -42,7 +42,6 @@ class BaseCog(commands.Cog):
         super().__init__()  # Initialize commands.Cog
         self.bot = bot
         self.config = ConfigManager()
-        self._guild = None  # Cache for guild object
         self._cog_data_directory = None  # Cache for cog data directory
         self._has_errors = False  # Track if the cog has errors
         self._last_operation = None  # Track the last operation time
@@ -239,19 +238,9 @@ class BaseCog(commands.Cog):
         else:
             self._ready.clear()
 
-    def set_ready_timeout(self, timeout: float) -> None:
-        """
-        Set the timeout for the ready event.
-
-        Args:
-            timeout: Timeout in seconds
-        """
-        self._ready_timeout = timeout
-
     async def on_reconnect(self):
-        """Reset the guild cache when the bot reconnects."""
-        self._guild = None
-        self.logger.debug(f"Guild cache reset for {self.__class__.__name__}")
+        """Called when the bot reconnects to Discord."""
+        self.logger.debug(f"Reconnected for {self.__class__.__name__}")
 
     @property
     def cog_name(self) -> str:
@@ -276,15 +265,6 @@ class BaseCog(commands.Cog):
         if self._cog_data_directory is None:
             self._cog_data_directory = self.config.get_cog_data_directory(self.cog_name)
         return self._cog_data_directory
-
-    def load_command_permissions(self) -> Dict[str, Any]:
-        """Load command permissions from configuration."""
-        try:
-            permissions = self.config.get("command_permissions", {"commands": {}})
-            return permissions
-        except Exception as e:
-            self.logger.error(f"Failed to load command permissions: {e}")
-            return {"commands": {}}
 
     def get_command_name(self, ctx: Context) -> str:
         """Get the full command name including parent commands."""
@@ -373,10 +353,6 @@ class BaseCog(commands.Cog):
             elif isinstance(e, ChannelUnauthorized):
                 await interaction.response.send_message("❌ This command cannot be used in this channel.", ephemeral=True)
             return False
-
-    def reload_permissions(self) -> None:
-        """Reload permissions from file."""
-        self._permissions = self.load_command_permissions()
 
     # Cog settings methods
 
@@ -712,31 +688,6 @@ class BaseCog(commands.Cog):
         self._save_tasks.clear()
 
     # ----- Utility Methods -----
-
-    # Utility method to get common time-based validators
-    def get_time_validators(self, min_seconds=60) -> Dict[str, Callable]:
-        """
-        Get common validators for time-based settings.
-
-        Args:
-            min_seconds: Minimum allowed seconds
-
-        Returns:
-            Dict of validator functions for time settings
-        """
-
-        def time_validator(value):
-            if not isinstance(value, (int, float)):
-                return "Value must be a number"
-            if value < min_seconds:
-                return f"Value must be at least {min_seconds} seconds"
-            return True
-
-        return {
-            name: time_validator
-            for name in self.get_all_settings().keys()
-            if name.endswith(("_interval", "_threshold", "_timeout", "_delay", "_duration"))
-        }
 
     def format_time_value(self, seconds: int) -> str:
         """Format seconds into a human-readable string.
