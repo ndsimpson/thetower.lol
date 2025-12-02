@@ -34,10 +34,10 @@ class UserRoleManagementView(ui.View):
         # Get player data
         try:
             player_lookup_cog = self.cog.bot.get_cog("Player Lookup")
+            player_data = None
             if player_lookup_cog:
                 discord_mapping = await player_lookup_cog.get_discord_to_player_mapping(str(member.id))
-                if discord_mapping:
-                    player_data = discord_mapping
+                player_data = discord_mapping.get(str(member.id)) if discord_mapping else None
 
                 if player_data:
                     primary_id = player_data.get("primary_id", "None")

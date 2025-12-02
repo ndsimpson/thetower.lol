@@ -222,7 +222,11 @@ class TourneyStats(BaseCog, name="Tourney Stats"):
                 self.tournament_counts = save_data.get("tournament_counts", {})
                 self.total_tournaments = save_data.get("total_tournaments", 0)
 
+                # Log details for diagnosis
                 self.logger.info(f"Loaded tournament data from {self.cache_file} (latest tournament: {self.latest_tournament_date})")
+                if self.latest_tournament_date is None:
+                    self.logger.warning(f"latest_tournament_date is None in saved data. Keys in save_data: {list(save_data.keys())}")
+                    self.logger.info("Will fetch latest_tournament_date from database on next data load")
                 return True
 
             self.logger.info("No saved tournament data found, starting fresh")
@@ -268,6 +272,8 @@ class TourneyStats(BaseCog, name="Tourney Stats"):
                 self.latest_tournament_date = await self.get_latest_tournament_date_from_db()
                 if self.latest_tournament_date:
                     self.logger.info(f"Latest tournament date: {self.latest_tournament_date}")
+                else:
+                    self.logger.warning("No tournament date found in database - this may indicate no tournaments exist")
 
                 self.task_tracker.update_task_status(task_name, "Getting excluded player IDs...")
                 # Get sus IDs to filter out. The bot respects its own repo-root flag

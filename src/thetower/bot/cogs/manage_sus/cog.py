@@ -139,7 +139,7 @@ class ManageSus(BaseCog, name="Manage Sus"):
             self.logger.info(f"User groups: {user_groups}")
 
             # Get allowed view groups from settings
-            view_groups = self.config.get_global_cog_setting("manage_sus", "view_groups", self.default_settings["view_groups"])
+            view_groups = self.config.get_global_cog_setting("manage_sus", "view_groups", self.global_settings["view_groups"])
             self.logger.info(f"Required view groups: {view_groups}")
 
             # Check if user is in any of the allowed groups
@@ -186,7 +186,7 @@ class ManageSus(BaseCog, name="Manage Sus"):
             self.logger.info(f"User groups: {user_groups}")
 
             # Get allowed manage groups from settings
-            manage_groups = self.config.get_global_cog_setting("manage_sus", "manage_groups", self.default_settings["manage_groups"])
+            manage_groups = self.config.get_global_cog_setting("manage_sus", "manage_groups", self.global_settings["manage_groups"])
             self.logger.info(f"Required manage groups: {manage_groups}")
 
             # Check if user is in any of the allowed groups
@@ -297,21 +297,21 @@ class ManageSus(BaseCog, name="Manage Sus"):
     def privileged_groups_for_full_ids(self) -> List[str]:
         """Get the list of Django groups that can see all player IDs."""
         return self.config.get_global_cog_setting(
-            "manage_sus", "privileged_groups_for_full_ids", self.default_settings["privileged_groups_for_full_ids"]
+            "manage_sus", "privileged_groups_for_full_ids", self.global_settings["privileged_groups_for_full_ids"]
         )
 
     @property
     def show_moderation_records_in_profiles(self) -> bool:
         """Get whether moderation records should be shown in profiles."""
         return self.config.get_global_cog_setting(
-            "manage_sus", "show_moderation_records_in_profiles", self.default_settings["show_moderation_records_in_profiles"]
+            "manage_sus", "show_moderation_records_in_profiles", self.global_settings["show_moderation_records_in_profiles"]
         )
 
     @property
     def privileged_groups_for_moderation_records(self) -> List[str]:
         """Get the list of Django groups that can see moderation records in profiles."""
         return self.config.get_global_cog_setting(
-            "manage_sus", "privileged_groups_for_moderation_records", self.default_settings["privileged_groups_for_moderation_records"]
+            "manage_sus", "privileged_groups_for_moderation_records", self.global_settings["privileged_groups_for_moderation_records"]
         )
 
 

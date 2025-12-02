@@ -410,7 +410,9 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
 
         latest_tourney_date = None
         processed_count = 0
+        loop_start_time = datetime.datetime.now(datetime.timezone.utc)
 
+        self.logger.info(f"[LOOP START] calculate_all_user_roles: Processing {len(discord_to_player)} users")
         for discord_id, player_data in discord_to_player.items():
             try:
                 if "all_ids" not in player_data or not player_data["all_ids"]:
@@ -441,10 +443,15 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
 
                 user_roles[str(discord_id)] = best_role_id
 
-                # Yield control to event loop every 10 users to prevent heartbeat blocking
+                # Yield control to event loop after each user to prevent blocking
                 processed_count += 1
-                if processed_count % 10 == 0:
-                    await asyncio.sleep(0)
+                await asyncio.sleep(0)
+
+                # Log progress every 100 users
+                if processed_count % 100 == 0:
+                    elapsed = (datetime.datetime.now(datetime.timezone.utc) - loop_start_time).total_seconds()
+                    rate = processed_count / elapsed if elapsed > 0 else 0
+                    self.logger.info(f"[LOOP PROGRESS] calculate_all_user_roles: {processed_count}/{len(discord_to_player)} users ({rate:.1f} users/sec)")
 
             except Exception as e:
                 self.logger.error(f"Error calculating role for user {discord_id}: {e}")
@@ -454,7 +461,9 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
         self.cache_timestamp = datetime.datetime.now(datetime.timezone.utc)
         self.cache_latest_tourney_date = latest_tourney_date
 
-        self.logger.info(f"Calculated roles for {len(user_roles)} users in guild {guild_id}, latest tournament date: {latest_tourney_date}")
+        loop_duration = (datetime.datetime.now(datetime.timezone.utc) - loop_start_time).total_seconds()
+        rate = len(user_roles) / loop_duration if loop_duration > 0 else 0
+        self.logger.info(f"[LOOP END] calculate_all_user_roles: Calculated roles for {len(user_roles)} users in {loop_duration:.1f}s ({rate:.1f} users/sec), latest tournament date: {latest_tourney_date}")
         return user_roles
 
     async def get_discord_to_player_mapping(self):
@@ -798,6 +807,8 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
         all_managed_role_ids = set(config.id for config in roles_config.values())
 
         # Process each user individually with member.edit()
+        loop_start_time = datetime.datetime.now(datetime.timezone.utc)
+        self.logger.info(f"[LOOP START] update_guild_roles_bulk: Processing {len(user_roles)} users for guild {guild.name}")
         for discord_id_str, calculated_role_id in user_roles.items():
             discord_id = int(discord_id_str)
             member = guild.get_member(discord_id)
@@ -872,6 +883,9 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
             # Yield control to the event loop
             await asyncio.sleep(0)
 
+        loop_duration = (datetime.datetime.now(datetime.timezone.utc) - loop_start_time).total_seconds()
+        rate = len(user_roles) / loop_duration if loop_duration > 0 else 0
+        self.logger.info(f"[LOOP END] update_guild_roles_bulk: Completed processing {len(user_roles)} users in {loop_duration:.1f}s ({rate:.1f} users/sec) for guild {guild.name}")
         return log_messages
 
     async def bulk_add_role(self, role, members: list, batch_size: int, batch_delay: float, dry_run: bool):
