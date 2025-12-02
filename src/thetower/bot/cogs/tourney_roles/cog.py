@@ -286,13 +286,18 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
             if isinstance(latest_tourney_date, datetime.date) and not isinstance(latest_tourney_date, datetime.datetime):
                 latest_tourney_date = datetime.datetime.combine(latest_tourney_date, datetime.time.max, tzinfo=datetime.timezone.utc)
 
+            # Ensure cached date is timezone-aware for comparison
+            cached_date = self.cache_latest_tourney_date
+            if cached_date and isinstance(cached_date, datetime.datetime) and cached_date.tzinfo is None:
+                cached_date = cached_date.replace(tzinfo=datetime.timezone.utc)
+
             # Compare with our cached date
-            if self.cache_latest_tourney_date is None:
+            if cached_date is None:
                 # No cache, we'll need to calculate on first update
                 self.logger.info(f"No cached tournament date, will calculate on first update (TourneyStats has: {latest_tourney_date})")
-            elif latest_tourney_date > self.cache_latest_tourney_date:
+            elif latest_tourney_date > cached_date:
                 # TourneyStats has newer data
-                self.logger.info(f"Newer tournament data found on startup: {latest_tourney_date} > {self.cache_latest_tourney_date}")
+                self.logger.info(f"Newer tournament data found on startup: {latest_tourney_date} > {cached_date}")
                 self.logger.info("Invalidating cache and triggering recalculation")
 
                 # Invalidate cache
