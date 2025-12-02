@@ -451,7 +451,9 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
                 if processed_count % 100 == 0:
                     elapsed = (datetime.datetime.now(datetime.timezone.utc) - loop_start_time).total_seconds()
                     rate = processed_count / elapsed if elapsed > 0 else 0
-                    self.logger.info(f"[LOOP PROGRESS] calculate_all_user_roles: {processed_count}/{len(discord_to_player)} users ({rate:.1f} users/sec)")
+                    self.logger.info(
+                        f"[LOOP PROGRESS] calculate_all_user_roles: {processed_count}/{len(discord_to_player)} users ({rate:.1f} users/sec)"
+                    )
 
             except Exception as e:
                 self.logger.error(f"Error calculating role for user {discord_id}: {e}")
@@ -463,7 +465,9 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
 
         loop_duration = (datetime.datetime.now(datetime.timezone.utc) - loop_start_time).total_seconds()
         rate = len(user_roles) / loop_duration if loop_duration > 0 else 0
-        self.logger.info(f"[LOOP END] calculate_all_user_roles: Calculated roles for {len(user_roles)} users in {loop_duration:.1f}s ({rate:.1f} users/sec), latest tournament date: {latest_tourney_date}")
+        self.logger.info(
+            f"[LOOP END] calculate_all_user_roles: Calculated roles for {len(user_roles)} users in {loop_duration:.1f}s ({rate:.1f} users/sec), latest tournament date: {latest_tourney_date}"
+        )
         return user_roles
 
     async def get_discord_to_player_mapping(self):
@@ -885,7 +889,9 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
 
         loop_duration = (datetime.datetime.now(datetime.timezone.utc) - loop_start_time).total_seconds()
         rate = len(user_roles) / loop_duration if loop_duration > 0 else 0
-        self.logger.info(f"[LOOP END] update_guild_roles_bulk: Completed processing {len(user_roles)} users in {loop_duration:.1f}s ({rate:.1f} users/sec) for guild {guild.name}")
+        self.logger.info(
+            f"[LOOP END] update_guild_roles_bulk: Completed processing {len(user_roles)} users in {loop_duration:.1f}s ({rate:.1f} users/sec) for guild {guild.name}"
+        )
         return log_messages
 
     async def bulk_add_role(self, role, members: list, batch_size: int, batch_delay: float, dry_run: bool):
