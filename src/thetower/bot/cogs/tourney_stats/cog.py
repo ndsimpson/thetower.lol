@@ -383,6 +383,45 @@ class TourneyStats(BaseCog, name="Tourney Stats"):
 
         return stats
 
+    async def get_batch_player_stats(self, player_ids: set) -> Dict[str, Dict]:
+        """
+        Get tournament statistics for multiple players in a single operation.
+
+        This is much more efficient than calling get_player_stats() individually
+        for each player, as it processes the DataFrames once instead of filtering
+        repeatedly.
+
+        Args:
+            player_ids: Set of player IDs to get stats for
+
+        Returns:
+            Dictionary mapping player_id to their stats dict
+        """
+        batch_stats = {}
+        dfs = await self.get_tournament_data()
+
+        # Process each league's DataFrame once
+        for league_name, df in dfs.items():
+            # Filter to only players we care about (single operation)
+            relevant_players = df[df.id.isin(player_ids)]
+
+            if relevant_players.empty:
+                continue
+
+            # Group by player ID - this avoids repeated filtering
+            for player_id, player_df in relevant_players.groupby("id"):
+                # Initialize player's stats dict if not exists
+                if player_id not in batch_stats:
+                    batch_stats[player_id] = {}
+
+                # Calculate and store league stats
+                batch_stats[player_id][league_name] = self._calculate_league_stats(player_df, league_name)
+
+            # Yield control periodically to avoid blocking
+            await asyncio.sleep(0)
+
+        return batch_stats
+
     def _calculate_league_stats(self, player_df: pd.DataFrame, league_name: str) -> Dict:
         """Calculate statistics for a player in a specific league."""
         total_tourneys = len(player_df)

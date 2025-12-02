@@ -425,6 +425,13 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
         processed_count = 0
         loop_start_time = datetime.datetime.now(datetime.timezone.utc)
 
+        # Build batch stats lookup (this is the optimization - process DataFrames once)
+        self.logger.info(f"Building batch player stats for {len(discord_to_player)} users")
+        batch_start = datetime.datetime.now(datetime.timezone.utc)
+        stats_lookup = await self.core.build_batch_player_stats(tourney_stats_cog, discord_to_player)
+        batch_duration = (datetime.datetime.now(datetime.timezone.utc) - batch_start).total_seconds()
+        self.logger.info(f"Built batch stats in {batch_duration:.1f}s")
+
         self.logger.info(f"[LOOP START] calculate_all_user_roles: Processing {len(discord_to_player)} users")
         for discord_id, player_data in discord_to_player.items():
             try:
@@ -435,8 +442,10 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
                 if not member:
                     continue
 
-                # Get tournament stats
-                player_tournaments = await self.core.get_player_tournament_stats(tourney_stats_cog, player_data["all_ids"])
+                # Look up pre-calculated stats (instant, no DataFrame filtering)
+                player_tournaments = stats_lookup.get(discord_id)
+                if not player_tournaments:
+                    continue
 
                 # Track latest tournament date
                 if player_tournaments.latest_tournament and player_tournaments.latest_tournament.get("date"):
@@ -1412,7 +1421,12 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
 
     def register_ui_extensions(self) -> None:
         """Register UI extensions that this cog provides to other cogs."""
-        # Register button provider for player profiles
+        # Register tournament stats button for all users
+        self.bot.cog_manager.register_ui_extension(
+            target_cog="player_lookup", source_cog=self.__class__.__name__, provider_func=self.get_tourney_stats_button_for_player
+        )
+
+        # Register role refresh button for authorized users
         self.bot.cog_manager.register_ui_extension(
             target_cog="player_lookup", source_cog=self.__class__.__name__, provider_func=self.get_tourney_roles_button_for_player
         )
@@ -1446,6 +1460,23 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
         # Check if user has any of the authorized roles
         user_role_ids = {role.id for role in member.roles}
         return bool(user_role_ids.intersection(set(authorized_role_ids)))
+
+    def get_tourney_stats_button_for_player(self, player, requesting_user: discord.User, guild_id: int) -> Optional[discord.ui.Button]:
+        """Get a tournament stats button for a player.
+
+        This method is called by the player_lookup cog to extend /lookup functionality.
+        Returns a button that shows tournament stats for the player.
+        """
+        # Check if this cog is enabled for the guild
+        if not self.bot.cog_manager.can_guild_use_cog(self.cog_name, guild_id, False):
+            return None
+
+        # Only show button if the player has a Discord ID
+        if not player.discord_id:
+            return None
+
+        # Show stats button to everyone (no permission check needed for viewing)
+        return TourneyStatsButton(self, int(player.discord_id), guild_id, player)
 
     def get_tourney_roles_button_for_player(self, player, requesting_user: discord.User, guild_id: int) -> Optional[discord.ui.Button]:
         """Get a tournament roles refresh button for a player if the user has permission.
@@ -1710,6 +1741,111 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
         except Exception as e:
             self.logger.error(f"Error refreshing roles for user {user_id}: {e}")
             return f"❌ Error updating roles: {str(e)}"
+
+
+class TourneyStatsButton(discord.ui.Button):
+    """Button to view tournament stats for a specific player."""
+
+    def __init__(self, cog, user_id: int, guild_id: int, player):
+        super().__init__(label="View Tournament Stats", style=discord.ButtonStyle.secondary, emoji="📊")
+        self.cog = cog
+        self.user_id = user_id
+        self.guild_id = guild_id
+        self.player = player
+
+    async def callback(self, interaction: discord.Interaction):
+        """Show tournament statistics for the player."""
+        await interaction.response.defer(ephemeral=True)
+
+        try:
+            # Get tournament stats cog
+            tourney_stats_cog = await self.cog.get_tourney_stats_cog()
+            if not tourney_stats_cog:
+                await interaction.followup.send("❌ Tournament stats not available", ephemeral=True)
+                return
+
+            # Get player lookup cog to get player IDs
+            player_lookup_cog = await self.cog.get_known_players_cog()
+            if not player_lookup_cog:
+                await interaction.followup.send("❌ Player lookup not available", ephemeral=True)
+                return
+
+            # Get player data
+            discord_mapping = await player_lookup_cog.get_discord_to_player_mapping()
+            player_data = discord_mapping.get(str(self.user_id))
+
+            if not player_data or "all_ids" not in player_data:
+                await interaction.followup.send("❌ No player data found", ephemeral=True)
+                return
+
+            # Get tournament stats
+            player_stats = await self.cog.core.get_player_tournament_stats(tourney_stats_cog, player_data["all_ids"])
+
+            # Create embed
+            embed = discord.Embed(
+                title=f"📊 Tournament Stats - {self.player.name}",
+                description=f"Tournament performance for {player_data.get('name', 'Unknown')}",
+                color=discord.Color.blue(),
+            )
+
+            # Add player IDs
+            primary_id = player_data.get("primary_id", "None")
+            all_ids = player_data.get("all_ids", [])
+            id_list = f"✅ {primary_id}"
+            if len(all_ids) > 1:
+                other_ids = [pid for pid in all_ids if pid != primary_id]
+                if other_ids:
+                    id_list += f"\n{', '.join(other_ids[:5])}"
+                    if len(other_ids) > 5:
+                        id_list += f"\n(+{len(other_ids) - 5} more)"
+
+            embed.add_field(name="Player IDs", value=id_list, inline=False)
+
+            # Add overall stats
+            if player_stats.total_tourneys > 0:
+                overall = f"**Total Tournaments:** {player_stats.total_tourneys}\n"
+
+                latest = player_stats.latest_tournament
+                if latest.get("league"):
+                    overall += f"**Latest Tournament:** {latest['league']}\n"
+                    overall += f"  • Position: {latest.get('placement', 'N/A')}\n"
+                    overall += f"  • Wave: {latest.get('wave', 'N/A')}\n"
+                    if latest.get("date"):
+                        overall += f"  • Date: {latest['date']}\n"
+
+                embed.add_field(name="📈 Overall Performance", value=overall, inline=False)
+
+                # Add league-specific stats
+                for league_name, league_stats in player_stats.leagues.items():
+                    stats_text = []
+                    stats_text.append(f"**Tournaments:** {league_stats.get('total_tourneys', 0)}")
+                    stats_text.append(f"**Best Wave:** {league_stats.get('best_wave', 0)}")
+                    stats_text.append(f"**Best Position:** {league_stats.get('best_position', 'N/A')}")
+                    stats_text.append(f"**Avg Wave:** {league_stats.get('avg_wave', 0):.1f}")
+                    stats_text.append(f"**Avg Position:** {league_stats.get('avg_position', 0):.1f}")
+
+                    embed.add_field(name=f"🏆 {league_name.title()}", value="\n".join(stats_text), inline=True)
+            else:
+                embed.add_field(name="📈 Performance", value="No tournament participation found", inline=False)
+
+            # Add current tournament roles
+            guild = self.cog.bot.get_guild(self.guild_id)
+            if guild:
+                member = guild.get_member(self.user_id)
+                if member:
+                    roles_config = self.cog.core.get_roles_config(self.guild_id)
+                    managed_role_ids = {config.id for config in roles_config.values()}
+                    tourney_roles = [role.name for role in member.roles if str(role.id) in managed_role_ids]
+
+                    if tourney_roles:
+                        embed.add_field(name="🎯 Current Tournament Roles", value="\n".join(f"• {role}" for role in tourney_roles), inline=False)
+
+            embed.set_footer(text="Stats from latest tournament patch")
+            await interaction.followup.send(embed=embed, ephemeral=True)
+
+        except Exception as e:
+            self.cog.logger.error(f"Error showing tournament stats for user {self.user_id}: {e}", exc_info=True)
+            await interaction.followup.send(f"❌ Error loading stats: {str(e)}", ephemeral=True)
 
 
 class TourneyRolesRefreshButton(discord.ui.Button):

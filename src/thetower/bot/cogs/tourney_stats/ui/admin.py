@@ -50,7 +50,7 @@ class TourneyAdminView(discord.ui.View):
         embed.add_field(name="🔗 Dependencies", value="\n".join(dependencies), inline=False)
 
         # Current Settings
-        settings = self.cog.get_all_settings()
+        settings = self.cog.get_all_global_settings()
         settings_text = []
         for name, value in settings.items():
             if name == "cache_check_interval":
