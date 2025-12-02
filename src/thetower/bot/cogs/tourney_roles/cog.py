@@ -456,6 +456,10 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
                 processed_count += 1
                 await asyncio.sleep(0)
 
+                # Update progress tracking if available
+                if hasattr(self, "update_progress") and self.update_progress:
+                    self.update_progress["processed"] = processed_count
+
                 # Log progress every 100 users
                 if processed_count % 100 == 0:
                     elapsed = (datetime.datetime.now(datetime.timezone.utc) - loop_start_time).total_seconds()
@@ -1189,73 +1193,96 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
         start_time = data["start_time"]
         dry_run = data["dry_run"]
         error = data["error"]
-        manual_update = data.get("manual_update", True)  # Default to True for backwards compatibility
+        manual_update = data.get("manual_update", True)
 
         # Calculate percentage
         current_percentage = int((processed / total) * 100) if total > 0 else 0
 
-        # Only update UI on percentage changes or final update
-        if final or current_percentage % 1 == 0 and current_percentage != data["last_percentage"]:
-            data["last_percentage"] = current_percentage
+        # Calculate timing info
+        elapsed = (datetime.datetime.now(datetime.timezone.utc) - start_time).total_seconds()
 
-            # Calculate timing info
-            elapsed = (datetime.datetime.now(datetime.timezone.utc) - start_time).total_seconds()
+        # Update every time during progress (not just on percentage change) to show live updates
+        if not final:
+            # Calculate processing rate and ETA
+            rate = processed / elapsed if elapsed > 0 and processed > 0 else 0
+            remaining = total - processed
+            eta_seconds = remaining / rate if rate > 0 else 0
 
-            if final:
-                if error:
-                    await message.edit(content=f"❌ Error during role update: {error}")
-                    return
-
-                # Create completion embed
-                duration = elapsed
-                duration_str = f"{duration:.1f}"
-                update_type = "Manual" if manual_update else "Automatic"
-                embed = discord.Embed(
-                    title=f"{update_type} Tournament Roles Updated" + (" (DRY RUN)" if dry_run else ""),
-                    description=f"Successfully updated roles in {duration_str} seconds",
-                    color=discord.Color.green(),
-                )
-
-                # Add stats
-                embed.add_field(
-                    name="Statistics",
-                    value=(
-                        f"**Users Processed:** {self.processed_users}\n"
-                        f"**Roles Assigned:** {self.roles_assigned}\n"
-                        f"**Roles Removed:** {self.roles_removed}\n"
-                        f"**No Player Data:** {self.users_with_no_player_data}"
-                    ),
-                    inline=False,
-                )
-
-                # Add timestamp
-                embed.set_footer(text=f"Completed at {datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}")
-
-                await message.edit(content=None, embed=embed)
+            # Format ETA
+            if eta_seconds > 3600:
+                eta_str = f"{eta_seconds / 3600:.1f} hours"
+            elif eta_seconds > 60:
+                eta_str = f"{eta_seconds / 60:.1f} minutes"
             else:
-                # Show progress bar during update
-                if processed > 0:
-                    avg_time_per_user = elapsed / processed
-                    remaining_users = total - processed
-                    eta_seconds = avg_time_per_user * remaining_users
+                eta_str = f"{eta_seconds:.0f} seconds"
 
-                    # Format ETA
-                    if eta_seconds < 60:
-                        eta = f"{eta_seconds:.0f} seconds"
-                    elif eta_seconds < 3600:
-                        eta = f"{eta_seconds / 60:.1f} minutes"
-                    else:
-                        eta = f"{eta_seconds / 3600:.1f} hours"
+            # Create progress bar (20 characters)
+            filled = int(current_percentage / 5)  # 5% per block
+            progress_bar = "█" * filled + "░" * (20 - filled)
 
-                    progress_bar = "█" * (current_percentage // 5) + "░" * ((100 - current_percentage) // 5)
-                    update_type = "Manual" if manual_update else "Automatic"
-                    status = (
-                        f"{update_type} {'🔍 DRY RUN: ' if dry_run else ''}Processing roles: **{processed}/{total}** users "
-                        f"(**{current_percentage}%**)\n"
-                        f"`{progress_bar}` \n"
-                        f"⏱️ Estimated time remaining: **{eta}**"
-                    )
-                    await message.edit(content=status)
+            # Create embed
+            update_type = "Manual" if manual_update else "Automatic"
+            title = f"{update_type} Tournament Role Update" + (" (DRY RUN)" if dry_run else "")
+            embed = discord.Embed(
+                title=title,
+                description=f"Calculating roles for {total:,} users",
+                color=discord.Color.blue(),
+            )
+
+            embed.add_field(
+                name="Progress",
+                value=f"{progress_bar} {current_percentage}%\n**{processed:,}** / **{total:,}** users",
+                inline=False,
+            )
+
+            embed.add_field(
+                name="⏱️ Processing Rate",
+                value=f"{rate:.1f} users/sec",
+                inline=True,
+            )
+
+            embed.add_field(
+                name="🕐 Estimated Time Remaining",
+                value=eta_str,
+                inline=True,
+            )
+
+            try:
+                await message.edit(content=None, embed=embed)
+            except Exception as e:
+                self.logger.error(f"Error updating progress embed: {e}")
+
+        elif final:
+            if error:
+                await message.edit(content=f"❌ Error during role update: {error}")
+                return
+
+            # Create completion embed
+            duration = elapsed
+            duration_str = f"{duration:.1f}"
+            update_type = "Manual" if manual_update else "Automatic"
+            embed = discord.Embed(
+                title=f"{update_type} Tournament Roles Updated" + (" (DRY RUN)" if dry_run else ""),
+                description=f"Successfully updated roles in {duration_str} seconds",
+                color=discord.Color.green(),
+            )
+
+            # Add stats
+            embed.add_field(
+                name="Statistics",
+                value=(
+                    f"**Users Processed:** {self.processed_users}\n"
+                    f"**Roles Assigned:** {self.roles_assigned}\n"
+                    f"**Roles Removed:** {self.roles_removed}\n"
+                    f"**No Player Data:** {self.users_with_no_player_data}"
+                ),
+                inline=False,
+            )
+
+            # Add timestamp
+            embed.set_footer(text=f"Completed at {datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}")
+
+            await message.edit(content=None, embed=embed)
 
     async def add_log_message(self, message):
         """
