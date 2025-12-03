@@ -363,34 +363,6 @@ class TournamentRolesSettingsView(ui.View):
         embed = await self.get_settings_embed()
         await interaction.followup.edit_message(interaction.message.id, embed=embed, view=self)
 
-    @ui.button(label="User Management", style=discord.ButtonStyle.success, emoji="👤", row=3)
-    async def user_management(self, interaction: discord.Interaction, button: ui.Button):
-        """Open user management interface."""
-        from .user import UserRoleManagementView
-
-        embed = discord.Embed(
-            title="Tournament Roles",
-            description="Manage your tournament-based Discord roles based on your competitive performance.",
-            color=discord.Color.blue(),
-        )
-
-        embed.add_field(
-            name="How it works",
-            value="Your Discord roles are automatically updated based on your tournament performance. "
-            "Roles are assigned based on placement in tournaments and wave progression.",
-            inline=False,
-        )
-
-        embed.add_field(
-            name="Available Actions",
-            value="• **Update My Roles**: Manually refresh your tournament roles\n"
-            "• **View My Status**: See your current tournament stats and roles",
-            inline=False,
-        )
-
-        view = UserRoleManagementView(self.cog, interaction.user.id, self.guild_id)
-        await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
-
     @ui.button(label="Admin Management", style=discord.ButtonStyle.primary, emoji="⚙️", row=3)
     async def admin_management(self, interaction: discord.Interaction, button: ui.Button):
         """Open admin management interface."""

@@ -27,10 +27,6 @@ from .settings import (
     TournamentRolesSettingsView,
     UpdateSettingsView,
 )
-from .user import (
-    UserRoleManagementView,
-    UserTournamentRoles,
-)
 
 __all__ = [
     # Core business logic
@@ -40,16 +36,10 @@ __all__ = [
     "RoleAssignmentResult",
     "LeagueHierarchyModal",
     "AddRoleModal",
-
-    # User interfaces
-    "UserRoleManagementView",
-    "UserTournamentRoles",
-
     # Admin interfaces
     "AdminRoleManagementView",
     "ConfirmRemoveView",
     "AdminTournamentRoles",
-
     # Settings interfaces
     "TournamentRolesSettingsView",
     "CoreSettingsView",
