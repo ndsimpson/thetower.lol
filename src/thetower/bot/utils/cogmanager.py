@@ -885,10 +885,13 @@ class CogManager:
         if target_cog not in self.ui_extension_registry:
             self.ui_extension_registry[target_cog] = []
 
-        # Remove any existing registration of this SPECIFIC provider function to avoid duplicates
-        # (but keep other providers from the same source cog)
+        # Remove any existing registration with the same source cog and function name to avoid duplicates
+        # This is important for cog reloads where the function object is recreated
+        provider_func_name = provider_func.__name__
         self.ui_extension_registry[target_cog] = [
-            (src, provider) for src, provider in self.ui_extension_registry[target_cog] if not (src == source_cog and provider == provider_func)
+            (src, provider)
+            for src, provider in self.ui_extension_registry[target_cog]
+            if not (src == source_cog and provider.__name__ == provider_func_name)
         ]
 
         # Add the new registration
