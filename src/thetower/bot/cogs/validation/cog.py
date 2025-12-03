@@ -126,9 +126,8 @@ class Validation(BaseCog, name="Validation"):
                 tracker.update_status("Loading settings")
                 await super().cog_initialize()
 
-                # Register UI extensions for player profiles
-                tracker.update_status("Registering UI extensions")
-                self.register_ui_extensions()
+                # UI extensions are registered automatically by BaseCog.__init__
+                # No need to call register_ui_extensions() here
 
                 # Mark as ready
                 self.set_ready(True)
@@ -173,7 +172,8 @@ class Validation(BaseCog, name="Validation"):
 
     async def cog_unload(self) -> None:
         """Clean up when unloading."""
-        pass
+        # Call parent's cog_unload to ensure UI extensions are cleaned up
+        await super().cog_unload()
 
     def _unverify_player(self, discord_id, requesting_user):
         """Un-verify a player by marking all their PlayerIds as non-primary.
