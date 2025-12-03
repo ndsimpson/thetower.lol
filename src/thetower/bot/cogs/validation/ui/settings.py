@@ -23,6 +23,9 @@ class ValidationSettingsView(discord.ui.View):
         # Add channel select for verification log channel (per-guild)
         self.add_item(VerificationLogChannelSelect(self.cog, self.guild_id))
 
+        # Add verification enabled/disabled toggle button (per-guild)
+        self.add_item(VerificationEnabledButton(self.cog, self.guild_id))
+
         # Global settings section - only show to bot owners
         if self.is_bot_owner:
             # Add dropdown for configuring approved un-verify groups (global)
@@ -52,6 +55,37 @@ class ValidationSettingsView(discord.ui.View):
             embed = view.create_selection_embed()
             await interaction.response.edit_message(embed=embed, view=view)
             return
+
+
+class VerificationEnabledButton(ui.Button):
+    """Button to toggle verification enabled/disabled."""
+
+    def __init__(self, cog: BaseCog, guild_id: int):
+        verification_enabled = cog.get_setting("verification_enabled", guild_id=guild_id)
+
+        if verification_enabled:
+            label = "Verification: Enabled"
+            style = discord.ButtonStyle.success
+            emoji = "✅"
+        else:
+            label = "Verification: Disabled"
+            style = discord.ButtonStyle.danger
+            emoji = "❌"
+
+        super().__init__(label=label, style=style, emoji=emoji)
+        self.cog = cog
+        self.guild_id = guild_id
+        self.verification_enabled = verification_enabled
+
+    async def callback(self, interaction: discord.Interaction):
+        """Toggle verification enabled/disabled."""
+        new_state = not self.verification_enabled
+        self.cog.set_setting("verification_enabled", new_state, self.guild_id)
+
+        status = "enabled" if new_state else "disabled"
+        emoji = "✅" if new_state else "❌"
+
+        await interaction.response.send_message(f"{emoji} Verification has been **{status}** for this server.", ephemeral=True)
 
 
 class VerifiedRoleSelect(ui.RoleSelect):

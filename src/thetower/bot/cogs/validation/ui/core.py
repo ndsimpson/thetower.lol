@@ -34,8 +34,8 @@ class VerificationModal(ui.Modal, title="Player Verification"):
 
     async def on_submit(self, interaction: discord.Interaction):
         """Handle modal submission and validate the player."""
-        # Defer the response since validation might take time
-        await interaction.response.defer(ephemeral=True)
+        # Send immediate acknowledgment
+        await interaction.response.send_message("⏳ Verifying user...", ephemeral=True)
 
         player_id = self.player_id_label.component.value.upper().strip()
         attachment = self.image_upload_label.component.values[0] if self.image_upload_label.component.values else None
@@ -62,28 +62,26 @@ class VerificationModal(ui.Modal, title="Player Verification"):
             await self._log_verification_attempt(
                 interaction, player_id, verification_time, timestamp_unix, image_filename, success=False, error_message="Invalid player ID format"
             )
-            await interaction.followup.send("❌ Invalid player ID format. Player ID must be 13-16 hexadecimal characters.", ephemeral=True)
+            await interaction.edit_original_response(content="❌ Invalid player ID format. Player ID must be 13-16 hexadecimal characters.")
             return
 
         if len(player_id) < 13 or len(player_id) > 16:
             await self._log_verification_attempt(
                 interaction, player_id, verification_time, timestamp_unix, image_filename, success=False, error_message="Invalid player ID length"
             )
-            await interaction.followup.send("❌ Player ID must be between 13 and 16 characters long.", ephemeral=True)
+            await interaction.edit_original_response(content="❌ Player ID must be between 13 and 16 characters long.")
             return
 
         if not attachment:
             await self._log_verification_attempt(
                 interaction, player_id, verification_time, timestamp_unix, image_filename, success=False, error_message="No image uploaded"
             )
-            await interaction.followup.send("❌ Please upload a screenshot showing your player ID.", ephemeral=True)
+            await interaction.edit_original_response(content="❌ Please upload a screenshot showing your player ID.")
             return
 
         try:
             # Create or update player
-            result = await sync_to_async(self.cog._create_or_update_player, thread_sensitive=True)(
-                interaction.user.id, interaction.user.name, player_id
-            )
+            await sync_to_async(self.cog._create_or_update_player, thread_sensitive=True)(interaction.user.id, interaction.user.name, player_id)
 
             # Assign verified role
             verified_role_id = self.cog.get_setting("verified_role_id", guild_id=interaction.guild.id)
@@ -96,21 +94,30 @@ class VerificationModal(ui.Modal, title="Player Verification"):
                     await member.add_roles(role)
                     role_assigned = True
 
-            # Trigger immediate tournament role update
-            tourney_roles_cog = self.cog.bot.get_cog("Tourney Roles")
-            if tourney_roles_cog:
-                try:
-                    result = await tourney_roles_cog.refresh_user_roles_for_user(member.id, guild.id)
-                    self.cog.logger.info(f"Applied tournament roles after verification: {result}")
-                except Exception as e:
-                    self.cog.logger.error(f"Error applying tournament roles after verification: {e}")
-
             # Log successful verification
             await self._log_verification_attempt(
                 interaction, player_id, verification_time, timestamp_unix, image_filename, success=True, role_assigned=role_assigned
             )
 
-            await interaction.followup.send("✅ Verification successful! You have been assigned the verified role.", ephemeral=True)
+            # Create success message with role mention
+            success_message = "✅ Verification successful!"
+            if role_assigned:
+                verified_role_id = self.cog.get_setting("verified_role_id", guild_id=interaction.guild.id)
+                if verified_role_id:
+                    role = interaction.guild.get_role(verified_role_id)
+                    if role:
+                        success_message += f" You have been assigned the {role.mention} role."
+                    else:
+                        success_message += " You have been assigned the verified role."
+                else:
+                    success_message += " You have been assigned the verified role."
+            else:
+                success_message += " You have been assigned the verified role."
+
+            await interaction.edit_original_response(content=success_message)
+
+            # Tournament roles will be applied automatically via on_member_update event
+            # when the verified role is added (no need to explicitly refresh here)
 
         except Exception as exc:
             # Log failed verification
@@ -119,7 +126,7 @@ class VerificationModal(ui.Modal, title="Player Verification"):
             )
 
             self.cog.logger.error(f"Verification error: {exc}")
-            await interaction.followup.send(f"❌ Verification failed: {exc}", ephemeral=True)
+            await interaction.edit_original_response(content=f"❌ Verification failed: {exc}")
 
     async def _log_verification_attempt(
         self,
@@ -145,50 +152,77 @@ class VerificationModal(ui.Modal, title="Player Verification"):
         if success:
             embed = discord.Embed(
                 title="✅ Verification Successful",
-                description=f"{interaction.user.mention} successfully verified their account.",
                 color=discord.Color.green(),
                 timestamp=verification_time,
             )
-            if role_assigned:
-                verified_role_id = self.cog.get_setting("verified_role_id", guild_id=interaction.guild.id)
-                if verified_role_id:
-                    role = interaction.guild.get_role(verified_role_id)
-                    if role:
-                        embed.add_field(name="Role Assigned", value=role.mention, inline=True)
         else:
             embed = discord.Embed(
                 title="❌ Verification Failed",
-                description=f"{interaction.user.mention} attempted verification but failed.",
                 color=discord.Color.red(),
                 timestamp=verification_time,
             )
             if error_message:
                 embed.add_field(name="Error", value=error_message, inline=False)
 
-        # Add common fields
-        embed.add_field(name="Player ID", value=f"`{player_id}`", inline=True)
-        embed.add_field(name="Discord Name", value=f"`{interaction.user.name}`", inline=True)
+        # Add user information fields
+        embed.add_field(name="Discord User", value=f"{interaction.user.mention}\n`{interaction.user.name}`", inline=True)
         embed.add_field(name="Discord ID", value=f"`{interaction.user.id}`", inline=True)
+        embed.add_field(name="Player ID", value=f"`{player_id}`", inline=True)
 
-        # Add timestamps
-        embed.add_field(name="Time (UTC)", value=f"<t:{timestamp_unix}:F>", inline=True)
-        embed.add_field(name="Time (Relative)", value=f"<t:{timestamp_unix}:R>", inline=True)
+        # Add role assignment info for successful verifications
+        if success and role_assigned:
+            verified_role_id = self.cog.get_setting("verified_role_id", guild_id=interaction.guild.id)
+            if verified_role_id:
+                role = interaction.guild.get_role(verified_role_id)
+                if role:
+                    embed.add_field(name="Role Assigned", value=role.mention, inline=True)
 
         # Set user avatar
         embed.set_thumbnail(url=interaction.user.display_avatar.url)
 
         # Prepare file attachment if image was saved
         file = None
-        if image_filename and (self.cog.data_directory / image_filename).exists():
+        if success and image_filename and (self.cog.data_directory / image_filename).exists():
             file = discord.File(self.cog.data_directory / image_filename, filename=image_filename)
+            embed.set_image(url=f"attachment://{image_filename}")
 
         try:
             if file:
                 await log_channel.send(embed=embed, file=file)
             else:
                 await log_channel.send(embed=embed)
+        except discord.Forbidden as forbidden_exc:
+            # Try plain text if embed fails due to permissions
+            self.cog.logger.warning(f"Missing embed permission in verification log channel {log_channel_id}: {forbidden_exc}")
+            try:
+                status = "✅ **Verification Successful**" if success else "❌ **Verification Failed**"
+                text_message = (
+                    f"{status}\n"
+                    f"**Discord User:** {interaction.user.mention} (`{interaction.user.name}`)\n"
+                    f"**Discord ID:** `{interaction.user.id}`\n"
+                    f"**Player ID:** `{player_id}`\n"
+                )
+                if success and role_assigned:
+                    verified_role_id = self.cog.get_setting("verified_role_id", guild_id=interaction.guild.id)
+                    if verified_role_id:
+                        role = interaction.guild.get_role(verified_role_id)
+                        if role:
+                            text_message += f"**Role Assigned:** {role.mention}\n"
+                if not success and error_message:
+                    text_message += f"**Error:** {error_message}\n"
+
+                # Need to re-create the file object since it was already consumed
+                new_file = None
+                if file and success and image_filename and (self.cog.data_directory / image_filename).exists():
+                    new_file = discord.File(self.cog.data_directory / image_filename, filename=image_filename)
+
+                if new_file:
+                    await log_channel.send(content=text_message, file=new_file)
+                else:
+                    await log_channel.send(content=text_message)
+            except Exception as fallback_exc:
+                self.cog.logger.error(f"Failed to send plain text verification log: {fallback_exc}")
         except Exception as log_exc:
-            self.cog.logger.error(f"Failed to log verification to channel {log_channel_id}: {log_exc}")
             self.cog.logger.error(f"Failed to log verification to channel {log_channel_id}: {log_exc}")
 
 

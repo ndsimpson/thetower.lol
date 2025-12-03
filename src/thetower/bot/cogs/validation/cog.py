@@ -32,6 +32,7 @@ class Validation(BaseCog, name="Validation"):
         self.guild_settings = {
             "verified_role_id": None,  # Role ID for verified users
             "verification_log_channel_id": None,  # Channel ID for logging verifications
+            "verification_enabled": True,  # Whether verification is enabled for this guild
         }
 
     def _create_or_update_player(self, discord_id, author_name, player_id):
@@ -49,10 +50,23 @@ class Validation(BaseCog, name="Validation"):
         except Exception as exc:
             raise exc
 
+    @staticmethod
+    def only_made_of_hex(text: str) -> bool:
+        """Check if a string contains only hexadecimal characters."""
+        hex_digits = set("0123456789abcdef")
+        contents = set(text.strip().lower())
+        return contents | hex_digits == hex_digits
+
     @app_commands.command(name="verify", description="Verify your player ID to gain access to the server")
     @app_commands.guild_only()
     async def verify_slash(self, interaction: discord.Interaction) -> None:
         """Slash command to start the verification process."""
+        # Check if verification is enabled for this guild
+        verification_enabled = self.get_setting("verification_enabled", guild_id=interaction.guild.id)
+        if not verification_enabled:
+            await interaction.response.send_message("❌ Verification is currently disabled. Please contact a server administrator.", ephemeral=True)
+            return
+
         # Check if user is already verified
         verified_role_id = self.get_setting("verified_role_id", guild_id=interaction.guild.id)
         if verified_role_id:
@@ -286,12 +300,58 @@ class Validation(BaseCog, name="Validation"):
                     embed.add_field(name="Requested by", value=f"`{requesting_user.username}`", inline=True)
                     embed.add_field(name="Discord ID", value=f"`{discord_id}`", inline=True)
 
-                    # Show role removal results
-                    removed_count = sum(1 for result in role_removal_results if result["role_removed"])
-                    embed.add_field(name="Roles Removed", value=f"{removed_count} guilds", inline=True)
+                    # Show role removal results for this guild
+                    guild_result = next((r for r in role_removal_results if r["guild_id"] == guild.id), None)
+                    if guild_result:
+                        role_removed = guild_result["role_removed"]
+                        verified_role_id = self.get_setting("verified_role_id", guild_id=guild.id)
+                        if verified_role_id:
+                            role = guild.get_role(verified_role_id)
+                            if role:
+                                if role_removed is True:
+                                    status = f"✅ {role.mention}"
+                                elif role_removed == "not_needed":
+                                    status = f"ℹ️ {role.mention} (already removed)"
+                                else:
+                                    status = f"❌ {role.mention} (failed to remove)"
+                                embed.add_field(name="Role Removed", value=status, inline=True)
 
                     try:
-                        await log_channel.send(embed=embed)
+                        # Check if bot has permission to send messages and embeds
+                        permissions = log_channel.permissions_for(guild.me)
+                        if not permissions.send_messages:
+                            logger.warning(f"Missing 'Send Messages' permission in verification log channel {log_channel.name} ({log_channel_id})")
+                            continue
+                        if not permissions.embed_links:
+                            logger.warning(f"Missing 'Embed Links' permission in verification log channel {log_channel.name} ({log_channel_id})")
+                            # Try to send a text message instead
+                            guild_result = next((r for r in role_removal_results if r["guild_id"] == guild.id), None)
+                            role_status = "Unknown"
+                            if guild_result:
+                                role_removed = guild_result["role_removed"]
+                                verified_role_id = self.get_setting("verified_role_id", guild_id=guild.id)
+                                if verified_role_id:
+                                    role = guild.get_role(verified_role_id)
+                                    if role:
+                                        if role_removed is True:
+                                            role_status = f"✅ {role.mention}"
+                                        elif role_removed == "not_needed":
+                                            role_status = f"ℹ️ {role.mention} (already removed)"
+                                        else:
+                                            role_status = f"❌ {role.mention} (failed to remove)"
+
+                            text_message = (
+                                f"🚫 **Player Un-verified**\n"
+                                f"Player with Discord ID `{discord_id}` has been un-verified.\n"
+                                f"Requested by: `{requesting_user.username}`\n"
+                                f"Role Removed: {role_status if role else 'Unknown'}"
+                            )
+                            await log_channel.send(text_message)
+                        else:
+                            await log_channel.send(embed=embed)
+                    except discord.Forbidden as forbidden_exc:
+                        logger.error(f"Permission denied when logging to channel {log_channel.name} ({log_channel_id}): {forbidden_exc}")
+                        logger.error(f"Bot permissions in channel: send_messages={permissions.send_messages}, embed_links={permissions.embed_links}")
                     except Exception as log_exc:
                         logger.error(f"Failed to log un-verification to channel {log_channel_id}: {log_exc}")
 
