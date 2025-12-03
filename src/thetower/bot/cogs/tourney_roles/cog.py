@@ -61,9 +61,13 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
         self.calculation_complete = False
         self.calculated_roles = {}  # {guild_id: {user_id: role_id}}
 
-        # Initialize log buffer
-        self.log_buffer = []
+        # Initialize per-guild log buffers for proper context
+        self.log_buffers = {}  # {guild_id: [messages]}
         self.log_buffer_max_size = 8000  # Characters before forcing flush
+
+        # Track members currently being updated to prevent duplicate logging from on_member_update
+        # This includes manual updates, bulk updates, and role corrections
+        self.updating_members = set()  # Set of (guild_id, user_id) tuples
 
         # Role cache for calculated tournament roles
         self.role_cache = {}  # {guild_id: {user_id: calculated_role_id}}
@@ -679,7 +683,10 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
                 self.last_full_update = error_time
                 if hasattr(self, "update_progress"):
                     self.update_progress["error"] = str(e)
-                await self.add_log_message(f"❌ Error during role update: {e}")
+                # Send error to all enabled guilds
+                for guild in self.bot.guilds:
+                    if self.bot.cog_manager.can_guild_use_cog(self.cog_name, guild.id, False):
+                        await self.add_log_message(f"❌ Error during role update: {e}", guild_id=guild.id)
                 await self.flush_log_buffer()
                 raise
 
@@ -831,7 +838,6 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
                         self.logger.debug(f"Error checking cog enablement for guild {guild.id}: {e}")
 
                 # Process each enabled guild for role application
-                all_log_messages = []
                 total_processed = 0
 
                 for guild in enabled_guilds:
@@ -840,59 +846,63 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
                     # Get calculated roles for this guild
                     user_roles = self.calculated_roles.get(guild.id, {})
 
-                    # Perform bulk role updates for this guild
-                    guild_log_messages = await self.update_guild_roles_bulk(guild, user_roles, discord_to_player)
-                    all_log_messages.extend(guild_log_messages)
+                    # Perform bulk role updates for this guild (logs are buffered per guild)
+                    await self.update_guild_roles_bulk(guild, user_roles, discord_to_player)
 
                     total_processed += len(user_roles)
 
-                    # Send logs in batches to avoid flooding
+                    # Flush this guild's log buffer periodically during bulk updates
                     log_batch_size = self.get_global_setting("log_batch_size", 10)
-                    if len(all_log_messages) >= log_batch_size:
-                        await self.send_role_logs_batch(all_log_messages)
-                        all_log_messages = []
+                    if guild.id in self.log_buffers and len(self.log_buffers[guild.id]) >= log_batch_size:
+                        await self.flush_log_buffer(guild.id)
 
-                # Send any remaining logs
-                if all_log_messages:
-                    self.logger.info(f"Sending final batch of {len(all_log_messages)} role change log messages")
-                    await self.send_role_logs_batch(all_log_messages)
-                else:
-                    self.logger.info("No role change log messages to send")
-
-                # Send final log messages
-                await self.flush_log_buffer()
+                # Flush all remaining log buffers for all guilds
+                await self.flush_log_buffer()  # Flushes all guilds
 
                 # Update processed users count for stats display
                 self.processed_users = total_processed
 
-                # Log completion
+                # Log completion to each guild
                 if dry_run:
                     self.logger.info("Dry run role application completed")
-                    await self.add_log_message("✅ Dry run role application completed")
+                    status_message = "✅ Dry run role application completed"
                 else:
                     self.logger.info("Role application completed")
-                    await self.add_log_message("✅ Role application completed")
+                    status_message = "✅ Role application completed"
+
+                # Send status to each guild that was processed
+                for guild in enabled_guilds:
+                    await self.add_log_message(status_message, guild_id=guild.id)
 
                 self.logger.info(
-                    f"Application Stats: Processed {total_processed} users across {len(enabled_guilds)} guilds, "
+                    f"Application Stats: Processed {total_processed} users, "
                     f"{self.roles_assigned} roles assigned, {self.roles_removed} roles removed"
                 )
-                await self.add_log_message(
-                    f"📊 Application Stats: Processed {total_processed} users across {len(enabled_guilds)} guilds, "
+
+                # Send stats to each guild
+                stats_message = (
+                    f"📊 Application Stats: Processed {total_processed} users, "
                     f"{self.roles_assigned} roles assigned, {self.roles_removed} roles removed"
                 )
+                for guild in enabled_guilds:
+                    await self.add_log_message(stats_message, guild_id=guild.id)
+
+                # Final flush for status messages
+                await self.flush_log_buffer()
 
                 return True
 
             except Exception as e:
                 self.logger.error(f"Error during role application: {e}")
-                await self.add_log_message(f"❌ Error during role application: {e}")
+                # Send error to all enabled guilds
+                for guild in self.bot.guilds:
+                    if self.bot.cog_manager.can_guild_use_cog(self.cog_name, guild.id, False):
+                        await self.add_log_message(f"❌ Error during role application: {e}", guild_id=guild.id)
                 await self.flush_log_buffer()
                 return False
 
     async def update_guild_roles_bulk(self, guild, user_roles, discord_to_player):
         """Update roles for a single guild using member.edit() for atomic updates."""
-        log_messages = []
         dry_run = self.get_global_setting("dry_run", False)
         verified_role_id = self.core.get_verified_role_id(guild.id)
 
@@ -930,7 +940,8 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
                             self.roles_removed += 1
 
                         if changes:
-                            log_messages.append(f"{member.name}: {', '.join(changes)} (not verified)")
+                            # Log using unified function (buffered for bulk updates)
+                            await self.log_role_change(guild.id, member.name, changes, immediate=False)
                     continue
 
             # Build the new role list for this user
@@ -970,9 +981,9 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
                         self.logger.error(f"Error updating roles for {member.name}: {e}")
                         continue
 
-                # Log the combined changes for this user
+                # Log the combined changes for this user using unified function (buffered)
                 if changes:
-                    log_messages.append(f"{member.name}: {', '.join(changes)}")
+                    await self.log_role_change(guild.id, member.name, changes, immediate=False)
 
             # Yield control to the event loop
             await asyncio.sleep(0)
@@ -982,8 +993,6 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
         self.logger.info(
             f"[LOOP END] update_guild_roles_bulk: Completed processing {len(user_roles)} users in {loop_duration:.1f}s ({rate:.1f} users/sec) for guild {guild.name}"
         )
-        self.logger.info(f"Generated {len(log_messages)} log messages for role changes")
-        return log_messages
 
     async def bulk_add_role(self, role, members: list, batch_size: int, batch_delay: float, dry_run: bool):
         """Add a role to multiple members in batches, respecting Discord rate limits."""
@@ -1040,121 +1049,6 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
             # Always add delay between batches
             if i + safe_batch_size < len(members):
                 await asyncio.sleep(max(batch_delay, 2))  # Minimum 2 second delay
-
-    async def update_member_roles(self, member, player_tournaments):
-        """
-        Update a member's roles based on tournament performance
-
-        Args:
-            member: Discord member to update
-            player_tournaments: Tournament data for this player
-
-        Returns:
-            tuple: (roles_added, roles_removed, log_message or None)
-        """
-        try:
-            # Dispatch start event
-            self.bot.dispatch("bot_role_update_start", member.id)
-
-            # Check if verified role is required
-            verified_role_id = self.get_setting("verified_role_id", guild_id=member.guild.id)
-            if verified_role_id:
-                verified_role = member.guild.get_role(int(verified_role_id))
-                if not verified_role:
-                    self.logger.warning(f"Verified role with ID {verified_role_id} not found in guild")
-                elif verified_role not in member.roles:
-                    # Remove all tournament roles if user isn't verified
-                    roles_config = self.get_setting("roles_config", {}, guild_id=member.guild.id)
-                    all_managed_role_ids = [config.id for config in roles_config.values()]
-
-                    dry_run = self.get_global_setting("dry_run", False)
-                    roles_removed = 0
-                    role_changes = []
-
-                    for role in member.roles:
-                        if str(role.id) in all_managed_role_ids:
-                            try:
-                                if not dry_run:
-                                    await member.remove_roles(role, reason="User not verified for tournament roles")
-                                roles_removed += 1
-                                self.roles_removed += 1
-                                role_changes.append(f"-{role.name}")
-                                log_msg = (
-                                    f"{'Would remove' if dry_run else 'Removed'} {role.name} role from {member.name} ({member.id}) - not verified"
-                                )
-                                self.logger.info(log_msg)
-                            except Exception as e:
-                                self.logger.error(f"Error removing role {role.name} from {member.name}: {e}")
-
-                    # Return early if roles were removed
-                    if role_changes:
-                        log_message = f"{member.name}: {', '.join(role_changes)} (not verified)"
-                        return 0, roles_removed, log_message
-                    return 0, 0, None
-
-            # Continue with normal role assignment
-            # Determine the best role for this player
-            best_role_id = self.core.determine_best_role(
-                player_tournaments,
-                self.core.get_roles_config(member.guild.id),
-                self.core.get_league_hierarchy(member.guild.id),
-                self.get_global_setting("debug_logging", False),
-            )
-
-            # Get all managed role IDs for comparison
-            roles_config = self.get_setting("roles_config", {}, guild_id=member.guild.id)
-            all_managed_role_ids = [config.id for config in roles_config.values()]
-
-            dry_run = self.get_global_setting("dry_run", False)
-
-            # Track changes
-            roles_added = 0
-            roles_removed = 0
-            role_changes = []  # List of role changes for logging
-
-            # If player qualifies for a role
-            if best_role_id:
-                best_role = member.guild.get_role(int(best_role_id))
-                if not best_role:
-                    self.logger.warning(f"Role with ID {best_role_id} not found in guild")
-                    return roles_added, roles_removed, None
-
-                # Add the role if they don't have it
-                if best_role not in member.roles:
-                    try:
-                        if not dry_run:
-                            await member.add_roles(best_role, reason="Tournament participation role update")
-                        roles_added += 1
-                        self.roles_assigned += 1
-                        role_changes.append(f"+{best_role.name}")
-                        log_msg = f"{'Would add' if dry_run else 'Added'} {best_role.name} role to {member.name} ({member.id})"
-                        self.logger.info(log_msg)
-                    except Exception as e:
-                        self.logger.error(f"Error adding role {best_role.name} to {member.name}: {e}")
-
-            # Remove any other tournament roles they shouldn't have
-            for role in member.roles:
-                if str(role.id) in all_managed_role_ids and (not best_role_id or str(role.id) != best_role_id):
-                    try:
-                        if not dry_run:
-                            await member.remove_roles(role, reason="Tournament participation role update")
-                        roles_removed += 1
-                        self.roles_removed += 1
-                        role_changes.append(f"-{role.name}")
-                        log_msg = f"{'Would remove' if dry_run else 'Removed'} {role.name} role from {member.name} ({member.id})"
-                        self.logger.info(log_msg)
-                    except Exception as e:
-                        self.logger.error(f"Error removing role {role.name} from {member.name}: {e}")
-
-            # Generate log message if there were changes
-            log_message = None
-            if role_changes:
-                log_message = f"{member.name}: {', '.join(role_changes)}"
-
-            return roles_added, roles_removed, log_message
-
-        finally:
-            self.bot.dispatch("bot_role_update_end", member.id)
 
     async def start_update_with_progress(self, message, manual_update=False):
         """Start a role update with progress tracking
@@ -1319,59 +1213,114 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
 
             await message.edit(content=None, embed=embed)
 
-    async def add_log_message(self, message):
+    async def log_role_change(self, guild_id: int, username: str, changes: list, immediate: bool = False):
         """
-        Add a message to the log buffer and potentially send it.
+        Unified logging function for all role changes.
 
         Args:
-            message: The log message to add
+            guild_id: The guild where the role change occurred
+            username: The Discord username
+            changes: List of changes in format ['+RoleName', '-OtherRole']
+            immediate: If True, flush immediately (for individual changes). If False, buffer (for bulk updates)
         """
-        self.log_buffer.append(message)
+        if not changes:
+            return
 
-        # Check if we should send immediately
-        if self.get_setting("immediate_logging", True, guild_id=self.bot.guilds[0].id if self.bot.guilds else None):
+        # Format the log message consistently
+        message = f"{username}: {', '.join(changes)}"
+
+        # Initialize guild buffer if needed
+        if guild_id not in self.log_buffers:
+            self.log_buffers[guild_id] = []
+
+        # Add to guild-specific buffer
+        self.log_buffers[guild_id].append(message)
+
+        # Determine if we should flush
+        should_flush = immediate
+
+        if not immediate:
             # Check if we've hit batch size or buffer size limit
             batch_size = self.get_global_setting("log_batch_size", 10)
 
-            # If we've hit batch size, send it
-            if len(self.log_buffer) >= batch_size:
-                should_send = True
+            if len(self.log_buffers[guild_id]) >= batch_size:
+                should_flush = True
             else:
                 # Check buffer size in characters
-                buffer_size = sum(len(msg) + 1 for msg in self.log_buffer)  # +1 for newline
-
-                # If buffer is getting large, send it
+                buffer_size = sum(len(msg) + 1 for msg in self.log_buffers[guild_id])  # +1 for newline
                 if buffer_size >= self.log_buffer_max_size:
-                    should_send = True
-                else:
-                    should_send = False
+                    should_flush = True
 
-            # Send and clear buffer if needed
-            if should_send:
-                await self.flush_log_buffer()
+        # Flush if needed
+        if should_flush:
+            await self.flush_log_buffer(guild_id)
 
-    async def flush_log_buffer(self):
-        """Send all accumulated log messages in the buffer"""
-        if self.log_buffer:
-            await self.send_role_logs_batch(self.log_buffer)
-            self.log_buffer = []  # Clear the buffer after sending
+    async def add_log_message(self, message: str, guild_id: int = None):
+        """
+        Legacy method for non-role-change log messages (status updates, errors, etc).
 
-    async def send_role_logs_batch(self, log_messages):
+        Args:
+            message: The log message to add
+            guild_id: The guild ID (if None, uses first guild - only for backwards compatibility)
+        """
+        if guild_id is None:
+            # Legacy behavior - use first guild
+            guild_id = self.bot.guilds[0].id if self.bot.guilds else None
+            if guild_id is None:
+                self.logger.warning("No guild ID available for log message")
+                return
+
+        # Initialize guild buffer if needed
+        if guild_id not in self.log_buffers:
+            self.log_buffers[guild_id] = []
+
+        self.log_buffers[guild_id].append(message)
+
+        # Check if we should send immediately
+        batch_size = self.get_global_setting("log_batch_size", 10)
+
+        if len(self.log_buffers[guild_id]) >= batch_size:
+            await self.flush_log_buffer(guild_id)
+
+    async def flush_log_buffer(self, guild_id: int = None):
+        """Send all accumulated log messages in the buffer for a specific guild
+
+        Args:
+            guild_id: The guild ID to flush logs for. If None, flushes all guilds.
+        """
+        if guild_id is None:
+            # Flush all guild buffers
+            for gid in list(self.log_buffers.keys()):
+                await self.flush_log_buffer(gid)
+            return
+
+        if guild_id in self.log_buffers and self.log_buffers[guild_id]:
+            messages = self.log_buffers[guild_id]
+            self.logger.info(f"[LOG BUFFER DEBUG] Flushing {len(messages)} messages for guild {guild_id}")
+            await self.send_role_logs_batch(guild_id, messages)
+            self.log_buffers[guild_id] = []  # Clear the buffer after sending
+
+    async def send_role_logs_batch(self, guild_id: int, log_messages: list):
         """Send a batch of role update logs to the configured channel
 
         Args:
+            guild_id: The guild ID for context
             log_messages: List of log messages to send
         """
         if not log_messages:
+            self.logger.debug(f"[LOG BATCH DEBUG] No messages to send for guild {guild_id}")
             return
 
-        log_channel_id = self.get_setting("log_channel_id", guild_id=self.bot.guilds[0].id if self.bot.guilds else None)
+        log_channel_id = self.get_setting("log_channel_id", guild_id=guild_id)
+        self.logger.info(f"[LOG BATCH DEBUG] Guild {guild_id} - Log channel ID: {log_channel_id}")
         if not log_channel_id:
+            self.logger.warning(f"[LOG BATCH DEBUG] No log channel configured for guild {guild_id}")
             return  # No logging channel configured
 
         channel = self.bot.get_channel(int(log_channel_id))
+        self.logger.info(f"[LOG BATCH DEBUG] Channel object: {channel}")
         if not channel:
-            self.logger.warning(f"Could not find log channel with ID {log_channel_id}")
+            self.logger.warning(f"Could not find log channel with ID {log_channel_id} for guild {guild_id}")
             return
 
         try:
@@ -1392,9 +1341,11 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
 
             # Send any remaining messages
             if current_chunk:
+                self.logger.info(f"[LOG BATCH DEBUG] Sending message to channel: {current_chunk[:100]}...")
                 await channel.send(current_chunk)
+                self.logger.info("[LOG BATCH DEBUG] Message sent successfully")
         except Exception as e:
-            self.logger.error(f"Error sending role log batch: {e}")
+            self.logger.error(f"Error sending role log batch: {e}", exc_info=True)
 
     async def cog_initialize(self) -> None:
         """Initialize the TourneyRoles cog."""
@@ -1498,11 +1449,13 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
         return TourneyStatsButton(self, int(player.discord_id), guild_id, player)
 
     def get_tourney_roles_button_for_player(self, player, requesting_user: discord.User, guild_id: int) -> Optional[discord.ui.Button]:
-        """Get a tournament roles refresh button for a player if the user has permission.
+        """Get a tournament roles refresh button for a player.
 
-        This method is called by the player_lookup cog to extend /lookup functionality.
-        Returns a button that refreshes tournament roles for the player,
-        or None if the user doesn't have permission or the cog isn't enabled.
+        This method is called by the player_lookup cog to extend /lookup and /profile functionality.
+        Returns a button that refreshes tournament roles for the player.
+
+        - If viewing own profile: returns "Refresh My Roles" button (always shown)
+        - If viewing someone else: returns "Refresh Tournament Roles" button (only if user has permission)
         """
         # Check if this cog is enabled for the guild
         if not self.bot.cog_manager.can_guild_use_cog(self.cog_name, guild_id, False):
@@ -1512,12 +1465,19 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
         if not player.discord_id:
             return None
 
-        # Check if requesting user has permission to refresh roles
-        if not self._user_can_refresh_roles(requesting_user, guild_id):
-            return None
+        # Check if requesting user is viewing their own profile
+        is_own_profile = str(player.discord_id) == str(requesting_user.id)
 
-        # Use the player's Discord ID (the person being looked up), not the requesting user's ID
-        return TourneyRolesRefreshButton(self, int(player.discord_id), guild_id, requesting_user.id)
+        if is_own_profile:
+            # Always show refresh button on own profile
+            return TourneySelfRefreshButton(self, int(player.discord_id), guild_id)
+        else:
+            # For other users, check if requesting user has permission to refresh roles
+            if not self._user_can_refresh_roles(requesting_user, guild_id):
+                return None
+
+            # Use the player's Discord ID (the person being looked up), not the requesting user's ID
+            return TourneyRolesRefreshButton(self, int(player.discord_id), guild_id, requesting_user.id)
 
     async def cog_unload(self):
         """Clean up when cog is unloaded"""
@@ -1537,6 +1497,12 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
             if not self.bot.cog_manager.can_guild_use_cog(self.cog_name, after.guild.id, False):
                 return
 
+            # Skip if we're already updating this member (prevents duplicate logging)
+            # This includes manual updates, bulk updates, and role corrections
+            member_key = (after.guild.id, after.id)
+            if member_key in self.updating_members:
+                return
+
             # Check if verified role changed
             verified_role_id = self.core.get_verified_role_id(after.guild.id)
             if verified_role_id:
@@ -1548,17 +1514,32 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
                 if before_has_verified != after_has_verified:
                     if after_has_verified:
                         self.logger.info(f"Verified role added to {after.name} ({after.id}) - applying tournament roles")
-                        await self.add_log_message(f"✅ {after.name} verified - checking tournament roles")
                     else:
                         self.logger.info(f"Verified role removed from {after.name} ({after.id}) - removing tournament roles")
-                        await self.add_log_message(f"❌ {after.name} unverified - removing tournament roles")
 
-                    # Trigger immediate role refresh
-                    try:
-                        result = await self.refresh_user_roles_for_user(after.id, after.guild.id)
-                        self.logger.debug(f"Verification role change refresh result: {result}")
-                    except Exception as e:
-                        self.logger.error(f"Error refreshing roles after verification change for {after.name}: {e}")
+                    # Try fast path first (use cache if available)
+                    cached_role_id = self.role_cache.get(after.guild.id, {}).get(str(after.id))
+
+                    if cached_role_id and after_has_verified:
+                        # Fast path: Apply cached role
+                        self.logger.debug(f"Using cached role for {after.name} after verification")
+                        member_key = (after.guild.id, after.id)
+                        self.updating_members.add(member_key)
+                        try:
+                            role = after.guild.get_role(int(cached_role_id))
+                            if role and role not in after.roles:
+                                await after.add_roles(role, reason="Applied tournament role after verification")
+                                self.logger.info(f"Applied cached tournament role {role.name} to {after.name}")
+                                await self.log_role_change(after.guild.id, after.name, [f"+{role.name}"], immediate=True)
+                        finally:
+                            self.updating_members.discard(member_key)
+                    else:
+                        # Slow path: Need to fetch and calculate
+                        try:
+                            result = await self.refresh_user_roles_for_user(after.id, after.guild.id)
+                            self.logger.debug(f"Verification role change refresh result: {result}")
+                        except Exception as e:
+                            self.logger.error(f"Error refreshing roles after verification change for {after.name}: {e}")
 
                     # Don't process tournament role corrections below - we just refreshed everything
                     return
@@ -1585,9 +1566,18 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
                         needs_correction = True
                         role = after.guild.get_role(int(cached_role_id))
                         if role:
-                            await after.add_roles(role, reason="Correcting tournament role removal")
-                            self.logger.info(f"Restored tournament role {role.name} to {after.name}")
-                            await self.add_log_message(f"🔧 Corrected: Restored {role.name} to {after.name}")
+                            # Mark as updating to prevent duplicate logging
+                            member_key = (after.guild.id, after.id)
+                            self.updating_members.add(member_key)
+                            try:
+                                await after.add_roles(role, reason="Correcting tournament role removal")
+                                self.logger.info(f"Restored tournament role {role.name} to {after.name}")
+
+                                # Log using unified function with immediate flush
+                                await self.log_role_change(after.guild.id, after.name, [f"+{role.name}"], immediate=True)
+                            finally:
+                                # Always remove from updating set
+                                self.updating_members.discard(member_key)
                     elif len(after_tourney_roles) > 1:
                         # User has multiple tournament roles, remove extras
                         needs_correction = True
@@ -1599,10 +1589,20 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
                                     roles_to_remove.append(role)
 
                         if roles_to_remove:
-                            await after.remove_roles(*roles_to_remove, reason="Removing extra tournament roles")
-                            removed_names = [role.name for role in roles_to_remove]
-                            self.logger.info(f"Removed extra tournament roles {removed_names} from {after.name}")
-                            await self.add_log_message(f"🔧 Corrected: Removed extra roles {', '.join(removed_names)} from {after.name}")
+                            # Mark as updating to prevent duplicate logging
+                            member_key = (after.guild.id, after.id)
+                            self.updating_members.add(member_key)
+                            try:
+                                await after.remove_roles(*roles_to_remove, reason="Removing extra tournament roles")
+                                removed_names = [role.name for role in roles_to_remove]
+                                self.logger.info(f"Removed extra tournament roles {removed_names} from {after.name}")
+
+                                # Log using unified function with immediate flush
+                                changes = [f"-{name}" for name in removed_names]
+                                await self.log_role_change(after.guild.id, after.name, changes, immediate=True)
+                            finally:
+                                # Always remove from updating set
+                                self.updating_members.discard(member_key)
 
                 # Only log if we actually made a correction
                 if needs_correction:
@@ -1709,9 +1709,20 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
             # Update latest tournament date tracking
             if player_stats.latest_tournament and player_stats.latest_tournament.get("date"):
                 tourney_date = player_stats.latest_tournament["date"]
+                # Convert to date object for comparison (tournaments are date-based, not time-based)
                 if isinstance(tourney_date, str):
-                    tourney_date = datetime.datetime.fromisoformat(tourney_date.replace("Z", "+00:00"))
-                if not self.cache_latest_tourney_date or tourney_date > self.cache_latest_tourney_date:
+                    tourney_date = datetime.datetime.fromisoformat(tourney_date.replace("Z", "+00:00")).date()
+                elif isinstance(tourney_date, datetime.datetime):
+                    tourney_date = tourney_date.date()
+                # If it's already a date, use it as-is
+
+                # Convert cache to date for comparison
+                cache_date = self.cache_latest_tourney_date
+                if cache_date:
+                    if isinstance(cache_date, datetime.datetime):
+                        cache_date = cache_date.date()
+
+                if not cache_date or tourney_date > cache_date:
                     self.cache_latest_tourney_date = tourney_date
                     self.logger.debug(f"Updated latest tournament date to {tourney_date}")
 
@@ -1722,6 +1733,11 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
 
             # Update member's roles using the core method
             result = await self.core.update_member_roles(member, player_stats, roles_config, verified_role_id, dry_run)
+
+            # Log to channel if there were changes
+            if result.log_messages:
+                # Use unified logging function with immediate flush
+                await self.log_role_change(guild_id, member.name, result.log_messages, immediate=True)
 
             # Update cache
             best_role_id = self.core.determine_best_role(
@@ -1774,14 +1790,22 @@ class TourneyStatsButton(discord.ui.Button):
 
     async def callback(self, interaction: discord.Interaction):
         """Show tournament statistics for the player."""
-        # Send immediate response
+        import time
+
+        callback_start = time.time()
+
+        # Send immediate loading response
         loading_embed = discord.Embed(
-            title="📊 Loading Tournament Stats...", description="Please wait while we gather your tournament data...", color=discord.Color.orange()
+            title="📊 Loading Tournament Stats...", description=f"Gathering tournament data for {self.player.name}...", color=discord.Color.orange()
         )
+        response_start = time.time()
         await interaction.response.send_message(embed=loading_embed, ephemeral=True)
+        response_elapsed = time.time() - response_start
+        self.cog.logger.info(f"[STATS TIMING] Initial response took {response_elapsed:.2f}s")
 
         try:
             # Get tournament stats cog
+            cog_start = time.time()
             tourney_stats_cog = await self.cog.get_tourney_stats_cog()
             if not tourney_stats_cog:
                 error_embed = discord.Embed(title="❌ Error", description="Tournament stats not available", color=discord.Color.red())
@@ -1794,18 +1818,39 @@ class TourneyStatsButton(discord.ui.Button):
                 error_embed = discord.Embed(title="❌ Error", description="Player lookup not available", color=discord.Color.red())
                 await interaction.edit_original_response(embed=error_embed)
                 return
+            cog_elapsed = time.time() - cog_start
+            self.cog.logger.info(f"[STATS TIMING] Getting cogs took {cog_elapsed:.2f}s")
 
-            # Get player data
-            discord_mapping = await player_lookup_cog.get_discord_to_player_mapping()
-            player_data = discord_mapping.get(str(self.user_id))
+            # Get player data - use single-user lookup instead of full mapping
+            mapping_start = time.time()
+            player_data = await player_lookup_cog.get_discord_to_player_mapping(discord_id=str(self.user_id))
+            player_data = player_data.get(str(self.user_id)) if player_data else None
+            mapping_elapsed = time.time() - mapping_start
+            self.cog.logger.info(f"[STATS TIMING] Getting player mapping took {mapping_elapsed:.2f}s")
 
             if not player_data or "all_ids" not in player_data:
                 error_embed = discord.Embed(title="❌ Error", description="No player data found", color=discord.Color.red())
                 await interaction.edit_original_response(embed=error_embed)
                 return
 
-            # Get tournament stats
-            player_stats = await self.cog.core.get_player_tournament_stats(tourney_stats_cog, player_data["all_ids"])
+            # Get tournament stats using cached DataFrames (fast!)
+            # Build single-user batch lookup
+            stats_start = time.time()
+
+            player_ids = set(player_data["all_ids"])
+            batch_start = time.time()
+            batch_stats = await tourney_stats_cog.get_batch_player_stats(player_ids)
+            batch_elapsed = time.time() - batch_start
+            self.cog.logger.info(f"[STATS TIMING] get_batch_player_stats took {batch_elapsed:.2f}s")
+
+            # Aggregate stats across all player IDs (returns TournamentStats object)
+            agg_start = time.time()
+            player_stats = await self.cog.core._aggregate_player_stats(player_data["all_ids"], batch_stats)
+            agg_elapsed = time.time() - agg_start
+            self.cog.logger.info(f"[STATS TIMING] _aggregate_player_stats took {agg_elapsed:.2f}s")
+
+            stats_elapsed = time.time() - stats_start
+            self.cog.logger.info(f"[STATS TIMING] Total stats retrieval took {stats_elapsed:.2f}s")
 
             # Get current patch info
             current_patch = tourney_stats_cog.latest_patch if tourney_stats_cog.latest_patch else "Unknown"
@@ -1919,8 +1964,16 @@ class TourneyStatsButton(discord.ui.Button):
             embed.set_footer(text=f"Stats from patch {current_patch}")
 
             # Create a view with Post Publicly button
+            view_start = time.time()
             view = TourneyStatsPublicView(embed, interaction.guild.id, interaction.channel.id, self.cog)
+            edit_start = time.time()
             await interaction.edit_original_response(embed=embed, view=view)
+            edit_elapsed = time.time() - edit_start
+            view_elapsed = time.time() - view_start
+
+            total_callback_elapsed = time.time() - callback_start
+            self.cog.logger.info(f"[STATS TIMING] View creation took {view_elapsed:.2f}s, edit response took {edit_elapsed:.2f}s")
+            self.cog.logger.info(f"[STATS TIMING] Total callback time: {total_callback_elapsed:.2f}s")
 
         except Exception as e:
             self.cog.logger.error(f"Error showing tournament stats for user {self.user_id}: {e}", exc_info=True)
@@ -1992,6 +2045,111 @@ class TourneyStatsPostPubliclyButton(discord.ui.Button):
             await interaction.response.send_message("❌ Failed to post stats publicly. Please try again.", ephemeral=True)
 
 
+class TourneySelfRefreshButton(discord.ui.Button):
+    """Button for users to refresh their own tournament roles from their profile."""
+
+    def __init__(self, cog, user_id: int, guild_id: int):
+        super().__init__(label="Refresh My Roles", style=discord.ButtonStyle.primary, emoji="🔄", row=2)
+        self.cog = cog
+        self.user_id = user_id
+        self.guild_id = guild_id
+
+    async def callback(self, interaction: discord.Interaction):
+        """Button to refresh user's own tournament roles."""
+        try:
+            # Verify the user is refreshing their own roles
+            if interaction.user.id != self.user_id:
+                await interaction.response.send_message("❌ You can only refresh your own tournament roles.", ephemeral=True)
+                return
+
+            # Get guild and member
+            guild = self.cog.bot.get_guild(self.guild_id)
+            if not guild:
+                await interaction.response.send_message("❌ Guild not found", ephemeral=True)
+                return
+
+            member = guild.get_member(self.user_id)
+            if not member:
+                await interaction.response.send_message("❌ Member not found", ephemeral=True)
+                return
+
+            # Check if we have a cached role for this user
+            cached_role_id = self.cog.role_cache.get(self.guild_id, {}).get(str(self.user_id))
+
+            if cached_role_id:
+                # Fast path: Use cached role (same as on_member_update)
+                await interaction.response.send_message("🔄 Refreshing roles...", ephemeral=True)
+
+                # Mark member as being updated to prevent duplicate logging
+                member_key = (self.guild_id, self.user_id)
+                self.cog.updating_members.add(member_key)
+                try:
+                    role = guild.get_role(int(cached_role_id))
+                    if not role:
+                        await interaction.edit_original_response(content="❌ Cached role not found")
+                        return
+
+                    # Get current tournament roles
+                    roles_config = self.cog.core.get_roles_config(self.guild_id)
+                    managed_role_ids = {config.id for config in roles_config.values()}
+                    current_tourney_roles = {r for r in member.roles if str(r.id) in managed_role_ids}
+
+                    # Check what needs to be done
+                    changes = []
+                    roles_to_add = []
+                    roles_to_remove = []
+
+                    if role not in current_tourney_roles:
+                        roles_to_add.append(role)
+                        changes.append(f"+{role.name}")
+
+                    # Remove any other tournament roles
+                    for existing_role in current_tourney_roles:
+                        if existing_role.id != role.id:
+                            roles_to_remove.append(existing_role)
+                            changes.append(f"-{existing_role.name}")
+
+                    # Apply role changes
+                    if roles_to_add:
+                        await member.add_roles(*roles_to_add, reason="User refreshed tournament roles")
+                    if roles_to_remove:
+                        await member.remove_roles(*roles_to_remove, reason="User refreshed tournament roles")
+
+                    # Log changes if any
+                    if changes:
+                        await self.cog.log_role_change(self.guild_id, member.name, changes, immediate=True)
+                        await interaction.edit_original_response(content=f"✅ Roles updated: {', '.join(changes)}")
+                    else:
+                        await interaction.edit_original_response(content="✅ Your roles are already up to date!")
+                finally:
+                    self.cog.updating_members.discard(member_key)
+            else:
+                # Slow path: No cache, need to recalculate
+                loading_embed = discord.Embed(
+                    title="🔄 Calculating Roles...",
+                    description="No cached data found. Fetching your tournament stats...",
+                    color=discord.Color.orange(),
+                )
+                await interaction.response.send_message(embed=loading_embed, ephemeral=True)
+
+                member_key = (self.guild_id, self.user_id)
+                self.cog.updating_members.add(member_key)
+                try:
+                    result = await self.cog.refresh_user_roles_for_user(self.user_id, self.guild_id)
+                    success_embed = discord.Embed(title="✅ Roles Updated", description=result, color=discord.Color.green())
+                    await interaction.edit_original_response(embed=success_embed)
+                finally:
+                    self.cog.updating_members.discard(member_key)
+
+        except Exception as e:
+            self.cog.logger.error(f"Error refreshing tournament roles for user {self.user_id}: {e}")
+            error_embed = discord.Embed(title="❌ Error", description=f"Error updating roles: {str(e)}", color=discord.Color.red())
+            if interaction.response.is_done():
+                await interaction.edit_original_response(embed=error_embed)
+            else:
+                await interaction.response.send_message(embed=error_embed, ephemeral=True)
+
+
 class TourneyRolesRefreshButton(discord.ui.Button):
     """Button to refresh tournament roles for a specific user."""
 
@@ -2012,11 +2170,18 @@ class TourneyRolesRefreshButton(discord.ui.Button):
                 await interaction.followup.send("❌ You don't have permission to refresh tournament roles.", ephemeral=True)
                 return
 
-            # Call the public method to refresh roles
-            result = await self.cog.refresh_user_roles_for_user(self.user_id, self.guild_id)
+            # Mark member as being updated to prevent duplicate logging from on_member_update
+            member_key = (self.guild_id, self.user_id)
+            self.cog.updating_members.add(member_key)
+            try:
+                # Call the public method to refresh roles
+                result = await self.cog.refresh_user_roles_for_user(self.user_id, self.guild_id)
 
-            # Send the result
-            await interaction.followup.send(result, ephemeral=True)
+                # Send the result
+                await interaction.followup.send(result, ephemeral=True)
+            finally:
+                # Always remove from updating set
+                self.cog.updating_members.discard(member_key)
 
         except Exception as e:
             self.cog.logger.error(f"Error refreshing tournament roles for user {self.user_id}: {e}")
