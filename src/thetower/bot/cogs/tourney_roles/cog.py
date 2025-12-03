@@ -862,33 +862,19 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
                 # Update processed users count for stats display
                 self.processed_users = total_processed
 
-                # Log completion to each guild
+                # Log completion to console only (embed shows this to users)
                 if dry_run:
                     self.logger.info("Dry run role application completed")
-                    status_message = "✅ Dry run role application completed"
                 else:
                     self.logger.info("Role application completed")
-                    status_message = "✅ Role application completed"
-
-                # Send status to each guild that was processed
-                for guild in enabled_guilds:
-                    await self.add_log_message(status_message, guild_id=guild.id)
 
                 self.logger.info(
                     f"Application Stats: Processed {total_processed} users, "
                     f"{self.roles_assigned} roles assigned, {self.roles_removed} roles removed"
                 )
 
-                # Send stats to each guild
-                stats_message = (
-                    f"📊 Application Stats: Processed {total_processed} users, "
-                    f"{self.roles_assigned} roles assigned, {self.roles_removed} roles removed"
-                )
-                for guild in enabled_guilds:
-                    await self.add_log_message(stats_message, guild_id=guild.id)
-
-                # Final flush for status messages
-                await self.flush_log_buffer()
+                # Note: Completion status and stats are shown in the embed via update_progress_message
+                # No need to send duplicate text messages to the log channel
 
                 return True
 
@@ -933,7 +919,17 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
                         new_roles = [role for role in member.roles if str(role.id) not in all_managed_role_ids and not role.is_default()]
 
                         if not dry_run:
-                            await member.edit(roles=new_roles, reason="Removing tournament roles - not verified")
+                            # Mark as updating to prevent duplicate logging from on_member_update
+                            member_key = (guild.id, member.id)
+                            self.updating_members.add(member_key)
+                            try:
+                                await member.edit(roles=new_roles, reason="Removing tournament roles - not verified")
+                            except Exception as e:
+                                self.logger.error(f"Error removing roles from {member.name}: {e}")
+                                continue
+                            finally:
+                                # Always remove from updating set
+                                self.updating_members.discard(member_key)
 
                         for role in current_tourney_roles.values():
                             changes.append(f"-{role.name}")
@@ -975,11 +971,17 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
                         new_roles.append(role)
 
                 if not dry_run:
+                    # Mark as updating to prevent duplicate logging from on_member_update
+                    member_key = (guild.id, member.id)
+                    self.updating_members.add(member_key)
                     try:
                         await member.edit(roles=new_roles, reason="Tournament participation role update")
                     except Exception as e:
                         self.logger.error(f"Error updating roles for {member.name}: {e}")
                         continue
+                    finally:
+                        # Always remove from updating set
+                        self.updating_members.discard(member_key)
 
                 # Log the combined changes for this user using unified function (buffered)
                 if changes:
