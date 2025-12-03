@@ -2278,9 +2278,9 @@ class CogReloadView(View):
                 title="❌ Reload Failed", description=f"Failed to reload `{self.selected_cog}`. Check logs for details.", color=discord.Color.red()
             )
 
-        # Clear selection
-        self.selected_cog = None
-        self.reload_btn.disabled = True
+        # Keep selection and button enabled for quick successive reloads
+        # self.selected_cog remains unchanged
+        # self.reload_btn.disabled remains False
 
         # Update the view
         loaded_cogs = []
@@ -2292,6 +2292,10 @@ class CogReloadView(View):
         if loaded_cogs:
             cog_list = "\n".join([f"🟢 `{cog}`" for cog in sorted(loaded_cogs)])
             embed.add_field(name=f"Loaded Cogs ({len(loaded_cogs)})", value=cog_list, inline=False)
+
+        # Show currently selected cog
+        if self.selected_cog:
+            embed.add_field(name="Selected", value=f"🔄 `{self.selected_cog}` - Ready to reload again", inline=False)
 
         await interaction.followup.edit_message(message_id=interaction.message.id, embed=embed, view=self)
 
