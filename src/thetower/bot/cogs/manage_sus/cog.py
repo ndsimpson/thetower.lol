@@ -55,8 +55,8 @@ class ManageSus(BaseCog, name="Manage Sus"):
                 tracker.update_status("Loading data")
                 await super().cog_initialize()
 
-                # Register UI extensions for player profiles
-                self.register_ui_extensions()
+                # UI extensions are registered automatically by BaseCog.__init__
+                # No need to call register_ui_extensions() here
 
                 # Update status variables
                 self._last_operation_time = datetime.datetime.utcnow()
