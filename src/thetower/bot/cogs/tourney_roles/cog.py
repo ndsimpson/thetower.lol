@@ -1874,15 +1874,6 @@ class TourneyStatsButton(discord.ui.Button):
                     if self.guild_id in self.cog.role_cache and str(self.user_id) in self.cog.role_cache[self.guild_id]:
                         calculated_role_id = self.cog.role_cache[self.guild_id][str(self.user_id)]
 
-                    # Debug logging
-                    self.cog.logger.info(
-                        f"[TOURNEY STATS DEBUG] User {self.user_id} ({self.player.name}): "
-                        f"guild_id={self.guild_id}, "
-                        f"guild_in_cache={self.guild_id in self.cog.role_cache}, "
-                        f"user_in_cache={str(self.user_id) in self.cog.role_cache.get(self.guild_id, {})}, "
-                        f"calculated_role_id={calculated_role_id}"
-                    )
-
                     roles_config = self.cog.core.get_roles_config(self.guild_id)
                     managed_role_ids = {str(config.id) for config in roles_config.values()}
 
