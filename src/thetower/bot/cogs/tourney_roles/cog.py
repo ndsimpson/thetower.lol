@@ -854,10 +854,16 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
 
                 # Send any remaining logs
                 if all_log_messages:
+                    self.logger.info(f"Sending final batch of {len(all_log_messages)} role change log messages")
                     await self.send_role_logs_batch(all_log_messages)
+                else:
+                    self.logger.info("No role change log messages to send")
 
                 # Send final log messages
                 await self.flush_log_buffer()
+
+                # Update processed users count for stats display
+                self.processed_users = total_processed
 
                 # Log completion
                 if dry_run:
@@ -976,6 +982,7 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
         self.logger.info(
             f"[LOOP END] update_guild_roles_bulk: Completed processing {len(user_roles)} users in {loop_duration:.1f}s ({rate:.1f} users/sec) for guild {guild.name}"
         )
+        self.logger.info(f"Generated {len(log_messages)} log messages for role changes")
         return log_messages
 
     async def bulk_add_role(self, role, members: list, batch_size: int, batch_delay: float, dry_run: bool):
