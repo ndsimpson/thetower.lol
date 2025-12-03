@@ -61,6 +61,10 @@ class Validation(BaseCog, name="Validation"):
     @app_commands.guild_only()
     async def verify_slash(self, interaction: discord.Interaction) -> None:
         """Slash command to start the verification process."""
+        from asgiref.sync import sync_to_async
+
+        from thetower.backend.sus.models import KnownPlayer, PlayerId
+
         # Check if verification is enabled for this guild
         verification_enabled = self.get_setting("verification_enabled", guild_id=interaction.guild.id)
         if not verification_enabled:
@@ -73,7 +77,29 @@ class Validation(BaseCog, name="Validation"):
             member = interaction.user
             role = interaction.guild.get_role(verified_role_id)
             if role and role in member.roles:
-                await interaction.response.send_message("✅ You are already verified!", ephemeral=True)
+                # Check if they have a registered primary ID
+                try:
+                    discord_id_str = str(interaction.user.id)
+
+                    def get_primary_id():
+                        try:
+                            player = KnownPlayer.objects.get(discord_id=discord_id_str)
+                            primary_id = PlayerId.objects.filter(player=player, primary=True).first()
+                            return primary_id.id if primary_id else None
+                        except KnownPlayer.DoesNotExist:
+                            return None
+
+                    primary_id = await sync_to_async(get_primary_id)()
+
+                    if primary_id:
+                        await interaction.response.send_message(
+                            f"✅ You are already verified!\n" f"Your registered player ID is: `{primary_id}`", ephemeral=True
+                        )
+                    else:
+                        await interaction.response.send_message("✅ You are already verified!", ephemeral=True)
+                except Exception as exc:
+                    self.logger.error(f"Error checking primary ID for {interaction.user.id}: {exc}")
+                    await interaction.response.send_message("✅ You are already verified!", ephemeral=True)
                 return
 
         # Open the verification modal
