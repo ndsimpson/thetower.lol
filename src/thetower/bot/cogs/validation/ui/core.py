@@ -205,8 +205,16 @@ class UnverifyButton(discord.ui.Button):
     async def callback(self, interaction: discord.Interaction):
         """Handle un-verification request."""
 
-        # Check permissions first
-        approved_groups = self.cog.config.get_global_cog_setting("validation", "approved_unverify_groups", [])
+        # Import sync_to_async at the top
+        from asgiref.sync import sync_to_async
+
+        from thetower.backend.sus.models import KnownPlayer
+
+        # Check permissions first (use sync_to_async for config access)
+        def get_approved_groups():
+            return self.cog.config.get_global_cog_setting("validation", "approved_unverify_groups", [])
+
+        approved_groups = await sync_to_async(get_approved_groups)()
 
         if not approved_groups:
             await interaction.response.send_message("❌ Un-verification is not configured for this server.", ephemeral=True)
@@ -214,13 +222,12 @@ class UnverifyButton(discord.ui.Button):
 
         try:
             # Get Django user from Discord ID via KnownPlayer
-            from asgiref.sync import sync_to_async
-
-            from thetower.backend.sus.models import KnownPlayer
-
             discord_id = str(self.requesting_user.id)
 
-            known_player = await sync_to_async(lambda: KnownPlayer.objects.filter(discord_id=discord_id).select_related("django_user").first())()
+            def get_known_player():
+                return KnownPlayer.objects.filter(discord_id=discord_id).select_related("django_user").first()
+
+            known_player = await sync_to_async(get_known_player)()
 
             if not known_player:
                 await interaction.response.send_message("❌ No Django user account found for your Discord ID.", ephemeral=True)
@@ -232,8 +239,11 @@ class UnverifyButton(discord.ui.Button):
 
             django_user = known_player.django_user
 
-            # Check if user is in approved groups
-            user_groups = [group.name for group in django_user.groups.all()]
+            # Check if user is in approved groups (use sync_to_async for groups.all())
+            def get_user_groups():
+                return [group.name for group in django_user.groups.all()]
+
+            user_groups = await sync_to_async(get_user_groups)()
             has_permission = any(group in approved_groups for group in user_groups)
 
             if not has_permission:
@@ -255,7 +265,13 @@ class UnverifyButton(discord.ui.Button):
                 if role_results:
                     role_status = []
                     for res in role_results:
-                        status = "✅ Removed" if res["role_removed"] else "❌ Not removed"
+                        role_removed = res["role_removed"]
+                        if role_removed is True:
+                            status = "✅ Removed"
+                        elif role_removed == "not_needed":
+                            status = "ℹ️ Already removed"
+                        else:
+                            status = "❌ Failed to remove"
                         role_status.append(f"Guild {res['guild_id']}: {status}")
                     embed.add_field(name="Role Removal", value="\n".join(role_status), inline=False)
 

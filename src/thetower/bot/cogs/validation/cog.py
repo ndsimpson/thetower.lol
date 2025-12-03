@@ -148,7 +148,7 @@ class Validation(BaseCog, name="Validation"):
         try:
             # Check if requesting user is in approved groups
             approved_groups = self.config.get_global_cog_setting(
-                "validation", "approved_unverify_groups", self.default_settings["approved_unverify_groups"]
+                "validation", "approved_unverify_groups", self.global_settings["approved_unverify_groups"]
             )
             user_groups = [group.name for group in requesting_user.groups.all()]
 
@@ -189,21 +189,39 @@ class Validation(BaseCog, name="Validation"):
         try:
             guild = self.bot.get_guild(guild_id)
             if not guild:
+                self.logger.info(f"Guild {guild_id} not found")
                 return False
 
+            # Try to get member from cache first, then fetch from API
             member = guild.get_member(discord_id)
             if not member:
-                return False
+                try:
+                    member = await guild.fetch_member(discord_id)
+                    self.logger.info(f"Fetched member {discord_id} from API")
+                except discord.NotFound:
+                    self.logger.info(f"Member {discord_id} not found in guild {guild_id}")
+                    return False
+                except Exception as fetch_exc:
+                    self.logger.error(f"Error fetching member {discord_id}: {fetch_exc}")
+                    return False
 
             verified_role_id = self.get_setting("verified_role_id", guild_id=guild_id)
             if not verified_role_id:
+                self.logger.info(f"No verified role configured for guild {guild_id}")
                 return False
 
             role = guild.get_role(verified_role_id)
-            if not role or role not in member.roles:
+            if not role:
+                self.logger.info(f"Verified role {verified_role_id} not found in guild {guild_id}")
                 return False
 
+            if role not in member.roles:
+                self.logger.info(f"Member {member.name} does not have verified role {role.name}")
+                return "not_needed"  # Special return value: user didn't have the role
+
+            self.logger.info(f"Removing verified role {role.name} from {member.name}")
             await member.remove_roles(role)
+            self.logger.info(f"Successfully removed verified role {role.name} from {member.name}")
             return True
 
         except Exception as exc:
@@ -221,8 +239,10 @@ class Validation(BaseCog, name="Validation"):
         Returns:
             dict: Result with success status, message, and role removal results
         """
-        # First, un-verify in database
-        db_result = self._unverify_player(discord_id, requesting_user)
+        from asgiref.sync import sync_to_async
+
+        # First, un-verify in database (wrap sync method in sync_to_async)
+        db_result = await sync_to_async(self._unverify_player)(discord_id, requesting_user)
         if not db_result["success"]:
             return db_result
 

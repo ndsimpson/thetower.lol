@@ -1546,6 +1546,16 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
 
             # If tournament roles changed
             if before_tourney_roles != after_tourney_roles:
+                # Check if user has verified role - if not, don't restore tournament roles
+                has_verified_role = False
+                if verified_role_id:
+                    has_verified_role = any(role.id == int(verified_role_id) for role in after.roles)
+
+                # Only restore roles if user has verified role
+                if not has_verified_role:
+                    self.logger.debug(f"Tournament role changed for {after.name} but user is not verified - no correction")
+                    return
+
                 # Check if user should have their cached role
                 cached_role_id = self.role_cache.get(after.guild.id, {}).get(str(after.id))
 
