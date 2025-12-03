@@ -318,13 +318,13 @@ class Validation(BaseCog, name="Validation"):
                 if log_channel:
                     embed = discord.Embed(
                         title="🚫 Player Un-verified",
-                        description=f"Player with Discord ID `{discord_id}` has been un-verified.",
+                        description=f"Player <@{discord_id}> (Discord ID `{discord_id}`) has been un-verified.",
                         color=discord.Color.red(),
                         timestamp=discord.utils.utcnow(),
                     )
 
                     embed.add_field(name="Requested by", value=f"`{requesting_user.username}`", inline=True)
-                    embed.add_field(name="Discord ID", value=f"`{discord_id}`", inline=True)
+                    embed.add_field(name="Discord User", value=f"<@{discord_id}>", inline=True)
 
                     # Show role removal results for this guild
                     guild_result = next((r for r in role_removal_results if r["guild_id"] == guild.id), None)
@@ -368,7 +368,7 @@ class Validation(BaseCog, name="Validation"):
 
                             text_message = (
                                 f"🚫 **Player Un-verified**\n"
-                                f"Player with Discord ID `{discord_id}` has been un-verified.\n"
+                                f"Player <@{discord_id}> (Discord ID `{discord_id}`) has been un-verified.\n"
                                 f"Requested by: `{requesting_user.username}`\n"
                                 f"Role Removed: {role_status if role else 'Unknown'}"
                             )
