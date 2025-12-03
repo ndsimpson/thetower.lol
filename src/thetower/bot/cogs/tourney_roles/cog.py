@@ -104,7 +104,7 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
             "immediate_logging": True,
             "bulk_batch_size": 45,  # Concurrent operations per batch
             "bulk_batch_delay": 0.1,  # Delay between batches
-            "authorized_refresh_roles": [],  # List of Discord role IDs that can refresh tournament roles for others
+            "authorized_refresh_groups": [],  # List of Django group names that can refresh tournament roles for others
         }
 
         # Hardcoded cache filename (not configurable)
@@ -1395,34 +1395,23 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
         )
 
     def _user_can_refresh_roles(self, user: discord.User, guild_id: int) -> bool:
-        """Check if a user has permission to refresh tournament roles for others.
+        """Check if authorized refresh groups are configured (lightweight check).
+
+        This is a synchronous method used in UI button providers.
+        Actual permission checking happens in the button callback.
 
         Args:
-            user: The Discord user to check
+            user: The Discord user to check (unused, kept for signature compatibility)
             guild_id: The guild ID to check permissions in
 
         Returns:
-            True if user has an authorized role, False otherwise
+            True if refresh groups are configured, False otherwise
         """
-        # Get authorized role IDs from settings
-        authorized_role_ids = self.get_setting("authorized_refresh_roles", guild_id=guild_id, default=[])
+        # Get authorized groups from settings
+        authorized_groups = self.get_setting("authorized_refresh_groups", guild_id=guild_id, default=[])
 
-        if not authorized_role_ids:
-            # No roles configured - deny access
-            return False
-
-        # Get the guild and member
-        guild = self.bot.get_guild(guild_id)
-        if not guild:
-            return False
-
-        member = guild.get_member(user.id)
-        if not member:
-            return False
-
-        # Check if user has any of the authorized roles
-        user_role_ids = {role.id for role in member.roles}
-        return bool(user_role_ids.intersection(set(authorized_role_ids)))
+        # Return True if groups are configured (actual permission check is in button callback)
+        return bool(authorized_groups)
 
     def get_tourney_stats_button_for_player(self, player, requesting_user: discord.User, guild_id: int) -> Optional[discord.ui.Button]:
         """Get a tournament stats button for a player.
@@ -2136,9 +2125,41 @@ class TourneyRolesRefreshButton(discord.ui.Button):
         await interaction.response.defer(ephemeral=True)
 
         try:
-            # Double-check permissions (defense in depth)
-            if not self.cog._user_can_refresh_roles(interaction.user, self.guild_id):
-                await interaction.followup.send("❌ You don't have permission to refresh tournament roles.", ephemeral=True)
+            # Check permissions with Django groups
+            from asgiref.sync import sync_to_async
+
+            from thetower.backend.sus.models import KnownPlayer
+
+            # Get authorized groups from settings
+            authorized_groups = self.cog.get_setting("authorized_refresh_groups", guild_id=self.guild_id, default=[])
+
+            if not authorized_groups:
+                await interaction.followup.send("❌ Tournament role refresh is not configured for this server.", ephemeral=True)
+                return
+
+            # Get Django user from Discord ID via KnownPlayer
+            discord_id = str(interaction.user.id)
+
+            def get_known_player():
+                return KnownPlayer.objects.filter(discord_id=discord_id).select_related("django_user").first()
+
+            known_player = await sync_to_async(get_known_player)()
+
+            if not known_player or not known_player.django_user:
+                await interaction.followup.send("❌ No Django user account found for your Discord ID.", ephemeral=True)
+                return
+
+            django_user = known_player.django_user
+
+            # Check if user is in approved groups
+            def get_user_groups():
+                return [group.name for group in django_user.groups.all()]
+
+            user_groups = await sync_to_async(get_user_groups)()
+            has_permission = any(group in authorized_groups for group in user_groups)
+
+            if not has_permission:
+                await interaction.followup.send("❌ You don't have permission to refresh tournament roles for other players.", ephemeral=True)
                 return
 
             # Mark member as being updated to prevent duplicate logging from on_member_update

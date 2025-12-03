@@ -9,6 +9,7 @@ This module contains:
 from __future__ import annotations
 
 import discord
+from asgiref.sync import sync_to_async
 from discord import ui
 
 from thetower.bot.ui.context import SettingsViewContext
@@ -94,6 +95,211 @@ class VerifiedRoleModal(ui.Modal, title="Set Verified Role"):
         # Update the embed
         embed = await self.parent_view.get_embed()
         await self.original_interaction.edit_original_response(embed=embed, view=self.parent_view)
+
+
+class AuthorizedRefreshGroupsSelectView(discord.ui.View):
+    """View for managing Django groups that can refresh tournament roles for others."""
+
+    def __init__(
+        self,
+        cog,
+        interaction: discord.Interaction,
+        current_groups: list,
+        guild_id: int,
+        context: SettingsViewContext = None,
+    ):
+        super().__init__(timeout=900)
+        self.cog = cog
+        self.original_interaction = interaction
+        self.current_groups = set(current_groups)
+        self.selected_groups = self.current_groups.copy()
+        self.guild_id = guild_id
+        self.context = context
+        self.available_groups = []
+
+        # Get available Django groups
+        self._load_available_groups()
+
+        # Add the "Add Group" button
+        add_button = discord.ui.Button(label="Add Group", style=discord.ButtonStyle.primary, emoji="➕", custom_id="add_group")
+        add_button.callback = self.add_group_callback
+        self.add_item(add_button)
+
+        # Add the "Remove Groups" button
+        if self.current_groups:  # Only show if there are groups to remove
+            remove_button = discord.ui.Button(label="Remove Groups", style=discord.ButtonStyle.danger, emoji="🗑️", custom_id="remove_groups")
+            remove_button.callback = self.remove_groups_callback
+            self.add_item(remove_button)
+
+    def _load_available_groups(self):
+        """Load available Django groups synchronously."""
+        # Default groups for fallback
+        self.available_groups = ["admin", "moderators", "staff", "verified", "premium", "beta_testers", "supporters"]
+
+    async def add_group_callback(self, interaction: discord.Interaction):
+        """Handle adding a new group."""
+        # Query Django for available groups
+        try:
+            from django.contrib.auth.models import Group
+
+            # Get all Django groups
+            django_groups = await sync_to_async(list)(Group.objects.all().order_by("name"))
+            available_groups = [group.name for group in django_groups]
+        except Exception as e:
+            self.cog.logger.warning(f"Could not query Django groups: {e}, using defaults")
+            available_groups = self.available_groups
+
+        # Create dropdown of available groups not already selected
+        available_options = [g for g in available_groups if g not in self.selected_groups]
+
+        if not available_options:
+            embed = discord.Embed(
+                title="No Groups Available",
+                description="All available Django groups are already selected, or no groups are configured in Django.",
+                color=discord.Color.orange(),
+            )
+            await interaction.response.send_message(embed=embed, ephemeral=True)
+            return
+
+        # Create select dropdown
+        options = [discord.SelectOption(label=group, value=group) for group in available_options[:25]]  # Discord limit
+
+        select = discord.ui.Select(
+            placeholder="Select Django groups to add",
+            options=options,
+            max_values=len(options),  # Allow selecting multiple
+            min_values=1,
+            custom_id="add_group_select",
+        )
+
+        # Create a temporary view with just the select
+        temp_view = discord.ui.View(timeout=300)
+        temp_view.add_item(select)
+
+        async def select_callback(select_interaction: discord.Interaction):
+            selected_groups = select_interaction.data["values"]
+            for group in selected_groups:
+                self.selected_groups.add(group)
+
+            # Update the view
+            embed = self.create_selection_embed()
+            await select_interaction.response.edit_message(embed=embed, view=self)
+
+        select.callback = select_callback
+
+        embed = discord.Embed(
+            title="Add Django Groups",
+            description="Select one or more Django groups to add to the permission list.",
+            color=discord.Color.blue(),
+        )
+
+        await interaction.response.send_message(embed=embed, view=temp_view, ephemeral=True)
+
+    async def remove_groups_callback(self, interaction: discord.Interaction):
+        """Handle removing multiple groups via dropdown."""
+        if not self.selected_groups:
+            embed = discord.Embed(
+                title="No Groups to Remove",
+                description="There are no groups currently selected to remove.",
+                color=discord.Color.orange(),
+            )
+            await interaction.response.send_message(embed=embed, ephemeral=True)
+            return
+
+        # Create select dropdown of currently selected groups
+        options = [discord.SelectOption(label=group, value=group) for group in sorted(self.selected_groups)[:25]]  # Discord limit
+
+        select = discord.ui.Select(
+            placeholder="Select groups to remove",
+            options=options,
+            max_values=len(options),  # Allow selecting all
+            min_values=1,
+            custom_id="remove_groups_select",
+        )
+
+        # Create a temporary view with just the select
+        temp_view = discord.ui.View(timeout=300)
+        temp_view.add_item(select)
+
+        async def select_callback(select_interaction: discord.Interaction):
+            groups_to_remove = select_interaction.data["values"]
+            for group in groups_to_remove:
+                self.selected_groups.discard(group)
+
+            # Update the view
+            embed = self.create_selection_embed()
+            await select_interaction.response.edit_message(embed=embed, view=self)
+
+        select.callback = select_callback
+
+        embed = discord.Embed(
+            title="Remove Django Groups",
+            description="Select one or more Django groups to remove from the permission list.",
+            color=discord.Color.red(),
+        )
+
+        await interaction.response.send_message(embed=embed, view=temp_view, ephemeral=True)
+
+    def create_selection_embed(self) -> discord.Embed:
+        """Create embed showing current group selection."""
+        title = "🔄 Authorized Groups for Refreshing Tournament Roles"
+        description = "Configure which Django groups can refresh tournament roles for other players.\n\n**Current Groups:**"
+        no_groups_message = "*No groups selected - no one can refresh tournament roles for others*"
+
+        embed = discord.Embed(
+            title=title,
+            description=description,
+            color=discord.Color.blue(),
+        )
+
+        if self.selected_groups:
+            group_list = "\n".join(f"• {group}" for group in sorted(self.selected_groups))
+            embed.add_field(name=f"Selected Groups ({len(self.selected_groups)})", value=group_list, inline=False)
+        else:
+            embed.add_field(name="Selected Groups (0)", value=no_groups_message, inline=False)
+
+        embed.set_footer(text="Use 'Add Group' to add more groups • Use 'Remove Groups' to delete groups • Click Save when done")
+        return embed
+
+    @discord.ui.button(label="Save Changes", style=discord.ButtonStyle.success, emoji="💾", row=4)
+    async def save_changes(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Save the selected groups."""
+        # Convert groups to list
+        groups_list = list(self.selected_groups)
+
+        # Save to settings
+        self.cog.set_setting("authorized_refresh_groups", groups_list, guild_id=self.guild_id)
+
+        # Create confirmation embed
+        embed = discord.Embed(
+            title="✅ Settings Saved",
+            description=f"Authorized refresh groups updated to {len(groups_list)} group(s).",
+            color=discord.Color.green(),
+        )
+
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+        # Go back to core settings
+        if self.context:
+            view = CoreSettingsView(self.context)
+            embed = await view.get_embed()
+            await self.original_interaction.edit_original_response(embed=embed, view=view)
+
+    @discord.ui.button(label="Cancel", style=discord.ButtonStyle.secondary, emoji="❌", row=4)
+    async def cancel(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Cancel and go back."""
+        embed = discord.Embed(
+            title="❌ Cancelled",
+            description="No changes were saved.",
+            color=discord.Color.red(),
+        )
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+        # Go back to core settings
+        if self.context:
+            view = CoreSettingsView(self.context)
+            embed = await view.get_embed()
+            await self.original_interaction.edit_original_response(embed=embed, view=view)
 
 
 class LogChannelModal(ui.Modal, title="Set Log Channel"):
@@ -432,6 +638,14 @@ class CoreSettingsView(ui.View):
         roles_config = self.core.get_roles_config(self.guild_id)
         embed.add_field(name="Configured Roles", value=str(len(roles_config)), inline=True)
 
+        # Authorized Refresh Groups
+        authorized_groups = self.cog.get_setting("authorized_refresh_groups", guild_id=self.guild_id, default=[])
+        if authorized_groups:
+            group_list = "\n".join(f"• {group}" for group in authorized_groups)
+            embed.add_field(name="Authorized Refresh Groups", value=group_list, inline=False)
+        else:
+            embed.add_field(name="Authorized Refresh Groups", value="None (disabled)", inline=False)
+
         return embed
 
     @ui.button(label="Set League Hierarchy", style=discord.ButtonStyle.primary, emoji="🏆")
@@ -455,6 +669,20 @@ class CoreSettingsView(ui.View):
         """Set the verified role requirement."""
         modal = VerifiedRoleModal(self.cog, self.guild_id, self, interaction)
         await interaction.response.send_modal(modal)
+
+    @ui.button(label="Authorized Refresh Groups", style=discord.ButtonStyle.secondary, emoji="🔄")
+    async def set_authorized_refresh_groups(self, interaction: discord.Interaction, button: ui.Button):
+        """Set which Django groups can refresh tournament roles for others."""
+        current_groups = self.cog.get_setting("authorized_refresh_groups", guild_id=self.guild_id, default=[])
+
+        # Create context if not already set
+        context = SettingsViewContext(guild_id=self.guild_id, cog_instance=self.cog, interaction=interaction, is_bot_owner=False)
+
+        # Create and show the groups select view
+        view = AuthorizedRefreshGroupsSelectView(self.cog, interaction, current_groups, self.guild_id, context)
+
+        embed = view.create_selection_embed()
+        await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
 
     @ui.button(label="Back", style=discord.ButtonStyle.gray, emoji="⬅️")
     async def back(self, interaction: discord.Interaction, button: ui.Button):
