@@ -47,7 +47,7 @@ class ValidationSettingsView(discord.ui.View):
 
         # Special handling for group settings
         if setting_name == "approved_unverify_groups":
-            current_groups = self.cog.config.get_global_cog_setting("validation", setting_name, self.cog.default_settings.get(setting_name, []))
+            current_groups = self.cog.config.get_global_cog_setting("validation", setting_name, self.cog.global_settings.get(setting_name, []))
             view = ValidationGroupsSelectView(self.cog, interaction, current_groups, setting_key=setting_name, context=self.context)
             embed = view.create_selection_embed()
             await interaction.response.edit_message(embed=embed, view=view)
