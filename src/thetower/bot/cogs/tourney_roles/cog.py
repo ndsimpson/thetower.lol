@@ -1296,7 +1296,6 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
 
         if guild_id in self.log_buffers and self.log_buffers[guild_id]:
             messages = self.log_buffers[guild_id]
-            self.logger.info(f"[LOG BUFFER DEBUG] Flushing {len(messages)} messages for guild {guild_id}")
             await self.send_role_logs_batch(guild_id, messages)
             self.log_buffers[guild_id] = []  # Clear the buffer after sending
 
@@ -1308,17 +1307,13 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
             log_messages: List of log messages to send
         """
         if not log_messages:
-            self.logger.debug(f"[LOG BATCH DEBUG] No messages to send for guild {guild_id}")
             return
 
         log_channel_id = self.get_setting("log_channel_id", guild_id=guild_id)
-        self.logger.info(f"[LOG BATCH DEBUG] Guild {guild_id} - Log channel ID: {log_channel_id}")
         if not log_channel_id:
-            self.logger.warning(f"[LOG BATCH DEBUG] No log channel configured for guild {guild_id}")
             return  # No logging channel configured
 
         channel = self.bot.get_channel(int(log_channel_id))
-        self.logger.info(f"[LOG BATCH DEBUG] Channel object: {channel}")
         if not channel:
             self.logger.warning(f"Could not find log channel with ID {log_channel_id} for guild {guild_id}")
             return
@@ -1341,9 +1336,7 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
 
             # Send any remaining messages
             if current_chunk:
-                self.logger.info(f"[LOG BATCH DEBUG] Sending message to channel: {current_chunk[:100]}...")
                 await channel.send(current_chunk)
-                self.logger.info("[LOG BATCH DEBUG] Message sent successfully")
         except Exception as e:
             self.logger.error(f"Error sending role log batch: {e}", exc_info=True)
 
@@ -1790,22 +1783,14 @@ class TourneyStatsButton(discord.ui.Button):
 
     async def callback(self, interaction: discord.Interaction):
         """Show tournament statistics for the player."""
-        import time
-
-        callback_start = time.time()
-
         # Send immediate loading response
         loading_embed = discord.Embed(
             title="📊 Loading Tournament Stats...", description=f"Gathering tournament data for {self.player.name}...", color=discord.Color.orange()
         )
-        response_start = time.time()
         await interaction.response.send_message(embed=loading_embed, ephemeral=True)
-        response_elapsed = time.time() - response_start
-        self.cog.logger.info(f"[STATS TIMING] Initial response took {response_elapsed:.2f}s")
 
         try:
             # Get tournament stats cog
-            cog_start = time.time()
             tourney_stats_cog = await self.cog.get_tourney_stats_cog()
             if not tourney_stats_cog:
                 error_embed = discord.Embed(title="❌ Error", description="Tournament stats not available", color=discord.Color.red())
@@ -1818,15 +1803,10 @@ class TourneyStatsButton(discord.ui.Button):
                 error_embed = discord.Embed(title="❌ Error", description="Player lookup not available", color=discord.Color.red())
                 await interaction.edit_original_response(embed=error_embed)
                 return
-            cog_elapsed = time.time() - cog_start
-            self.cog.logger.info(f"[STATS TIMING] Getting cogs took {cog_elapsed:.2f}s")
 
             # Get player data - use single-user lookup instead of full mapping
-            mapping_start = time.time()
             player_data = await player_lookup_cog.get_discord_to_player_mapping(discord_id=str(self.user_id))
             player_data = player_data.get(str(self.user_id)) if player_data else None
-            mapping_elapsed = time.time() - mapping_start
-            self.cog.logger.info(f"[STATS TIMING] Getting player mapping took {mapping_elapsed:.2f}s")
 
             if not player_data or "all_ids" not in player_data:
                 error_embed = discord.Embed(title="❌ Error", description="No player data found", color=discord.Color.red())
@@ -1835,22 +1815,11 @@ class TourneyStatsButton(discord.ui.Button):
 
             # Get tournament stats using cached DataFrames (fast!)
             # Build single-user batch lookup
-            stats_start = time.time()
-
             player_ids = set(player_data["all_ids"])
-            batch_start = time.time()
             batch_stats = await tourney_stats_cog.get_batch_player_stats(player_ids)
-            batch_elapsed = time.time() - batch_start
-            self.cog.logger.info(f"[STATS TIMING] get_batch_player_stats took {batch_elapsed:.2f}s")
 
             # Aggregate stats across all player IDs (returns TournamentStats object)
-            agg_start = time.time()
             player_stats = await self.cog.core._aggregate_player_stats(player_data["all_ids"], batch_stats)
-            agg_elapsed = time.time() - agg_start
-            self.cog.logger.info(f"[STATS TIMING] _aggregate_player_stats took {agg_elapsed:.2f}s")
-
-            stats_elapsed = time.time() - stats_start
-            self.cog.logger.info(f"[STATS TIMING] Total stats retrieval took {stats_elapsed:.2f}s")
 
             # Get current patch info
             current_patch = tourney_stats_cog.latest_patch if tourney_stats_cog.latest_patch else "Unknown"
@@ -1964,16 +1933,8 @@ class TourneyStatsButton(discord.ui.Button):
             embed.set_footer(text=f"Stats from patch {current_patch}")
 
             # Create a view with Post Publicly button
-            view_start = time.time()
             view = TourneyStatsPublicView(embed, interaction.guild.id, interaction.channel.id, self.cog)
-            edit_start = time.time()
             await interaction.edit_original_response(embed=embed, view=view)
-            edit_elapsed = time.time() - edit_start
-            view_elapsed = time.time() - view_start
-
-            total_callback_elapsed = time.time() - callback_start
-            self.cog.logger.info(f"[STATS TIMING] View creation took {view_elapsed:.2f}s, edit response took {edit_elapsed:.2f}s")
-            self.cog.logger.info(f"[STATS TIMING] Total callback time: {total_callback_elapsed:.2f}s")
 
         except Exception as e:
             self.cog.logger.error(f"Error showing tournament stats for user {self.user_id}: {e}", exc_info=True)
