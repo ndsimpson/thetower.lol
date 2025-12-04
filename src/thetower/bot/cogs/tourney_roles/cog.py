@@ -1634,8 +1634,15 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
 
             # Check if this is actually newer than our cache
             if self.cache_latest_tourney_date and latest_date:
-                if latest_date <= self.cache_latest_tourney_date:
-                    self.logger.debug(f"Event date {latest_date} not newer than cache {self.cache_latest_tourney_date}, ignoring")
+                # Compare dates only (handle both datetime and date objects)
+                cache_date = (
+                    self.cache_latest_tourney_date.date()
+                    if isinstance(self.cache_latest_tourney_date, datetime.datetime)
+                    else self.cache_latest_tourney_date
+                )
+                event_date = latest_date.date() if isinstance(latest_date, datetime.datetime) else latest_date
+                if event_date <= cache_date:
+                    self.logger.debug(f"Event date {event_date} not newer than cache {cache_date}, ignoring")
                     return
 
             # Invalidate our role cache
