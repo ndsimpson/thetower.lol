@@ -427,8 +427,16 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
             self.logger.error(f"Error in fallback tournament date lookup: {e}")
             return None
 
-    async def get_discord_to_player_mapping(self):
-        """Get mapping of Discord IDs to player information from PlayerLookup"""
+    async def get_discord_to_player_mapping(self, discord_id: str = None):
+        """Get mapping of Discord IDs to player information from PlayerLookup
+
+        Args:
+            discord_id: Optional Discord ID to get data for a single user.
+                       If None, returns mapping for all users.
+
+        Returns:
+            Dict mapping Discord IDs to player information dictionaries.
+        """
         known_players_cog = await self.get_known_players_cog()
         if not known_players_cog:
             self.logger.error("Failed to get PlayerLookup cog")
@@ -440,8 +448,8 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
                 self.logger.info("Waiting for PlayerLookup to be ready...")
                 await known_players_cog.wait_until_ready()
 
-            # Get the mapping
-            mapping = await known_players_cog.get_discord_to_player_mapping()
+            # Get the mapping (pass through discord_id for single-user lookups)
+            mapping = await known_players_cog.get_discord_to_player_mapping(discord_id=discord_id)
 
             # Add detailed debug logging
             if mapping:
@@ -647,9 +655,19 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
             # Handle cache miss
             if calculated_role_id is None:
                 if is_single_user_mode:
-                    # Single user - try to calculate now
+                    # Single user - try to calculate now with single-user player mapping
                     self.logger.warning(f"Cache miss for user {discord_id} in single-user mode, calculating...")
-                    calc_result = await self.calculate_roles_for_users([discord_id], guild_id)
+
+                    # Fetch player mapping for just this user to avoid rebuilding stats for all users
+                    single_user_mapping = await self.get_discord_to_player_mapping(discord_id=discord_id_str)
+
+                    if not single_user_mapping:
+                        self.logger.error(f"Failed to get player mapping for user {discord_id}")
+                        stats["skipped_no_cache"] += 1
+                        stats["errors"] += 1
+                        continue
+
+                    calc_result = await self.calculate_roles_for_users([discord_id], guild_id, discord_to_player=single_user_mapping)
 
                     if calc_result["calculated"] == 0:
                         self.logger.error(f"Failed to calculate role for user {discord_id}")
@@ -1536,17 +1554,20 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
                     else:
                         self.logger.info(f"Verified role removed from {after.name} ({after.id}) - removing tournament roles")
 
-                    # Use unified calculate + apply flow
-                    try:
-                        # Calculate role for this user (will use cache if valid, or fetch if needed)
-                        await self.calculate_roles_for_users([after.id], after.guild.id)
+                # Use unified calculate + apply flow
+                try:
+                    # Get player mapping for just this user
+                    single_user_mapping = await self.get_discord_to_player_mapping(discord_id=str(after.id))
 
-                        # Apply the calculated role
-                        await self.apply_roles_for_users([after.id], after.guild.id)
+                    # Calculate role for this user (will use cache if valid, or fetch if needed)
+                    await self.calculate_roles_for_users([after.id], after.guild.id, discord_to_player=single_user_mapping)
 
-                        self.logger.debug(f"Successfully updated tournament roles for {after.name} after verification change")
-                    except Exception as e:
-                        self.logger.error(f"Error refreshing roles after verification change for {after.name}: {e}")
+                    # Apply the calculated role
+                    await self.apply_roles_for_users([after.id], after.guild.id)
+
+                    self.logger.debug(f"Successfully updated tournament roles for {after.name} after verification change")
+                except Exception as e:
+                    self.logger.error(f"Error refreshing roles after verification change for {after.name}: {e}")
 
                     # Don't process tournament role corrections below - we just refreshed everything
                     return
@@ -1704,8 +1725,16 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
             if not member:
                 return "❌ User not found in server"
 
+            # Get player mapping for just this user
+            single_user_mapping = await self.get_discord_to_player_mapping(discord_id=str(user_id))
+
+            if not single_user_mapping:
+                return "❌ Player data not found"
+
             # Calculate roles for this user
-            calc_result = await self.calculate_roles_for_users(user_ids=[user_id], guild_id=guild_id, discord_to_player=None, progress_callback=None)
+            calc_result = await self.calculate_roles_for_users(
+                user_ids=[user_id], guild_id=guild_id, discord_to_player=single_user_mapping, progress_callback=None
+            )
 
             # Check if calculation succeeded
             if calc_result["calculated"] == 0:
