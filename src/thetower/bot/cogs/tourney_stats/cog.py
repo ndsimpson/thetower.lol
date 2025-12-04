@@ -172,12 +172,13 @@ class TourneyStats(BaseCog, name="Tourney Stats"):
     @periodic_update_check.before_loop
     async def before_periodic_update_check(self):
         """Setup before the update check task starts."""
-        self.logger.info(f"Starting tournament check task (interval: {self.cache_check_interval}s)")
         await self.bot.wait_until_ready()
         await self.wait_until_ready()
 
-        # Set the interval dynamically based on settings
-        self.periodic_update_check.change_interval(seconds=self.cache_check_interval)
+        # Use global setting directly (no guild context in before_loop)
+        interval = self.global_settings["cache_check_interval"]
+        self.periodic_update_check.change_interval(seconds=interval)
+        self.logger.info(f"Starting tournament check task (interval: {interval}s)")
 
     @periodic_update_check.after_loop
     async def after_periodic_update_check(self):
