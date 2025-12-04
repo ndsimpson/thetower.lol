@@ -26,6 +26,9 @@ class ValidationSettingsView(discord.ui.View):
         # Add verification enabled/disabled toggle button (per-guild)
         self.add_item(VerificationEnabledButton(self.cog, self.guild_id))
 
+        # Add audit button (per-guild) - only for bot/server owners
+        self.add_item(VerificationAuditButton(self.cog, self.guild_id, self.is_bot_owner))
+
         # Global settings section - only show to bot owners
         if self.is_bot_owner:
             # Add dropdown for configuring approved un-verify groups (global)
@@ -86,6 +89,162 @@ class VerificationEnabledButton(ui.Button):
         emoji = "✅" if new_state else "❌"
 
         await interaction.response.send_message(f"{emoji} Verification has been **{status}** for this server.", ephemeral=True)
+
+
+class VerificationAuditButton(ui.Button):
+    """Button to run verification audit."""
+
+    def __init__(self, cog: BaseCog, guild_id: int, is_bot_owner: bool):
+        super().__init__(label="Run Verification Audit", style=discord.ButtonStyle.primary, emoji="🔍")
+        self.cog = cog
+        self.guild_id = guild_id
+        self.is_bot_owner = is_bot_owner
+
+    async def callback(self, interaction: discord.Interaction):
+        """Run verification audit."""
+        from asgiref.sync import sync_to_async
+
+        from thetower.backend.sus.models import KnownPlayer
+
+        # Check if user is bot owner or server owner
+        is_guild_owner = interaction.user.id == interaction.guild.owner_id
+
+        if not (self.is_bot_owner or is_guild_owner):
+            await interaction.response.send_message("❌ This audit is restricted to bot owners and server owners only.", ephemeral=True)
+            return
+
+        # Defer the response as this might take a while
+        await interaction.response.defer(ephemeral=True)
+
+        try:
+            # Get the verified role for this guild
+            verified_role_id = self.cog.get_setting("verified_role_id", guild_id=self.guild_id)
+            if not verified_role_id:
+                await interaction.followup.send(
+                    "❌ No verified role is configured for this server. Please configure one in settings first.", ephemeral=True
+                )
+                return
+
+            guild = self.cog.bot.get_guild(self.guild_id)
+            if not guild:
+                await interaction.followup.send("❌ Could not find this guild.", ephemeral=True)
+                return
+
+            verified_role = guild.get_role(verified_role_id)
+            if not verified_role:
+                await interaction.followup.send(f"❌ Configured verified role (ID: {verified_role_id}) not found in this server.", ephemeral=True)
+                return
+
+            # Get all members with the verified role
+            members_with_role = [member for member in guild.members if verified_role in member.roles]
+
+            # Query database for discrepancies
+            def check_verified_status():
+                """Check verification status for all members with verified role."""
+                users_without_player = []
+
+                for member in members_with_role:
+                    discord_id_str = str(member.id)
+                    try:
+                        KnownPlayer.objects.get(discord_id=discord_id_str)
+                        # Player exists, no issue
+                    except KnownPlayer.DoesNotExist:
+                        users_without_player.append({"id": member.id, "name": member.display_name, "username": str(member)})
+
+                return users_without_player
+
+            def check_missing_roles():
+                """Check for KnownPlayers in this guild without verified role."""
+                players_without_role = []
+
+                # Get all KnownPlayers with discord_id
+                known_players = KnownPlayer.objects.filter(discord_id__isnull=False).exclude(discord_id="")
+
+                for player in known_players:
+                    try:
+                        discord_id = int(player.discord_id)
+                        member = guild.get_member(discord_id)
+
+                        if member and verified_role not in member.roles:
+                            players_without_role.append(
+                                {
+                                    "id": discord_id,
+                                    "name": member.display_name,
+                                    "username": str(member),
+                                    "player_name": player.name,
+                                    "player_id": player.id,
+                                }
+                            )
+                    except (ValueError, TypeError):
+                        # Invalid discord_id format
+                        continue
+
+                return players_without_role
+
+            # Run database queries asynchronously
+            users_without_player = await sync_to_async(check_verified_status)()
+            players_without_role = await sync_to_async(check_missing_roles)()
+
+            # Create embed with results
+            embed = discord.Embed(
+                title="🔍 Verification Audit Results",
+                description=f"Audit for {guild.name}",
+                color=discord.Color.blue(),
+                timestamp=discord.utils.utcnow(),
+            )
+
+            embed.add_field(
+                name="📊 Summary",
+                value=f"**Verified Role:** {verified_role.mention}\n"
+                f"**Total members with role:** {len(members_with_role)}\n"
+                f"**Users with role but no KnownPlayer:** {len(users_without_player)}\n"
+                f"**KnownPlayers without role:** {len(players_without_role)}",
+                inline=False,
+            )
+
+            # Add users with verified role but no KnownPlayer
+            if users_without_player:
+                users_list = []
+                for user in users_without_player[:10]:  # Limit to first 10
+                    users_list.append(f"<@{user['id']}> (`{user['username']}`)")
+
+                if len(users_without_player) > 10:
+                    users_list.append(f"... and {len(users_without_player) - 10} more")
+
+                embed.add_field(
+                    name="⚠️ Users with Verified Role but No KnownPlayer", value="\n".join(users_list) if users_list else "None", inline=False
+                )
+            else:
+                embed.add_field(
+                    name="✅ Users with Verified Role but No KnownPlayer",
+                    value="None found - all users with verified role have KnownPlayer entries!",
+                    inline=False,
+                )
+
+            # Add KnownPlayers without verified role
+            if players_without_role:
+                players_list = []
+                for player in players_without_role[:10]:  # Limit to first 10
+                    players_list.append(f"<@{player['id']}> (`{player['username']}`) - Player: {player['player_name']}")
+
+                if len(players_without_role) > 10:
+                    players_list.append(f"... and {len(players_without_role) - 10} more")
+
+                embed.add_field(name="⚠️ KnownPlayers without Verified Role", value="\n".join(players_list) if players_list else "None", inline=False)
+            else:
+                embed.add_field(
+                    name="✅ KnownPlayers without Verified Role",
+                    value="None found - all KnownPlayers in this guild have verified role!",
+                    inline=False,
+                )
+
+            embed.set_footer(text=f"Requested by {interaction.user}")
+
+            await interaction.followup.send(embed=embed, ephemeral=True)
+
+        except Exception as exc:
+            self.cog.logger.error(f"Error running verification audit: {exc}", exc_info=True)
+            await interaction.followup.send(f"❌ An error occurred while running the audit: {str(exc)}", ephemeral=True)
 
 
 class VerifiedRoleSelect(ui.RoleSelect):
@@ -346,4 +505,5 @@ class ValidationGroupsSelectView(discord.ui.View):
 
         # Return to the main settings view
         view = ValidationSettingsView(self.context)
+        await interaction.response.edit_message(embed=embed, view=view)
         await interaction.response.edit_message(embed=embed, view=view)
