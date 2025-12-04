@@ -113,8 +113,8 @@ class VerificationAuditButton(ui.Button):
             await interaction.response.send_message("❌ This audit is restricted to bot owners and server owners only.", ephemeral=True)
             return
 
-        # Defer the response as this might take a while
-        await interaction.response.defer(ephemeral=True)
+        # Send immediate response
+        await interaction.response.send_message("🔍 Running verification audit... This may take a moment.", ephemeral=True)
 
         try:
             # Get the verified role for this guild
@@ -142,16 +142,35 @@ class VerificationAuditButton(ui.Button):
             def check_verified_status():
                 """Check verification status for all members with verified role."""
                 users_without_player = []
+                users_with_multiple_players = []
 
                 for member in members_with_role:
                     discord_id_str = str(member.id)
                     try:
-                        KnownPlayer.objects.get(discord_id=discord_id_str)
-                        # Player exists, no issue
-                    except KnownPlayer.DoesNotExist:
-                        users_without_player.append({"id": member.id, "name": member.display_name, "username": str(member)})
+                        # Use filter instead of get to handle multiple entries
+                        players = KnownPlayer.objects.filter(discord_id=discord_id_str)
+                        player_count = players.count()
 
-                return users_without_player
+                        if player_count == 0:
+                            users_without_player.append({"id": member.id, "name": member.display_name, "username": str(member)})
+                        elif player_count > 1:
+                            # Track users with duplicate KnownPlayer entries
+                            player_names = [p.name for p in players]
+                            users_with_multiple_players.append(
+                                {
+                                    "id": member.id,
+                                    "name": member.display_name,
+                                    "username": str(member),
+                                    "player_count": player_count,
+                                    "player_names": player_names,
+                                }
+                            )
+                    except Exception as e:
+                        # Log any unexpected errors but continue
+                        self.cog.logger.error(f"Error checking player for {member.id}: {e}")
+                        continue
+
+                return users_without_player, users_with_multiple_players
 
             def check_missing_roles():
                 """Check for KnownPlayers in this guild without verified role."""
@@ -182,7 +201,7 @@ class VerificationAuditButton(ui.Button):
                 return players_without_role
 
             # Run database queries asynchronously
-            users_without_player = await sync_to_async(check_verified_status)()
+            users_without_player, users_with_multiple_players = await sync_to_async(check_verified_status)()
             players_without_role = await sync_to_async(check_missing_roles)()
 
             # Create embed with results
@@ -198,6 +217,7 @@ class VerificationAuditButton(ui.Button):
                 value=f"**Verified Role:** {verified_role.mention}\n"
                 f"**Total members with role:** {len(members_with_role)}\n"
                 f"**Users with role but no KnownPlayer:** {len(users_without_player)}\n"
+                f"**Users with multiple KnownPlayers:** {len(users_with_multiple_players)}\n"
                 f"**KnownPlayers without role:** {len(players_without_role)}",
                 inline=False,
             )
@@ -218,6 +238,24 @@ class VerificationAuditButton(ui.Button):
                 embed.add_field(
                     name="✅ Users with Verified Role but No KnownPlayer",
                     value="None found - all users with verified role have KnownPlayer entries!",
+                    inline=False,
+                )
+
+            # Add users with multiple KnownPlayer entries
+            if users_with_multiple_players:
+                users_list = []
+                for user in users_with_multiple_players[:10]:  # Limit to first 10
+                    player_names_str = ", ".join(user["player_names"][:3])
+                    if len(user["player_names"]) > 3:
+                        player_names_str += f" +{len(user['player_names']) - 3} more"
+                    users_list.append(f"<@{user['id']}> (`{user['username']}`) - {user['player_count']} players: {player_names_str}")
+
+                if len(users_with_multiple_players) > 10:
+                    users_list.append(f"... and {len(users_with_multiple_players) - 10} more")
+
+                embed.add_field(
+                    name="⚠️ Users with Multiple KnownPlayer Entries (Data Issue)",
+                    value="\n".join(users_list) if users_list else "None",
                     inline=False,
                 )
 
