@@ -1865,13 +1865,22 @@ class TourneyStatsButton(discord.ui.Button):
                         count = len(best_pos_tourneys)
 
                         if count == 1:
-                            date_str = best_pos_tourneys[0].get("date", "")
+                            date = best_pos_tourneys[0].get("date", "")
+                            date_str = date.strftime("%Y-%m-%d") if hasattr(date, "strftime") else str(date)
                             stats_text.append(f"**Best Position:** {best_position} (once on {date_str})")
                         elif count == 2:
-                            dates = sorted([t.get("date", "") for t in best_pos_tourneys])
+                            dates = []
+                            for t in best_pos_tourneys:
+                                d = t.get("date", "")
+                                dates.append(d.strftime("%Y-%m-%d") if hasattr(d, "strftime") else str(d))
+                            dates = sorted(dates)
                             stats_text.append(f"**Best Position:** {best_position} (twice: {dates[0]}, {dates[1]})")
                         else:
-                            dates = sorted([t.get("date", "") for t in best_pos_tourneys])
+                            dates = []
+                            for t in best_pos_tourneys:
+                                d = t.get("date", "")
+                                dates.append(d.strftime("%Y-%m-%d") if hasattr(d, "strftime") else str(d))
+                            dates = sorted(dates)
                             first_date = dates[0]  # Earliest date
                             last_date = dates[-1]  # Most recent date
                             stats_text.append(f"**Best Position:** {best_position} ({count}x: first {first_date}, last {last_date})")
