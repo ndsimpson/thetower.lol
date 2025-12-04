@@ -12,7 +12,6 @@ from .admin import (
 from .core import (
     AddRoleModal,
     LeagueHierarchyModal,
-    RoleAssignmentResult,
     TournamentRoleConfig,
     TournamentRolesCore,
     TournamentStats,
@@ -33,7 +32,6 @@ __all__ = [
     "TournamentRolesCore",
     "TournamentRoleConfig",
     "TournamentStats",
-    "RoleAssignmentResult",
     "LeagueHierarchyModal",
     "AddRoleModal",
     # Admin interfaces
