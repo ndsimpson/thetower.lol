@@ -635,11 +635,12 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
             "errors": 0,
             "skipped_no_cache": 0,
             "skipped_not_verified": 0,
+            "not_in_guild": 0,
         }
 
         total_users = len(users_to_process)
         loop_start_time = datetime.datetime.now(datetime.timezone.utc)
-        self.logger.info(f"[LOOP START] apply_roles_for_users: Processing {total_users} users for guild {guild.name}")
+        self.logger.info(f"[LOOP START] apply_roles_for_users: Processing {total_users} users from role_cache for guild {guild.name}")
 
         # 4. Process each user
         for idx, discord_id_str in enumerate(users_to_process):
@@ -647,6 +648,7 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
             member = guild.get_member(discord_id)
 
             if not member:
+                stats["not_in_guild"] += 1
                 continue
 
             # Get calculated role from cache
@@ -681,8 +683,8 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
                         stats["errors"] += 1
                         continue
                 else:
-                    # Bulk mode - skip and warn
-                    self.logger.warning(f"Skipping user {discord_id} - no calculated role in cache")
+                    # Bulk mode - skip silently (expected for users without player data)
+                    self.logger.debug(f"Skipping user {discord_id} - no calculated role in cache")
                     stats["skipped_no_cache"] += 1
                     continue
 
@@ -774,9 +776,18 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
 
         loop_duration = (datetime.datetime.now(datetime.timezone.utc) - loop_start_time).total_seconds()
         rate = stats["processed"] / loop_duration if loop_duration > 0 else 0
+
+        # Log comprehensive statistics
         self.logger.info(
-            f"[LOOP END] apply_roles_for_users: Processed {stats['processed']} users in {loop_duration:.1f}s ({rate:.1f} users/sec), "
-            f"+{stats['roles_added']} -{stats['roles_removed']} roles"
+            f"[LOOP END] apply_roles_for_users: Completed in {loop_duration:.1f}s ({rate:.1f} users/sec)\n"
+            f"  Users in role_cache: {total_users}\n"
+            f"  Users not in guild: {stats['not_in_guild']}\n"
+            f"  Users processed: {stats['processed']}\n"
+            f"  Roles added: {stats['roles_added']}\n"
+            f"  Roles removed: {stats['roles_removed']}\n"
+            f"  Skipped (not verified): {stats['skipped_not_verified']}\n"
+            f"  Skipped (no cache): {stats['skipped_no_cache']}\n"
+            f"  Errors: {stats['errors']}"
         )
 
         return stats
