@@ -163,7 +163,7 @@ class TourneyStats(BaseCog, name="Tourney Stats"):
             raise
         except Exception as e:
             self.logger.error(f"Error checking for new tournaments: {e}", exc_info=True)
-            raise
+            # Don't raise - let the loop continue on next iteration
 
     @periodic_update_check.before_loop
     async def before_periodic_update_check(self):
