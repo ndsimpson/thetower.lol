@@ -662,7 +662,7 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
                     single_user_mapping = await self.get_discord_to_player_mapping(discord_id=discord_id_str)
 
                     if not single_user_mapping:
-                        self.logger.error(f"Failed to get player mapping for user {discord_id}")
+                        self.logger.info(f"User {discord_id} has no player data - skipping role calculation")
                         stats["skipped_no_cache"] += 1
                         stats["errors"] += 1
                         continue
@@ -670,7 +670,7 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
                     calc_result = await self.calculate_roles_for_users([discord_id], guild_id, discord_to_player=single_user_mapping)
 
                     if calc_result["calculated"] == 0:
-                        self.logger.error(f"Failed to calculate role for user {discord_id}")
+                        self.logger.info(f"No role calculated for user {discord_id} (player data may be incomplete)")
                         stats["skipped_no_cache"] += 1
                         stats["errors"] += 1
                         continue
@@ -1550,26 +1550,40 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
                 # If verified role was added or removed, refresh tournament roles immediately
                 if before_has_verified != after_has_verified:
                     if after_has_verified:
+                        # Verified role added - try to apply tournament roles
                         self.logger.info(f"Verified role added to {after.name} ({after.id}) - applying tournament roles")
+
+                        try:
+                            # Check cache first
+                            cached_role = self.role_cache.get(after.guild.id, {}).get(str(after.id))
+
+                            if cached_role is None:
+                                # Not in cache - try to calculate
+                                single_user_mapping = await self.get_discord_to_player_mapping(discord_id=str(after.id))
+
+                                if single_user_mapping:
+                                    # User has player data - calculate their role
+                                    await self.calculate_roles_for_users([after.id], after.guild.id, discord_to_player=single_user_mapping)
+                                else:
+                                    self.logger.info(f"User {after.name} ({after.id}) has no player data - skipping role calculation")
+
+                            # Apply roles (will use cache if available, or handle verification requirement)
+                            await self.apply_roles_for_users([after.id], after.guild.id)
+
+                        except Exception as e:
+                            self.logger.error(f"Error applying roles after verification added for {after.name}: {e}")
+
                     else:
+                        # Verified role removed - just remove tournament roles
                         self.logger.info(f"Verified role removed from {after.name} ({after.id}) - removing tournament roles")
 
-                # Use unified calculate + apply flow
-                try:
-                    # Get player mapping for just this user
-                    single_user_mapping = await self.get_discord_to_player_mapping(discord_id=str(after.id))
+                        try:
+                            # Apply roles (will remove all tournament roles since they're not verified)
+                            await self.apply_roles_for_users([after.id], after.guild.id)
+                        except Exception as e:
+                            self.logger.error(f"Error removing roles after verification removed for {after.name}: {e}")
 
-                    # Calculate role for this user (will use cache if valid, or fetch if needed)
-                    await self.calculate_roles_for_users([after.id], after.guild.id, discord_to_player=single_user_mapping)
-
-                    # Apply the calculated role
-                    await self.apply_roles_for_users([after.id], after.guild.id)
-
-                    self.logger.debug(f"Successfully updated tournament roles for {after.name} after verification change")
-                except Exception as e:
-                    self.logger.error(f"Error refreshing roles after verification change for {after.name}: {e}")
-
-                    # Don't process tournament role corrections below - we just refreshed everything
+                    # Don't process tournament role corrections below - we just handled the verification change
                     return
 
             # Check if tournament roles changed
