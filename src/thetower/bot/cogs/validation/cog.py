@@ -2,6 +2,7 @@ import logging
 
 import discord
 from discord import app_commands
+from discord.ext import commands
 
 from thetower.backend.sus.models import KnownPlayer, PlayerId
 from thetower.bot.basecog import BaseCog
@@ -22,6 +23,9 @@ class Validation(BaseCog, name="Validation"):
 
         # Store reference on bot
         self.bot.validation = self
+
+        # Track bot-initiated role changes to prevent feedback loops
+        self._bot_role_changes = set()  # Set of (member_id, guild_id) tuples
 
         # Global settings (bot-wide)
         self.global_settings = {
@@ -129,6 +133,10 @@ class Validation(BaseCog, name="Validation"):
                 # UI extensions are registered automatically by BaseCog.__init__
                 # No need to call register_ui_extensions() here
 
+                # Run startup reconciliation to fix any role issues that occurred while bot was offline
+                tracker.update_status("Running startup reconciliation")
+                await self._startup_reconciliation()
+
                 # Mark as ready
                 self.set_ready(True)
                 self.logger.info("Validation initialization complete")
@@ -137,6 +145,228 @@ class Validation(BaseCog, name="Validation"):
             self._has_errors = True
             self.logger.error(f"Failed to initialize Validation module: {e}", exc_info=True)
             raise
+
+    async def _startup_reconciliation(self) -> None:
+        """Reconcile verified roles with KnownPlayers on startup."""
+        from asgiref.sync import sync_to_async
+
+        self.logger.info("Running startup verification reconciliation...")
+
+        for guild in self.bot.guilds:
+            try:
+                verified_role_id = self.get_setting("verified_role_id", guild_id=guild.id)
+                if not verified_role_id:
+                    continue
+
+                verified_role = guild.get_role(verified_role_id)
+                if not verified_role:
+                    continue
+
+                # Get all KnownPlayers with discord_id
+                def get_known_players():
+                    return list(KnownPlayer.objects.filter(discord_id__isnull=False).exclude(discord_id=""))
+
+                known_players = await sync_to_async(get_known_players)()
+
+                roles_added = 0
+                roles_removed = 0
+
+                # Check each known player
+                for player in known_players:
+                    try:
+                        discord_id = int(player.discord_id)
+                        member = guild.get_member(discord_id)
+
+                        if member:
+                            # Member is in guild - should have verified role
+                            if verified_role not in member.roles:
+                                await self._add_verified_role(member, verified_role, "startup reconciliation")
+                                roles_added += 1
+                    except (ValueError, TypeError):
+                        continue
+
+                # Check members with verified role who shouldn't have it
+                for member in guild.members:
+                    if verified_role in member.roles:
+                        discord_id_str = str(member.id)
+
+                        def has_known_player():
+                            return KnownPlayer.objects.filter(discord_id=discord_id_str).exists()
+
+                        if not await sync_to_async(has_known_player)():
+                            await self._remove_verified_role(member, verified_role, "startup reconciliation - no KnownPlayer")
+                            roles_removed += 1
+
+                if roles_added > 0 or roles_removed > 0:
+                    self.logger.info(f"Startup reconciliation for {guild.name}: Added {roles_added} roles, removed {roles_removed} roles")
+
+            except Exception as exc:
+                self.logger.error(f"Error in startup reconciliation for guild {guild.id}: {exc}", exc_info=True)
+
+    async def _add_verified_role(self, member: discord.Member, role: discord.Role, reason: str) -> bool:
+        """Add verified role to a member and log it.
+
+        Args:
+            member: The member to add the role to
+            role: The verified role
+            reason: Reason for adding the role
+
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            # Track this as a bot action to prevent feedback loop
+            self._bot_role_changes.add((member.id, member.guild.id))
+
+            await member.add_roles(role, reason=f"Verification: {reason}")
+
+            # Log to verification channel
+            await self._log_role_change(
+                member.guild.id, f"✅ {member.mention} has been verified ({reason}), applying {role.mention}", discord.Color.green()
+            )
+
+            self.logger.info(f"Added verified role to {member} ({member.id}) in {member.guild.name}: {reason}")
+            return True
+
+        except Exception as exc:
+            self.logger.error(f"Error adding verified role to {member} ({member.id}): {exc}")
+            return False
+        finally:
+            # Remove from tracking set after a short delay to allow event to fire
+            import asyncio
+
+            await asyncio.sleep(1)
+            self._bot_role_changes.discard((member.id, member.guild.id))
+
+    async def _remove_verified_role(self, member: discord.Member, role: discord.Role, reason: str) -> bool:
+        """Remove verified role from a member and log it.
+
+        Args:
+            member: The member to remove the role from
+            role: The verified role
+            reason: Reason for removing the role
+
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            # Track this as a bot action to prevent feedback loop
+            self._bot_role_changes.add((member.id, member.guild.id))
+
+            await member.remove_roles(role, reason=f"Verification: {reason}")
+
+            # Log to verification channel
+            await self._log_role_change(member.guild.id, f"⚠️ {role.mention} was removed from {member.mention} ({reason})", discord.Color.orange())
+
+            self.logger.info(f"Removed verified role from {member} ({member.id}) in {member.guild.name}: {reason}")
+            return True
+
+        except Exception as exc:
+            self.logger.error(f"Error removing verified role from {member} ({member.id}): {exc}")
+            return False
+        finally:
+            # Remove from tracking set after a short delay to allow event to fire
+            import asyncio
+
+            await asyncio.sleep(1)
+            self._bot_role_changes.discard((member.id, member.guild.id))
+
+    async def _log_role_change(self, guild_id: int, message: str, color: discord.Color) -> None:
+        """Log a role change to the verification log channel.
+
+        Args:
+            guild_id: The guild ID
+            message: The message to log
+            color: The embed color
+        """
+        log_channel_id = self.get_setting("verification_log_channel_id", guild_id=guild_id)
+        if not log_channel_id:
+            return
+
+        guild = self.bot.get_guild(guild_id)
+        if not guild:
+            return
+
+        log_channel = guild.get_channel(log_channel_id)
+        if not log_channel:
+            return
+
+        try:
+            embed = discord.Embed(description=message, color=color, timestamp=discord.utils.utcnow())
+            await log_channel.send(embed=embed)
+        except Exception as exc:
+            self.logger.error(f"Error logging to verification channel {log_channel_id}: {exc}")
+
+    @commands.Cog.listener()
+    async def on_member_join(self, member: discord.Member) -> None:
+        """Handle member joins - auto-verify known players."""
+        from asgiref.sync import sync_to_async
+
+        try:
+            verified_role_id = self.get_setting("verified_role_id", guild_id=member.guild.id)
+            if not verified_role_id:
+                return
+
+            verified_role = member.guild.get_role(verified_role_id)
+            if not verified_role:
+                return
+
+            # Check if this member is a known player
+            discord_id_str = str(member.id)
+
+            def has_known_player():
+                return KnownPlayer.objects.filter(discord_id=discord_id_str).exists()
+
+            if await sync_to_async(has_known_player)():
+                # Known player rejoining - add verified role
+                await self._add_verified_role(member, verified_role, "known player rejoined server")
+
+        except Exception as exc:
+            self.logger.error(f"Error in on_member_join for {member} ({member.id}): {exc}", exc_info=True)
+
+    @commands.Cog.listener()
+    async def on_member_update(self, before: discord.Member, after: discord.Member) -> None:
+        """Handle member updates - monitor verified role changes."""
+        from asgiref.sync import sync_to_async
+
+        try:
+            verified_role_id = self.get_setting("verified_role_id", guild_id=after.guild.id)
+            if not verified_role_id:
+                return
+
+            verified_role = after.guild.get_role(verified_role_id)
+            if not verified_role:
+                return
+
+            # Check if verified role changed
+            had_role = verified_role in before.roles
+            has_role = verified_role in after.roles
+
+            if had_role == has_role:
+                return  # No change in verified role
+
+            # Check if this was a bot-initiated change
+            if (after.id, after.guild.id) in self._bot_role_changes:
+                return  # This was our own change, ignore it
+
+            # Role was changed externally - need to correct it
+            discord_id_str = str(after.id)
+
+            def has_known_player():
+                return KnownPlayer.objects.filter(discord_id=discord_id_str).exists()
+
+            is_known_player = await sync_to_async(has_known_player)()
+
+            if has_role and not is_known_player:
+                # Role was added but user is not a known player - remove it
+                await self._remove_verified_role(after, verified_role, "role added externally without verification, correcting")
+
+            elif not has_role and is_known_player:
+                # Role was removed but user is a known player - add it back
+                await self._add_verified_role(after, verified_role, "role removed externally, correcting")
+
+        except Exception as exc:
+            self.logger.error(f"Error in on_member_update for {after} ({after.id}): {exc}", exc_info=True)
 
     def register_ui_extensions(self) -> None:
         """Register UI extensions for other cogs."""

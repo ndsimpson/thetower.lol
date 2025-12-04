@@ -120,19 +120,19 @@ class VerificationAuditButton(ui.Button):
             # Get the verified role for this guild
             verified_role_id = self.cog.get_setting("verified_role_id", guild_id=self.guild_id)
             if not verified_role_id:
-                await interaction.followup.send(
-                    "❌ No verified role is configured for this server. Please configure one in settings first.", ephemeral=True
+                await interaction.edit_original_response(
+                    content="❌ No verified role is configured for this server. Please configure one in settings first."
                 )
                 return
 
             guild = self.cog.bot.get_guild(self.guild_id)
             if not guild:
-                await interaction.followup.send("❌ Could not find this guild.", ephemeral=True)
+                await interaction.edit_original_response(content="❌ Could not find this guild.")
                 return
 
             verified_role = guild.get_role(verified_role_id)
             if not verified_role:
-                await interaction.followup.send(f"❌ Configured verified role (ID: {verified_role_id}) not found in this server.", ephemeral=True)
+                await interaction.edit_original_response(content=f"❌ Configured verified role (ID: {verified_role_id}) not found in this server.")
                 return
 
             # Get all members with the verified role
@@ -278,11 +278,11 @@ class VerificationAuditButton(ui.Button):
 
             embed.set_footer(text=f"Requested by {interaction.user}")
 
-            await interaction.followup.send(embed=embed, ephemeral=True)
+            await interaction.edit_original_response(content=None, embed=embed)
 
         except Exception as exc:
             self.cog.logger.error(f"Error running verification audit: {exc}", exc_info=True)
-            await interaction.followup.send(f"❌ An error occurred while running the audit: {str(exc)}", ephemeral=True)
+            await interaction.edit_original_response(content=f"❌ An error occurred while running the audit: {str(exc)}")
 
 
 class VerifiedRoleSelect(ui.RoleSelect):
