@@ -25,16 +25,11 @@ class AdManagementView(View):
         """Update the view with current advertisement status."""
         # Get user's active advertisements in this guild
         user_ads = []
-        for thread_id, deletion_time, author_id, notify, ad_guild_id in self.cog.pending_deletions:
+        for thread_id, deletion_time, author_id, notify, ad_guild_id, thread_name, author_name in self.cog.pending_deletions:
             if author_id == self.user_id and ad_guild_id == self.guild_id:
-                try:
-                    thread = await self.cog.bot.fetch_channel(thread_id)
-                    if thread:
-                        time_left = deletion_time - datetime.datetime.now()
-                        hours_left = time_left.total_seconds() / 3600
-                        user_ads.append((thread_id, thread.name, hours_left, notify))
-                except Exception:
-                    continue
+                time_left = deletion_time - datetime.datetime.now()
+                hours_left = time_left.total_seconds() / 3600
+                user_ads.append((thread_id, thread_name, hours_left, notify))
 
         # Check cooldown status
         cooldown_hours = self.cog._get_cooldown_hours(self.guild_id)
@@ -103,14 +98,9 @@ class AdManagementView(View):
         """Handle deleting an advertisement."""
         # Get user's ads
         user_ads = []
-        for thread_id, deletion_time, author_id, notify, ad_guild_id in self.cog.pending_deletions:
+        for thread_id, deletion_time, author_id, notify, ad_guild_id, thread_name, author_name in self.cog.pending_deletions:
             if author_id == self.user_id and ad_guild_id == self.guild_id:
-                try:
-                    thread = await self.cog.bot.fetch_channel(thread_id)
-                    if thread:
-                        user_ads.append((thread_id, thread.name))
-                except Exception:
-                    continue
+                user_ads.append((thread_id, thread_name))
 
         if len(user_ads) == 1:
             # Only one ad, delete it directly
@@ -153,15 +143,9 @@ class AdManagementView(View):
         """Toggle notification settings."""
         # Get user's ads
         user_ads = []
-        for entry in self.cog.pending_deletions:
-            thread_id, deletion_time, author_id, notify, ad_guild_id = entry
+        for thread_id, deletion_time, author_id, notify, ad_guild_id, thread_name, author_name in self.cog.pending_deletions:
             if author_id == self.user_id and ad_guild_id == self.guild_id:
-                try:
-                    thread = await self.cog.bot.fetch_channel(thread_id)
-                    if thread:
-                        user_ads.append((thread_id, thread.name, notify))
-                except Exception:
-                    continue
+                user_ads.append((thread_id, thread_name, notify))
 
         if len(user_ads) == 1:
             # Only one ad, toggle it directly
@@ -195,11 +179,11 @@ class AdManagementView(View):
     async def _toggle_notify(self, interaction: discord.Interaction, thread_id: int, new_state: bool):
         """Toggle notification for a specific ad."""
         updated_deletions = []
-        for t_id, t_time, t_author, t_notify, t_guild_id in self.cog.pending_deletions:
+        for t_id, t_time, t_author, t_notify, t_guild_id, t_thread_name, t_author_name in self.cog.pending_deletions:
             if t_id == thread_id:
-                updated_deletions.append((t_id, t_time, t_author, new_state, t_guild_id))
+                updated_deletions.append((t_id, t_time, t_author, new_state, t_guild_id, t_thread_name, t_author_name))
             else:
-                updated_deletions.append((t_id, t_time, t_author, t_notify, t_guild_id))
+                updated_deletions.append((t_id, t_time, t_author, t_notify, t_guild_id, t_thread_name, t_author_name))
 
         self.cog.pending_deletions = updated_deletions
         await self.cog._save_pending_deletions()

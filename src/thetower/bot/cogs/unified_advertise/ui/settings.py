@@ -245,7 +245,7 @@ class GuildSettingsView(View):
 
         # Stats
         guild_cooldowns = self.cog.cooldowns.get(self.guild_id, {"users": {}, "guilds": {}})
-        guild_pending = sum(1 for _, _, _, _, gid in self.cog.pending_deletions if gid == self.guild_id)
+        guild_pending = sum(1 for _, _, _, _, gid, _, _ in self.cog.pending_deletions if gid == self.guild_id)
 
         embed.add_field(
             name="📊 Statistics",

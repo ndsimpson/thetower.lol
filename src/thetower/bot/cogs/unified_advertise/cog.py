@@ -73,7 +73,7 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
                     await self._send_debug_message(f"Orphan scan: Failed to fetch threads for guild {guild_id}: {e}", guild_id)
                     continue
 
-                tracked_ids = {t_id for t_id, _, _, _, _ in self.pending_deletions}
+                tracked_ids = {t_id for t_id, _, _, _, _, _, _ in self.pending_deletions}
                 new_orphans = 0
                 cooldown_hours = self._get_cooldown_hours(guild_id)
 
@@ -82,10 +82,18 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
                         # Extract actual user and guild information from embed
                         user_id, ad_guild_id, ad_type = await self._extract_user_and_guild_info(thread)
 
+                        # Get names
+                        thread_name = thread.name
+                        try:
+                            author = self.bot.get_user(user_id) or await self.bot.fetch_user(user_id)
+                            author_name = author.name if author else f"User {user_id}"
+                        except Exception:
+                            author_name = f"User {user_id}"
+
                         # Add all orphans regardless of pin status
                         deletion_time = datetime.datetime.now() + datetime.timedelta(hours=cooldown_hours)
                         notify = False
-                        self.pending_deletions.append((thread.id, deletion_time, user_id, notify, guild_id))
+                        self.pending_deletions.append((thread.id, deletion_time, user_id, notify, guild_id, thread_name, author_name))
                         new_orphans += 1
 
                         # Update cooldown timestamps to match this thread's creation time
@@ -337,7 +345,7 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
             current_time = datetime.datetime.now()
             to_remove = []  # Track entries to remove
 
-            for thread_id, deletion_time, author_id, notify, guild_id in self.pending_deletions:
+            for thread_id, deletion_time, author_id, notify, guild_id, thread_name, author_name in self.pending_deletions:
                 if current_time >= deletion_time:
                     try:
                         # Try to get the thread
@@ -434,30 +442,39 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
         except Exception as e:
             self.logger.error(f"Error loading guild data: {e}", exc_info=True)
 
-    async def _load_pending_deletions_multi_guild(self, file_path: Path) -> List[Tuple[int, datetime.datetime, int, bool, int]]:
+    async def _load_pending_deletions_multi_guild(self, file_path: Path) -> List[Tuple[int, datetime.datetime, int, bool, int, str, str]]:
         """Load pending deletions with multi-guild support.
 
         Returns:
-            List of tuples: (thread_id, deletion_time, author_id, notify, guild_id)
+            List of tuples: (thread_id, deletion_time, author_id, notify, guild_id, thread_name, author_name)
         """
         try:
             data = await self.load_data(file_path, default=[])
             converted_data = []
 
             for entry in data:
-                if len(entry) == 5:  # New format with guild_id
+                if len(entry) == 7:  # New format with names
+                    thread_id, del_time, author_id, notify, guild_id, thread_name, author_name = entry
+                    if isinstance(del_time, str):
+                        del_time = datetime.datetime.fromisoformat(del_time)
+                    converted_data.append((int(thread_id), del_time, int(author_id), bool(notify), int(guild_id), str(thread_name), str(author_name)))
+                elif len(entry) == 5:  # Old format with guild_id but no names
                     thread_id, del_time, author_id, notify, guild_id = entry
                     if isinstance(del_time, str):
                         del_time = datetime.datetime.fromisoformat(del_time)
-                    converted_data.append((int(thread_id), del_time, int(author_id), bool(notify), int(guild_id)))
+                    # Fetch names for migration
+                    thread_name, author_name = await self._fetch_names_for_migration(thread_id, author_id)
+                    converted_data.append((int(thread_id), del_time, int(author_id), bool(notify), int(guild_id), thread_name, author_name))
+                    self.logger.info(f"Migrated deletion entry for thread {thread_id} to include names")
                 elif len(entry) == 4:  # Old format without guild_id (thread_id, time, author_id, notify)
                     thread_id, del_time, author_id, notify = entry
                     if isinstance(del_time, str):
                         del_time = datetime.datetime.fromisoformat(del_time)
-                    # Try to determine guild_id from thread
+                    # Try to determine guild_id from thread and fetch names
                     guild_id = await self._get_thread_guild_id(thread_id)
-                    converted_data.append((int(thread_id), del_time, int(author_id), bool(notify), guild_id))
-                    self.logger.info(f"Migrated deletion entry for thread {thread_id} to include guild_id {guild_id}")
+                    thread_name, author_name = await self._fetch_names_for_migration(thread_id, author_id)
+                    converted_data.append((int(thread_id), del_time, int(author_id), bool(notify), guild_id, thread_name, author_name))
+                    self.logger.info(f"Migrated deletion entry for thread {thread_id} to include guild_id {guild_id} and names")
                 else:
                     self.logger.warning(f"Invalid deletion entry format: {entry}")
                     continue
@@ -480,6 +497,31 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
             return self.bot.guilds[0].id
         return 0
 
+    async def _fetch_names_for_migration(self, thread_id: int, author_id: int) -> Tuple[str, str]:
+        """Fetch thread and author names for migration."""
+        thread_name = f"Thread {thread_id}"
+        author_name = f"User {author_id}"
+
+        try:
+            thread = self.bot.get_channel(thread_id)
+            if not thread:
+                thread = await self.bot.fetch_channel(thread_id)
+            if thread:
+                thread_name = thread.name
+        except Exception as e:
+            self.logger.warning(f"Could not fetch thread name for {thread_id}: {e}")
+
+        try:
+            author = self.bot.get_user(author_id)
+            if not author:
+                author = await self.bot.fetch_user(author_id)
+            if author:
+                author_name = author.name
+        except Exception as e:
+            self.logger.warning(f"Could not fetch author name for {author_id}: {e}")
+
+        return thread_name, author_name
+
     async def _save_all_guild_cooldowns(self) -> None:
         """Save cooldowns for all guilds."""
         try:
@@ -497,8 +539,16 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
 
             # Convert datetime objects to ISO strings for serialization
             serializable_data = [
-                (thread_id, deletion_time.isoformat() if isinstance(deletion_time, datetime.datetime) else deletion_time, author_id, notify, guild_id)
-                for thread_id, deletion_time, author_id, notify, guild_id in self.pending_deletions
+                (
+                    thread_id,
+                    deletion_time.isoformat() if isinstance(deletion_time, datetime.datetime) else deletion_time,
+                    author_id,
+                    notify,
+                    guild_id,
+                    thread_name,
+                    author_name,
+                )
+                for thread_id, deletion_time, author_id, notify, guild_id, thread_name, author_name in self.pending_deletions
             ]
 
             await self.save_data_if_modified(serializable_data, deletions_file)
@@ -571,7 +621,7 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
             return
 
         to_remove = []
-        for thread_id, deletion_time, author_id, notify, guild_id in self.pending_deletions:
+        for thread_id, deletion_time, author_id, notify, guild_id, thread_name, author_name in self.pending_deletions:
             try:
                 # Try to fetch the thread - if it doesn't exist, mark for removal
                 await self.bot.fetch_channel(thread_id)
@@ -922,7 +972,9 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
                 # Schedule thread for deletion with author ID, notification preference, and guild ID
                 schedule_start = time.time()
                 deletion_time = datetime.datetime.now() + datetime.timedelta(hours=cooldown_hours)
-                self.pending_deletions.append((thread.id, deletion_time, interaction.user.id, notify, discord_guild_id))
+                thread_name = thread.name
+                author_name = interaction.user.name
+                self.pending_deletions.append((thread.id, deletion_time, interaction.user.id, notify, discord_guild_id, thread_name, author_name))
                 await self._save_pending_deletions()
                 schedule_time = time.time() - schedule_start
                 await self._send_debug_message(f"Deletion scheduling took {schedule_time:.2f}s for user {interaction.user.id}")
@@ -1041,7 +1093,7 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
                             await self._send_debug_message(f"Error deleting duplicate thread {thread.id}: {e}", guild_id)
 
                     # Ensure all kept threads are properly tracked and update cooldowns
-                    tracked_ids = {t_id for t_id, _, _, _, _ in self.pending_deletions}
+                    tracked_ids = {t_id for t_id, _, _, _, _, _, _ in self.pending_deletions}
                     for keep_thread in keep_threads:
                         # Get the thread's actual user and guild info
                         thread_user_id, thread_guild_id, thread_ad_type = await self._extract_user_and_guild_info(keep_thread)
@@ -1049,7 +1101,13 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
                         if keep_thread.id not in tracked_ids:
                             deletion_time = datetime.datetime.now() + datetime.timedelta(hours=cooldown_hours)
                             notify = False  # Don't notify for duplicate cleanup
-                            self.pending_deletions.append((keep_thread.id, deletion_time, thread_user_id, notify, guild_id))
+                            thread_name = keep_thread.name
+                            try:
+                                author = self.bot.get_user(thread_user_id) or await self.bot.fetch_user(thread_user_id)
+                                author_name = author.name if author else f"User {thread_user_id}"
+                            except Exception:
+                                author_name = f"User {thread_user_id}"
+                            self.pending_deletions.append((keep_thread.id, deletion_time, thread_user_id, notify, guild_id, thread_name, author_name))
                             await self._send_debug_message(f"Added kept thread {keep_thread.id} to pending deletions tracking", guild_id)
 
                         # Update cooldown timestamps to match the kept thread's creation time

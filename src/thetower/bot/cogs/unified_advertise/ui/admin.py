@@ -25,18 +25,11 @@ class AdminAdManagementView(View):
         """Update the view with current advertisement status."""
         # Get all active advertisements in this guild
         active_ads = []
-        for thread_id, deletion_time, author_id, notify, ad_guild_id in self.cog.pending_deletions:
+        for thread_id, deletion_time, author_id, notify, ad_guild_id, thread_name, author_name in self.cog.pending_deletions:
             if ad_guild_id == self.guild_id:
-                try:
-                    thread = await self.cog.bot.fetch_channel(thread_id)
-                    if thread:
-                        author = await self.cog.bot.fetch_user(author_id)
-                        author_name = author.name if author else f"User {author_id}"
-                        time_left = deletion_time - datetime.datetime.now()
-                        hours_left = time_left.total_seconds() / 3600
-                        active_ads.append((thread_id, thread.name, author_name, hours_left, notify))
-                except Exception:
-                    continue
+                time_left = deletion_time - datetime.datetime.now()
+                hours_left = time_left.total_seconds() / 3600
+                active_ads.append((thread_id, thread_name, author_name, hours_left, notify))
 
         # Calculate pagination
         total_ads = len(active_ads)
@@ -116,16 +109,9 @@ class AdminAdManagementView(View):
         """Handle deleting an advertisement."""
         # Get all ads in this guild
         guild_ads = []
-        for thread_id, deletion_time, author_id, notify, ad_guild_id in self.cog.pending_deletions:
+        for thread_id, deletion_time, author_id, notify, ad_guild_id, thread_name, author_name in self.cog.pending_deletions:
             if ad_guild_id == self.guild_id:
-                try:
-                    thread = await self.cog.bot.fetch_channel(thread_id)
-                    if thread:
-                        author = await self.cog.bot.fetch_user(author_id)
-                        author_name = author.name if author else f"User {author_id}"
-                        guild_ads.append((thread_id, thread.name, author_name))
-                except Exception:
-                    continue
+                guild_ads.append((thread_id, thread_name, author_name))
 
         if len(guild_ads) == 1:
             # Only one ad, delete it directly
@@ -168,17 +154,9 @@ class AdminAdManagementView(View):
         """Toggle notification settings for an advertisement."""
         # Get all ads in this guild
         guild_ads = []
-        for entry in self.cog.pending_deletions:
-            thread_id, deletion_time, author_id, notify, ad_guild_id = entry
+        for thread_id, deletion_time, author_id, notify, ad_guild_id, thread_name, author_name in self.cog.pending_deletions:
             if ad_guild_id == self.guild_id:
-                try:
-                    thread = await self.cog.bot.fetch_channel(thread_id)
-                    if thread:
-                        author = await self.cog.bot.fetch_user(author_id)
-                        author_name = author.name if author else f"User {author_id}"
-                        guild_ads.append((thread_id, thread.name, author_name, notify))
-                except Exception:
-                    continue
+                guild_ads.append((thread_id, thread_name, author_name, notify))
 
         if len(guild_ads) == 1:
             # Only one ad, toggle it directly
@@ -215,11 +193,11 @@ class AdminAdManagementView(View):
     async def _toggle_notify(self, interaction: discord.Interaction, thread_id: int, new_state: bool):
         """Toggle notification for a specific ad."""
         updated_deletions = []
-        for t_id, t_time, t_author, t_notify, t_guild_id in self.cog.pending_deletions:
+        for t_id, t_time, t_author, t_notify, t_guild_id, t_thread_name, t_author_name in self.cog.pending_deletions:
             if t_id == thread_id:
-                updated_deletions.append((t_id, t_time, t_author, new_state, t_guild_id))
+                updated_deletions.append((t_id, t_time, t_author, new_state, t_guild_id, t_thread_name, t_author_name))
             else:
-                updated_deletions.append((t_id, t_time, t_author, t_notify, t_guild_id))
+                updated_deletions.append((t_id, t_time, t_author, t_notify, t_guild_id, t_thread_name, t_author_name))
 
         self.cog.pending_deletions = updated_deletions
         await self.cog._save_pending_deletions()
