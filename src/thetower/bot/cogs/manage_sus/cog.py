@@ -98,8 +98,12 @@ class ManageSus(BaseCog, name="Manage Sus"):
 
         This method is called by the player_lookup cog to extend /lookup functionality.
         Returns a button that opens the moderation management interface for the player,
-        or None if the user doesn't have permission.
+        or None if the user doesn't have permission or is viewing their own profile.
         """
+        # Don't show button if user is viewing their own profile
+        if player.discord_id and str(player.discord_id) == str(requesting_user.id):
+            return None
+
         # Check if user has permission to view/manage moderation records
         # We do this synchronously here since it's called from the player_lookup cog
         # The actual permission check will be done asynchronously when the button is clicked
