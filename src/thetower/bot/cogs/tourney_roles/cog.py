@@ -1867,14 +1867,7 @@ class TourneyStatsButton(discord.ui.Button):
                         if count == 1:
                             date = best_pos_tourneys[0].get("date", "")
                             date_str = date.strftime("%Y-%m-%d") if hasattr(date, "strftime") else str(date)
-                            stats_text.append(f"**Best Position:** {best_position} (once on {date_str})")
-                        elif count == 2:
-                            dates = []
-                            for t in best_pos_tourneys:
-                                d = t.get("date", "")
-                                dates.append(d.strftime("%Y-%m-%d") if hasattr(d, "strftime") else str(d))
-                            dates = sorted(dates)
-                            stats_text.append(f"**Best Position:** {best_position} (twice: {dates[0]}, {dates[1]})")
+                            stats_text.append(f"**Best Position:** {best_position} ({date_str})")
                         else:
                             dates = []
                             for t in best_pos_tourneys:
@@ -1887,7 +1880,28 @@ class TourneyStatsButton(discord.ui.Button):
                     else:
                         stats_text.append(f"**Best Position:** {best_position}")
 
-                    stats_text.append(f"**Highest Wave:** {league_stats.get('best_wave', 0)}")
+                    # Highest Wave with frequency and date pattern
+                    highest_wave = league_stats.get("best_wave", 0)
+                    if tournaments and highest_wave:
+                        # Count how many times highest wave was achieved
+                        best_wave_tourneys = [t for t in tournaments if t.get("wave") == highest_wave]
+                        wave_count = len(best_wave_tourneys)
+
+                        if wave_count == 1:
+                            date = best_wave_tourneys[0].get("date", "")
+                            date_str = date.strftime("%Y-%m-%d") if hasattr(date, "strftime") else str(date)
+                            stats_text.append(f"**Highest Wave:** {highest_wave} ({date_str})")
+                        else:
+                            dates = []
+                            for t in best_wave_tourneys:
+                                d = t.get("date", "")
+                                dates.append(d.strftime("%Y-%m-%d") if hasattr(d, "strftime") else str(d))
+                            dates = sorted(dates)
+                            first_date = dates[0]  # Earliest date
+                            last_date = dates[-1]  # Most recent date
+                            stats_text.append(f"**Highest Wave:** {highest_wave} ({wave_count}x: first {first_date}, last {last_date})")
+                    else:
+                        stats_text.append(f"**Highest Wave:** {highest_wave}")
                     stats_text.append(f"**Avg Wave:** {league_stats.get('avg_wave', 0):.1f}")
                     stats_text.append(f"**Avg Position:** {league_stats.get('avg_position', 0):.1f}")
 

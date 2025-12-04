@@ -174,6 +174,7 @@ class TournamentRolesCore:
                         "best_wave": 0,
                         "best_position": float("inf"),
                         "position_at_best_wave": 0,
+                        "best_date": None,
                         "total_tourneys": 0,
                         "avg_wave": 0,
                         "avg_position": 0,
@@ -207,6 +208,7 @@ class TournamentRolesCore:
                 if best_wave > league_result["best_wave"]:
                     league_result["best_wave"] = best_wave
                     league_result["position_at_best_wave"] = league_stats.get("position_at_best_wave", 0)
+                    league_result["best_date"] = league_stats.get("best_date")
 
                 # Update best position
                 best_position = league_stats.get("best_position", float("inf"))
