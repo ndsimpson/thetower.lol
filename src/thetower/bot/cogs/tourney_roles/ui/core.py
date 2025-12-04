@@ -177,6 +177,7 @@ class TournamentRolesCore:
                         "total_tourneys": 0,
                         "avg_wave": 0,
                         "avg_position": 0,
+                        "tournaments": [],  # Initialize tournaments list
                     }
 
                 tourney_count = league_stats.get("total_tourneys", 0)
@@ -211,6 +212,11 @@ class TournamentRolesCore:
                 best_position = league_stats.get("best_position", float("inf"))
                 if best_position < league_result["best_position"]:
                     league_result["best_position"] = best_position
+
+                # Append tournaments from this player ID
+                player_tournaments = league_stats.get("tournaments", [])
+                if player_tournaments:
+                    league_result["tournaments"].extend(player_tournaments)
 
                 # Update latest patch data
                 if best_position < result["latest_patch"]["best_placement"]:
