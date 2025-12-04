@@ -638,6 +638,7 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
             "not_in_guild": 0,
         }
 
+        total_cache_size = len(self.role_cache.get(guild_id, {}))
         total_users = len(users_to_process)
         loop_start_time = datetime.datetime.now(datetime.timezone.utc)
         self.logger.info(f"[LOOP START] apply_roles_for_users: Processing {total_users} users from role_cache for guild {guild.name}")
@@ -781,7 +782,8 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
         self.logger.info(
             f"[LOOP END] apply_roles_for_users: Completed in {loop_duration:.1f}s ({rate:.1f} users/sec)\n"
             f"  Guild: {guild.name} ({guild.id})\n"
-            f"  Users in role_cache: {total_users}\n"
+            f"  Total users in role_cache: {total_cache_size}\n"
+            f"  Users being processed: {total_users}\n"
             f"  Users not in guild: {stats['not_in_guild']}\n"
             f"  Users processed: {stats['processed']}\n"
             f"  Roles added: {stats['roles_added']}\n"
