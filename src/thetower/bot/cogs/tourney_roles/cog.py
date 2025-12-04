@@ -345,8 +345,15 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
         try:
             latest_tourney_date = await self.get_latest_tournament_date()
             if latest_tourney_date and self.cache_latest_tourney_date:
-                if latest_tourney_date > self.cache_latest_tourney_date:
-                    self.logger.info(f"Cache invalidated: New tournament data available ({latest_tourney_date} > {self.cache_latest_tourney_date})")
+                # Compare only dates, not times, since tournaments are based on UTC date
+                latest_date = latest_tourney_date.date() if isinstance(latest_tourney_date, datetime.datetime) else latest_tourney_date
+                cache_date = (
+                    self.cache_latest_tourney_date.date()
+                    if isinstance(self.cache_latest_tourney_date, datetime.datetime)
+                    else self.cache_latest_tourney_date
+                )
+                if latest_date > cache_date:
+                    self.logger.info(f"Cache invalidated: New tournament data available ({latest_date} > {cache_date})")
                     return False
             elif latest_tourney_date and not self.cache_latest_tourney_date:
                 self.logger.info(f"Cache invalidated: Tournament data now available ({latest_tourney_date})")
