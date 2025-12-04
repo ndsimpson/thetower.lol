@@ -780,6 +780,7 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
         # Log comprehensive statistics
         self.logger.info(
             f"[LOOP END] apply_roles_for_users: Completed in {loop_duration:.1f}s ({rate:.1f} users/sec)\n"
+            f"  Guild: {guild.name} ({guild.id})\n"
             f"  Users in role_cache: {total_users}\n"
             f"  Users not in guild: {stats['not_in_guild']}\n"
             f"  Users processed: {stats['processed']}\n"
