@@ -1650,28 +1650,20 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
             self.cache_latest_tourney_date = None
             self.cache_timestamp = None
 
-            # If we're not currently updating, trigger a recalculation
+            # If we're not currently updating, trigger a full update with role application
             if not self.currently_updating:
-                self.logger.info("Triggering role recalculation for new tournament data")
+                self.logger.info("Triggering full role update for new tournament data")
 
                 # Check if updates are paused
                 if self.get_setting("pause", guild_id=self.bot.guilds[0].id if self.bot.guilds else None):
-                    self.logger.info("Role updates are paused, skipping automatic recalculation")
+                    self.logger.info("Role updates are paused, skipping automatic update")
                     return
 
-                # Trigger calculation phase (not full update with application)
-                # This will recalculate roles but won't apply them until the next scheduled update
-                # or manual trigger. This prevents too many role changes in quick succession.
-                calc_success = await self.calculate_all_roles()
-                if calc_success:
-                    self.logger.info("Role recalculation completed successfully")
-                    # Mark data as modified and save
-                    self.mark_data_modified()
-                    await self.save_data()
-                else:
-                    self.logger.warning("Role recalculation failed")
+                # Trigger full update (calculation + application)
+                # When new tournament data is detected, we want to apply role changes immediately
+                await self.update_all_roles()
             else:
-                self.logger.info("Role update already in progress, skipping event-triggered recalculation")
+                self.logger.info("Role update already in progress, skipping event-triggered update")
 
         except Exception as e:
             self.logger.error(f"Error handling tourney_data_refreshed event: {e}", exc_info=True)
