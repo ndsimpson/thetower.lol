@@ -74,6 +74,8 @@ class TourneyAdminView(discord.ui.View):
             ]
             if self.cog.last_updated:
                 cache_stats.append(f"🔄 **Last Updated:** {self.cog.last_updated.strftime('%Y-%m-%d %H:%M:%S')}")
+            if self.cog.last_checked:
+                cache_stats.append(f"👁️ **Last Checked:** {self.cog.last_checked.strftime('%Y-%m-%d %H:%M:%S')}")
             embed.add_field(name="💾 Cache Statistics", value="\n".join(cache_stats), inline=False)
 
         # Data Coverage & Statistics

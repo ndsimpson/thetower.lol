@@ -55,6 +55,7 @@ class TourneyStats(BaseCog, name="Tourney Stats"):
         self.latest_patch = None
         self.latest_tournament_date = None
         self.last_updated = None
+        self.last_checked = None
         self.tournament_counts = {}
         self.total_tournaments = 0
 
@@ -117,6 +118,9 @@ class TourneyStats(BaseCog, name="Tourney Stats"):
     async def periodic_update_check(self):
         """Check for new tournament dates and refresh data if needed."""
         try:
+            # Update last checked timestamp
+            self.last_checked = datetime.datetime.now()
+
             # Start the update check task
             async with self.task_tracker.task_context("Tournament Check", "Checking for new tournament data"):
                 # Get the latest tournament date from DB
@@ -190,6 +194,7 @@ class TourneyStats(BaseCog, name="Tourney Stats"):
                 "latest_tournament_date": self.latest_tournament_date,
                 "league_dfs": self.league_dfs,
                 "last_updated": self.last_updated or datetime.datetime.now(),
+                "last_checked": self.last_checked,
                 "tournament_counts": self.tournament_counts,
                 "total_tournaments": self.total_tournaments,
             }
@@ -219,6 +224,7 @@ class TourneyStats(BaseCog, name="Tourney Stats"):
                 self.latest_tournament_date = save_data.get("latest_tournament_date")
                 self.league_dfs = save_data.get("league_dfs", {})
                 self.last_updated = save_data.get("last_updated")
+                self.last_checked = save_data.get("last_checked")
                 self.tournament_counts = save_data.get("tournament_counts", {})
                 self.total_tournaments = save_data.get("total_tournaments", 0)
 
