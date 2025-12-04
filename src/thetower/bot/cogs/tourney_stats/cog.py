@@ -429,9 +429,12 @@ class TourneyStats(BaseCog, name="Tourney Stats"):
         if league_name == legend:
             # For legend league, lower position is better
             best_position = player_df.position.min()
-            best_position_row = player_df[player_df.position == best_position].iloc[0]
-            best_wave = best_position_row.wave
-            best_date = best_position_row.date if "date" in best_position_row else None
+
+            # Best wave is always the highest wave, regardless of position
+            best_wave = player_df.wave.max()
+            best_wave_row = player_df[player_df.wave == best_wave].iloc[0]
+            position_at_best = best_wave_row.position
+            best_date = best_wave_row.date if "date" in best_wave_row else None
 
             # Calculate average position and wave
             avg_position = player_df.position.mean()
@@ -445,7 +448,7 @@ class TourneyStats(BaseCog, name="Tourney Stats"):
 
             return {
                 "best_position": best_position,
-                "position_at_best_wave": best_position,
+                "position_at_best_wave": position_at_best,
                 "best_wave": best_wave,
                 "best_date": best_date,
                 "avg_position": round(avg_position, 2),
@@ -454,7 +457,7 @@ class TourneyStats(BaseCog, name="Tourney Stats"):
                 "latest_wave": latest_wave,
                 "latest_date": latest_date,
                 "total_tourneys": total_tourneys,
-                "max_wave": player_df.wave.max(),
+                "max_wave": best_wave,
                 "min_wave": player_df.wave.min(),
                 "tournaments": (
                     player_df[["date", "position", "wave"]].sort_values("date", ascending=False).to_dict("records")

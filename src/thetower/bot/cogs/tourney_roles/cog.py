@@ -1839,24 +1839,46 @@ class TourneyStatsButton(discord.ui.Button):
 
             # Add overall stats
             if player_stats.total_tourneys > 0:
-                overall = f"**Total Tournaments:** {player_stats.total_tourneys}\n"
-
+                # Latest Tournament section
                 latest = player_stats.latest_tournament
                 if latest.get("league"):
-                    overall += f"**Latest Tournament:** {latest['league']}\n"
-                    overall += f"  • Position: {latest.get('placement', 'N/A')}\n"
-                    overall += f"  • Wave: {latest.get('wave', 'N/A')}\n"
+                    latest_text = f"**League:** {latest['league']}\n"
+                    latest_text += f"**Position:** {latest.get('placement', 'N/A')}\n"
+                    latest_text += f"**Wave:** {latest.get('wave', 'N/A')}\n"
                     if latest.get("date"):
-                        overall += f"  • Date: {latest['date']}\n"
+                        latest_text += f"**Date:** {latest['date']}"
 
-                embed.add_field(name="📈 Overall Performance", value=overall, inline=False)
+                    embed.add_field(name="📈 Latest Tournament", value=latest_text, inline=False)
 
                 # Add league-specific stats
                 for league_name, league_stats in player_stats.leagues.items():
                     stats_text = []
                     stats_text.append(f"**Tournaments:** {league_stats.get('total_tourneys', 0)}")
-                    stats_text.append(f"**Best Wave:** {league_stats.get('best_wave', 0)}")
-                    stats_text.append(f"**Best Position:** {league_stats.get('best_position', 'N/A')}")
+
+                    # Best position with frequency
+                    best_position = league_stats.get("best_position", "N/A")
+                    tournaments = league_stats.get("tournaments", [])
+
+                    if tournaments and best_position != "N/A":
+                        # Count how many times best position was achieved
+                        best_pos_tourneys = [t for t in tournaments if t.get("position") == best_position]
+                        count = len(best_pos_tourneys)
+
+                        if count == 1:
+                            date_str = best_pos_tourneys[0].get("date", "")
+                            stats_text.append(f"**Best Position:** {best_position} (once on {date_str})")
+                        elif count == 2:
+                            dates = sorted([t.get("date", "") for t in best_pos_tourneys])
+                            stats_text.append(f"**Best Position:** {best_position} (twice: {dates[0]}, {dates[1]})")
+                        else:
+                            dates = sorted([t.get("date", "") for t in best_pos_tourneys])
+                            first_date = dates[0]  # Earliest date
+                            last_date = dates[-1]  # Most recent date
+                            stats_text.append(f"**Best Position:** {best_position} ({count}x: first {first_date}, last {last_date})")
+                    else:
+                        stats_text.append(f"**Best Position:** {best_position}")
+
+                    stats_text.append(f"**Highest Wave:** {league_stats.get('best_wave', 0)}")
                     stats_text.append(f"**Avg Wave:** {league_stats.get('avg_wave', 0):.1f}")
                     stats_text.append(f"**Avg Position:** {league_stats.get('avg_position', 0):.1f}")
 
