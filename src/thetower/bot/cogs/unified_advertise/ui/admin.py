@@ -13,10 +13,13 @@ if TYPE_CHECKING:
 class AdminAdManagementView(View):
     """View for administrators to manage advertisements in the guild."""
 
-    def __init__(self, cog: "UnifiedAdvertise", guild_id: int):
+    ADS_PER_PAGE = 10  # Number of ads to show per page
+
+    def __init__(self, cog: "UnifiedAdvertise", guild_id: int, page: int = 0):
         super().__init__(timeout=900)  # 10 minute timeout
         self.cog = cog
         self.guild_id = guild_id
+        self.page = page
 
     async def update_view(self, interaction: discord.Interaction):
         """Update the view with current advertisement status."""
@@ -35,6 +38,17 @@ class AdminAdManagementView(View):
                 except Exception:
                     continue
 
+        # Calculate pagination
+        total_ads = len(active_ads)
+        total_pages = max(1, (total_ads + self.ADS_PER_PAGE - 1) // self.ADS_PER_PAGE)
+
+        # Ensure page is within valid range
+        self.page = max(0, min(self.page, total_pages - 1))
+
+        start_idx = self.page * self.ADS_PER_PAGE
+        end_idx = min(start_idx + self.ADS_PER_PAGE, total_ads)
+        page_ads = active_ads[start_idx:end_idx]
+
         # Build embed
         embed = discord.Embed(
             title="Admin Advertisement Management", description="Manage all advertisements in this server", color=discord.Color.red()
@@ -42,18 +56,33 @@ class AdminAdManagementView(View):
 
         if active_ads:
             ads_text = []
-            for thread_id, name, author, hours_left, notify in active_ads:
+            for thread_id, name, author, hours_left, notify in page_ads:
                 notify_icon = "🔔" if notify else "🔕"
                 ads_text.append(f"**{name}**\n👤 {author} • {notify_icon} Expires in {hours_left:.1f} hours")
-            embed.add_field(name="Active Advertisements", value="\n\n".join(ads_text), inline=False)
+
+            page_info = f" (Page {self.page + 1}/{total_pages})" if total_pages > 1 else ""
+            embed.add_field(name=f"Active Advertisements{page_info}", value="\n\n".join(ads_text), inline=False)
         else:
             embed.add_field(name="Active Advertisements", value="No active advertisements", inline=False)
 
         # Add statistics
-        embed.add_field(name="Statistics", value=f"Total Active Ads: {len(active_ads)}", inline=True)
+        stats_text = f"Total Active Ads: {total_ads}"
+        if total_pages > 1:
+            stats_text += f"\nShowing: {start_idx + 1}-{end_idx}"
+        embed.add_field(name="Statistics", value=stats_text, inline=True)
 
         # Update buttons
         self.clear_items()
+
+        # Add pagination buttons if needed (first row)
+        if total_pages > 1:
+            prev_btn = Button(label="Previous", style=discord.ButtonStyle.secondary, emoji="◀️", disabled=self.page == 0)
+            prev_btn.callback = self.previous_page
+            self.add_item(prev_btn)
+
+            next_btn = Button(label="Next", style=discord.ButtonStyle.secondary, emoji="▶️", disabled=self.page >= total_pages - 1)
+            next_btn.callback = self.next_page
+            self.add_item(next_btn)
 
         if active_ads:
             # Add delete button if there are ads
@@ -201,6 +230,18 @@ class AdminAdManagementView(View):
         # Refresh the main view
         embed = await self.update_view(interaction)
         await interaction.message.edit(embed=embed, view=self)
+
+    async def previous_page(self, interaction: discord.Interaction):
+        """Navigate to the previous page."""
+        self.page = max(0, self.page - 1)
+        embed = await self.update_view(interaction)
+        await interaction.response.edit_message(embed=embed, view=self)
+
+    async def next_page(self, interaction: discord.Interaction):
+        """Navigate to the next page."""
+        self.page += 1
+        embed = await self.update_view(interaction)
+        await interaction.response.edit_message(embed=embed, view=self)
 
     async def refresh_view(self, interaction: discord.Interaction):
         """Refresh the view."""
