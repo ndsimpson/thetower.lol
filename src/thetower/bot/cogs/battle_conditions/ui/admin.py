@@ -33,10 +33,9 @@ class ConfigureLeaguesButton(discord.ui.Button):
     async def callback(self, interaction: discord.Interaction):
         view: BCSettingsView = self.view
         cog = view.cog
-        guild_id = interaction.guild.id
 
-        # Get current enabled leagues
-        enabled_leagues = cog.get_setting("enabled_leagues", guild_id=guild_id) or DEFAULT_ENABLED_LEAGUES
+        # Get current enabled leagues (global setting)
+        enabled_leagues = cog.get_setting("enabled_leagues") or DEFAULT_ENABLED_LEAGUES
 
         # Create select menu with all leagues
         league_select = LeagueSelect(cog, enabled_leagues)
@@ -56,11 +55,10 @@ class LeagueSelect(discord.ui.Select):
         self.cog = cog
 
     async def callback(self, interaction: discord.Interaction):
-        guild_id = interaction.guild.id
         selected_leagues = self.values
 
-        # Save to settings
-        self.cog.set_setting("enabled_leagues", selected_leagues, guild_id=guild_id)
+        # Save to global settings
+        self.cog.set_setting("enabled_leagues", selected_leagues)
 
         await interaction.response.send_message(f"✅ Enabled leagues updated: {', '.join(selected_leagues)}", ephemeral=True)
 

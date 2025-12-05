@@ -4,8 +4,6 @@ import discord
 
 from thetower.bot.ui.context import SettingsViewContext
 
-from .core import DEFAULT_ENABLED_LEAGUES
-
 
 class BattleConditionsSettingsView(discord.ui.View):
     """Settings view for Battle Conditions cog."""
@@ -36,12 +34,10 @@ class BattleConditionsSettingsView(discord.ui.View):
             title="⚙️ Battle Conditions Settings", description="Configure battle conditions for this server", color=discord.Color.blue()
         )
 
-        # Current enabled leagues
-        enabled_leagues = self.cog.get_setting("enabled_leagues", guild_id=self.guild_id)
-        if not enabled_leagues:
-            enabled_leagues = DEFAULT_ENABLED_LEAGUES
+        # Current enabled leagues (global setting)
+        enabled_leagues = self.cog.get_setting("enabled_leagues") or []
 
-        embed.add_field(name="Enabled Leagues", value=", ".join(enabled_leagues), inline=False)
+        embed.add_field(name="Enabled Leagues (Global)", value=", ".join(enabled_leagues) if enabled_leagues else "None configured", inline=False)
 
         # Current schedules
         schedules = self.cog.get_setting("destination_schedules", guild_id=self.guild_id) or []
@@ -79,19 +75,17 @@ class BattleConditionsConfigureLeaguesButton(discord.ui.Button):
         self.bc_cog = bc_cog
 
     async def callback(self, interaction: discord.Interaction):
-        guild_id = interaction.guild.id
-
-        # Get current enabled leagues
-        enabled_leagues = self.bc_cog.get_setting("enabled_leagues", guild_id=guild_id)
-        if not enabled_leagues:
-            enabled_leagues = DEFAULT_ENABLED_LEAGUES
+        # Get current enabled leagues (global setting)
+        enabled_leagues = self.cog.get_setting("enabled_leagues") or []
 
         # Create select menu with all leagues
         league_select = BattleConditionsLeagueSelect(self.bc_cog, enabled_leagues)
         select_view = discord.ui.View(timeout=900)
         select_view.add_item(league_select)
 
-        await interaction.response.send_message("Select which leagues to enable for battle conditions:", view=select_view, ephemeral=True)
+        await interaction.response.send_message(
+            "Select which leagues to enable for battle conditions (applies globally):", view=select_view, ephemeral=True
+        )
 
 
 class BattleConditionsLeagueSelect(discord.ui.Select):
@@ -100,19 +94,22 @@ class BattleConditionsLeagueSelect(discord.ui.Select):
     def __init__(self, bc_cog, current_enabled: list):
         from .core import ALL_LEAGUES
 
+        # Show items as checked only if they're in the config
         options = [discord.SelectOption(label=league, value=league, default=league in current_enabled) for league in ALL_LEAGUES]
 
-        super().__init__(placeholder="Select leagues to enable...", min_values=1, max_values=len(ALL_LEAGUES), options=options)
+        super().__init__(placeholder="Select leagues to enable...", min_values=0, max_values=len(ALL_LEAGUES), options=options)
         self.bc_cog = bc_cog
 
     async def callback(self, interaction: discord.Interaction):
-        guild_id = interaction.guild.id
         selected_leagues = self.values
 
-        # Save to settings
-        self.bc_cog.set_setting("enabled_leagues", selected_leagues, guild_id=guild_id)
+        # Save to global settings
+        self.bc_cog.set_setting("enabled_leagues", selected_leagues)
 
-        await interaction.response.send_message(f"✅ Enabled leagues updated: {', '.join(selected_leagues)}", ephemeral=True)
+        if selected_leagues:
+            await interaction.response.send_message(f"✅ Enabled leagues updated globally: {', '.join(selected_leagues)}", ephemeral=True)
+        else:
+            await interaction.response.send_message("✅ Enabled leagues updated globally: (none selected)", ephemeral=True)
 
 
 class BattleConditionsConfigurePermissionsButton(discord.ui.Button):

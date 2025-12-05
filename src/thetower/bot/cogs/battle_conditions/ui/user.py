@@ -68,11 +68,8 @@ class ViewBCButton(discord.ui.Button):
                 )
                 return
 
-        # Get enabled leagues for this guild
-        guild_id = interaction.guild.id
-        enabled_leagues = cog.get_setting("enabled_leagues", guild_id=guild_id)
-        if not enabled_leagues:
-            enabled_leagues = cog.default_settings["enabled_leagues"]
+        # Get enabled leagues (global setting)
+        enabled_leagues = cog.get_setting("enabled_leagues") or []
 
         if not enabled_leagues:
             await interaction.response.send_message("No leagues enabled. Use settings to configure.", ephemeral=True)

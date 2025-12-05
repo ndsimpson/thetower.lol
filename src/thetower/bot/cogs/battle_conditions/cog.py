@@ -35,6 +35,7 @@ class BattleConditions(BaseCog, name="Battle Conditions"):
         # Global settings (bot-wide)
         self.global_settings = {
             "bc_view_window_days": None,  # None = always available, or number of days before tourney
+            "enabled_leagues": [],
         }
 
         # Guild-specific settings
@@ -43,8 +44,6 @@ class BattleConditions(BaseCog, name="Battle Conditions"):
             "notification_hour": 0,
             "notification_minute": 0,
             "days_before_notification": 1,
-            # Display Settings
-            "enabled_leagues": ["Legend", "Champion", "Platinum", "Gold", "Silver"],
             # Schedule Settings
             "destination_schedules": [],
         }
@@ -178,12 +177,16 @@ class BattleConditions(BaseCog, name="Battle Conditions"):
                 # This is more efficient than checking every schedule every minute
                 schedules_to_process = []
 
+                # Get global enabled leagues (applies to all guilds)
+                enabled_leagues = self.get_setting("enabled_leagues")
+                if not enabled_leagues:
+                    return  # Skip if no leagues are configured
+
                 for guild in self.bot.guilds:
                     guild_id = guild.id
 
                     # Get schedules for this guild
                     schedules = self.get_setting("destination_schedules", [], guild_id=guild_id)
-                    enabled_leagues = self.get_setting("enabled_leagues", guild_id=guild_id)
 
                     # Filter schedules that match current time and day
                     for schedule in schedules:
@@ -206,7 +209,6 @@ class BattleConditions(BaseCog, name="Battle Conditions"):
                                 {
                                     "schedule": schedule,
                                     "guild_id": guild_id,
-                                    "enabled_leagues": enabled_leagues,
                                 }
                             )
 
@@ -214,7 +216,6 @@ class BattleConditions(BaseCog, name="Battle Conditions"):
                 for item in schedules_to_process:
                     schedule = item["schedule"]
                     guild_id = item["guild_id"]
-                    enabled_leagues = item["enabled_leagues"]
 
                     destination_id = schedule.get("destination_id")
                     leagues = schedule.get("leagues", [])
@@ -239,8 +240,8 @@ class BattleConditions(BaseCog, name="Battle Conditions"):
 
                     # Send each league's battle conditions
                     for league in leagues:
-                        # Skip leagues that aren't enabled
-                        if league not in enabled_leagues:
+                        # Skip leagues that aren't enabled (handle None case)
+                        if enabled_leagues is None or league not in enabled_leagues:
                             continue
 
                         try:
