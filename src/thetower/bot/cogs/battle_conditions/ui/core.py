@@ -227,7 +227,7 @@ class ViewWindowModal(discord.ui.Modal, title="Global BC View Window"):
 
         if not value_str:
             # Blank means always available
-            self.cog.set_setting("bc_view_window_days", None, guild_id=None)
+            self.cog.set_global_setting("bc_view_window_days", None)
             await interaction.response.send_message("✅ BC view window set to **always available**", ephemeral=True)
         else:
             try:
@@ -236,7 +236,7 @@ class ViewWindowModal(discord.ui.Modal, title="Global BC View Window"):
                     await interaction.response.send_message("❌ Days must be 0 or positive", ephemeral=True)
                     return
 
-                self.cog.set_setting("bc_view_window_days", days, guild_id=None)
+                self.cog.set_global_setting("bc_view_window_days", days)
                 await interaction.response.send_message(f"✅ BC view window set to **{days} day(s)** before tournament", ephemeral=True)
             except ValueError:
                 await interaction.response.send_message("❌ Invalid number. Please enter a valid number of days.", ephemeral=True)

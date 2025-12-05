@@ -35,7 +35,7 @@ class BattleConditionsSettingsView(discord.ui.View):
         )
 
         # Current enabled leagues (global setting)
-        enabled_leagues = self.cog.get_setting("enabled_leagues", guild_id=None) or []
+        enabled_leagues = self.cog.get_global_setting("enabled_leagues") or []
 
         embed.add_field(name="Enabled Leagues (Global)", value=", ".join(enabled_leagues) if enabled_leagues else "None configured", inline=False)
 
@@ -76,7 +76,7 @@ class BattleConditionsConfigureLeaguesButton(discord.ui.Button):
 
     async def callback(self, interaction: discord.Interaction):
         # Get current enabled leagues (global setting)
-        enabled_leagues = self.cog.get_setting("enabled_leagues", guild_id=None) or []
+        enabled_leagues = self.cog.get_global_setting("enabled_leagues") or []
 
         # Create select menu with all leagues
         league_select = BattleConditionsLeagueSelect(self.bc_cog, enabled_leagues)
@@ -104,7 +104,7 @@ class BattleConditionsLeagueSelect(discord.ui.Select):
         selected_leagues = self.values
 
         # Save to global settings
-        self.bc_cog.set_setting("enabled_leagues", selected_leagues)
+        self.bc_cog.set_global_setting("enabled_leagues", selected_leagues)
 
         if selected_leagues:
             await interaction.response.send_message(f"✅ Enabled leagues updated globally: {', '.join(selected_leagues)}", ephemeral=True)

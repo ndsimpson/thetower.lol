@@ -51,9 +51,9 @@ class ViewBCButton(discord.ui.Button):
         is_bot_owner = await cog.bot.is_owner(interaction.user)
 
         # Check viewing window (global setting, not per-guild)
-        view_window_days = cog.get_setting("bc_view_window_days", guild_id=None)
+        view_window_days = cog.get_global_setting("bc_view_window_days")
         if view_window_days is None:
-            view_window_days = cog.default_settings["bc_view_window_days"]
+            view_window_days = cog.default_settings.get("bc_view_window_days")
 
         # Check if outside viewing window
         outside_window = False
@@ -69,7 +69,7 @@ class ViewBCButton(discord.ui.Button):
                 return
 
         # Get enabled leagues (global setting)
-        enabled_leagues = cog.get_setting("enabled_leagues", guild_id=None) or []
+        enabled_leagues = cog.get_global_setting("enabled_leagues") or []
 
         if not enabled_leagues:
             await interaction.response.send_message("No leagues enabled. Use settings to configure.", ephemeral=True)
@@ -157,7 +157,7 @@ class GenerateBCButton(discord.ui.Button):
             return
 
         # Get enabled leagues (global setting)
-        enabled_leagues = cog.get_setting("enabled_leagues", guild_id=None) or []
+        enabled_leagues = cog.get_global_setting("enabled_leagues") or []
 
         if not enabled_leagues:
             await interaction.response.send_message("No leagues enabled. Use settings to configure.", ephemeral=True)
@@ -301,7 +301,7 @@ class ScheduleSelect(discord.ui.Select):
             return
 
         # Get enabled leagues (global setting)
-        enabled_leagues = self.cog.get_setting("enabled_leagues", guild_id=None) or []
+        enabled_leagues = self.cog.get_global_setting("enabled_leagues") or []
 
         # Send BCs to channel
         sent_count = 0
@@ -341,7 +341,7 @@ class SettingsBCButton(discord.ui.Button):
 
         settings_view = BCSettingsView(cog, is_bot_owner)
 
-        enabled_leagues = cog.get_setting("enabled_leagues", guild_id=None) or []
+        enabled_leagues = cog.get_global_setting("enabled_leagues") or []
 
         settings_text = (
             f"**Current Settings**\n\n" f"**Enabled Leagues:** {', '.join(enabled_leagues)}\n\n" f"Use the buttons below to configure settings."

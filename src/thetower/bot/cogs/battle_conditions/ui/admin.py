@@ -35,7 +35,7 @@ class ConfigureLeaguesButton(discord.ui.Button):
         cog = view.cog
 
         # Get current enabled leagues (global setting)
-        enabled_leagues = cog.get_setting("enabled_leagues", guild_id=None) or DEFAULT_ENABLED_LEAGUES
+        enabled_leagues = cog.get_global_setting("enabled_leagues") or DEFAULT_ENABLED_LEAGUES
 
         # Create select menu with all leagues
         league_select = LeagueSelect(cog, enabled_leagues)
@@ -58,7 +58,7 @@ class LeagueSelect(discord.ui.Select):
         selected_leagues = self.values
 
         # Save to global settings
-        self.cog.set_setting("enabled_leagues", selected_leagues)
+        self.cog.set_global_setting("enabled_leagues", selected_leagues)
 
         await interaction.response.send_message(f"✅ Enabled leagues updated: {', '.join(selected_leagues)}", ephemeral=True)
 
@@ -384,9 +384,9 @@ class GlobalSettingsButton(discord.ui.Button):
         cog = view.cog
 
         # Get current global settings
-        view_window = cog.get_setting("bc_view_window_days", guild_id=None)
+        view_window = cog.get_global_setting("bc_view_window_days")
         if view_window is None:
-            view_window = cog.default_settings["bc_view_window_days"]
+            view_window = cog.default_settings.get("bc_view_window_days")
 
         # Show modal for setting view window
         from .core import ViewWindowModal
