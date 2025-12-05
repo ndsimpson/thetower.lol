@@ -1482,7 +1482,9 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
         # Return True if groups are configured (actual permission check is in button callback)
         return bool(authorized_groups)
 
-    def get_tourney_stats_button_for_player(self, player, requesting_user: discord.User, guild_id: int) -> Optional[discord.ui.Button]:
+    def get_tourney_stats_button_for_player(
+        self, player, requesting_user: discord.User, guild_id: int, permission_context
+    ) -> Optional[discord.ui.Button]:
         """Get a tournament stats button for a player.
 
         This method is called by the player_lookup cog to extend /lookup functionality.
@@ -1499,7 +1501,9 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
         # Show stats button to everyone (no permission check needed for viewing)
         return TourneyStatsButton(self, int(player.discord_id), guild_id, player)
 
-    def get_tourney_roles_button_for_player(self, player, requesting_user: discord.User, guild_id: int) -> Optional[discord.ui.Button]:
+    def get_tourney_roles_button_for_player(
+        self, player, requesting_user: discord.User, guild_id: int, permission_context
+    ) -> Optional[discord.ui.Button]:
         """Get a tournament roles refresh button for a player.
 
         This method is called by the player_lookup cog to extend /lookup and /profile functionality.
@@ -1524,11 +1528,13 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
             return TourneySelfRefreshButton(self, int(player.discord_id), guild_id)
         else:
             # For other users, check if requesting user has permission to refresh roles
-            if not self._user_can_refresh_roles(requesting_user, guild_id):
-                return None
+            # Get authorized groups from settings and check if user has any of them
+            authorized_groups = self.get_setting("authorized_refresh_groups", guild_id=guild_id, default=[])
+            if authorized_groups and permission_context.has_any_group(authorized_groups):
+                # Use the player's Discord ID (the person being looked up), not the requesting user's ID
+                return TourneyRolesRefreshButton(self, int(player.discord_id), guild_id, requesting_user.id)
 
-            # Use the player's Discord ID (the person being looked up), not the requesting user's ID
-            return TourneyRolesRefreshButton(self, int(player.discord_id), guild_id, requesting_user.id)
+            return None
 
     async def cog_unload(self):
         """Clean up when cog is unloaded"""

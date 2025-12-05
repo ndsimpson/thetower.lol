@@ -361,19 +361,14 @@ class UserInteractions:
                 # Handle verified player
                 details = await get_player_details(player)
                 embed = await self.create_lookup_embed(player, details, interaction.user)
-                # Check if user can see moderation records for the enhanced button
-                # IMPORTANT: Users should NEVER see their own moderation records for privacy
-                is_own_profile = str(interaction.user.id) == details.get("discord_id")
-                can_see_moderation = not is_own_profile and await self._check_show_moderation_records_permission(interaction.user)
-                # Create view with post publicly button
-                view = PlayerView(
+                # Create view with post publicly button (permissions are now handled automatically)
+                view = await PlayerView.create(
                     self.cog,
+                    requesting_user=interaction.user,
                     show_creator_code_button=False,
                     player=player,
                     details=details,
                     embed_title="Player Details",
-                    requesting_user=interaction.user,
-                    can_see_moderation=can_see_moderation,
                     guild_id=interaction.guild.id,
                 )
                 await interaction.followup.send(embed=embed, view=view, ephemeral=True)
@@ -455,8 +450,9 @@ class UserInteractions:
             show_tourney_roles_button = cog_manager.can_guild_use_cog("tourney_roles", interaction.guild.id)
 
         # Create view with set creator code button and optionally tournament roles button
-        view = PlayerView(
+        view = await PlayerView.create(
             self.cog,
+            requesting_user=interaction.user,
             show_creator_code_button=True,
             current_code=details.get("creator_code"),
             player=player,
@@ -465,8 +461,6 @@ class UserInteractions:
             show_tourney_roles_button=show_tourney_roles_button,
             user_id=int(identifier),
             guild_id=interaction.guild.id,
-            requesting_user=interaction.user,
-            can_see_moderation=False,  # Never show moderation buttons on own profile
         )
 
         await interaction.response.send_message(embed=embed, view=view, ephemeral=True)

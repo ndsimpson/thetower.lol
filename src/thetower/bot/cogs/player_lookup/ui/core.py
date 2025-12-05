@@ -7,6 +7,7 @@ import discord
 
 # Local
 from thetower.backend.sus.models import KnownPlayer
+from thetower.bot.basecog import PermissionContext
 
 
 class CreatorCodeModal(discord.ui.Modal, title="Set Creator Code"):
@@ -91,6 +92,7 @@ class PlayerView(discord.ui.View):
     def __init__(
         self,
         cog,
+        permission_context: PermissionContext,
         show_creator_code_button: bool = False,
         current_code: str = None,
         player=None,
@@ -100,10 +102,10 @@ class PlayerView(discord.ui.View):
         user_id: int = None,
         guild_id: int = None,
         requesting_user: discord.User = None,
-        can_see_moderation: bool = False,
     ):
         super().__init__(timeout=900)
         self.cog = cog
+        self.permission_context = permission_context
         self.show_creator_code_button = show_creator_code_button
         self.current_code = current_code
         self.player = player
@@ -113,7 +115,6 @@ class PlayerView(discord.ui.View):
         self.user_id = user_id
         self.guild_id = guild_id
         self.requesting_user = requesting_user
-        self.can_see_moderation = can_see_moderation
 
         # Only add the creator code button if allowed
         if self.show_creator_code_button:
@@ -128,7 +129,19 @@ class PlayerView(discord.ui.View):
             self.add_item(PostPubliclyButton(self.cog, self.player, self.details, self.embed_title, self.requesting_user, include_moderation=False))
 
             # Add the enhanced button only if user can see moderation records
-            if self.can_see_moderation:
+            # Get the privileged groups from manage_sus cog settings
+            privileged_groups = []
+            if hasattr(self.cog.bot, "manage_sus") and self.cog.bot.manage_sus:
+                privileged_groups = self.cog.bot.manage_sus.config.get_global_cog_setting(
+                    "manage_sus",
+                    "privileged_groups_for_moderation_records",
+                    self.cog.bot.manage_sus.global_settings.get("privileged_groups_for_moderation_records", []),
+                )
+
+            can_see_moderation = self.permission_context.has_any_group(privileged_groups)
+            # Don't show moderation records for own profile (privacy protection)
+            is_own_profile = str(self.player.discord_id) == str(self.requesting_user.id) if self.player.discord_id else False
+            if can_see_moderation and not is_own_profile:
                 self.add_item(
                     PostPubliclyButton(self.cog, self.player, self.details, self.embed_title, self.requesting_user, include_moderation=True)
                 )
@@ -138,15 +151,57 @@ class PlayerView(discord.ui.View):
             # Get all registered UI extension providers for player profiles
             extension_providers = self.cog.bot.cog_manager.get_ui_extensions("player_lookup")
 
-            # Call each provider and add any buttons they return
+            # Call each provider with permission context
             for provider_func in extension_providers:
                 try:
-                    button = provider_func(self.player, self.requesting_user, self.guild_id)
+                    button = provider_func(self.player, self.requesting_user, self.guild_id, self.permission_context)
                     if button:
                         self.add_item(button)
                 except Exception as e:
                     self.cog.logger.error(f"Error getting button from UI extension provider {provider_func.__name__}: {e}", exc_info=True)
                     # Continue with other providers even if one fails
+
+    @classmethod
+    async def create(
+        cls,
+        cog,
+        requesting_user: discord.User,
+        show_creator_code_button: bool = False,
+        current_code: str = None,
+        player=None,
+        details: dict = None,
+        embed_title: str = "Player Profile",
+        show_tourney_roles_button: bool = False,
+        user_id: int = None,
+        guild_id: int = None,
+    ):
+        """
+        Async factory method to create PlayerView with automatic permission fetching.
+
+        Args:
+            cog: The cog instance
+            requesting_user: The Discord user requesting the view
+            ... (other parameters same as __init__)
+
+        Returns:
+            PlayerView: Initialized view with permission context
+        """
+        # Fetch permissions for the requesting user
+        permission_context = await cog.get_user_permissions(requesting_user)
+
+        return cls(
+            cog=cog,
+            permission_context=permission_context,
+            show_creator_code_button=show_creator_code_button,
+            current_code=current_code,
+            player=player,
+            details=details,
+            embed_title=embed_title,
+            show_tourney_roles_button=show_tourney_roles_button,
+            user_id=user_id,
+            guild_id=guild_id,
+            requesting_user=requesting_user,
+        )
 
 
 class SetCreatorCodeButton(discord.ui.Button):

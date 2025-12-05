@@ -2,9 +2,10 @@
 import asyncio
 import datetime
 import logging
+from dataclasses import dataclass
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any, Dict, Optional, Union
+from typing import Any, Dict, List, Optional, Union
 
 # Third-party imports
 import discord
@@ -19,6 +20,27 @@ from thetower.bot.utils.data_management import DataManager
 from thetower.bot.utils.task_tracker import TaskTracker
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class PermissionContext:
+    """Context object containing user permissions for efficient checking."""
+
+    user_id: int
+    django_groups: List[str]
+    discord_roles: List[int]
+
+    def has_any_group(self, groups: List[str]) -> bool:
+        """Check if user has any of the required Django groups."""
+        return any(group in self.django_groups for group in groups)
+
+    def has_all_groups(self, groups: List[str]) -> bool:
+        """Check if user has all of the required Django groups."""
+        return all(group in self.django_groups for group in groups)
+
+    def has_discord_role(self, role_id: int) -> bool:
+        """Check if user has a specific Discord role."""
+        return role_id in self.discord_roles
 
 
 class BaseCog(commands.Cog):
@@ -757,6 +779,77 @@ class BaseCog(commands.Cog):
         # Call parent implementation if it exists
         if hasattr(super(), "cog_unload"):
             await super().cog_unload()
+
+    # ====================
+    # Permission System Methods
+    # ====================
+
+    async def get_user_permissions(self, user: discord.User) -> PermissionContext:
+        """
+        Get permission context for a user by fetching from Django.
+
+        This method provides a centralized way to get user permissions that all cogs
+        can use. It fetches fresh permissions each time to ensure immediate
+        propagation of permission changes from Django admin.
+
+        Args:
+            user: The Discord user to get permissions for
+
+        Returns:
+            PermissionContext: Context containing user's Django groups and Discord roles
+        """
+        # Fetch fresh permissions each time for immediate propagation
+        return await self._fetch_user_permissions(user)
+
+    async def check_user_groups(self, user: discord.User, required_groups: List[str], require_all: bool = False) -> bool:
+        """
+        Check if a user has specific Django groups.
+
+        Args:
+            user: The Discord user to check
+            required_groups: List of Django group names required
+            require_all: If True, user must have ALL groups; if False, user must have ANY group
+
+        Returns:
+            bool: True if user has the required group(s), False otherwise
+        """
+        permissions = await self.get_user_permissions(user)
+
+        if require_all:
+            return permissions.has_all_groups(required_groups)
+        else:
+            return permissions.has_any_group(required_groups)
+
+    async def _fetch_user_permissions(self, user: discord.User) -> PermissionContext:
+        """
+        Fetch user permissions from Django database.
+
+        Args:
+            user: The Discord user to fetch permissions for
+
+        Returns:
+            PermissionContext: Fresh permission context for the user
+        """
+        from asgiref.sync import sync_to_async
+        from django.contrib.auth.models import User as DjangoUser
+
+        @sync_to_async
+        def get_django_user_groups():
+            try:
+                django_user = DjangoUser.objects.get(discord_id=user.id)
+                groups = list(django_user.groups.values_list("name", flat=True))
+                return groups
+            except DjangoUser.DoesNotExist:
+                return []
+
+        # Get Django groups
+        django_groups = await get_django_user_groups()
+
+        # Get Discord roles (if user is in a guild context, we'll need to handle this differently)
+        # For now, just get basic user info
+        discord_roles = []
+
+        return PermissionContext(user_id=user.id, django_groups=django_groups, discord_roles=discord_roles)
 
     # ====================
     # Slash Command Permission Helpers

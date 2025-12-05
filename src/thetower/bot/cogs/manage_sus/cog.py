@@ -93,7 +93,9 @@ class ManageSus(BaseCog, name="Manage Sus"):
 
     # No direct slash commands - this cog extends /lookup functionality
 
-    def get_moderation_button_for_player(self, player, requesting_user: discord.User, guild_id: int) -> Optional[discord.ui.Button]:
+    def get_moderation_button_for_player(
+        self, player, requesting_user: discord.User, guild_id: int, permission_context
+    ) -> Optional[discord.ui.Button]:
         """Get a moderation management button for a player if the user has permission.
 
         This method is called by the player_lookup cog to extend /lookup functionality.
@@ -104,10 +106,16 @@ class ManageSus(BaseCog, name="Manage Sus"):
         if player.discord_id and str(player.discord_id) == str(requesting_user.id):
             return None
 
-        # Check if user has permission to view/manage moderation records
-        # We do this synchronously here since it's called from the player_lookup cog
-        # The actual permission check will be done asynchronously when the button is clicked
-        return ManageSusButton(self, player, requesting_user, guild_id)
+        # Check if user has permission to view/manage moderation records using the permission context
+        # Get allowed groups from settings
+        view_groups = self.config.get_global_cog_setting("manage_sus", "view_groups", self.global_settings["view_groups"])
+        manage_groups = self.config.get_global_cog_setting("manage_sus", "manage_groups", self.global_settings["manage_groups"])
+        allowed_groups = view_groups + manage_groups
+
+        if permission_context.has_any_group(allowed_groups):
+            return ManageSusButton(self, player, requesting_user, guild_id)
+
+        return None
 
     async def _user_can_view_moderation_records(self, user: discord.User) -> bool:
         """Check if a Discord user can view moderation records based on their Django groups."""
