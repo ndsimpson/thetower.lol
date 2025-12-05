@@ -831,15 +831,25 @@ class BaseCog(commands.Cog):
             PermissionContext: Fresh permission context for the user
         """
         from asgiref.sync import sync_to_async
-        from django.contrib.auth.models import User as DjangoUser
 
         @sync_to_async
         def get_django_user_groups():
             try:
-                django_user = DjangoUser.objects.get(discord_id=user.id)
+                from thetower.backend.sus.models import KnownPlayer
+
+                # Get the KnownPlayer linked to this Discord user by Discord ID
+                known_player = KnownPlayer.objects.filter(discord_id=str(user.id)).select_related("django_user").first()
+                if not known_player:
+                    return []
+
+                # Check if the KnownPlayer has a django_user linked
+                django_user = known_player.django_user
+                if not django_user:
+                    return []
+
                 groups = list(django_user.groups.values_list("name", flat=True))
                 return groups
-            except DjangoUser.DoesNotExist:
+            except Exception:
                 return []
 
         # Get Django groups
@@ -971,4 +981,5 @@ class BaseCog(commands.Cog):
         if target_channel is not None:
             permissions["target_channel"] = target_channel
 
+        self.set_setting(config_key, permissions, guild_id=guild_id)
         self.set_setting(config_key, permissions, guild_id=guild_id)
