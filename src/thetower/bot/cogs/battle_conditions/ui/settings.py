@@ -76,7 +76,7 @@ class BattleConditionsConfigureLeaguesButton(discord.ui.Button):
 
     async def callback(self, interaction: discord.Interaction):
         # Get current enabled leagues (global setting)
-        enabled_leagues = self.cog.get_global_setting("enabled_leagues") or []
+        enabled_leagues = self.bc_cog.get_global_setting("enabled_leagues") or []
 
         # Create select menu with all leagues
         league_select = BattleConditionsLeagueSelect(self.bc_cog, enabled_leagues)
