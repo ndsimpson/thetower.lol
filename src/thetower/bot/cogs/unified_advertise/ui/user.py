@@ -133,11 +133,19 @@ class AdManagementView(View):
             await interaction.response.send_message("✅ Advertisement deleted successfully.", ephemeral=True)
 
             # Refresh the main view
-            embed = await self.update_view(interaction)
-            await interaction.message.edit(embed=embed, view=self)
+            try:
+                embed = await self.update_view(interaction)
+                await interaction.message.edit(embed=embed, view=self)
+            except discord.NotFound:
+                # Message was already deleted, ignore
+                pass
         except Exception as e:
             self.cog.logger.error(f"Error deleting advertisement: {e}")
-            await interaction.response.send_message("❌ Failed to delete advertisement.", ephemeral=True)
+            try:
+                await interaction.response.send_message("❌ Failed to delete advertisement.", ephemeral=True)
+            except discord.InteractionResponded:
+                # Already responded, ignore
+                pass
 
     async def toggle_notifications(self, interaction: discord.Interaction):
         """Toggle notification settings."""
