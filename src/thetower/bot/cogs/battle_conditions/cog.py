@@ -178,7 +178,7 @@ class BattleConditions(BaseCog, name="Battle Conditions"):
                 schedules_to_process = []
 
                 # Get global enabled leagues (applies to all guilds)
-                enabled_leagues = self.get_setting("enabled_leagues")
+                enabled_leagues = self.get_setting("enabled_leagues", guild_id=None)
                 if not enabled_leagues:
                     return  # Skip if no leagues are configured
 

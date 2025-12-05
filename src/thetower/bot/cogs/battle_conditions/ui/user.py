@@ -69,7 +69,7 @@ class ViewBCButton(discord.ui.Button):
                 return
 
         # Get enabled leagues (global setting)
-        enabled_leagues = cog.get_setting("enabled_leagues") or []
+        enabled_leagues = cog.get_setting("enabled_leagues", guild_id=None) or []
 
         if not enabled_leagues:
             await interaction.response.send_message("No leagues enabled. Use settings to configure.", ephemeral=True)
@@ -156,11 +156,8 @@ class GenerateBCButton(discord.ui.Button):
             await interaction.response.send_message("⚠️ Battle conditions package not available.", ephemeral=True)
             return
 
-        # Get enabled leagues for this guild
-        guild_id = interaction.guild.id
-        enabled_leagues = cog.get_setting("enabled_leagues", guild_id=guild_id)
-        if not enabled_leagues:
-            enabled_leagues = cog.default_settings["enabled_leagues"]
+        # Get enabled leagues (global setting)
+        enabled_leagues = cog.get_setting("enabled_leagues", guild_id=None) or []
 
         if not enabled_leagues:
             await interaction.response.send_message("No leagues enabled. Use settings to configure.", ephemeral=True)
@@ -303,10 +300,8 @@ class ScheduleSelect(discord.ui.Select):
             await interaction.followup.send(f"❌ Channel {channel.mention} is not in this server.", ephemeral=True)
             return
 
-        # Get enabled leagues for this guild
-        enabled_leagues = self.cog.get_setting("enabled_leagues", guild_id=self.guild_id)
-        if not enabled_leagues:
-            enabled_leagues = self.cog.default_settings["enabled_leagues"]
+        # Get enabled leagues (global setting)
+        enabled_leagues = self.cog.get_setting("enabled_leagues", guild_id=None) or []
 
         # Send BCs to channel
         sent_count = 0
@@ -346,8 +341,7 @@ class SettingsBCButton(discord.ui.Button):
 
         settings_view = BCSettingsView(cog, is_bot_owner)
 
-        guild_id = interaction.guild.id
-        enabled_leagues = cog.get_setting("enabled_leagues", guild_id=guild_id) or cog.default_settings["enabled_leagues"]
+        enabled_leagues = cog.get_setting("enabled_leagues", guild_id=None) or []
 
         settings_text = (
             f"**Current Settings**\n\n" f"**Enabled Leagues:** {', '.join(enabled_leagues)}\n\n" f"Use the buttons below to configure settings."

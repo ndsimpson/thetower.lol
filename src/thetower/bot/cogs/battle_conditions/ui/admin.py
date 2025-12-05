@@ -35,7 +35,7 @@ class ConfigureLeaguesButton(discord.ui.Button):
         cog = view.cog
 
         # Get current enabled leagues (global setting)
-        enabled_leagues = cog.get_setting("enabled_leagues") or DEFAULT_ENABLED_LEAGUES
+        enabled_leagues = cog.get_setting("enabled_leagues", guild_id=None) or DEFAULT_ENABLED_LEAGUES
 
         # Create select menu with all leagues
         league_select = LeagueSelect(cog, enabled_leagues)
