@@ -564,7 +564,7 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
 
             # Iterate through all guilds
             for guild_id in list(self.cooldowns.keys()):
-                cooldown_hours = await self._get_cooldown_hours(guild_id)
+                cooldown_hours = self._get_cooldown_hours(guild_id)
                 sections = ["users", "guilds"]
                 guild_expired = 0
 
