@@ -247,7 +247,7 @@ class TourneyStats(BaseCog, name="Tourney Stats"):
     async def get_latest_patch_from_db(self):
         """Get the latest patch directly from the database."""
         patches = await sync_to_async(list)(Patch.objects.all())
-        latest_patch = sorted(patches)[-1] if patches else None
+        latest_patch = max(patches, key=lambda p: p.end_date) if patches else None
         return latest_patch
 
     async def get_latest_tournament_date_from_db(self):
