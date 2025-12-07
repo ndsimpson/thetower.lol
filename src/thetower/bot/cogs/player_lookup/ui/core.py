@@ -290,6 +290,7 @@ class PostPubliclyButton(discord.ui.Button):
             discord_display_format="mention",
             show_all_ids=show_all_ids,
             show_moderation_records=show_moderation_records,
+            requesting_user=self.requesting_user,  # Pass requesting_user to include info extensions
         )
 
         # Post publicly to the channel
