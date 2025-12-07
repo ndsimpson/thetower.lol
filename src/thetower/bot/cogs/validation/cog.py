@@ -166,7 +166,7 @@ class Validation(BaseCog, name="Validation"):
 
                 # Get all KnownPlayers with discord_id and at least one primary PlayerId
                 def get_known_players():
-                    return list(KnownPlayer.objects.filter(discord_id__isnull=False).exclude(discord_id="").filter(playerid__primary=True).distinct())
+                    return list(KnownPlayer.objects.filter(discord_id__isnull=False).exclude(discord_id="").filter(ids__primary=True).distinct())
 
                 known_players = await sync_to_async(get_known_players)()
 
