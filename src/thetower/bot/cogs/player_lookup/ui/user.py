@@ -96,10 +96,20 @@ class UserInteractions:
             creator_code = details.get("creator_code")
 
         # Format Discord display for header
-        if discord_display_format == "mention":
-            discord_display = f"<@{discord_id}>" if discord_id else player_name
-        else:  # "id" format
-            discord_display = discord_id or player_name
+        if discord_id:
+            try:
+                # Try to get the Discord user to show their display name
+                discord_user = self.cog.bot.get_user(int(discord_id))
+                if discord_user:
+                    discord_display = discord_user.display_name
+                else:
+                    # User not found, fall back to mention or ID
+                    discord_display = f"<@{discord_id}>" if discord_display_format == "mention" else discord_id
+            except (ValueError, TypeError):
+                # Invalid discord_id, fall back to mention or ID
+                discord_display = f"<@{discord_id}>" if discord_display_format == "mention" else discord_id
+        else:
+            discord_display = player_name
 
         # Create streamlined header: 👤 Discord/TowerName (PrimaryID) StatusEmoji
         status_emoji = "⚠️" if is_unverified else "✅"
