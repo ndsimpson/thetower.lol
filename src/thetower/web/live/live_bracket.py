@@ -142,7 +142,8 @@ def live_bracket():
     tdf = process_display_names(tdf)
     fig = px.line(tdf, x="datetime", y="wave", color="display_name", title="Live bracket score", markers=True, line_shape="linear")
     fig.update_traces(mode="lines+markers")
-    fig.update_layout(xaxis_title="Time", yaxis_title="Wave", legend_title="real_name", hovermode="closest")
+    fig.update_layout(xaxis_title="Time", yaxis_title="Wave", legend_title="real_name", hovermode="x unified")
+    fig.update_traces(hovertemplate="%{y}")
     st.plotly_chart(fig, use_container_width=True)
 
     # Process and display latest data
