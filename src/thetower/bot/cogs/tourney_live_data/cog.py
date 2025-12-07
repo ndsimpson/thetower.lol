@@ -31,14 +31,14 @@ class TourneyLiveData(BaseCog, name="Tourney Live Data", description="Commands f
             "enabled": True,
         }
 
-    async def get_player_live_stats(self, player_id: str) -> Optional[Tuple[str, int, int]]:
+    async def get_player_live_stats(self, player_id: str) -> Optional[Tuple[str, int, int, int, str]]:
         """Get player's current live tournament stats.
 
         Args:
             player_id: Player ID to check
 
         Returns:
-            Tuple of (league, position, wave) if player is in live tournament, None otherwise
+            Tuple of (league, global_position, bracket_position, wave, bracket_name) if player is in live tournament, None otherwise
         """
         for league in leagues:
             try:
@@ -54,22 +54,34 @@ class TourneyLiveData(BaseCog, name="Tourney Live Data", description="Commands f
                 if not player_data.empty:
                     # Get the latest entry for this player
                     latest_entry = player_data.loc[player_data.datetime.idxmax()]
+                    player_bracket = latest_entry.bracket
 
-                    # Get position by finding the player's rank in the latest data
+                    # Get global position by finding the player's rank in the latest data
                     latest_datetime = filtered_df.datetime.max()
                     latest_df = filtered_df[filtered_df.datetime == latest_datetime]
                     latest_df = latest_df.sort_values("wave", ascending=False).reset_index(drop=True)
 
-                    # Find player's position (1-indexed)
-                    position = None
+                    # Find player's global position (1-indexed)
+                    global_position = None
                     for idx, row in latest_df.iterrows():
                         if row.player_id == player_id:
-                            position = idx + 1
+                            global_position = idx + 1
                             break
 
-                    if position is not None:
+                    # Get bracket-specific position
+                    bracket_df = latest_df[latest_df.bracket == player_bracket]
+                    bracket_df = bracket_df.sort_values("wave", ascending=False).reset_index(drop=True)
+
+                    # Find player's position within their bracket (1-indexed)
+                    bracket_position = None
+                    for idx, row in bracket_df.iterrows():
+                        if row.player_id == player_id:
+                            bracket_position = idx + 1
+                            break
+
+                    if global_position is not None and bracket_position is not None:
                         wave = int(latest_entry.wave)
-                        return (league, position, wave)
+                        return (league, global_position, bracket_position, wave, player_bracket)
 
             except Exception as e:
                 self.logger.debug(f"Error checking league {league} for player {player_id}: {e}")
@@ -108,12 +120,12 @@ class TourneyLiveData(BaseCog, name="Tourney Live Data", description="Commands f
                 live_stats = await self.get_player_live_stats(primary_id)
 
                 if live_stats:
-                    league, position, wave = live_stats
+                    league, global_position, bracket_position, wave, bracket_name = live_stats
                     # Construct URLs for live tournament pages
                     bracket_url = f"https://{BASE_URL}/livebracketview?player_id={primary_id}"
                     comparison_url = f"https://{BASE_URL}/comparison?bracket_player={primary_id}"
 
-                    field_value = f"✅ Joined ({league})\n**Position:** #{position} • **Wave:** {wave}\n[Bracket View]({bracket_url}) • [Comparison]({comparison_url})"
+                    field_value = f"✅ Joined ({league})\n**Global:** #{global_position} • **Bracket:** #{bracket_position} • **Wave:** {wave}\n[Bracket View]({bracket_url}) • [Comparison]({comparison_url})"
                 else:
                     # Fallback if we can't get detailed stats
                     field_value = "✅ Joined"
