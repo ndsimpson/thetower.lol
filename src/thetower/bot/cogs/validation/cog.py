@@ -150,6 +150,8 @@ class Validation(BaseCog, name="Validation"):
         """Reconcile verified roles with KnownPlayers on startup."""
         from asgiref.sync import sync_to_async
 
+        from thetower.backend.sus.models import KnownPlayer, PlayerId
+
         self.logger.info("Running startup verification reconciliation...")
 
         for guild in self.bot.guilds:
@@ -162,9 +164,9 @@ class Validation(BaseCog, name="Validation"):
                 if not verified_role:
                     continue
 
-                # Get all KnownPlayers with discord_id
+                # Get all KnownPlayers with discord_id and at least one primary PlayerId
                 def get_known_players():
-                    return list(KnownPlayer.objects.filter(discord_id__isnull=False).exclude(discord_id=""))
+                    return list(KnownPlayer.objects.filter(discord_id__isnull=False).exclude(discord_id="").filter(playerid__primary=True).distinct())
 
                 known_players = await sync_to_async(get_known_players)()
 
@@ -190,11 +192,15 @@ class Validation(BaseCog, name="Validation"):
                     if verified_role in member.roles:
                         discord_id_str = str(member.id)
 
-                        def has_known_player():
-                            return KnownPlayer.objects.filter(discord_id=discord_id_str).exists()
+                        def should_have_role():
+                            try:
+                                player = KnownPlayer.objects.get(discord_id=discord_id_str)
+                                return PlayerId.objects.filter(player=player, primary=True).exists()
+                            except KnownPlayer.DoesNotExist:
+                                return False
 
-                        if not await sync_to_async(has_known_player)():
-                            await self._remove_verified_role(member, verified_role, "startup reconciliation - no KnownPlayer")
+                        if not await sync_to_async(should_have_role)():
+                            await self._remove_verified_role(member, verified_role, "startup reconciliation - no primary PlayerId")
                             roles_removed += 1
 
                 if roles_added > 0 or roles_removed > 0:
@@ -619,4 +625,5 @@ class Validation(BaseCog, name="Validation"):
                         logger.error(f"Failed to log un-verification to channel {log_channel_id}: {log_exc}")
 
                     # Only log to one channel to avoid spam
+                    break
                     break
