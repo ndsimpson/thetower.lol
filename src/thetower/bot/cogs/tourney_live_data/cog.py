@@ -113,7 +113,7 @@ class TourneyLiveData(BaseCog, name="Tourney Live Data", description="Commands f
                     bracket_url = f"https://{BASE_URL}/livebracketview?player_id={primary_id}"
                     comparison_url = f"https://{BASE_URL}/comparison?bracket_player={primary_id}"
 
-                    field_value = f"✅ Joined ({league.upper()})\n**Position:** #{position} • **Wave:** {wave}\n[Bracket View]({bracket_url}) • [Comparison]({comparison_url})"
+                    field_value = f"✅ Joined ({league})\n**Position:** #{position} • **Wave:** {wave}\n[Bracket View]({bracket_url}) • [Comparison]({comparison_url})"
                 else:
                     # Fallback if we can't get detailed stats
                     field_value = "✅ Joined"
