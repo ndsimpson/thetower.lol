@@ -1,4 +1,5 @@
 # Standard library
+import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
 # Third-party
@@ -31,14 +32,14 @@ class TourneyLiveData(BaseCog, name="Tourney Live Data", description="Commands f
             "enabled": True,
         }
 
-    async def get_player_live_stats(self, player_id: str) -> Optional[Tuple[str, int, int, int, str]]:
+    async def get_player_live_stats(self, player_id: str) -> Optional[Tuple[str, int, int, int, str, str]]:
         """Get player's current live tournament stats.
 
         Args:
             player_id: Player ID to check
 
         Returns:
-            Tuple of (league, global_position, bracket_position, wave, bracket_name) if player is in live tournament, None otherwise
+            Tuple of (league, global_position, bracket_position, wave, bracket_name, last_refresh) if player is in live tournament, None otherwise
         """
         for league in leagues:
             try:
@@ -81,7 +82,8 @@ class TourneyLiveData(BaseCog, name="Tourney Live Data", description="Commands f
 
                     if global_position is not None and bracket_position is not None:
                         wave = int(latest_entry.wave)
-                        return (league, global_position, bracket_position, wave, player_bracket)
+                        last_refresh = latest_datetime.strftime("%b %d, %Y %H:%M UTC")
+                        return (league, global_position, bracket_position, wave, player_bracket, last_refresh)
 
             except Exception as e:
                 self.logger.debug(f"Error checking league {league} for player {player_id}: {e}")
@@ -120,12 +122,13 @@ class TourneyLiveData(BaseCog, name="Tourney Live Data", description="Commands f
                 live_stats = await self.get_player_live_stats(primary_id)
 
                 if live_stats:
-                    league, global_position, bracket_position, wave, bracket_name = live_stats
+                    league, global_position, bracket_position, wave, bracket_name, last_refresh = live_stats
                     # Construct URLs for live tournament pages
                     bracket_url = f"https://{BASE_URL}/livebracketview?player_id={primary_id}"
                     comparison_url = f"https://{BASE_URL}/comparison?bracket_player={primary_id}"
+                    placement_url = f"https://{BASE_URL}/liveplacement?player_id={primary_id}"
 
-                    field_value = f"✅ Joined ({league})\n**Global:** #{global_position} • **Bracket:** #{bracket_position} • **Wave:** {wave}\n[Bracket View]({bracket_url}) • [Comparison]({comparison_url})"
+                    field_value = f"✅ Joined ({league})\n**Global:** #{global_position} • **Bracket:** #{bracket_position} • **Wave:** {wave}\n[Bracket View]({bracket_url}) • [Comparison]({comparison_url}) • [Live Placement]({placement_url})\n*Last updated: {last_refresh}*"
                 else:
                     # Fallback if we can't get detailed stats
                     field_value = "✅ Joined"
