@@ -1,5 +1,4 @@
 # Standard library
-import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
 # Third-party
@@ -128,7 +127,7 @@ class TourneyLiveData(BaseCog, name="Tourney Live Data", description="Commands f
                     comparison_url = f"https://{BASE_URL}/comparison?bracket_player={primary_id}"
                     placement_url = f"https://{BASE_URL}/liveplacement?player_id={primary_id}"
 
-                    field_value = f"✅ Joined ({league})\n**Global:** #{global_position} • **Bracket:** #{bracket_position} • **Wave:** {wave}\n[Bracket View]({bracket_url}) • [Comparison]({comparison_url}) • [Live Placement]({placement_url})\n*Last updated: {last_refresh}*"
+                    field_value = f"✅ Joined ({league})\n**Global:** #{global_position} • **Bracket:** #{bracket_position} • **Wave:** {wave}\n[Bracket View]({bracket_url}) • [Comparison]({comparison_url}) • [Live Placement Analysis]({placement_url})\n*Last updated: {last_refresh}*"
                 else:
                     # Fallback if we can't get detailed stats
                     field_value = "✅ Joined"
