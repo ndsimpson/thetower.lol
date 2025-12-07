@@ -58,7 +58,7 @@ class UserInteractions:
     async def create_player_embed(
         self,
         player,
-        details: dict,
+        details: dict = None,
         title_prefix: str = "Player Profile",
         show_verification_message: bool = True,
         discord_display_format: str = "id",
@@ -70,8 +70,8 @@ class UserInteractions:
         """Create player embed with configurable display options.
 
         Args:
-            player: The KnownPlayer object
-            details: Player details dictionary
+            player: The KnownPlayer or UnverifiedPlayer object
+            details: Player details dictionary (required for KnownPlayer, ignored for UnverifiedPlayer)
             title_prefix: Prefix for the embed title (e.g., "Player Profile", "Player Details")
             show_verification_message: Whether to show verification message in description
             discord_display_format: "id" for Discord ID, "mention" for Discord mention
@@ -80,87 +80,110 @@ class UserInteractions:
             requesting_user: The Discord user requesting the embed (for permission checks)
             permission_context: Permission context for the requesting user (optional, None for public info)
         """
-        # Create embed with configurable title and description
-        description = "✅ Account is verified" if show_verification_message else None
-        embed = discord.Embed(
-            title=f"{title_prefix}: {details['name'] or 'Unknown'}",
-            description=description,
-            color=discord.Color.green() if show_verification_message else discord.Color.blue(),
-        )
+        # Check if this is an unverified player
+        is_unverified = isinstance(player, self.cog.UnverifiedPlayer)
 
-        # Format Discord display
+        # Get primary ID for the header
+        if is_unverified:
+            primary_id = player.tower_id
+            player_name = player.name
+            discord_id = None
+            creator_code = None
+        else:
+            primary_id = details.get("primary_id", "Unknown")
+            player_name = details.get("name", "Unknown")
+            discord_id = details.get("discord_id")
+            creator_code = details.get("creator_code")
+
+        # Format Discord display for header
         if discord_display_format == "mention":
-            discord_display = f"<@{details['discord_id']}>" if details["discord_id"] else "Not set"
+            discord_display = f"<@{discord_id}>" if discord_id else player_name
         else:  # "id" format
-            discord_display = details["discord_id"] or "Not set"
+            discord_display = discord_id or player_name
 
-        # Build basic info field
-        basic_info_parts = [
-            f"**Name:** {details['name'] or 'Not set'}",
-            f"**Discord:** {discord_display}",
-        ]
+        # Create streamlined header: 👤 Discord/TowerName (PrimaryID) StatusEmoji
+        status_emoji = "⚠️" if is_unverified else "✅"
+        embed_description = f"👤 {discord_display} ({primary_id}) {status_emoji}"
 
-        # Only show creator code if it exists
-        if details.get("creator_code"):
-            basic_info_parts.append(f"**Creator Code:** {details['creator_code']}")
-
-        embed.add_field(
-            name="Basic Info",
-            value="\n".join(basic_info_parts),
-            inline=False,
+        # Create embed with streamlined title and description
+        embed = discord.Embed(
+            title=f"{title_prefix}",
+            description=embed_description,
+            color=discord.Color.orange() if is_unverified else discord.Color.green(),
         )
 
-        # Format player IDs
-        primary_id = details["primary_id"]
-        ids_list = details["all_ids"]
+        # Add creator code field if it exists (only for verified players)
+        if not is_unverified and creator_code:
+            embed.add_field(
+                name="Creator Code",
+                value=f"`{creator_code}`",
+                inline=True,
+            )
 
-        formatted_ids = []
-        if primary_id:
+        # Format player IDs (only for verified players)
+        if not is_unverified:
+            ids_list = details.get("all_ids", [])
+
+            formatted_ids = []
+            if primary_id:
+                if show_all_ids:
+                    formatted_ids.append(f"✅ **{primary_id}** (Primary)")
+                    # Show all IDs except primary (already added)
+                    other_ids = [pid["id"] for pid in ids_list if pid["id"] != primary_id]
+                    formatted_ids.extend(other_ids)
+                else:
+                    # Just show the primary ID without special formatting
+                    formatted_ids.append(primary_id)
+            elif show_all_ids:
+                # No primary ID, show all IDs
+                formatted_ids.extend([pid["id"] for pid in ids_list])
+
+            # Use singular "Player ID" when showing only primary, plural when showing all
+            field_name = "Player IDs" if show_all_ids else "Player ID"
             if show_all_ids:
-                formatted_ids.append(f"✅ **{primary_id}** (Primary)")
-                # Show all IDs except primary (already added)
-                ids_list = [pid["id"] for pid in ids_list if pid["id"] != primary_id]
-                formatted_ids.extend(ids_list)
-            else:
-                # Just show the primary ID without special formatting
-                formatted_ids.append(primary_id)
-        elif show_all_ids:
-            # No primary ID, show all IDs
-            formatted_ids.extend([pid["id"] for pid in ids_list])
+                field_name += f" ({len(ids_list)})"
 
-        # Use singular "Player ID" when showing only primary, plural when showing all
-        field_name = "Player IDs" if show_all_ids else "Player ID"
-        if show_all_ids:
-            field_name += f" ({len(details['all_ids'])})"
-
-        embed.add_field(
-            name=field_name,
-            value="\n".join(formatted_ids) if formatted_ids else "No IDs found",
-            inline=False,
-        )
+            embed.add_field(
+                name=field_name,
+                value="\n".join(formatted_ids) if formatted_ids else "No IDs found",
+                inline=False,
+            )
 
         # Add moderation records if enabled
         if show_moderation_records:
             from asgiref.sync import sync_to_async
-            from django.db import models
 
             from thetower.backend.sus.models import ModerationRecord
 
-            # Get primary tower ID for this player
-            primary_tower_id = None
-            for pid in details.get("all_ids", []):
-                if pid.get("primary"):
-                    primary_tower_id = pid["id"]
-                    break
+            # Get tower ID for moderation lookup
+            if is_unverified:
+                tower_id = player.tower_id
+            else:
+                # Get primary tower ID for verified player
+                tower_id = None
+                for pid in details.get("all_ids", []):
+                    if pid.get("primary"):
+                        tower_id = pid["id"]
+                        break
 
-            # Get active moderation records for this player (both by known_player and tower_id)
+            # Get active moderation records for this player
             active_moderations = []
-            if primary_tower_id:
-                active_moderations = await sync_to_async(list)(
-                    ModerationRecord.objects.filter(resolved_at__isnull=True)  # Only active (unresolved) records
-                    .filter(models.Q(known_player=player) | models.Q(tower_id=primary_tower_id))
-                    .order_by("started_at")
-                )
+            if tower_id:
+                if is_unverified:
+                    # For unverified players, search by tower_id
+                    active_moderations = await sync_to_async(list)(
+                        ModerationRecord.objects.filter(resolved_at__isnull=True, tower_id=tower_id).order_by(  # Only active (unresolved) records
+                            "started_at"
+                        )
+                    )
+                else:
+                    # For verified players, search by all their tower_ids
+                    all_tower_ids = [pid["id"] for pid in details.get("all_ids", [])]
+                    active_moderations = await sync_to_async(list)(
+                        ModerationRecord.objects.filter(
+                            resolved_at__isnull=True, tower_id__in=all_tower_ids  # Only active (unresolved) records
+                        ).order_by("started_at")
+                    )
 
             if active_moderations:
                 moderation_lines = []
@@ -274,57 +297,6 @@ class UserInteractions:
 
         return embed
 
-    async def create_unverified_player_embed(self, player, requesting_user: discord.User) -> discord.Embed:
-        """Create embed for an unverified player found through moderation records."""
-        embed = discord.Embed(
-            title="Unverified Player Found",
-            description="This player has moderation records but is not verified in our system.",
-            color=discord.Color.orange(),
-        )
-
-        embed.add_field(
-            name="Player ID",
-            value=f"`{player.tower_id}`",
-            inline=False,
-        )
-
-        # Show moderation records for this unverified player
-        from asgiref.sync import sync_to_async
-
-        from thetower.backend.sus.models import ModerationRecord
-
-        active_moderations = await sync_to_async(list)(
-            ModerationRecord.objects.filter(resolved_at__isnull=True, tower_id=player.tower_id).order_by(  # Only active (unresolved) records
-                "started_at"
-            )
-        )
-
-        if active_moderations:
-            moderation_lines = []
-            for mod in active_moderations:
-                status_emoji = {"sus": "🚨", "ban": "🚫", "shun": "🔇", "soft_ban": "⚠️"}.get(mod.moderation_type, "❓")
-
-                started_date = mod.started_at.strftime("%Y-%m-%d")
-                reason = mod.reason[:50] + "..." if mod.reason and len(mod.reason) > 50 else mod.reason or "No reason provided"
-
-                moderation_lines.append(f"{status_emoji} **{mod.get_moderation_type_display()}** - {started_date}")
-                moderation_lines.append(f"   └ {reason}")
-
-            embed.add_field(
-                name=f"Active Moderation ({len(active_moderations)})",
-                value="\n".join(moderation_lines),
-                inline=False,
-            )
-        else:
-            embed.add_field(
-                name="Moderation Status",
-                value="No active moderation records found.",
-                inline=False,
-            )
-
-        embed.set_footer(text="This player is not verified. Information may be limited.")
-        return embed
-
     async def _check_show_all_ids_permission(self, discord_user: discord.User) -> bool:
         """Check if a Discord user can see all player IDs."""
         return await self.cog.check_show_all_ids_permission(discord_user)
@@ -376,7 +348,9 @@ class UserInteractions:
             player = results[0]
             if isinstance(player, self.cog.UnverifiedPlayer):
                 # Handle unverified player
-                embed = await self.create_unverified_player_embed(player, interaction.user)
+                embed = await self.create_player_embed(
+                    player, title_prefix="Player Profile", show_moderation_records=True, requesting_user=interaction.user
+                )
                 await interaction.followup.send(embed=embed, ephemeral=True)
             else:
                 # Handle verified player
@@ -421,7 +395,9 @@ class UserInteractions:
             elif len(unverified_results) == 1 and not verified_results:
                 # Only one unverified result
                 player = unverified_results[0]
-                embed = await self.create_unverified_player_embed(player, interaction.user)
+                embed = await self.create_player_embed(
+                    player, title_prefix="Player Profile", show_moderation_records=True, requesting_user=interaction.user
+                )
                 await interaction.followup.send(embed=embed, ephemeral=True)
             else:
                 # Multiple results
