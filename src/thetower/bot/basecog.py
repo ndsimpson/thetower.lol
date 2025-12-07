@@ -106,6 +106,9 @@ class BaseCog(commands.Cog):
         # Register UI extensions if this cog provides them
         self._register_ui_extensions()
 
+        # Register info extensions if this cog provides them
+        self._register_info_extensions()
+
     def _register_cog_settings_view(self) -> None:
         """Register this cog's settings view with the cog manager if it exists."""
         # Check if this cog has a settings view class
@@ -123,6 +126,16 @@ class BaseCog(commands.Cog):
                 self.logger.debug(f"Registered UI extensions for cog '{self.cog_name}'")
             except Exception as e:
                 self.logger.error(f"Error registering UI extensions for cog '{self.cog_name}': {e}")
+
+    def _register_info_extensions(self) -> None:
+        """Register this cog's info extensions with the cog manager if they exist."""
+        # Check if this cog has info extensions to register
+        if hasattr(self, "register_info_extensions"):
+            try:
+                self.register_info_extensions()
+                self.logger.debug(f"Registered info extensions for cog '{self.cog_name}'")
+            except Exception as e:
+                self.logger.error(f"Error registering info extensions for cog '{self.cog_name}': {e}")
 
     @property
     def logger(self) -> logging.Logger:
@@ -771,6 +784,9 @@ class BaseCog(commands.Cog):
 
         # Clean up UI extensions registered by this cog
         self.bot.cog_manager.unregister_ui_extensions_from_source(self.__class__.__name__)
+
+        # Clean up info extensions registered by this cog
+        self.bot.cog_manager.unregister_info_extensions_from_source(self.__class__.__name__)
 
         # Force save any modified data
         if self.is_data_modified():

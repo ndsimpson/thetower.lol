@@ -64,6 +64,8 @@ class UserInteractions:
         discord_display_format: str = "id",
         show_all_ids: bool = True,
         show_moderation_records: bool = False,
+        requesting_user: discord.User = None,
+        permission_context=None,
     ) -> discord.Embed:
         """Create player embed with configurable display options.
 
@@ -75,6 +77,8 @@ class UserInteractions:
             discord_display_format: "id" for Discord ID, "mention" for Discord mention
             show_all_ids: Whether to show all player IDs or just the primary ID
             show_moderation_records: Whether to show active moderation records
+            requesting_user: The Discord user requesting the embed (for permission checks)
+            permission_context: Permission context for the requesting user (optional, None for public info)
         """
         # Create embed with configurable title and description
         description = "✅ Account is verified" if show_verification_message else None
@@ -181,10 +185,25 @@ class UserInteractions:
                     inline=False,
                 )
 
+        # Add info extensions from other cogs
+        if requesting_user:
+            info_providers = self.cog.bot.cog_manager.get_info_extensions("player_lookup")
+            for provider_func in info_providers:
+                try:
+                    extension_fields = await provider_func(player, details, requesting_user, permission_context)
+                    if extension_fields:
+                        for field in extension_fields:
+                            embed.add_field(**field)
+                except Exception as e:
+                    self.cog.logger.warning(f"Error calling info extension provider {provider_func.__name__}: {e}")
+
         return embed
 
     async def create_lookup_embed(self, player, details: dict, requesting_user: discord.User) -> discord.Embed:
         """Create lookup embed for player details."""
+        # Get permission context for the requesting user
+        permission_context = await self.cog.get_user_permissions(requesting_user)
+
         # Check if the requesting user can see all IDs
         show_all_ids = await self._check_show_all_ids_permission(requesting_user)
         # Check if the requesting user can see moderation records
@@ -200,6 +219,8 @@ class UserInteractions:
             discord_display_format="mention",
             show_all_ids=show_all_ids,
             show_moderation_records=show_moderation_records,
+            requesting_user=requesting_user,
+            permission_context=permission_context,
         )
 
     async def create_multiple_results_embed(self, results: list, search_term: str, requesting_user: discord.User) -> discord.Embed:
@@ -431,6 +452,9 @@ class UserInteractions:
         # Get player details
         details = await get_player_details(player)
 
+        # Get permission context for the requesting user
+        permission_context = await self.cog.get_user_permissions(interaction.user)
+
         # Create profile embed (always shows verification message for profiles)
         embed = await self.create_player_embed(
             player,
@@ -440,6 +464,8 @@ class UserInteractions:
             discord_display_format="id",
             show_all_ids=await self._check_show_all_ids_permission(interaction.user),
             show_moderation_records=False,  # Never show moderation records on own profile
+            requesting_user=interaction.user,
+            permission_context=permission_context,
         )
 
         # Check if tournament roles button should be shown

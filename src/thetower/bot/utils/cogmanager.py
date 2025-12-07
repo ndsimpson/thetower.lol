@@ -28,6 +28,9 @@ class CogManager:
         # Registry for UI extensions (buttons, etc. that cogs can add to other cogs)
         self.ui_extension_registry = {}  # target_cog_name -> [(source_cog_name, provider_func), ...]
 
+        # Registry for info extensions (additional info that cogs can add to profile views)
+        self.info_extension_registry = {}  # target_cog_name -> [(source_cog_name, provider_func), ...]
+
     async def load_cogs(self) -> None:
         """
         Load cogs based on bot owner settings.
@@ -934,3 +937,66 @@ class CogManager:
             List of source cog names
         """
         return [source for source, provider in self.ui_extension_registry.get(target_cog, [])]
+
+    # Info Extension Registry Methods
+
+    def register_info_extension(self, target_cog: str, source_cog: str, provider_func: callable) -> None:
+        """Register an info extension provider function for a target cog.
+
+        Args:
+            target_cog: The name of the cog that will display the extension (e.g., "player_lookup")
+            source_cog: The name of the cog providing the extension (e.g., "tourney_roles")
+            provider_func: Function that takes (player, details, requesting_user, permission_context) and returns a list of embed fields
+        """
+        if target_cog not in self.info_extension_registry:
+            self.info_extension_registry[target_cog] = []
+
+        # Remove any existing registration with the same source cog and function name to avoid duplicates
+        # This is important for cog reloads where the function object is recreated
+        provider_func_name = provider_func.__name__
+        self.info_extension_registry[target_cog] = [
+            (src, provider)
+            for src, provider in self.info_extension_registry[target_cog]
+            if not (src == source_cog and provider.__name__ == provider_func_name)
+        ]
+
+        # Add the new registration
+        self.info_extension_registry[target_cog].append((source_cog, provider_func))
+        logger.debug(f"Registered info extension from '{source_cog}' for target cog '{target_cog}' (function: {provider_func.__name__})")
+
+    def get_info_extensions(self, target_cog: str) -> list:
+        """Get all registered info extension provider functions for a target cog.
+
+        Args:
+            target_cog: The name of the cog to get extensions for
+
+        Returns:
+            List of provider functions that can be called with (player, details, requesting_user, permission_context)
+        """
+        return [provider for source, provider in self.info_extension_registry.get(target_cog, [])]
+
+    def unregister_info_extensions_from_source(self, source_cog: str) -> None:
+        """Remove all info extensions registered by a source cog.
+
+        Args:
+            source_cog: The name of the cog whose extensions should be removed
+        """
+        for target_cog in self.info_extension_registry:
+            original_count = len(self.info_extension_registry[target_cog])
+            self.info_extension_registry[target_cog] = [
+                (src, provider) for src, provider in self.info_extension_registry[target_cog] if src != source_cog
+            ]
+            removed_count = original_count - len(self.info_extension_registry[target_cog])
+            if removed_count > 0:
+                logger.debug(f"Removed {removed_count} info extensions from '{source_cog}' for target cog '{target_cog}'")
+
+    def get_info_extension_sources(self, target_cog: str) -> list[str]:
+        """Get list of source cogs that have registered info extensions for a target cog.
+
+        Args:
+            target_cog: The name of the target cog
+
+        Returns:
+            List of source cog names
+        """
+        return [source for source, provider in self.info_extension_registry.get(target_cog, [])]
