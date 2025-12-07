@@ -308,6 +308,8 @@ class Validation(BaseCog, name="Validation"):
         """Handle member joins - auto-verify known players."""
         from asgiref.sync import sync_to_async
 
+        from thetower.backend.sus.models import KnownPlayer, PlayerId
+
         try:
             verified_role_id = self.get_setting("verified_role_id", guild_id=member.guild.id)
             if not verified_role_id:
@@ -317,14 +319,18 @@ class Validation(BaseCog, name="Validation"):
             if not verified_role:
                 return
 
-            # Check if this member is a known player
+            # Check if this member should have verified role
             discord_id_str = str(member.id)
 
-            def has_known_player():
-                return KnownPlayer.objects.filter(discord_id=discord_id_str).exists()
+            def should_have_verified_role():
+                try:
+                    player = KnownPlayer.objects.get(discord_id=discord_id_str)
+                    return PlayerId.objects.filter(player=player, primary=True).exists()
+                except KnownPlayer.DoesNotExist:
+                    return False
 
-            if await sync_to_async(has_known_player)():
-                # Known player rejoining - add verified role
+            if await sync_to_async(should_have_verified_role)():
+                # Known player with primary ID rejoining - add verified role
                 await self._add_verified_role(member, verified_role, "known player rejoined server")
 
         except Exception as exc:
@@ -334,6 +340,8 @@ class Validation(BaseCog, name="Validation"):
     async def on_member_update(self, before: discord.Member, after: discord.Member) -> None:
         """Handle member updates - monitor verified role changes."""
         from asgiref.sync import sync_to_async
+
+        from thetower.backend.sus.models import KnownPlayer, PlayerId
 
         try:
             verified_role_id = self.get_setting("verified_role_id", guild_id=after.guild.id)
@@ -358,17 +366,21 @@ class Validation(BaseCog, name="Validation"):
             # Role was changed externally - need to correct it
             discord_id_str = str(after.id)
 
-            def has_known_player():
-                return KnownPlayer.objects.filter(discord_id=discord_id_str).exists()
+            def should_have_verified_role():
+                try:
+                    player = KnownPlayer.objects.get(discord_id=discord_id_str)
+                    return PlayerId.objects.filter(player=player, primary=True).exists()
+                except KnownPlayer.DoesNotExist:
+                    return False
 
-            is_known_player = await sync_to_async(has_known_player)()
+            should_have_role = await sync_to_async(should_have_verified_role)()
 
-            if has_role and not is_known_player:
-                # Role was added but user is not a known player - remove it
+            if has_role and not should_have_role:
+                # Role was added but user shouldn't have it - remove it
                 await self._remove_verified_role(after, verified_role, "role added externally without verification, correcting")
 
-            elif not has_role and is_known_player:
-                # Role was removed but user is a known player - add it back
+            elif not has_role and should_have_role:
+                # Role was removed but user should have it - add it back
                 await self._add_verified_role(after, verified_role, "role removed externally, correcting")
 
         except Exception as exc:
@@ -625,5 +637,7 @@ class Validation(BaseCog, name="Validation"):
                         logger.error(f"Failed to log un-verification to channel {log_channel_id}: {log_exc}")
 
                     # Only log to one channel to avoid spam
+                    break
+                    break
                     break
                     break
