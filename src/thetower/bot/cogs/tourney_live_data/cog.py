@@ -137,11 +137,6 @@ class TourneyLiveData(BaseCog, name="Tourney Live Data", description="Commands f
                 self.logger.debug("Initializing parent cog")
                 await super().cog_initialize()
 
-                # Load settings
-                self.logger.debug("Loading settings")
-                tracker.update_status("Loading settings")
-                await self._load_settings()
-
                 # Register info extension for player lookup
                 self.logger.debug("Registering player lookup info extension")
                 tracker.update_status("Registering extensions")
