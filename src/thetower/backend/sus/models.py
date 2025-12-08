@@ -71,6 +71,11 @@ class PlayerId(models.Model):
     def __str__(self):
         return f"{self.id}"
 
+    def save(self, *args, **kwargs):
+        # Ensure ID is always uppercase
+        self.id = self.id.upper()
+        super().save(*args, **kwargs)
+
     def save_base(self, *args, force_insert=False, **kwargs):
         if force_insert and self.primary:
             self.player.ids.filter(~Q(id=self.id), primary=True).update(primary=False)
