@@ -62,3 +62,7 @@ class TourneyRoleColors(BaseCog, name="Tourney Role Colors"):
     def create_color_selection_view(self, user: discord.Member) -> discord.ui.View:
         """Create color selection view for the user (called by profile registry)."""
         return self.core.create_color_selection_view(user)
+
+
+async def setup(bot) -> None:
+    await bot.add_cog(TourneyRoleColors(bot))
