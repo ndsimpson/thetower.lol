@@ -237,7 +237,7 @@ class BackToSettingsButton(ui.Button):
 
     async def callback(self, interaction: discord.Interaction):
         """Go back to main settings view."""
-        view = TourneyRoleColorsSettingsView(self.cog, self.guild_id)
+        view = TourneyRoleColorsSettingsView(self.guild_id, self.cog)
         embed = await view.create_embed()
 
         await interaction.response.edit_message(embed=embed, view=view)
@@ -347,7 +347,7 @@ class ConfirmDeleteCategoryButton(ui.Button):
                     view = CategoryManagementView(self.cog, self.guild_id, categories)
                 else:
                     # No categories left, go back to settings
-                    view = TourneyRoleColorsSettingsView(self.cog, self.guild_id)
+                    view = TourneyRoleColorsSettingsView(self.guild_id, self.cog)
                     embed = await view.create_embed()
 
             else:
@@ -442,7 +442,7 @@ class CreateCategoryModal(ui.Modal, title="Create Color Category"):
                 )
 
                 # Return to settings view
-                view = TourneyRoleColorsSettingsView(self.cog, self.guild_id)
+                view = TourneyRoleColorsSettingsView(self.guild_id, self.cog)
                 embed = await view.create_embed()
 
                 await interaction.response.edit_message(embed=embed, view=view)
@@ -457,7 +457,7 @@ class CreateCategoryModal(ui.Modal, title="Create Color Category"):
                 if self.callback_view:
                     view = self.callback_view
                 else:
-                    view = TourneyRoleColorsSettingsView(self.cog, self.guild_id)
+                    view = TourneyRoleColorsSettingsView(self.guild_id, self.cog)
                     embed = await view.create_embed()
 
                 await interaction.response.edit_message(embed=embed, view=view)
@@ -468,7 +468,7 @@ class CreateCategoryModal(ui.Modal, title="Create Color Category"):
             if self.callback_view:
                 view = self.callback_view
             else:
-                view = TourneyRoleColorsSettingsView(self.cog, self.guild_id)
+                view = TourneyRoleColorsSettingsView(self.guild_id, self.cog)
                 embed = await view.create_embed()
 
             await interaction.response.edit_message(embed=embed, view=view)
