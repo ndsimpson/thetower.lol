@@ -8,7 +8,7 @@ This module contains:
 - User interface creation
 """
 
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 import discord
 from discord import ui
@@ -354,4 +354,15 @@ class TourneyRoleColorsCore:
                 current = None  # Role not found, end chain
 
         return False
-        return False
+
+    def get_roles_inheriting_from(self, guild_id: int, role_id: int) -> List[Tuple[str, int]]:
+        """Get list of (category_name, role_id) that inherit from the given role."""
+        inheriting_roles = []
+        categories = self.get_color_categories(guild_id)
+
+        for category_name, category_data in categories.items():
+            for role_str, role_config in category_data.get("roles", {}).items():
+                if role_config.get("inherits_from") == role_id:
+                    inheriting_roles.append((category_name, int(role_str)))
+
+        return inheriting_roles
