@@ -17,7 +17,7 @@ from thetower.bot.basecog import BaseCog
 class TourneyRoleColorsSettingsView(ui.View):
     """Main settings view for Tourney Role Colors cog."""
 
-    def __init__(self, cog: BaseCog, guild_id: int):
+    def __init__(self, guild_id: int, cog: BaseCog):
         super().__init__(timeout=600)  # 10 minute timeout
         self.cog = cog
         self.guild_id = guild_id
