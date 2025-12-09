@@ -386,7 +386,7 @@ class GlobalSettingsButton(discord.ui.Button):
         # Get current global settings
         view_window = cog.get_global_setting("bc_view_window_days")
         if view_window is None:
-            view_window = cog.default_settings.get("bc_view_window_days")
+            view_window = cog.guild_settings.get("bc_view_window_days")
 
         # Show modal for setting view window
         from .core import ViewWindowModal

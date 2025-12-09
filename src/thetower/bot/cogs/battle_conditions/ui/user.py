@@ -53,7 +53,7 @@ class ViewBCButton(discord.ui.Button):
         # Check viewing window (global setting, not per-guild)
         view_window_days = cog.get_global_setting("bc_view_window_days")
         if view_window_days is None:
-            view_window_days = cog.default_settings.get("bc_view_window_days")
+            view_window_days = cog.guild_settings.get("bc_view_window_days")
 
         # Check if outside viewing window
         outside_window = False
