@@ -47,8 +47,7 @@ class TourneyRoleColors(BaseCog, name="Tourney Role Colors"):
         """Initialize the cog and start background tasks."""
         self.logger.info("TourneyRoleColors cog initializing")
 
-        # Load any persistent data if needed
-        await self.load_data()
+        # No additional initialization needed - BaseCog handles settings persistence
 
     async def cog_unload(self) -> None:
         """Clean up when the cog is unloaded."""
