@@ -278,6 +278,189 @@ class CategoryDetailView(ui.View):
         self.add_item(BackToCategoriesButton(cog, guild_id))
 
 
+class SelectRoleView(ui.View):
+    """View for selecting a role to add to a category."""
+
+    def __init__(self, cog: BaseCog, guild_id: int, category_name: str, callback_view: ui.View):
+        super().__init__(timeout=300)  # 5 minute timeout
+        self.cog = cog
+        self.guild_id = guild_id
+        self.category_name = category_name
+        self.callback_view = callback_view
+
+        # Role selector
+        self.role_select = ui.RoleSelect(placeholder="Select a role to add...", min_values=1, max_values=1, custom_id="role_select")
+        self.role_select.callback = self.role_selected
+        self.add_item(self.role_select)
+
+        # Cancel button
+        cancel_btn = ui.Button(label="Cancel", style=discord.ButtonStyle.gray, custom_id="cancel")
+        cancel_btn.callback = self.cancel
+        self.add_item(cancel_btn)
+
+    async def role_selected(self, interaction: discord.Interaction):
+        """Handle role selection."""
+        selected_role = self.role_select.values[0]
+
+        # Check if role is already in this category
+        categories = self.cog.core.get_color_categories(self.guild_id)
+        category_data = categories.get(self.category_name, {})
+        existing_roles = category_data.get("roles", {})
+
+        if selected_role.id in existing_roles:
+            embed = discord.Embed(
+                title="❌ Role Already Added",
+                description=f"**{selected_role.name}** is already in the **{self.category_name}** category.",
+                color=discord.Color.red(),
+            )
+            await interaction.response.edit_message(embed=embed, view=self.callback_view)
+            return
+
+        # Move to prerequisite selection
+        view = SelectPrerequisitesView(self.cog, self.guild_id, self.category_name, selected_role, self.callback_view)
+
+        inheritance_text = ""
+        if view.suggested_inheritance:
+            inheritance_text = f"\n\n**🔗 Automatic Inheritance:** This role will automatically inherit prerequisites from **{view.suggested_inheritance.name}** (the highest existing role in this category below it in the hierarchy)."
+
+        embed = discord.Embed(
+            title="🎨 Select Prerequisites",
+            description=f"Selected role: **{selected_role.name}**\n\n"
+            f"Choose prerequisite roles that users must have before they can select **{selected_role.name}**.\n"
+            "Users can only select roles that are below their current highest role in the hierarchy.\n\n"
+            "**Leave empty if no additional prerequisites are required.**"
+            f"{inheritance_text}",
+            color=discord.Color.blue(),
+        )
+
+        await interaction.response.edit_message(embed=embed, view=view)
+
+    async def cancel(self, interaction: discord.Interaction):
+        """Cancel the role addition."""
+        embed = discord.Embed(
+            title="❌ Cancelled",
+            description="Role addition cancelled.",
+            color=discord.Color.gray(),
+        )
+        await interaction.response.edit_message(embed=embed, view=self.callback_view)
+
+
+class SelectPrerequisitesView(ui.View):
+    """View for selecting prerequisite roles."""
+
+    def __init__(self, cog: BaseCog, guild_id: int, category_name: str, selected_role: discord.Role, callback_view: ui.View):
+        super().__init__(timeout=300)  # 5 minute timeout
+        self.cog = cog
+        self.guild_id = guild_id
+        self.category_name = category_name
+        self.selected_role = selected_role
+        self.callback_view = callback_view
+        self.suggested_inheritance = None
+
+        # Get eligible prerequisite roles (roles below the selected role in hierarchy)
+        guild = cog.bot.get_guild(guild_id)
+        eligible_roles = []
+
+        # Sort roles by position (higher position = more powerful)
+        sorted_roles = sorted(guild.roles, key=lambda r: r.position, reverse=True)
+
+        # Find selected role position
+        selected_position = selected_role.position
+
+        # Get roles below the selected role
+        for role in sorted_roles:
+            if role.position < selected_position and not role.is_default() and not role.managed:
+                eligible_roles.append(role)
+
+        # Check for automatic inheritance suggestion
+        categories = self.cog.core.get_color_categories(guild_id)
+        category_data = categories.get(self.category_name, {})
+        existing_role_ids = set(int(rid) for rid in category_data.get("roles", {}).keys())
+
+        # Find the highest existing role in this category that's below the selected role
+        suggested_inherit_role = None
+        for role in sorted_roles:
+            if role.id in existing_role_ids and role.position < selected_position:
+                suggested_inherit_role = role
+                break  # First one found is the highest due to sorting
+
+        if suggested_inherit_role:
+            self.suggested_inheritance = suggested_inherit_role
+
+        # Prerequisite role selector (multi-select)
+        if eligible_roles:
+            self.prereq_select = ui.RoleSelect(
+                placeholder="Select prerequisite roles (optional)...", min_values=0, max_values=len(eligible_roles), custom_id="prereq_select"
+            )
+            # Pre-populate with eligible roles only
+            self.add_item(self.prereq_select)
+        else:
+            # No eligible roles, add a note
+            self.prereq_select = None
+
+        # Confirm button
+        confirm_btn = ui.Button(label="✅ Confirm", style=discord.ButtonStyle.success, custom_id="confirm")
+        confirm_btn.callback = self.confirm
+        self.add_item(confirm_btn)
+
+        # Back button
+        back_btn = ui.Button(label="⬅️ Back", style=discord.ButtonStyle.gray, custom_id="back")
+        back_btn.callback = self.back
+        self.add_item(back_btn)
+
+    async def confirm(self, interaction: discord.Interaction):
+        """Confirm the role addition with selected prerequisites."""
+        prereq_roles = []
+        if self.prereq_select and self.prereq_select.values:
+            prereq_roles = self.prereq_select.values
+
+        # Convert to prerequisite format (role:role_name)
+        prereq_list = [f"role:{role.name}" for role in prereq_roles]
+
+        # Add the role
+        success = await self.cog.core.add_color_role(self.guild_id, self.category_name, self.selected_role.id, prereq_list)
+
+        if success:
+            # Set inheritance if suggested
+            if self.suggested_inheritance:
+                inherit_success = await self.cog.core.set_role_inheritance(
+                    self.guild_id, self.category_name, self.selected_role.id, self.suggested_inheritance.id
+                )
+                if not inherit_success:
+                    # Log warning but don't fail the whole operation
+                    self.cog.logger.warning(f"Failed to set inheritance for role {self.selected_role.id} from {self.suggested_inheritance.id}")
+
+            prereq_text = ", ".join([role.name for role in prereq_roles]) if prereq_roles else "None"
+            inheritance_note = f" (inherits from {self.suggested_inheritance.name})" if self.suggested_inheritance else ""
+
+            embed = discord.Embed(
+                title="✅ Role Added",
+                description=f"Successfully added **{self.selected_role.name}** to category **{self.category_name}**\n"
+                f"Prerequisites: {prereq_text}{inheritance_note}",
+                color=discord.Color.green(),
+            )
+        else:
+            embed = discord.Embed(
+                title="❌ Addition Failed",
+                description=f"Failed to add **{self.selected_role.name}** to category **{self.category_name}**.",
+                color=discord.Color.red(),
+            )
+
+        await interaction.response.edit_message(embed=embed, view=self.callback_view)
+
+    async def back(self, interaction: discord.Interaction):
+        """Go back to role selection."""
+        view = SelectRoleView(self.cog, self.guild_id, self.category_name, self.callback_view)
+        embed = discord.Embed(
+            title="🎨 Select Role to Add",
+            description=f"Choose a role to add to the **{self.category_name}** category.\n\n"
+            "The role will be available for users to select as a color role.",
+            color=discord.Color.blue(),
+        )
+
+        await interaction.response.edit_message(embed=embed, view=view)
+
+
 class AddRoleButton(ui.Button):
     """Button to add a role to a category."""
 
@@ -292,8 +475,16 @@ class AddRoleButton(ui.Button):
         # Create the category detail view for callback
         callback_view = CategoryDetailView(self.cog, self.guild_id, self.category_name)
 
-        modal = AddRoleModal(self.cog, self.guild_id, self.category_name, callback_view)
-        await interaction.response.send_modal(modal)
+        # Start with role selection
+        view = SelectRoleView(self.cog, self.guild_id, self.category_name, callback_view)
+        embed = discord.Embed(
+            title="🎨 Select Role to Add",
+            description=f"Choose a role to add to the **{self.category_name}** category.\n\n"
+            "The role will be available for users to select as a color role.",
+            color=discord.Color.blue(),
+        )
+
+        await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
 
 
 class RemoveCategoryButton(ui.Button):
