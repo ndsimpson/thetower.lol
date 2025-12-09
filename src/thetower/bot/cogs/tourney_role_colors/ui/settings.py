@@ -390,7 +390,10 @@ class SelectPrerequisitesView(ui.View):
         # Prerequisite role selector (multi-select)
         if eligible_roles:
             self.prereq_select = ui.RoleSelect(
-                placeholder="Select prerequisite roles (optional)...", min_values=0, max_values=len(eligible_roles), custom_id="prereq_select"
+                placeholder="Select prerequisite roles (optional)...",
+                min_values=0,
+                max_values=min(len(eligible_roles), 25),  # Discord limit is 25
+                custom_id="prereq_select"
             )
             # Pre-populate with eligible roles only
             self.add_item(self.prereq_select)
