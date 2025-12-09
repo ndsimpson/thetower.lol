@@ -367,9 +367,16 @@ class SelectPrerequisitesView(ui.View):
         # Find selected role position
         selected_position = selected_role.position
 
+        # Get existing color role IDs to prevent circular references
+        existing_color_role_ids = self.cog.core.get_all_color_role_ids(guild_id)
+
         # Get roles below the selected role
         for role in sorted_roles:
-            if role.position < selected_position and not role.is_default() and not role.managed:
+            if (role.position < selected_position and
+                not role.is_default() and
+                not role.managed and
+                role.id != selected_role.id and  # Explicitly exclude the selected role
+                role.id not in existing_color_role_ids):  # Exclude existing color roles to prevent cycles
                 eligible_roles.append(role)
 
         # Check for automatic inheritance suggestion
@@ -413,43 +420,56 @@ class SelectPrerequisitesView(ui.View):
 
     async def confirm(self, interaction: discord.Interaction):
         """Confirm the role addition with selected prerequisites."""
-        prereq_roles = []
-        if self.prereq_select and self.prereq_select.values:
-            prereq_roles = self.prereq_select.values
+        try:
+            prereq_roles = []
+            if self.prereq_select and self.prereq_select.values:
+                prereq_roles = self.prereq_select.values
+                self.cog.logger.info(f"Selected prereq roles: {[r.name for r in prereq_roles]}")
 
-        # Convert to prerequisite format (role:role_name)
-        prereq_list = [f"role:{role.name}" for role in prereq_roles]
+            # Convert to prerequisite format (role:role_name)
+            prereq_list = [f"role:{role.name}" for role in prereq_roles]
 
-        # Add the role
-        success = await self.cog.core.add_color_role(self.guild_id, self.category_name, self.selected_role.id, prereq_list)
+            self.cog.logger.info(f"Adding role {self.selected_role.name} with prereqs: {prereq_list}")
 
-        if success:
-            # Set inheritance if suggested
-            if self.suggested_inheritance:
-                inherit_success = await self.cog.core.set_role_inheritance(
-                    self.guild_id, self.category_name, self.selected_role.id, self.suggested_inheritance.id
+            # Add the role
+            success = await self.cog.core.add_color_role(self.guild_id, self.category_name, self.selected_role.id, prereq_list)
+
+            if success:
+                # Set inheritance if suggested
+                if self.suggested_inheritance:
+                    self.cog.logger.info(f"Setting inheritance for {self.selected_role.name} from {self.suggested_inheritance.name}")
+                    inherit_success = await self.cog.core.set_role_inheritance(
+                        self.guild_id, self.category_name, self.selected_role.id, self.suggested_inheritance.id
+                    )
+                    if not inherit_success:
+                        # Log warning but don't fail the whole operation
+                        self.cog.logger.warning(f"Failed to set inheritance for role {self.selected_role.id} from {self.suggested_inheritance.id}")
+
+                prereq_text = ", ".join([role.name for role in prereq_roles]) if prereq_roles else "None"
+                inheritance_note = f" (inherits from {self.suggested_inheritance.name})" if self.suggested_inheritance else ""
+
+                embed = discord.Embed(
+                    title="✅ Role Added",
+                    description=f"Successfully added **{self.selected_role.name}** to category **{self.category_name}**\n"
+                    f"Prerequisites: {prereq_text}{inheritance_note}",
+                    color=discord.Color.green(),
                 )
-                if not inherit_success:
-                    # Log warning but don't fail the whole operation
-                    self.cog.logger.warning(f"Failed to set inheritance for role {self.selected_role.id} from {self.suggested_inheritance.id}")
+            else:
+                embed = discord.Embed(
+                    title="❌ Addition Failed",
+                    description=f"Failed to add **{self.selected_role.name}** to category **{self.category_name}**.",
+                    color=discord.Color.red(),
+                )
 
-            prereq_text = ", ".join([role.name for role in prereq_roles]) if prereq_roles else "None"
-            inheritance_note = f" (inherits from {self.suggested_inheritance.name})" if self.suggested_inheritance else ""
-
+            await interaction.response.edit_message(embed=embed, view=self.callback_view)
+        except Exception as e:
+            self.cog.logger.error(f"Error in confirm method: {e}", exc_info=True)
             embed = discord.Embed(
-                title="✅ Role Added",
-                description=f"Successfully added **{self.selected_role.name}** to category **{self.category_name}**\n"
-                f"Prerequisites: {prereq_text}{inheritance_note}",
-                color=discord.Color.green(),
-            )
-        else:
-            embed = discord.Embed(
-                title="❌ Addition Failed",
-                description=f"Failed to add **{self.selected_role.name}** to category **{self.category_name}**.",
+                title="❌ Error",
+                description="An error occurred while adding the role. Please try again.",
                 color=discord.Color.red(),
             )
-
-        await interaction.response.edit_message(embed=embed, view=self.callback_view)
+            await interaction.response.edit_message(embed=embed, view=self.callback_view)
 
     async def back(self, interaction: discord.Interaction):
         """Go back to role selection."""
