@@ -8,26 +8,6 @@ import discord
 from thetower.bot.basecog import BaseCog
 
 
-class RoleCacheConstants:
-    """Constants used throughout the role cache system."""
-
-    # Default settings
-    DEFAULT_SETTINGS = {
-        "refresh_interval": 1800,  # 30 minutes
-        "staleness_threshold": 3600,  # 1 hour
-        "save_interval": 300,  # 5 minutes
-        "cache_filename": "role_cache_all.json",
-    }
-
-    # Time formatting
-    TIME_UNITS = {
-        "seconds": 1,
-        "minutes": 60,
-        "hours": 3600,
-        "days": 86400,
-    }
-
-
 class RoleCacheHelpers:
     """Helper functions for role cache operations."""
 
