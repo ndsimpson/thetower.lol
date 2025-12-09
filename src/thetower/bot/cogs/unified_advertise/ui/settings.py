@@ -431,7 +431,7 @@ class SettingsView(View):
         embed = discord.Embed(title="Bot Settings", description="Configure bot behavior and preferences", color=discord.Color.green())
 
         # Add current settings
-        embed.add_field(name="Default Cooldown", value=f"{self.cog.default_settings.get('cooldown_hours', 24)} hours", inline=True)
+        embed.add_field(name="Default Cooldown", value=f"{self.cog.guild_settings.get('cooldown_hours', 24)} hours", inline=True)
 
         embed.add_field(
             name="Default Settings", value="These are the default values used when no server-specific settings are configured.", inline=False
@@ -505,7 +505,7 @@ class UnifiedAdvertiseSettingsView(View):
             cooldown_hours = self.cog._get_cooldown_hours(guild_id)
             embed.add_field(name="Server Cooldown", value=f"{cooldown_hours} hours between advertisements", inline=True)
 
-        embed.add_field(name="Default Settings", value=f"Default cooldown: {self.cog.default_settings.get('cooldown_hours', 24)} hours", inline=False)
+        embed.add_field(name="Default Settings", value=f"Default cooldown: {self.cog.guild_settings.get('cooldown_hours', 24)} hours", inline=False)
 
         # Update buttons
         self.clear_items()
