@@ -421,6 +421,9 @@ class UserInteractions:
             await interaction.response.send_message("⏳ Still initializing, please try again shortly.", ephemeral=True)
             return
 
+        # Defer the response to prevent timeout (gives us 15 minutes instead of 3 seconds)
+        await interaction.response.defer(ephemeral=True)
+
         # Parse Discord mentions to extract user ID if needed
         identifier = self.parse_discord_mention(identifier)
 
@@ -433,7 +436,7 @@ class UserInteractions:
 
         if not player:
             embed = await self.create_unverified_embed()
-            await interaction.response.send_message(embed=embed, ephemeral=True)
+            await interaction.followup.send(embed=embed, ephemeral=True)
             return
 
         # Get player details
@@ -487,4 +490,4 @@ class UserInteractions:
             guild_id=interaction.guild.id,
         )
 
-        await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+        await interaction.followup.send(embed=embed, view=view, ephemeral=True)
