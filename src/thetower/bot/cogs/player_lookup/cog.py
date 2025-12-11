@@ -52,6 +52,7 @@ class PlayerLookup(BaseCog, name="Player Lookup", description="Universal player 
             "case_sensitive": False,
             # Security settings
             "restrict_lookups_to_known_users": True,
+            "creator_code_required_role_id": None,  # Role ID required to set creator code
         }
 
         # Define default guild-specific settings
@@ -96,6 +97,11 @@ class PlayerLookup(BaseCog, name="Player Lookup", description="Universal player 
     def restrict_lookups_to_known_users(self) -> bool:
         """Get restrict lookups to known users setting."""
         return self.get_global_setting("restrict_lookups_to_known_users", True)
+
+    @property
+    def creator_code_required_role_id(self) -> Optional[int]:
+        """Get the role ID required to set creator code."""
+        return self.get_global_setting("creator_code_required_role_id", None)
 
     async def check_show_moderation_records_permission(self, discord_user: discord.User) -> bool:
         """Check if a Discord user can see moderation records based on Django group membership.

@@ -461,11 +461,22 @@ class UserInteractions:
             cog_manager = self.cog.bot.cog_manager
             show_tourney_roles_button = cog_manager.can_guild_use_cog("tourney_roles", interaction.guild.id)
 
+        # Check if creator code button should be shown (only if user has required role or no role is required)
+        show_creator_code_button = True
+        required_role_id = self.cog.creator_code_required_role_id
+        if required_role_id is not None:
+            # Check if user has the required role
+            member = interaction.guild.get_member(interaction.user.id) if interaction.guild else None
+            if member:
+                show_creator_code_button = any(role.id == required_role_id for role in member.roles)
+            else:
+                show_creator_code_button = False
+
         # Create view with set creator code button and optionally tournament roles button
         view = await PlayerView.create(
             self.cog,
             requesting_user=interaction.user,
-            show_creator_code_button=True,
+            show_creator_code_button=show_creator_code_button,
             current_code=details.get("creator_code"),
             player=player,
             details=details,

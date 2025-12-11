@@ -25,6 +25,7 @@ class PlayerLookupSettingsView(discord.ui.View):
         self.allow_partial_matches = self.cog.get_global_setting("allow_partial_matches", True)
         self.case_sensitive = self.cog.get_global_setting("case_sensitive", False)
         self.restrict_lookups_to_known_users = self.cog.get_global_setting("restrict_lookups_to_known_users", True)
+        self.creator_code_required_role_id = self.cog.get_global_setting("creator_code_required_role_id", None)
 
         # Get guild-specific settings
         if self.guild_id:
@@ -49,6 +50,10 @@ class PlayerLookupSettingsView(discord.ui.View):
             self.add_toggle_button(
                 "Restrict Lookups", "restrict_lookups_to_known_users", self.restrict_lookups_to_known_users, is_guild_setting=False
             )
+
+        # Add creator code role select for bot owners
+        if self.is_bot_owner and self.guild_id:
+            self.add_item(CreatorCodeRoleSelect(self.cog, int(self.guild_id)))
 
         # Build options list for numeric settings only
         options = [
@@ -158,6 +163,21 @@ class PlayerLookupSettingsView(discord.ui.View):
         behavior_parts = []
         if self.is_bot_owner:
             behavior_parts.append(f"**Restrict Lookups:** {'🔒 ON' if self.restrict_lookups_to_known_users else '🔓 OFF'} *(Bot Owner Only)*")
+
+            # Show creator code role requirement with role name if available
+            role_display = "None (no restriction)"
+            if self.creator_code_required_role_id and self.guild_id:
+                guild = self.cog.bot.get_guild(int(self.guild_id))
+                if guild:
+                    role = guild.get_role(self.creator_code_required_role_id)
+                    if role:
+                        role_display = f"{role.name} ({self.creator_code_required_role_id})"
+                    else:
+                        role_display = f"Unknown Role ({self.creator_code_required_role_id})"
+            elif self.creator_code_required_role_id:
+                role_display = f"Role ID: {self.creator_code_required_role_id}"
+
+            behavior_parts.append(f"**Creator Code Required Role:** {role_display} *(Bot Owner Only)*")
 
         if behavior_parts:
             embed.add_field(
@@ -531,3 +551,33 @@ class RemoveChannelModal(discord.ui.Modal, title="Remove Profile Post Channel"):
         # Update the embed
         embed = self.parent_view.create_selection_embed()
         await self.original_interaction.edit_original_response(embed=embed, view=self.parent_view)
+
+
+class CreatorCodeRoleSelect(discord.ui.RoleSelect):
+    """Role select for choosing the creator code required role."""
+
+    def __init__(self, cog: BaseCog, guild_id: int):
+        current_role_id = cog.get_global_setting("creator_code_required_role_id", None)
+        placeholder = "Select creator code required role..."
+        if current_role_id:
+            guild = cog.bot.get_guild(guild_id)
+            if guild:
+                role = guild.get_role(current_role_id)
+                if role:
+                    placeholder = f"Current: {role.name}"
+
+        super().__init__(placeholder=placeholder, min_values=0, max_values=1)
+        self.cog = cog
+
+    async def callback(self, interaction: discord.Interaction):
+        """Handle role selection."""
+        if not self.values:
+            # Clear the setting
+            self.cog.set_global_setting("creator_code_required_role_id", None)
+            await interaction.response.send_message("✅ Creator code role requirement cleared (no restriction).", ephemeral=True)
+            return
+
+        role = self.values[0]
+        self.cog.set_global_setting("creator_code_required_role_id", role.id)
+
+        await interaction.response.send_message(f"✅ Creator code now requires {role.mention} role.", ephemeral=True)
