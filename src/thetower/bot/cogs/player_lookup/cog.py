@@ -7,6 +7,7 @@ from asgiref.sync import sync_to_async
 from discord import app_commands
 
 from thetower.backend.sus.models import KnownPlayer, ModerationRecord
+from thetower.backend.tourney_results.models import TourneyRow
 
 # Local
 from thetower.bot.basecog import BaseCog
@@ -293,6 +294,16 @@ class PlayerLookup(BaseCog, name="Player Lookup", description="Universal player 
                     unverified_player = UnverifiedPlayer(tower_id)
                     results.append(unverified_player)
 
+            # Check tourney records for exact player_id matches
+            tourney_results = await sync_to_async(list)(
+                TourneyRow.objects.filter(player_id__iexact=search_term).values_list("player_id", flat=True).distinct()
+            )
+            for player_id in tourney_results:
+                # Only add if not already found as verified player
+                if not any(isinstance(r, KnownPlayer) and any(pid.id == player_id for pid in r.ids.all()) for r in results):
+                    unverified_player = UnverifiedPlayer(player_id)
+                    results.append(unverified_player)
+
             return results
         else:
             # Partial matching enabled - search all sources
@@ -320,6 +331,17 @@ class PlayerLookup(BaseCog, name="Player Lookup", description="Universal player 
                 if not any(isinstance(r, KnownPlayer) and any(pid.id == tower_id for pid in r.ids.all()) for r in results):
                     # Create an UnverifiedPlayer object
                     unverified_player = UnverifiedPlayer(tower_id)
+                    results.append(unverified_player)
+
+            # Search by player_id in TourneyRow for unverified players
+            tourney_results = await sync_to_async(list)(
+                TourneyRow.objects.filter(player_id__icontains=search_term).values_list("player_id", flat=True).distinct()
+            )
+            # For tourney results, create UnverifiedPlayer objects
+            for player_id in tourney_results:
+                if not any(isinstance(r, KnownPlayer) and any(pid.id == player_id for pid in r.ids.all()) for r in results):
+                    # Create an UnverifiedPlayer object
+                    unverified_player = UnverifiedPlayer(player_id)
                     results.append(unverified_player)
 
             return results

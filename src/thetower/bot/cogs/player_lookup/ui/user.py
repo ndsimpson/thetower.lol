@@ -111,9 +111,10 @@ class UserInteractions:
         else:
             discord_display = player_name
 
-        # Create streamlined header: 👤 Discord/TowerName (PrimaryID) StatusEmoji
+        # Create streamlined header: 👤 Discord/TowerName (DiscordID) StatusEmoji
         status_emoji = "⚠️" if is_unverified else "✅"
-        embed_description = f"👤 {discord_display} ({primary_id}) {status_emoji}"
+        header_id = discord_id if discord_id else primary_id
+        embed_description = f"👤 {discord_display} ({header_id}) {status_emoji}"
 
         # Create embed with streamlined title and description
         embed = discord.Embed(
