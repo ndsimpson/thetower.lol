@@ -274,6 +274,17 @@ class PlayerLookup(BaseCog, name="Player Lookup", description="Universal player 
         if not self.case_sensitive:
             search_term = search_term.lower()
 
+        # Helper function to check if player_id is already in results
+        def player_id_already_in_results(player_id: str, results: List[Any]) -> bool:
+            for r in results:
+                if isinstance(r, KnownPlayer):
+                    if any(pid.id == player_id for pid in r.ids.all()):
+                        return True
+                elif isinstance(r, UnverifiedPlayer):
+                    if r.tower_id == player_id:
+                        return True
+            return False
+
         # If not allowing partial matches, only do exact searches
         if not self.allow_partial_matches:
             # For exact matches, we need to check both verified and unverified sources
@@ -289,8 +300,8 @@ class PlayerLookup(BaseCog, name="Player Lookup", description="Universal player 
                 ModerationRecord.objects.filter(tower_id__iexact=search_term).values_list("tower_id", flat=True).distinct()
             )
             for tower_id in moderation_results:
-                # Only add if not already found as verified player
-                if not any(isinstance(r, KnownPlayer) and any(pid.id == tower_id for pid in r.ids.all()) for r in results):
+                # Only add if not already found
+                if not player_id_already_in_results(tower_id, results):
                     unverified_player = UnverifiedPlayer(tower_id)
                     results.append(unverified_player)
 
@@ -299,8 +310,8 @@ class PlayerLookup(BaseCog, name="Player Lookup", description="Universal player 
                 TourneyRow.objects.filter(player_id__iexact=search_term).values_list("player_id", flat=True).distinct()
             )
             for player_id in tourney_results:
-                # Only add if not already found as verified player
-                if not any(isinstance(r, KnownPlayer) and any(pid.id == player_id for pid in r.ids.all()) for r in results):
+                # Only add if not already found
+                if not player_id_already_in_results(player_id, results):
                     unverified_player = UnverifiedPlayer(player_id)
                     results.append(unverified_player)
 
@@ -328,7 +339,7 @@ class PlayerLookup(BaseCog, name="Player Lookup", description="Universal player 
             )
             # For moderation results, create UnverifiedPlayer objects
             for tower_id in moderation_results:
-                if not any(isinstance(r, KnownPlayer) and any(pid.id == tower_id for pid in r.ids.all()) for r in results):
+                if not player_id_already_in_results(tower_id, results):
                     # Create an UnverifiedPlayer object
                     unverified_player = UnverifiedPlayer(tower_id)
                     results.append(unverified_player)
@@ -339,7 +350,7 @@ class PlayerLookup(BaseCog, name="Player Lookup", description="Universal player 
             )
             # For tourney results, create UnverifiedPlayer objects
             for player_id in tourney_results:
-                if not any(isinstance(r, KnownPlayer) and any(pid.id == player_id for pid in r.ids.all()) for r in results):
+                if not player_id_already_in_results(player_id, results):
                     # Create an UnverifiedPlayer object
                     unverified_player = UnverifiedPlayer(player_id)
                     results.append(unverified_player)
