@@ -106,7 +106,7 @@ class ViewCurrentConfigButton(ui.Button):
                 role_list = []
 
                 for role_id, role_config in roles.items():
-                    role = interaction.guild.get_role(role_id)
+                    role = interaction.guild.get_role(int(role_id))
                     role_name = role.name if role else f"Unknown Role ({role_id})"
 
                     prereqs = role_config.get("additional_prerequisites", [])
@@ -418,10 +418,12 @@ class SelectPrerequisitesView(ui.View):
                 placeholder="Select prerequisite roles (optional)...",
                 min_values=0,
                 max_values=min(len(eligible_roles), 25),  # Discord limit is 25
-                custom_id="prereq_select",
+                custom_id=f"prereq_select_{selected_role.id}",
+                default_values=[],
             )
             # Pre-populate with eligible roles only
             self.add_item(self.prereq_select)
+            self.prereq_select.callback = self.prereq_selected
         else:
             # No eligible roles, add a note
             self.prereq_select = None
@@ -436,12 +438,16 @@ class SelectPrerequisitesView(ui.View):
         back_btn.callback = self.back
         self.add_item(back_btn)
 
+    async def prereq_selected(self, interaction: discord.Interaction):
+        """Handle prerequisite role selection (defer to prevent interaction failure)."""
+        await interaction.response.defer()
+
     async def confirm(self, interaction: discord.Interaction):
         """Confirm the role addition with selected prerequisites."""
         try:
             prereq_roles = []
             if self.prereq_select and self.prereq_select.values:
-                prereq_roles = self.prereq_select.values
+                prereq_roles = [r for r in self.prereq_select.values if r.id != self.selected_role.id]
                 self.cog.logger.info(f"Selected prereq roles: {[r.name for r in prereq_roles]}")
 
             # Convert to prerequisite format (role:role_name)
@@ -472,14 +478,14 @@ class SelectPrerequisitesView(ui.View):
                     f"Prerequisites: {prereq_text}{inheritance_note}",
                     color=discord.Color.green(),
                 )
+                await interaction.response.edit_message(embed=embed, view=RoleAddedView(self.callback_view))
             else:
                 embed = discord.Embed(
                     title="❌ Addition Failed",
                     description=f"Failed to add **{self.selected_role.name}** to category **{self.category_name}**.",
                     color=discord.Color.red(),
                 )
-
-            await interaction.response.edit_message(embed=embed, view=self.callback_view)
+                await interaction.response.edit_message(embed=embed, view=self.callback_view)
         except Exception as e:
             self.cog.logger.error(f"Error in confirm method: {e}", exc_info=True)
             embed = discord.Embed(
@@ -500,6 +506,28 @@ class SelectPrerequisitesView(ui.View):
         )
 
         await interaction.response.edit_message(embed=embed, view=view)
+
+
+class RoleAddedView(ui.View):
+    """View shown after successfully adding a role."""
+
+    def __init__(self, callback_view: ui.View):
+        super().__init__(timeout=300)  # 5 minute timeout
+        self.callback_view = callback_view
+
+        # Back to category button
+        back_btn = ui.Button(label="⬅️ Back to Category", style=discord.ButtonStyle.primary, custom_id="back_to_category")
+        back_btn.callback = self.back_to_category
+        self.add_item(back_btn)
+
+    async def back_to_category(self, interaction: discord.Interaction):
+        """Go back to the category view."""
+        embed = discord.Embed(
+            title="🎨 Category Management",
+            description="Manage roles in this category.",
+            color=discord.Color.blue(),
+        )
+        await interaction.response.edit_message(embed=embed, view=self.callback_view)
 
 
 class AddRoleButton(ui.Button):
