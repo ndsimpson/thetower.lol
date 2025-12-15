@@ -8,10 +8,10 @@ from .core import ModerationRecordSearch
 class PlayerModerationView(discord.ui.View):
     """View for managing a specific player's moderation records."""
 
-    def __init__(self, cog, player, requesting_user: discord.User, guild_id: int):
+    def __init__(self, cog, details: dict, requesting_user: discord.User, guild_id: int):
         super().__init__(timeout=900)
         self.cog = cog
-        self.player = player
+        self.details = details
         self.requesting_user = requesting_user
         self.guild_id = guild_id
         self.show_all_records = False  # Default to showing active only
@@ -28,10 +28,8 @@ class PlayerModerationView(discord.ui.View):
     async def update_view(self, interaction: discord.Interaction) -> discord.Embed:
         """Update the view and return the embed to display."""
         try:
-            # Get the primary player ID
-            from asgiref.sync import sync_to_async
-
-            primary_id = await sync_to_async(lambda: next((pid.id for pid in self.player.ids.all() if pid.primary), None))()
+            # Get the primary player ID from details
+            primary_id = self.details.get("primary_id")
 
             if not primary_id:
                 embed = discord.Embed(
@@ -46,7 +44,7 @@ class PlayerModerationView(discord.ui.View):
 
             # Create embed
             embed = discord.Embed(
-                title=f"⚖️ Moderation Records for {self.player.name}",
+                title=f"⚖️ Moderation Records for {self.details['name']}",
                 description=f"Player ID: `{primary_id}`",
                 color=discord.Color.blue(),
             )

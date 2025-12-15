@@ -99,7 +99,7 @@ class ManageSus(BaseCog, name="Manage Sus"):
     # No direct slash commands - this cog extends /lookup functionality
 
     def get_moderation_button_for_player(
-        self, player, requesting_user: discord.User, guild_id: int, permission_context
+        self, details, requesting_user: discord.User, guild_id: int, permission_context
     ) -> Optional[discord.ui.Button]:
         """Get a moderation management button for a player if the user has permission.
 
@@ -108,7 +108,7 @@ class ManageSus(BaseCog, name="Manage Sus"):
         or None if the user doesn't have permission or is viewing their own profile.
         """
         # Don't show button if user is viewing their own profile
-        if player.discord_id and str(player.discord_id) == str(requesting_user.id):
+        if details.get("discord_id") and str(details["discord_id"]) == str(requesting_user.id):
             return None
 
         # Check if user has permission to view/manage moderation records using the permission context
@@ -118,7 +118,7 @@ class ManageSus(BaseCog, name="Manage Sus"):
         allowed_groups = view_groups + manage_groups
 
         if permission_context.has_any_group(allowed_groups):
-            return ManageSusButton(self, player, requesting_user, guild_id)
+            return ManageSusButton(self, details, requesting_user, guild_id)
 
         return None
 
@@ -440,10 +440,11 @@ class ManageSus(BaseCog, name="Manage Sus"):
 class ManageSusButton(discord.ui.Button):
     """Button to manage moderation records for a specific player."""
 
-    def __init__(self, cog, player, requesting_user: discord.User, guild_id: int):
-        super().__init__(label="Manage shun/sus/ban", style=discord.ButtonStyle.danger, emoji="⚖️", custom_id=f"manage_sus_{player.id}", row=1)
+    def __init__(self, cog, details: dict, requesting_user: discord.User, guild_id: int):
+        player_id = details.get("primary_id", "unknown")
+        super().__init__(label="Manage shun/sus/ban", style=discord.ButtonStyle.danger, emoji="⚖️", custom_id=f"manage_sus_{player_id}", row=1)
         self.cog = cog
-        self.player = player
+        self.details = details
         self.requesting_user = requesting_user
         self.guild_id = guild_id
 
@@ -461,12 +462,13 @@ class ManageSusButton(discord.ui.Button):
         try:
             from .ui.user import PlayerModerationView
 
-            view = PlayerModerationView(self.cog, self.player, self.requesting_user, self.guild_id)
+            view = PlayerModerationView(self.cog, self.details, self.requesting_user, self.guild_id)
             embed = await view.update_view(interaction)
             await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
 
         except Exception as e:
-            self.cog.logger.error(f"Error opening moderation management for player {self.player.id}: {e}")
+            player_id = self.details.get("primary_id", "unknown")
+            self.cog.logger.error(f"Error opening moderation management for player {player_id}: {e}")
             await interaction.response.send_message("❌ An error occurred while opening the moderation interface.", ephemeral=True)
 
 
