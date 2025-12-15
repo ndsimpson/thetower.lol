@@ -114,6 +114,8 @@ class TourneyRoleColors(BaseCog, name="Tourney Role Colors"):
 
     def _provide_color_selection_button(self, details, requesting_user, guild_id, permission_context):
         """Provide color selection button for player profiles."""
+        self.logger.debug(f"TourneyRoleColors: _provide_color_selection_button called for user {requesting_user.id} in guild {guild_id}")
+
         # Check if this cog is enabled for the guild
         if not self.bot.cog_manager.can_guild_use_cog(self.cog_name, guild_id, False):
             self.logger.debug(f"TourneyRoleColors: Cog not enabled for guild {guild_id}")

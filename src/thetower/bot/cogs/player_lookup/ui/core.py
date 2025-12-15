@@ -158,13 +158,18 @@ class PlayerView(discord.ui.View):
         if self.requesting_user and self.details and self.guild_id:
             # Get all registered UI extension providers for player profiles
             extension_providers = self.cog.bot.cog_manager.get_ui_extensions("player_lookup")
+            self.cog.logger.debug(f"PlayerView: Found {len(extension_providers)} UI extensions for player_lookup")
 
             # Call each provider with permission context
             for provider_func in extension_providers:
                 try:
+                    self.cog.logger.debug(f"PlayerView: Calling UI extension {provider_func.__name__}")
                     button = provider_func(self.details, self.requesting_user, self.guild_id, self.permission_context)
                     if button:
+                        self.cog.logger.debug(f"PlayerView: Adding button from {provider_func.__name__}")
                         self.add_item(button)
+                    else:
+                        self.cog.logger.debug(f"PlayerView: No button returned from {provider_func.__name__}")
                 except Exception as e:
                     self.cog.logger.error(f"Error getting button from UI extension provider {provider_func.__name__}: {e}", exc_info=True)
                     # Continue with other providers even if one fails
