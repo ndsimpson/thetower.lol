@@ -114,17 +114,17 @@ class TourneyRoleColors(BaseCog, name="Tourney Role Colors"):
 
     def _provide_color_selection_button(self, details, requesting_user, guild_id, permission_context):
         """Provide color selection button for player profiles."""
-        self.logger.debug(f"TourneyRoleColors: _provide_color_selection_button called for user {requesting_user.id} in guild {guild_id}")
+        self.logger.info(f"TourneyRoleColors: _provide_color_selection_button called for user {requesting_user.id} in guild {guild_id}")
 
         # Check if this cog is enabled for the guild
         if not self.bot.cog_manager.can_guild_use_cog(self.cog_name, guild_id, False):
-            self.logger.debug(f"TourneyRoleColors: Cog not enabled for guild {guild_id}")
+            self.logger.info(f"TourneyRoleColors: Cog not enabled for guild {guild_id}")
             return None
 
         # Only show button if user is viewing their own profile
         details_discord_id = details.get("discord_id")
         if str(details_discord_id) != str(requesting_user.id):
-            self.logger.debug(
+            self.logger.info(
                 f"TourneyRoleColors: Not viewing own profile - details.discord_id={details_discord_id}, requesting_user.id={requesting_user.id}"
             )
             return None
@@ -132,18 +132,18 @@ class TourneyRoleColors(BaseCog, name="Tourney Role Colors"):
         # Get the guild member (needed for role checking)
         guild = self.bot.get_guild(guild_id)
         if not guild:
-            self.logger.debug(f"TourneyRoleColors: Guild {guild_id} not found")
+            self.logger.info(f"TourneyRoleColors: Guild {guild_id} not found")
             return None
 
         member = guild.get_member(requesting_user.id)
         if not member:
-            self.logger.debug(f"TourneyRoleColors: Member {requesting_user.id} not found in guild {guild_id}")
+            self.logger.info(f"TourneyRoleColors: Member {requesting_user.id} not found in guild {guild_id}")
             return None
 
         # Check if user has any qualified color roles
         qualified_data = self.core.get_qualified_roles_for_user(member)
         if not qualified_data:
-            self.logger.debug(f"TourneyRoleColors: User {requesting_user.id} has no qualified color roles")
+            self.logger.info(f"TourneyRoleColors: User {requesting_user.id} has no qualified color roles")
             return None
 
         self.logger.debug(f"TourneyRoleColors: Showing color selection button for user {requesting_user.id}")

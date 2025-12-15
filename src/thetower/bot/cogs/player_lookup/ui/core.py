@@ -116,7 +116,7 @@ class PlayerView(discord.ui.View):
         self.guild_id = guild_id
         self.requesting_user = requesting_user
 
-        self.cog.logger.debug(f"PlayerView.__init__ called with requesting_user={requesting_user}, details={bool(details)}, guild_id={guild_id}")
+        self.cog.logger.info(f"PlayerView.__init__ called with requesting_user={requesting_user}, details={bool(details)}, guild_id={guild_id}")
 
         # Extract player_id for extensions
         if player and hasattr(player, "tower_id"):
@@ -160,18 +160,18 @@ class PlayerView(discord.ui.View):
         if self.requesting_user and self.details and self.guild_id:
             # Get all registered UI extension providers for player profiles
             extension_providers = self.cog.bot.cog_manager.get_ui_extensions("player_lookup")
-            self.cog.logger.debug(f"PlayerView: Found {len(extension_providers)} UI extensions for player_lookup")
+            self.cog.logger.info(f"PlayerView: Found {len(extension_providers)} UI extensions for player_lookup")
 
             # Call each provider with permission context
             for provider_func in extension_providers:
                 try:
-                    self.cog.logger.debug(f"PlayerView: Calling UI extension {provider_func.__name__}")
+                    self.cog.logger.info(f"PlayerView: Calling UI extension {provider_func.__name__}")
                     button = provider_func(self.details, self.requesting_user, self.guild_id, self.permission_context)
                     if button:
-                        self.cog.logger.debug(f"PlayerView: Adding button from {provider_func.__name__}")
+                        self.cog.logger.info(f"PlayerView: Adding button from {provider_func.__name__}")
                         self.add_item(button)
                     else:
-                        self.cog.logger.debug(f"PlayerView: No button returned from {provider_func.__name__}")
+                        self.cog.logger.info(f"PlayerView: No button returned from {provider_func.__name__}")
                 except Exception as e:
                     self.cog.logger.error(f"Error getting button from UI extension provider {provider_func.__name__}: {e}", exc_info=True)
                     # Continue with other providers even if one fails
@@ -201,7 +201,7 @@ class PlayerView(discord.ui.View):
         Returns:
             PlayerView: Initialized view with permission context
         """
-        cog.logger.debug(f"PlayerView.create called with requesting_user={requesting_user}, details={bool(details)}, guild_id={guild_id}")
+        cog.logger.info(f"PlayerView.create called with requesting_user={requesting_user}, details={bool(details)}, guild_id={guild_id}")
 
         # Fetch permissions for the requesting user
         permission_context = await cog.get_user_permissions(requesting_user)
