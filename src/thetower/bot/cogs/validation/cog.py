@@ -41,6 +41,16 @@ class Validation(BaseCog, name="Validation"):
 
     def _create_or_update_player(self, discord_id, author_name, player_id):
         try:
+            # Check if this player_id is already linked to a different Discord account
+            existing_player_id = PlayerId.objects.filter(id=player_id).select_related("player").first()
+            if existing_player_id and existing_player_id.player.discord_id != discord_id:
+                # Player ID is already linked to a different Discord account
+                return {
+                    "error": "already_linked",
+                    "existing_discord_id": existing_player_id.player.discord_id,
+                    "existing_player_name": existing_player_id.player.name,
+                }
+
             player, created = KnownPlayer.objects.get_or_create(discord_id=discord_id, defaults=dict(approved=True, name=author_name))
 
             # First, set all existing PlayerIds for this player to non-primary

@@ -81,7 +81,63 @@ class VerificationModal(ui.Modal, title="Player Verification"):
 
         try:
             # Create or update player
-            await sync_to_async(self.cog._create_or_update_player, thread_sensitive=True)(interaction.user.id, interaction.user.name, player_id)
+            result = await sync_to_async(self.cog._create_or_update_player, thread_sensitive=True)(
+                interaction.user.id, interaction.user.name, player_id
+            )
+
+            # Check if player ID is already linked to a different account
+            if isinstance(result, dict) and result.get("error") == "already_linked":
+                # Log the attempt to the role log channel
+                existing_discord_id = result.get("existing_discord_id")
+                existing_player_name = result.get("existing_player_name")
+
+                # Log to verification log channel
+                log_channel_id = self.cog.get_setting("verification_log_channel_id", guild_id=interaction.guild.id)
+                if log_channel_id:
+                    guild = interaction.guild
+                    log_channel = guild.get_channel(log_channel_id)
+                    if log_channel:
+                        try:
+                            embed = discord.Embed(
+                                title="🚫 Duplicate Player ID Verification Attempt",
+                                description=f"User {interaction.user.mention} ({interaction.user.name}) attempted to verify with player ID `{player_id}`, but it's already linked to {existing_player_name} (<@{existing_discord_id}>).",
+                                color=discord.Color.red(),
+                                timestamp=verification_time,
+                            )
+                            embed.add_field(name="Attempted By", value=f"{interaction.user.mention} ({interaction.user.name})", inline=True)
+                            embed.add_field(name="Player ID", value=f"`{player_id}`", inline=True)
+                            embed.add_field(name="Already Linked To", value=f"{existing_player_name} (<@{existing_discord_id}>)", inline=True)
+
+                            # Attach the verification image if it exists
+                            if image_filename:
+                                image_path = self.cog.data_directory / image_filename
+                                if image_path.exists():
+                                    file = discord.File(image_path, filename=image_filename)
+                                    await log_channel.send(embed=embed, file=file)
+                                else:
+                                    await log_channel.send(embed=embed)
+                            else:
+                                await log_channel.send(embed=embed)
+
+                        except Exception as log_exc:
+                            self.cog.logger.error(f"Failed to log duplicate verification attempt to channel {log_channel_id}: {log_exc}")
+
+                # Log the verification attempt as failed
+                await self._log_verification_attempt(
+                    interaction,
+                    player_id,
+                    verification_time,
+                    timestamp_unix,
+                    image_filename,
+                    success=False,
+                    error_message=f"Player ID already linked to different account ({existing_discord_id})",
+                )
+
+                # Tell the user
+                await interaction.edit_original_response(
+                    content="❌ This player ID is already linked to a different Discord account. If you believe this is an error, please contact a moderator."
+                )
+                return
 
             # Assign verified role
             verified_role_id = self.cog.get_setting("verified_role_id", guild_id=interaction.guild.id)
