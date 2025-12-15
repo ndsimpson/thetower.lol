@@ -103,14 +103,14 @@ class ViewCurrentConfigButton(ui.Button):
 
             for cat_name, cat_data in categories.items():
                 roles = cat_data.get("roles", {})
-                role_list = []
+                role_entries = []
 
                 for role_id, role_config in roles.items():
                     role = interaction.guild.get_role(int(role_id))
                     role_name = role.name if role else f"Unknown Role ({role_id})"
 
                     prereqs = role_config.get("additional_prerequisites", [])
-                    prereq_text = ", ".join(prereqs) if prereqs else "None"
+                    prereq_text = ", ".join(sorted(prereqs)) if prereqs else "None"
 
                     inherits = role_config.get("inherits_from")
                     if inherits:
@@ -118,7 +118,17 @@ class ViewCurrentConfigButton(ui.Button):
                         inherit_name = inherit_role.name if inherit_role else f"Role {inherits}"
                         prereq_text += f" (+ inherits from {inherit_name})"
 
-                    role_list.append(f"• **{role_name}**: {prereq_text}")
+                    role_entries.append((role_name, f"• **{role_name}**: {prereq_text}"))
+
+                # Sort roles: category-specific roles first, then alphabetically
+                def is_category_role(name):
+                    if not name.startswith(cat_name):
+                        return False
+                    remaining = name[len(cat_name):]
+                    return not remaining or remaining[0] in (' ', '0','1','2','3','4','5','6','7','8','9')
+                
+                role_entries.sort(key=lambda x: (not is_category_role(x[0]), x[0]))
+                role_list = [entry[1] for entry in role_entries]
 
                 embed.add_field(
                     name=f"📁 {cat_name} ({len(roles)} roles)", value="\n".join(role_list) if role_list else "No roles configured", inline=False
