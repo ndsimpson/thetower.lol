@@ -118,8 +118,17 @@ class TourneyRoleColors(BaseCog, name="Tourney Role Colors"):
         if str(details.get("discord_id")) != str(requesting_user.id):
             return None
 
+        # Get the guild member (needed for role checking)
+        guild = self.bot.get_guild(guild_id)
+        if not guild:
+            return None
+
+        member = guild.get_member(requesting_user.id)
+        if not member:
+            return None
+
         # Check if user has any qualified color roles
-        qualified_data = self.core.get_qualified_roles_for_user(requesting_user)
+        qualified_data = self.core.get_qualified_roles_for_user(member)
         if not qualified_data:
             return None
 
