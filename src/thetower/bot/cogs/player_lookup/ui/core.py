@@ -116,6 +116,8 @@ class PlayerView(discord.ui.View):
         self.guild_id = guild_id
         self.requesting_user = requesting_user
 
+        self.cog.logger.debug(f"PlayerView.__init__ called with requesting_user={requesting_user}, details={bool(details)}, guild_id={guild_id}")
+
         # Extract player_id for extensions
         if player and hasattr(player, "tower_id"):
             self.player_id = player.tower_id
@@ -199,6 +201,8 @@ class PlayerView(discord.ui.View):
         Returns:
             PlayerView: Initialized view with permission context
         """
+        cog.logger.debug(f"PlayerView.create called with requesting_user={requesting_user}, details={bool(details)}, guild_id={guild_id}")
+
         # Fetch permissions for the requesting user
         permission_context = await cog.get_user_permissions(requesting_user)
 
