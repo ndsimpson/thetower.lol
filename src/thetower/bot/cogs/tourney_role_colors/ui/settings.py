@@ -822,7 +822,7 @@ class EditRoleWizardView(ui.View):
         self.category_name = category_name
         self.current_role_id = current_role_id
         self.current_prereqs = current_prereqs
-        self.selected_role = None
+        self.selected_role = self.cog.bot.get_guild(guild_id).get_role(current_role_id)  # Initialize to current role
         self.selected_prereqs = current_prereqs.copy()
 
         # Step 1: Role selection (prepopulated)
@@ -833,27 +833,10 @@ class EditRoleWizardView(ui.View):
         """Setup the role selection step."""
         self.clear_items()
 
-        # Get available roles (exclude already used roles)
-        guild = self.cog.bot.get_guild(self.guild_id)
-        existing_color_role_ids = self.cog.core.get_all_color_role_ids(self.guild_id)
-
-        available_roles = []
-        for role in guild.roles:
-            if (
-                not role.is_default() and not role.managed and (role.id not in existing_color_role_ids or role.id == self.current_role_id)
-            ):  # Allow current role
-                available_roles.append(role)
-
-        if available_roles:
-            options = []
-            for role in available_roles:
-                # Pre-select current role
-                default = role.id == self.current_role_id
-                options.append(discord.SelectOption(label=role.name, value=str(role.id), default=default))
-
-            self.role_select = ui.Select(placeholder="Select the role...", options=options[:25], custom_id="edit_role_select")  # Discord limit
-            self.role_select.callback = self.role_selected
-            self.add_item(self.role_select)
+        # Use Discord's RoleSelect for better UX
+        self.role_select = ui.RoleSelect(placeholder="Select the role to edit...", min_values=1, max_values=1, custom_id="edit_role_select")
+        self.role_select.callback = self.role_selected
+        self.add_item(self.role_select)
 
         # Next button
         next_btn = ui.Button(label="Next: Prerequisites", style=discord.ButtonStyle.primary, custom_id="next_to_prereqs")
@@ -946,23 +929,56 @@ class EditRoleWizardView(ui.View):
         self.add_item(cancel_btn)
 
     async def role_selected(self, interaction: discord.Interaction):
-        """Handle role selection."""
-        selected_role_id = int(self.role_select.values[0])
-        self.selected_role = self.cog.bot.get_guild(self.guild_id).get_role(selected_role_id)
+        """Handle role selection with validation."""
+        selected_role = self.role_select.values[0]
+
+        # Validate the selected role
+        if selected_role.is_default():
+            embed = discord.Embed(
+                title="❌ Invalid Role",
+                description="Cannot select the @everyone role.",
+                color=discord.Color.red(),
+            )
+            await interaction.response.edit_message(embed=embed, view=self)
+            return
+
+        if selected_role.managed:
+            embed = discord.Embed(
+                title="❌ Invalid Role",
+                description="Cannot select managed roles (bot roles).",
+                color=discord.Color.red(),
+            )
+            await interaction.response.edit_message(embed=embed, view=self)
+            return
+
+        # Check if role is already used in another category (but allow if it's the current role being edited)
+        existing_color_role_ids = self.cog.core.get_all_color_role_ids(self.guild_id)
+        if selected_role.id in existing_color_role_ids and selected_role.id != self.current_role_id:
+            embed = discord.Embed(
+                title="❌ Role Already Used",
+                description=f"**{selected_role.name}** is already assigned to another color category.",
+                color=discord.Color.red(),
+            )
+            await interaction.response.edit_message(embed=embed, view=self)
+            return
+
+        # Role is valid - update selection
+        self.selected_role = selected_role
 
         # Update embed to show selected role
         embed = interaction.message.embeds[0]
-        embed.description = f"Editing role in category **{self.category_name}**\n\n**Selected Role:** {self.selected_role.name}"
+        embed.description = (
+            f"Editing **{selected_role.name}** in category **{self.category_name}**\n\n" "You can change the role and/or its prerequisites."
+        )
 
         await interaction.response.edit_message(embed=embed, view=self)
 
     async def next_to_prereqs(self, interaction: discord.Interaction):
         """Move to prerequisite selection step."""
         if not self.selected_role:
-            # Find selected role from dropdown
+            # Find selected role from RoleSelect
             if self.role_select.values:
-                selected_role_id = int(self.role_select.values[0])
-                self.selected_role = self.cog.bot.get_guild(self.guild_id).get_role(selected_role_id)
+                self.selected_role = self.role_select.values[0]
 
         if not self.selected_role:
             embed = discord.Embed(
