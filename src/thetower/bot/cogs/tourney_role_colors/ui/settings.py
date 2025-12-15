@@ -79,7 +79,7 @@ class ManageCategoriesButton(ui.Button):
         else:
             message = "**No categories configured**\n\nClick 'Create Category' to add your first category."
 
-        await interaction.response.send_message(message, view=view, ephemeral=True)
+        await interaction.response.edit_message(content=message, view=view, embed=None)
 
 
 class CategoryManagementView(ui.View):
@@ -137,9 +137,14 @@ class CreateCategoryModal(ui.Modal, title="Create New Category"):
         categories.append(new_category)
         self.cog.set_setting("categories", categories, guild_id=self.guild_id)
 
-        await interaction.response.send_message(
-            f"✅ Created category: **{self.category_name.value}**\n\n" f"Now you can add roles to this category.", ephemeral=True
+        # Refresh the category management view
+        view = CategoryManagementView(self.cog, self.guild_id, categories)
+        category_list = "\n".join(
+            [f"**{idx + 1}.** {cat.get('name')} ({len(cat.get('roles', []))} roles)" for idx, cat in enumerate(categories[:10])]
         )
+        message = f"✅ Created category: **{self.category_name.value}**\n\n**Current Categories:**\n\n{category_list}\n\nSelect an action below:"
+
+        await interaction.response.edit_message(content=message, view=view)
 
 
 class EditCategoryButton(ui.Button):
@@ -157,7 +162,7 @@ class EditCategoryButton(ui.Button):
         select = CategorySelectMenu(self.cog, self.guild_id, self.categories, "edit")
         view.add_item(select)
 
-        await interaction.response.send_message("Select a category to edit:", view=view, ephemeral=True)
+        await interaction.response.edit_message(content="Select a category to edit:", view=view, embed=None)
 
 
 class DeleteCategoryButton(ui.Button):
@@ -175,7 +180,7 @@ class DeleteCategoryButton(ui.Button):
         select = CategorySelectMenu(self.cog, self.guild_id, self.categories, "delete")
         view.add_item(select)
 
-        await interaction.response.send_message("⚠️ Select a category to DELETE:", view=view, ephemeral=True)
+        await interaction.response.edit_message(content="⚠️ Select a category to DELETE:", view=view, embed=None)
 
 
 class CategorySelectMenu(ui.Select):
@@ -206,10 +211,23 @@ class CategorySelectMenu(ui.Select):
 
         if self.action == "delete":
             # Delete the category
+            deleted_name = category.get("name")
             categories.pop(category_idx)
             self.cog.set_setting("categories", categories, guild_id=self.guild_id)
 
-            await interaction.response.send_message(f"✅ Deleted category: **{category.get('name')}**", ephemeral=True)
+            # Refresh the category management view
+            view = CategoryManagementView(self.cog, self.guild_id, categories)
+            if categories:
+                category_list = "\n".join(
+                    [f"**{idx + 1}.** {cat.get('name')} ({len(cat.get('roles', []))} roles)" for idx, cat in enumerate(categories[:10])]
+                )
+                message = f"✅ Deleted category: **{deleted_name}**\n\n**Current Categories:**\n\n{category_list}\n\nSelect an action below:"
+            else:
+                message = (
+                    f"✅ Deleted category: **{deleted_name}**\n\n**No categories configured**\n\nClick 'Create Category' to add your first category."
+                )
+
+            await interaction.response.edit_message(content=message, view=view)
         elif self.action == "edit":
             # Show role management for this category
             view = RoleManagementView(self.cog, self.guild_id, category_idx, category)
@@ -228,7 +246,7 @@ class CategorySelectMenu(ui.Select):
             else:
                 message = f"**Category: {category.get('name')}**\n\nNo roles configured. Click 'Add Role' to get started."
 
-            await interaction.response.send_message(message, view=view, ephemeral=True)
+            await interaction.response.edit_message(content=message, view=view, embed=None)
 
 
 class RoleManagementView(ui.View):
@@ -261,10 +279,10 @@ class AddRoleButton(ui.Button):
     async def callback(self, interaction: discord.Interaction):
         # Step 1: Show role select view
         view = AddRoleStep1SelectRoleView(self.cog, self.guild_id, self.category_idx, self.category)
-        await interaction.response.send_message(
-            f"**Add Role to {self.category.get('name')}**\n\n" f"**Step 1 of 3:** Select the role users will be able to pick:",
+        await interaction.response.edit_message(
+            content=f"**Add Role to {self.category.get('name')}**\n\n" f"**Step 1 of 3:** Select the role users will be able to pick:",
             view=view,
-            ephemeral=True,
+            embed=None,
         )
 
 
@@ -338,7 +356,7 @@ class AddRoleStep2SelectInheritanceView(ui.View):
         # Create select menu with existing roles (single selection)
         existing_roles = category.get("roles", [])
         options = [
-            discord.SelectOption(label=role.get("name", "Unknown"), value=str(role.get("role_id")), description=f"Inherits its prerequisites")
+            discord.SelectOption(label=role.get("name", "Unknown"), value=str(role.get("role_id")), description="Inherits its prerequisites")
             for role in existing_roles[:25]
         ]
 
@@ -411,10 +429,73 @@ class AddRoleStep3SelectPrerequisitesView(ui.View):
     async def on_prereqs_selected(self, interaction: discord.Interaction):
         self.prerequisite_role_ids = [role.id for role in self.prereq_select.values]
 
-        prereq_mentions = ", ".join([f"<@&{rid}>" for rid in self.prerequisite_role_ids])
-        await interaction.response.send_message(
-            f"✅ Additional prerequisites set: {prereq_mentions}\n\n" f"Click **Save Role** to finish.", ephemeral=True
-        )
+        # Build preview of what will be saved
+        content = f"**Add Role to {self.category.get('name')}**\n\n"
+        content += f"Selected: **{self.role_name}**\n\n"
+
+        # Show inheritance
+        if self.inherits_from:
+            inherited_role = next((r for r in self.category.get("roles", []) if r.get("role_id") == self.inherits_from), None)
+            if inherited_role:
+                content += f"🔗 **Inherits from:** {inherited_role.get('name')} (<@&{self.inherits_from}>)\n"
+
+                # Resolve inherited prerequisites
+                inherited_prereqs = self._resolve_inherited_prereqs(self.inherits_from)
+                if inherited_prereqs:
+                    inherited_mentions = ", ".join([f"<@&{rid}>" for rid in inherited_prereqs])
+                    content += f"   ↳ Inherited prerequisites: {inherited_mentions}\n"
+
+        content += "\n"
+
+        # Show additional prerequisites
+        if self.prerequisite_role_ids:
+            prereq_mentions = ", ".join([f"<@&{rid}>" for rid in self.prerequisite_role_ids])
+            content += f"📋 **Additional Prerequisites:** {prereq_mentions}\n\n"
+        else:
+            content += "📋 **Additional Prerequisites:** None\n\n"
+
+        # Show full computed prerequisite set
+        all_prereqs = set(self.prerequisite_role_ids)
+        if self.inherits_from:
+            all_prereqs.update(self._resolve_inherited_prereqs(self.inherits_from))
+
+        if all_prereqs:
+            all_mentions = ", ".join([f"<@&{rid}>" for rid in sorted(all_prereqs)])
+            content += f"✅ **Full Prerequisite Set:** {all_mentions}\n"
+            content += f"   (Users need ANY of these roles to select **{self.role_name}**)\n"
+        else:
+            content += "⚠️ **No prerequisites** - anyone can select this role!\n"
+
+        content += "\nClick **💾 Save Role** to confirm."
+
+        await interaction.response.edit_message(content=content, view=self)
+
+    def _resolve_inherited_prereqs(self, inherits_from_id: int) -> set:
+        """Recursively resolve all prerequisites from inherited role chain."""
+        prereqs = set()
+        visited = set()
+
+        def resolve(role_id: int):
+            if role_id in visited:
+                return
+            visited.add(role_id)
+
+            # Find the role in the category
+            role = next((r for r in self.category.get("roles", []) if r.get("role_id") == role_id), None)
+            if not role:
+                return
+
+            # Add this role's direct prerequisites
+            prereqs.update(role.get("prerequisite_roles", []))
+
+            # Recursively resolve if it inherits from another role
+            inherits_from = role.get("inherits_from")
+            if inherits_from:
+                prereqs.update(role.get("prerequisite_roles", []))
+                resolve(inherits_from)
+
+        resolve(inherits_from_id)
+        return prereqs
 
     async def on_save(self, interaction: discord.Interaction):
         # Get categories and add role
@@ -449,12 +530,222 @@ class AddRoleStep3SelectPrerequisitesView(ui.View):
             prereq_mentions = ", ".join([f"<@&{rid}>" for rid in self.prerequisite_role_ids])
             summary += f"📋 Additional Prerequisites: {prereq_mentions}\n"
         else:
-            summary += f"📋 No additional prerequisites\n"
+            summary += "📋 No additional prerequisites\n"
 
         if not self.inherits_from and not self.prerequisite_role_ids:
             summary += "\n⚠️ This role has no prerequisites - anyone can select it!"
 
         await interaction.response.edit_message(content=summary, view=None)
+
+
+class EditRoleView(ui.View):
+    """View for editing an existing role's configuration."""
+
+    def __init__(self, cog, guild_id: int, category_idx: int, category: Dict, role_idx: int, role_config: Dict):
+        super().__init__(timeout=900)
+        self.cog = cog
+        self.guild_id = guild_id
+        self.category_idx = category_idx
+        self.category = category
+        self.role_idx = role_idx
+        self.role_config = role_config
+        self.role_id = role_config.get("role_id")
+        self.role_name = role_config.get("name")
+
+        # Track current values (will be updated by callbacks)
+        self.inherits_from = role_config.get("inherits_from")
+        self.prerequisite_role_ids = list(role_config.get("prerequisite_roles", []))
+
+        # Build inheritance select (single selection)
+        existing_roles = [r for r in category.get("roles", []) if r.get("role_id") != self.role_id]
+        if existing_roles:
+            options = [
+                discord.SelectOption(
+                    label=role.get("name", "Unknown"),
+                    value=str(role.get("role_id")),
+                    description="Inherits its prerequisites",
+                    default=(role.get("role_id") == self.inherits_from),
+                )
+                for role in existing_roles[:25]
+            ]
+
+            self.inherit_select = ui.Select(placeholder="Select ONE role to inherit from (or none)...", min_values=0, max_values=1, options=options)
+            self.inherit_select.callback = self.on_inheritance_changed
+            self.add_item(self.inherit_select)
+
+        # Build prerequisites select (multi-selection with pre-population)
+        default_prereq_roles = [discord.Object(id=rid) for rid in self.prerequisite_role_ids]
+        self.prereq_select = ui.RoleSelect(
+            placeholder="Select additional prerequisite roles...", min_values=0, max_values=25, default_values=default_prereq_roles
+        )
+        self.prereq_select.callback = self.on_prereqs_changed
+        self.add_item(self.prereq_select)
+
+        # Add save button
+        save_btn = ui.Button(label="💾 Save Changes", style=discord.ButtonStyle.success)
+        save_btn.callback = self.on_save
+        self.add_item(save_btn)
+
+        # Add cancel button
+        cancel_btn = ui.Button(label="Cancel", style=discord.ButtonStyle.secondary)
+        cancel_btn.callback = self.on_cancel
+        self.add_item(cancel_btn)
+
+    async def show(self, interaction: discord.Interaction):
+        """Display the edit view with current configuration."""
+        content = self._build_preview_message()
+        await interaction.response.edit_message(content=content, view=self, embed=None)
+
+    def _build_preview_message(self) -> str:
+        """Build preview message showing current and computed configuration."""
+        content = f"**Edit Role: {self.role_name}** (<@&{self.role_id}>)\n"
+        content += f"**Category:** {self.category.get('name')}\n\n"
+
+        # Show inheritance
+        if self.inherits_from:
+            inherited_role = next((r for r in self.category.get("roles", []) if r.get("role_id") == self.inherits_from), None)
+            if inherited_role:
+                content += f"🔗 **Inherits from:** {inherited_role.get('name')} (<@&{self.inherits_from}>)\n"
+
+                # Resolve inherited prerequisites
+                inherited_prereqs = self._resolve_inherited_prereqs(self.inherits_from)
+                if inherited_prereqs:
+                    inherited_mentions = ", ".join([f"<@&{rid}>" for rid in inherited_prereqs])
+                    content += f"   ↳ Inherited prerequisites: {inherited_mentions}\n"
+        else:
+            content += "🔗 **Inherits from:** None\n"
+
+        content += "\n"
+
+        # Show additional prerequisites
+        if self.prerequisite_role_ids:
+            prereq_mentions = ", ".join([f"<@&{rid}>" for rid in self.prerequisite_role_ids])
+            content += f"📋 **Additional Prerequisites:** {prereq_mentions}\n\n"
+        else:
+            content += "📋 **Additional Prerequisites:** None\n\n"
+
+        # Show full computed prerequisite set
+        all_prereqs = set(self.prerequisite_role_ids)
+        if self.inherits_from:
+            all_prereqs.update(self._resolve_inherited_prereqs(self.inherits_from))
+
+        if all_prereqs:
+            all_mentions = ", ".join([f"<@&{rid}>" for rid in sorted(all_prereqs)])
+            content += f"✅ **Full Prerequisite Set:** {all_mentions}\n"
+            content += f"   (Users need ANY of these roles to select **{self.role_name}**)\n"
+        else:
+            content += "⚠️ **No prerequisites** - anyone can select this role!\n"
+
+        content += "\nModify selections above, then click **💾 Save Changes** to confirm."
+
+        return content
+
+    async def on_inheritance_changed(self, interaction: discord.Interaction):
+        """Handle inheritance selection change."""
+        if self.inherit_select.values:
+            self.inherits_from = int(self.inherit_select.values[0])
+        else:
+            self.inherits_from = None
+
+        # Update the message with new preview
+        content = self._build_preview_message()
+        await interaction.response.edit_message(content=content, view=self)
+
+    async def on_prereqs_changed(self, interaction: discord.Interaction):
+        """Handle prerequisites selection change."""
+        self.prerequisite_role_ids = [role.id for role in self.prereq_select.values]
+
+        # Update the message with new preview
+        content = self._build_preview_message()
+        await interaction.response.edit_message(content=content, view=self)
+
+    async def on_save(self, interaction: discord.Interaction):
+        """Save the edited configuration."""
+        categories = self.cog.get_setting("categories", [], guild_id=self.guild_id)
+
+        if self.category_idx >= len(categories):
+            await interaction.response.edit_message(content="❌ Category not found.", view=None)
+            return
+
+        category = categories[self.category_idx]
+        roles = category.get("roles", [])
+
+        if self.role_idx >= len(roles):
+            await interaction.response.edit_message(content="❌ Role not found.", view=None)
+            return
+
+        # Update the role configuration
+        roles[self.role_idx] = {
+            "role_id": self.role_id,
+            "name": self.role_name,
+            "prerequisite_roles": self.prerequisite_role_ids,
+            "inherits_from": self.inherits_from,
+        }
+
+        self.cog.set_setting("categories", categories, guild_id=self.guild_id)
+
+        # Build summary message
+        summary = f"✅ Updated <@&{self.role_id}> in **{category.get('name')}**\n\n"
+
+        if self.inherits_from:
+            inherited_role = next((r for r in category.get("roles", []) if r.get("role_id") == self.inherits_from), None)
+            inherited_name = inherited_role.get("name", "Unknown") if inherited_role else "Unknown"
+            summary += f"🔗 Inherits from: **{inherited_name}** (<@&{self.inherits_from}>)\n"
+
+        if self.prerequisite_role_ids:
+            prereq_mentions = ", ".join([f"<@&{rid}>" for rid in self.prerequisite_role_ids])
+            summary += f"📋 Additional Prerequisites: {prereq_mentions}\n"
+        else:
+            summary += "📋 No additional prerequisites\n"
+
+        if not self.inherits_from and not self.prerequisite_role_ids:
+            summary += "\n⚠️ This role has no prerequisites - anyone can select it!"
+
+        await interaction.response.edit_message(content=summary, view=None)
+
+    async def on_cancel(self, interaction: discord.Interaction):
+        """Cancel editing and return to role management."""
+        view = RoleManagementView(self.cog, self.guild_id, self.category_idx, self.category)
+
+        roles = self.category.get("roles", [])
+        role_list = "\n".join(
+            [
+                f"**{idx + 1}.** <@&{role.get('role_id')}> - "
+                f"{len(role.get('prerequisite_roles', []))} prereqs"
+                + (f", inherits from <@&{role.get('inherits_from')}>" if role.get("inherits_from") else "")
+                for idx, role in enumerate(roles[:10])
+            ]
+        )
+        message = f"**Category: {self.category.get('name')}**\n\n{role_list}\n\nSelect an action:"
+
+        await interaction.response.edit_message(content=message, view=view, embed=None)
+
+    def _resolve_inherited_prereqs(self, inherits_from_id: int) -> set:
+        """Recursively resolve all prerequisites from inherited role chain."""
+        prereqs = set()
+        visited = set()
+
+        def resolve(role_id: int):
+            if role_id in visited:
+                return
+            visited.add(role_id)
+
+            # Find the role in the category
+            role = next((r for r in self.category.get("roles", []) if r.get("role_id") == role_id), None)
+            if not role:
+                return
+
+            # Add this role's direct prerequisites
+            prereqs.update(role.get("prerequisite_roles", []))
+
+            # Recursively resolve if it inherits from another role
+            inherits_from = role.get("inherits_from")
+            if inherits_from:
+                prereqs.update(role.get("prerequisite_roles", []))
+                resolve(inherits_from)
+
+        resolve(inherits_from_id)
+        return prereqs
 
 
 class EditRoleButton(ui.Button):
@@ -473,7 +764,7 @@ class EditRoleButton(ui.Button):
         select = RoleSelectMenu(self.cog, self.guild_id, self.category_idx, self.category, "edit")
         view.add_item(select)
 
-        await interaction.response.send_message("Select a role to edit:", view=view, ephemeral=True)
+        await interaction.response.edit_message(content="Select a role to edit:", view=view, embed=None)
 
 
 class DeleteRoleButton(ui.Button):
@@ -492,7 +783,7 @@ class DeleteRoleButton(ui.Button):
         select = RoleSelectMenu(self.cog, self.guild_id, self.category_idx, self.category, "delete")
         view.add_item(select)
 
-        await interaction.response.send_message("⚠️ Select a role to DELETE:", view=view, ephemeral=True)
+        await interaction.response.edit_message(content="⚠️ Select a role to DELETE:", view=view, embed=None)
 
 
 class RoleSelectMenu(ui.Select):
@@ -509,7 +800,7 @@ class RoleSelectMenu(ui.Select):
             discord.SelectOption(
                 label=f"{role.get('name', 'Unknown')}",
                 value=str(idx),
-                description=f"{len(role.get('prerequisite_roles', []))} prereqs" + (f", inherits" if role.get("inherits_from") else ""),
+                description=f"{len(role.get('prerequisite_roles', []))} prereqs" + (", inherits" if role.get("inherits_from") else ""),
             )
             for idx, role in enumerate(category.get("roles", [])[:25])
         ]
@@ -535,12 +826,30 @@ class RoleSelectMenu(ui.Select):
 
         if self.action == "delete":
             # Delete the role
+            deleted_name = role_config.get("name")
             roles.pop(role_idx)
             self.cog.set_setting("categories", categories, guild_id=self.guild_id)
 
-            await interaction.response.send_message(f"✅ Removed {role_config.get('name')} from category", ephemeral=True)
+            # Refresh the role management view
+            view = RoleManagementView(self.cog, self.guild_id, self.category_idx, category)
+            roles = category.get("roles", [])
+            if roles:
+                role_list = "\n".join(
+                    [
+                        f"**{idx + 1}.** <@&{role.get('role_id')}> - "
+                        f"{len(role.get('prerequisite_roles', []))} prereqs"
+                        + (f", inherits from <@&{role.get('inherits_from')}>" if role.get("inherits_from") else "")
+                        for idx, role in enumerate(roles[:10])
+                    ]
+                )
+                message = f"✅ Removed {deleted_name}\n\n**Category: {category.get('name')}**\n\n{role_list}\n\nSelect an action:"
+            else:
+                message = (
+                    f"✅ Removed {deleted_name}\n\n**Category: {category.get('name')}**\n\nNo roles configured. Click 'Add Role' to get started."
+                )
+
+            await interaction.response.edit_message(content=message, view=view)
         elif self.action == "edit":
-            # Show edit flow - same as add but with existing values
-            await interaction.response.send_message(
-                f"⚠️ Edit functionality coming soon. For now, please delete and recreate the role.", ephemeral=True
-            )
+            # Show edit view with current values
+            view = EditRoleView(self.cog, self.guild_id, self.category_idx, category, role_idx, role_config)
+            await view.show(interaction)

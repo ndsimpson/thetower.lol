@@ -8,7 +8,7 @@ from discord.ext import commands
 
 from thetower.bot.basecog import BaseCog
 
-from .ui import TourneyRoleColorsSettingsView
+from .ui import RoleSelectionButton, TourneyRoleColorsSettingsView
 
 logger = logging.getLogger(__name__)
 
@@ -78,6 +78,10 @@ class TourneyRoleColors(BaseCog, name="Tourney Role Colors"):
                 self.logger.debug("Initializing parent cog")
                 await super().cog_initialize()
 
+                # Register UI extensions
+                tracker.update_status("Registering UI extensions")
+                self.register_ui_extensions()
+
                 tracker.update_status("Marking ready")
                 self.set_ready(True)
                 self.logger.info("Tourney role colors initialization complete")
@@ -87,11 +91,53 @@ class TourneyRoleColors(BaseCog, name="Tourney Role Colors"):
             self._has_errors = True
             raise
 
+    def register_ui_extensions(self) -> None:
+        """Register UI extensions that this cog provides to other cogs."""
+        # Register button provider for player profiles
+        self.bot.cog_manager.register_ui_extension(
+            target_cog="player_lookup", source_cog=self.__class__.__name__, provider_func=self.get_role_selection_button_for_profile
+        )
+
     async def cog_unload(self) -> None:
         """Clean up when cog is unloaded."""
         # Call parent implementation for data saving
         await super().cog_unload()
         self.logger.info("Tourney role colors cog unloaded")
+
+    def get_role_selection_button_for_profile(
+        self, details: dict, requesting_user: discord.User, guild_id: int, permission_context
+    ) -> Optional[discord.ui.Button]:
+        """Get a role selection button for player profiles.
+
+        This method is called by the player_lookup cog to extend /profile functionality.
+        Returns a button that opens the role selection interface, or None if there are
+        no configured categories for this guild.
+
+        Args:
+            details: Player details dictionary
+            requesting_user: The user viewing the profile
+            guild_id: The guild ID where the profile is being viewed
+            permission_context: Permission context for the requesting user
+
+        Returns:
+            A button that opens role selection, or None if not applicable
+        """
+        # Only show button if user is viewing their own profile
+        if details.get("discord_id") and str(details["discord_id"]) != str(requesting_user.id):
+            return None
+
+        # Check if there are any configured categories
+        categories = self.get_setting("categories", [], guild_id=guild_id)
+        if not categories:
+            return None
+
+        # Check if any categories have roles
+        has_roles = any(cat.get("roles") for cat in categories)
+        if not has_roles:
+            return None
+
+        # Create and return the button
+        return RoleSelectionButton(self)
 
     # === Helper Methods ===
 
