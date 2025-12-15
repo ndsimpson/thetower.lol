@@ -540,6 +540,27 @@ class RoleAddedView(ui.View):
         await interaction.response.edit_message(embed=embed, view=self.callback_view)
 
 
+class RoleUpdateSuccessView(ui.View):
+    """View shown after successfully updating a role."""
+
+    def __init__(self, cog: BaseCog, guild_id: int, category_name: str):
+        super().__init__(timeout=300)  # 5 minute timeout
+        self.cog = cog
+        self.guild_id = guild_id
+        self.category_name = category_name
+
+        # Back to category button
+        back_btn = ui.Button(label="⬅️ Back to Category", style=discord.ButtonStyle.primary, custom_id="back_to_category")
+        back_btn.callback = self.back_to_category
+        self.add_item(back_btn)
+
+    async def back_to_category(self, interaction: discord.Interaction):
+        """Go back to the category detail view."""
+        view = CategoryDetailView(self.cog, self.guild_id, self.category_name)
+        embed = discord.Embed(title=f"🎨 {self.category_name} Category", color=discord.Color.blue())
+        await interaction.response.edit_message(embed=embed, view=view)
+
+
 class AddRoleButton(ui.Button):
     """Button to add a role to a category."""
 
@@ -1063,14 +1084,15 @@ class EditRoleWizardView(ui.View):
                     description=f"Successfully updated **{self.selected_role.name}** in category **{self.category_name}**.",
                     color=discord.Color.green(),
                 )
+                view = RoleUpdateSuccessView(self.cog, self.guild_id, self.category_name)
             else:
                 embed = discord.Embed(
                     title="❌ Update Failed",
                     description="Failed to update the role. It may no longer exist or the category may have been modified.",
                     color=discord.Color.red(),
                 )
+                view = CategoryDetailView(self.cog, self.guild_id, self.category_name)
 
-            view = CategoryDetailView(self.cog, self.guild_id, self.category_name)
             await interaction.response.edit_message(embed=embed, view=view)
 
         except Exception as e:
