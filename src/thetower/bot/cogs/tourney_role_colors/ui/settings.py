@@ -26,7 +26,7 @@ class TourneyRoleColorsSettingsView(ui.View):
         self.add_item(ManageCategoriesButton(cog, guild_id))
         self.add_item(ViewCurrentConfigButton(cog, guild_id))
 
-    async def create_embed(self) -> discord.Embed:
+    def create_embed(self) -> discord.Embed:
         """Create the main settings embed."""
         embed = discord.Embed(
             title="🎨 Tourney Role Colors Settings",
@@ -124,9 +124,9 @@ class ViewCurrentConfigButton(ui.Button):
                 def is_category_role(name):
                     if not name.startswith(cat_name):
                         return False
-                    remaining = name[len(cat_name):]
-                    return not remaining or remaining[0] in (' ', '0','1','2','3','4','5','6','7','8','9')
-                
+                    remaining = name[len(cat_name) :]
+                    return not remaining or remaining[0] in (" ", "0", "1", "2", "3", "4", "5", "6", "7", "8", "9")
+
                 role_entries.sort(key=lambda x: (not is_category_role(x[0]), x[0]))
                 role_list = [entry[1] for entry in role_entries]
 
@@ -262,7 +262,7 @@ class BackToSettingsButton(ui.Button):
     async def callback(self, interaction: discord.Interaction):
         """Go back to main settings view."""
         view = TourneyRoleColorsSettingsView(self.guild_id, self.cog)
-        embed = await view.create_embed()
+        embed = view.create_embed()
 
         await interaction.response.edit_message(embed=embed, view=view)
 
