@@ -719,8 +719,6 @@ class ConfirmRemoveRoleView(ui.View):
         embed = discord.Embed(title=f"🎨 {self.category_name} Category", color=discord.Color.blue())
         await interaction.response.edit_message(embed=embed, view=view)
 
-        await interaction.response.edit_message(embed=embed, view=view)
-
 
 class EditRoleButton(ui.Button):
     """Button to edit a role in a category."""
