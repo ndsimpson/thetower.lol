@@ -394,11 +394,11 @@ class Validation(BaseCog, name="Validation"):
             self.provide_unverify_button,
         )
 
-    def provide_unverify_button(self, player, requesting_user, guild_id, permission_context):
+    def provide_unverify_button(self, details, requesting_user, guild_id, permission_context):
         """UI extension provider for un-verify button in player profiles.
 
         Args:
-            player: The KnownPlayer instance
+            details: The player details dictionary
             requesting_user: The Discord user requesting the profile
             guild_id: The guild ID where the request is made
             permission_context: Permission context for the requesting user
@@ -406,8 +406,12 @@ class Validation(BaseCog, name="Validation"):
         Returns:
             UnverifyButton if user has permission, None otherwise
         """
+        # Only show for verified players
+        if not details.get("is_verified", False):
+            return None
+
         # Don't allow users to un-verify themselves
-        if player.discord_id and str(player.discord_id) == str(requesting_user.id):
+        if details.get("discord_id") and str(details["discord_id"]) == str(requesting_user.id):
             return None
 
         # Check if the requesting user has permission to un-verify
@@ -421,7 +425,7 @@ class Validation(BaseCog, name="Validation"):
         if permission_context.has_any_group(approved_groups):
             from .ui.core import UnverifyButton
 
-            return UnverifyButton(self, player, requesting_user, guild_id)
+            return UnverifyButton(self, details["discord_id"], details["name"], requesting_user, guild_id)
 
         return None
 

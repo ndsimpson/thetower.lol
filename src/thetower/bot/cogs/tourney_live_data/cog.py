@@ -90,12 +90,11 @@ class TourneyLiveData(BaseCog, name="Tourney Live Data", description="Commands f
 
         return None
 
-    async def provide_player_lookup_info(self, player, details: dict, requesting_user: discord.User, permission_context) -> List[Dict[str, Any]]:
+    async def provide_player_lookup_info(self, details: dict, requesting_user: discord.User, permission_context) -> List[Dict[str, Any]]:
         """Provide tourney join status info for player lookup embeds.
 
         Args:
-            player: The KnownPlayer object
-            details: Player details dictionary
+            details: Standardized player details dictionary with all_ids, primary_id, etc.
             requesting_user: The Discord user requesting the info
             permission_context: Permission context for the requesting user
 
@@ -103,29 +102,30 @@ class TourneyLiveData(BaseCog, name="Tourney Live Data", description="Commands f
             List of embed field dictionaries to add to the player embed
         """
         try:
-            # Get the primary tower ID
-            primary_id = None
-            for pid in details.get("all_ids", []):
-                if pid.get("primary"):
-                    primary_id = pid["id"]
-                    break
+            # Get all player IDs to check, with primary ID first
+            primary_id = details["primary_id"]
+            all_player_ids = [primary_id] + [pid["id"] for pid in details["all_ids"] if pid["id"] != primary_id]
 
-            if not primary_id:
-                return []
-
-            # Check if player has joined the current live tournament
-            has_joined = await sync_to_async(check_all_live_entry)(primary_id)
+            # Check if any of the player's IDs have joined the current live tournament
+            has_joined = any(await sync_to_async(check_all_live_entry)(player_id) for player_id in all_player_ids)
 
             if has_joined:
-                # Get detailed live stats
-                live_stats = await self.get_player_live_stats(primary_id)
+                # Find which player ID has the live tournament entry
+                active_player_id = None
+                live_stats = None
 
-                if live_stats:
+                for player_id in all_player_ids:
+                    live_stats = await self.get_player_live_stats(player_id)
+                    if live_stats:
+                        active_player_id = player_id
+                        break
+
+                if live_stats and active_player_id:
                     league, global_position, bracket_position, wave, bracket_name, last_refresh = live_stats
                     # Construct URLs for live tournament pages
-                    bracket_url = f"https://{BASE_URL}/livebracketview?player_id={primary_id}"
-                    comparison_url = f"https://{BASE_URL}/comparison?bracket_player={primary_id}"
-                    placement_url = f"https://{BASE_URL}/liveplacement?player_id={primary_id}"
+                    bracket_url = f"https://{BASE_URL}/livebracketview?player_id={active_player_id}"
+                    comparison_url = f"https://{BASE_URL}/comparison?bracket_player={active_player_id}"
+                    placement_url = f"https://{BASE_URL}/liveplacement?player_id={active_player_id}"
 
                     field_value = f"✅ Joined ({league})\n**Global:** #{global_position} • **Bracket:** #{bracket_position} • **Wave:** {wave}\n[Bracket View]({bracket_url}) • [Comparison]({comparison_url}) • [Live Placement Analysis]({placement_url})\n*Last updated: {last_refresh}*"
                 else:
@@ -137,7 +137,8 @@ class TourneyLiveData(BaseCog, name="Tourney Live Data", description="Commands f
             return [{"name": "Current Tournament", "value": field_value, "inline": True}]
 
         except Exception as e:
-            self.logger.error(f"Error getting tourney join status for player {player}: {e}")
+            player_name = details.get("name", "Unknown")
+            self.logger.error(f"Error getting tourney join status for player {player_name}: {e}")
             return []
 
     async def cog_initialize(self) -> None:

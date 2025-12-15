@@ -112,10 +112,10 @@ class TourneyRoleColors(BaseCog, name="Tourney Role Colors"):
         """Create color selection view for the user (called by profile registry)."""
         return self.core.create_color_selection_view(user)
 
-    def _provide_color_selection_button(self, player, requesting_user, guild_id, permission_context):
+    def _provide_color_selection_button(self, details, requesting_user, guild_id, permission_context):
         """Provide color selection button for player profiles."""
         # Only show button if user is viewing their own profile
-        if str(player.discord_id) != str(requesting_user.id):
+        if str(details.get("discord_id")) != str(requesting_user.id):
             return None
 
         # Check if user has any qualified color roles

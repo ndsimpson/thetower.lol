@@ -229,10 +229,11 @@ class VerificationModal(ui.Modal, title="Player Verification"):
 class UnverifyButton(discord.ui.Button):
     """Button to un-verify a player (removes verified role and marks IDs as non-primary)."""
 
-    def __init__(self, cog, player, requesting_user, guild_id):
+    def __init__(self, cog, discord_id, name, requesting_user, guild_id):
         super().__init__(label="Un-verify Player", style=discord.ButtonStyle.danger, emoji="🚫", row=1)
         self.cog = cog
-        self.player = player
+        self.discord_id = discord_id
+        self.name = name
         self.requesting_user = requesting_user
         self.guild_id = guild_id
 
@@ -285,12 +286,12 @@ class UnverifyButton(discord.ui.Button):
                 return
 
             # Perform the un-verification
-            result = await self.cog.unverify_player_complete(self.player.discord_id, django_user, [self.guild_id])
+            result = await self.cog.unverify_player_complete(self.discord_id, django_user, [self.guild_id])
 
             if result["success"]:
                 embed = discord.Embed(
                     title="🚫 Player Un-verified",
-                    description=f"Successfully un-verified {self.player.name} (Discord ID: {self.player.discord_id}).",
+                    description=f"Successfully un-verified {self.name} (Discord ID: {self.discord_id}).",
                     color=discord.Color.red(),
                 )
 

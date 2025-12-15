@@ -116,6 +116,14 @@ class PlayerView(discord.ui.View):
         self.guild_id = guild_id
         self.requesting_user = requesting_user
 
+        # Extract player_id for extensions
+        if player and hasattr(player, "tower_id"):
+            self.player_id = player.tower_id
+        elif details and details.get("primary_id"):
+            self.player_id = details.get("primary_id")
+        else:
+            self.player_id = None
+
         # Only add the creator code button if allowed
         if self.show_creator_code_button:
             self.add_item(SetCreatorCodeButton(self.cog, self.current_code))
@@ -147,14 +155,14 @@ class PlayerView(discord.ui.View):
                 )
 
         # Add buttons from registered UI extensions
-        if self.requesting_user and self.player and self.guild_id:
+        if self.requesting_user and self.details and self.guild_id:
             # Get all registered UI extension providers for player profiles
             extension_providers = self.cog.bot.cog_manager.get_ui_extensions("player_lookup")
 
             # Call each provider with permission context
             for provider_func in extension_providers:
                 try:
-                    button = provider_func(self.player, self.requesting_user, self.guild_id, self.permission_context)
+                    button = provider_func(self.details, self.requesting_user, self.guild_id, self.permission_context)
                     if button:
                         self.add_item(button)
                 except Exception as e:
@@ -276,7 +284,6 @@ class PostPubliclyButton(discord.ui.Button):
         show_all_ids = False
         if hasattr(self.cog.bot, "player_lookup") and self.cog.bot.player_lookup:
             show_all_ids = await self.cog.bot.player_lookup.check_show_all_ids_permission(self.requesting_user)
-        show_moderation_records = self.include_moderation
 
         # Create embed using the same logic as private profiles but with permission checks
         from .user import UserInteractions
@@ -289,7 +296,6 @@ class PostPubliclyButton(discord.ui.Button):
             show_verification_message=True,
             discord_display_format="mention",
             show_all_ids=show_all_ids,
-            show_moderation_records=show_moderation_records,
             requesting_user=self.requesting_user,  # Pass requesting_user to include info extensions
         )
 

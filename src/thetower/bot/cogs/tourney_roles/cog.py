@@ -1483,7 +1483,7 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
         return bool(authorized_groups)
 
     def get_tourney_stats_button_for_player(
-        self, player, requesting_user: discord.User, guild_id: int, permission_context
+        self, details, requesting_user: discord.User, guild_id: int, permission_context
     ) -> Optional[discord.ui.Button]:
         """Get a tournament stats button for a player.
 
@@ -1495,14 +1495,14 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
             return None
 
         # Only show button if the player has a Discord ID
-        if not player.discord_id:
+        if not details.get("discord_id"):
             return None
 
         # Show stats button to everyone (no permission check needed for viewing)
-        return TourneyStatsButton(self, int(player.discord_id), guild_id, player)
+        return TourneyStatsButton(self, int(details["discord_id"]), guild_id, details["name"])
 
     def get_tourney_roles_button_for_player(
-        self, player, requesting_user: discord.User, guild_id: int, permission_context
+        self, details, requesting_user: discord.User, guild_id: int, permission_context
     ) -> Optional[discord.ui.Button]:
         """Get a tournament roles refresh button for a player.
 
@@ -1517,22 +1517,22 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
             return None
 
         # Only show button if the player has a Discord ID
-        if not player.discord_id:
+        if not details.get("discord_id"):
             return None
 
         # Check if requesting user is viewing their own profile
-        is_own_profile = str(player.discord_id) == str(requesting_user.id)
+        is_own_profile = str(details["discord_id"]) == str(requesting_user.id)
 
         if is_own_profile:
             # Always show refresh button on own profile
-            return TourneySelfRefreshButton(self, int(player.discord_id), guild_id)
+            return TourneySelfRefreshButton(self, int(details["discord_id"]), guild_id)
         else:
             # For other users, check if requesting user has permission to refresh roles
             # Get authorized groups from settings and check if user has any of them
             authorized_groups = self.get_setting("authorized_refresh_groups", guild_id=guild_id, default=[])
             if authorized_groups and permission_context.has_any_group(authorized_groups):
                 # Use the player's Discord ID (the person being looked up), not the requesting user's ID
-                return TourneyRolesRefreshButton(self, int(player.discord_id), guild_id, requesting_user.id)
+                return TourneyRolesRefreshButton(self, int(details["discord_id"]), guild_id, requesting_user.id)
 
             return None
 
@@ -1816,18 +1816,18 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
 class TourneyStatsButton(discord.ui.Button):
     """Button to view tournament stats for a specific player."""
 
-    def __init__(self, cog, user_id: int, guild_id: int, player):
+    def __init__(self, cog, user_id: int, guild_id: int, player_name: str):
         super().__init__(label="View Tournament Stats", style=discord.ButtonStyle.secondary, emoji="📊", row=2)
         self.cog = cog
         self.user_id = user_id
         self.guild_id = guild_id
-        self.player = player
+        self.player_name = player_name
 
     async def callback(self, interaction: discord.Interaction):
         """Show tournament statistics for the player."""
         # Send immediate loading response
         loading_embed = discord.Embed(
-            title="📊 Loading Tournament Stats...", description=f"Gathering tournament data for {self.player.name}...", color=discord.Color.orange()
+            title="📊 Loading Tournament Stats...", description=f"Gathering tournament data for {self.player_name}...", color=discord.Color.orange()
         )
         await interaction.response.send_message(embed=loading_embed, ephemeral=True)
 
@@ -1868,8 +1868,8 @@ class TourneyStatsButton(discord.ui.Button):
 
             # Create embed
             embed = discord.Embed(
-                title=f"📊 Tournament Stats - {self.player.name}",
-                description=f"Tournament performance for {player_data.get('name', 'Unknown')}",
+                title=f"📊 Tournament Stats - {self.player_name}",
+                description=f"Tournament performance for {player_data.get('name', self.player_name)}",
                 color=discord.Color.blue(),
             )
 

@@ -104,19 +104,6 @@ class PlayerLookup(BaseCog, name="Player Lookup", description="Universal player 
         """Get the role ID required to set creator code."""
         return self.get_global_setting("creator_code_required_role_id", None)
 
-    async def check_show_moderation_records_permission(self, discord_user: discord.User) -> bool:
-        """Check if a Discord user can see moderation records based on Django group membership.
-
-        Delegates to manage_sus cog if available, otherwise uses fallback logic.
-        """
-        # Try to delegate to manage_sus cog first
-        manage_sus_cog = self.bot.get_cog("Manage Sus")
-        if manage_sus_cog:
-            return await manage_sus_cog._user_can_view_moderation_records_in_profiles(discord_user)
-
-        # Fallback: deny access if manage_sus is not available
-        return False
-
     async def check_show_all_ids_permission(self, discord_user: discord.User) -> bool:
         """Check if a Discord user can see all player IDs based on Django group membership.
 

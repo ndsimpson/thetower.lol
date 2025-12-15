@@ -1,6 +1,6 @@
 # Standard library imports
 import datetime
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 # Third-party imports
 import discord
@@ -78,6 +78,11 @@ class ManageSus(BaseCog, name="Manage Sus"):
             target_cog="player_lookup", source_cog=self.__class__.__name__, provider_func=self.get_moderation_button_for_player
         )
 
+        # Register info provider for moderation status in player profiles
+        self.bot.cog_manager.register_info_extension(
+            target_cog="player_lookup", source_cog=self.__class__.__name__, provider_func=self.provide_player_lookup_info
+        )
+
     async def cog_unload(self) -> None:
         """Clean up when cog is unloaded."""
         # Force save any modified data
@@ -116,6 +121,111 @@ class ManageSus(BaseCog, name="Manage Sus"):
             return ManageSusButton(self, player, requesting_user, guild_id)
 
         return None
+
+    async def provide_player_lookup_info(self, details: dict, requesting_user: discord.User, permission_context) -> List[Dict[str, Any]]:
+        """Provide moderation status info for player lookup embeds.
+
+        Args:
+            details: Standardized player details dictionary with all_ids, primary_id, etc.
+            requesting_user: The Discord user requesting the info
+            permission_context: Permission context for the requesting user
+
+        Returns:
+            List of embed field dictionaries to add to the player embed
+        """
+        try:
+            # IMPORTANT: Users should NEVER see their own moderation records for privacy
+            is_own_profile = str(requesting_user.id) == details.get("discord_id")
+            if is_own_profile:
+                return []
+
+            # Check if user has permission to view moderation records
+            view_groups = self.config.get_global_cog_setting("manage_sus", "view_groups", self.global_settings["view_groups"])
+            privileged_groups = self.config.get_global_cog_setting(
+                "manage_sus", "privileged_groups_for_moderation_records", self.global_settings["privileged_groups_for_moderation_records"]
+            )
+            allowed_groups = view_groups + privileged_groups
+
+            if not permission_context.has_any_group(allowed_groups):
+                return []
+
+            # Get all player IDs to check for moderation records
+            all_player_ids = [pid["id"] for pid in details["all_ids"]]
+
+            # Query all moderation records for all player IDs (both active and resolved)
+            from asgiref.sync import sync_to_async
+
+            from thetower.backend.sus.models import ModerationRecord
+
+            def _get_all_moderation_records():
+                return list(ModerationRecord.objects.filter(tower_id__in=all_player_ids).order_by("-created_at"))
+
+            all_records = await sync_to_async(_get_all_moderation_records)()
+
+            if not all_records:
+                return []
+
+            # Count active and resolved records by type
+            active_counts = {}
+            resolved_counts = {}
+
+            for record in all_records:
+                mod_type = record.get_moderation_type_display()
+                if record.resolved_at is None:
+                    # Active record
+                    active_counts[mod_type] = active_counts.get(mod_type, 0) + 1
+                else:
+                    # Resolved record
+                    resolved_counts[mod_type] = resolved_counts.get(mod_type, 0) + 1
+
+            # Build the response fields
+            fields = []
+
+            # Add active moderation field if there are active records
+            if active_counts:
+                active_count = sum(active_counts.values())
+                active_lines = []
+
+                # Get the actual active records for detailed display
+                active_records = [r for r in all_records if r.resolved_at is None]
+
+                for record in active_records:
+                    mod_type_display = record.get_moderation_type_display()
+                    date_str = record.started_at.strftime("%Y-%m-%d")
+
+                    # Use the same emoji mapping as the original code
+                    emoji_map = {"sus": "⚠️", "ban": "🚫", "shun": "🔇", "soft_ban": "⚡"}  # suspicious  # banned  # shunned  # soft banned
+                    emoji = emoji_map.get(record.moderation_type, "⚖️")
+
+                    # Format like original: emoji + bold type + date
+                    line = f"{emoji} **{mod_type_display}** - {date_str}"
+
+                    # Add reason on separate line with indentation and different emoji
+                    reason = record.reason or "No reason provided"
+                    if len(reason) > 50:
+                        reason = reason[:50] + "..."
+                    line += f"\n   └ {reason}"
+
+                    active_lines.append(line)
+
+                fields.append({"name": f"⚖️ Active Moderation ({active_count})", "value": "\n".join(active_lines), "inline": False})
+
+            # Add resolved moderation field if there are resolved records
+            if resolved_counts:
+                if len(resolved_counts) == 1:
+                    mod_type, count = next(iter(resolved_counts.items()))
+                    resolved_text = f"{mod_type} ({count})"
+                else:
+                    resolved_parts = [f"{mod_type}: {count}" for mod_type, count in resolved_counts.items()]
+                    resolved_text = ", ".join(resolved_parts)
+
+                fields.append({"name": "✅ Resolved Moderation", "value": resolved_text, "inline": True})
+
+            return fields
+
+        except Exception as e:
+            self.logger.warning(f"Error getting moderation info for player {details.get('name', 'unknown')}: {e}")
+            return []
 
     async def _user_can_view_moderation_records(self, user: discord.User) -> bool:
         """Check if a Discord user can view moderation records based on their Django groups."""
@@ -372,6 +482,7 @@ async def setup(bot: commands.Bot) -> None:
     # when cogs are enabled/disabled for guilds
     bot.logger.info("ManageSus cog loaded - slash commands will sync per-guild via CogManager")
     # when cogs are enabled/disabled for guilds
+    bot.logger.info("ManageSus cog loaded - slash commands will sync per-guild via CogManager")
     bot.logger.info("ManageSus cog loaded - slash commands will sync per-guild via CogManager")
     bot.logger.info("ManageSus cog loaded - slash commands will sync per-guild via CogManager")
     bot.logger.info("ManageSus cog loaded - slash commands will sync per-guild via CogManager")

@@ -63,7 +63,6 @@ class UserInteractions:
         show_verification_message: bool = True,
         discord_display_format: str = "id",
         show_all_ids: bool = True,
-        show_moderation_records: bool = False,
         requesting_user: discord.User = None,
         permission_context=None,
     ) -> discord.Embed:
@@ -76,45 +75,57 @@ class UserInteractions:
             show_verification_message: Whether to show verification message in description
             discord_display_format: "id" for Discord ID, "mention" for Discord mention
             show_all_ids: Whether to show all player IDs or just the primary ID
-            show_moderation_records: Whether to show active moderation records
             requesting_user: The Discord user requesting the embed (for permission checks)
             permission_context: Permission context for the requesting user (optional, None for public info)
         """
         # Check if this is an unverified player
         is_unverified = isinstance(player, self.cog.UnverifiedPlayer)
 
-        # Get primary ID for the header
+        # Create standardized details dict for extensions
         if is_unverified:
-            primary_id = player.tower_id
-            player_name = player.name
-            discord_id = None
-            creator_code = None
+            # Create consistent details dict for unverified players
+            standardized_details = {
+                "name": player.name,
+                "primary_id": player.tower_id,
+                "all_ids": [{"id": player.tower_id, "primary": True}],
+                "is_verified": False,
+            }
         else:
-            primary_id = details.get("primary_id", "Unknown")
-            player_name = details.get("name", "Unknown")
-            discord_id = details.get("discord_id")
-            creator_code = details.get("creator_code")
+            # For verified players, add is_verified flag to existing details
+            standardized_details = dict(details)  # Copy existing details
+            standardized_details["is_verified"] = True
 
-        # Format Discord display for header
-        if discord_id:
-            try:
-                # Try to get the Discord user to show their display name
-                discord_user = self.cog.bot.get_user(int(discord_id))
-                if discord_user:
-                    discord_display = discord_user.display_name
-                else:
-                    # User not found, fall back to mention or ID
-                    discord_display = f"<@{discord_id}>" if discord_display_format == "mention" else discord_id
-            except (ValueError, TypeError):
-                # Invalid discord_id, fall back to mention or ID
-                discord_display = f"<@{discord_id}>" if discord_display_format == "mention" else discord_id
+        # Get values from standardized details
+        primary_id = standardized_details["primary_id"]
+        player_name = standardized_details["name"]
+        discord_id = standardized_details.get("discord_id")
+        creator_code = standardized_details.get("creator_code")
+
+        # Format display name for header (Discord name for verified, tourney name for unverified)
+        if is_unverified:
+            display_name = player_name
         else:
-            discord_display = player_name
+            if discord_id:
+                try:
+                    # Try to get the Discord user to show their display name
+                    discord_user = self.cog.bot.get_user(int(discord_id))
+                    if discord_user:
+                        display_name = discord_user.display_name
+                    else:
+                        # User not found, fall back to mention or ID
+                        display_name = f"<@{discord_id}>" if discord_display_format == "mention" else discord_id
+                except (ValueError, TypeError):
+                    # Invalid discord_id, fall back to mention or ID
+                    display_name = f"<@{discord_id}>" if discord_display_format == "mention" else discord_id
+            else:
+                display_name = player_name
 
-        # Create streamlined header: 👤 Discord/TowerName (DiscordID) StatusEmoji
+        # Create header with name and optional Discord ID
         status_emoji = "⚠️" if is_unverified else "✅"
-        header_id = discord_id if discord_id else primary_id
-        embed_description = f"👤 {discord_display} ({header_id}) {status_emoji}"
+        if discord_id:
+            embed_description = f"👤 {display_name} ({discord_id}) {status_emoji}\n{primary_id}"
+        else:
+            embed_description = f"👤 {display_name} {status_emoji}\n{primary_id}"
 
         # Create embed with streamlined title and description
         embed = discord.Embed(
@@ -131,100 +142,25 @@ class UserInteractions:
                 inline=True,
             )
 
-        # Format player IDs (only for verified players)
-        if not is_unverified:
+        # Add additional player IDs if the verified player has multiple IDs
+        if not is_unverified and show_all_ids:
             ids_list = details.get("all_ids", [])
-
-            formatted_ids = []
-            if primary_id:
-                if show_all_ids:
-                    formatted_ids.append(f"✅ **{primary_id}** (Primary)")
-                    # Show all IDs except primary (already added)
-                    other_ids = [pid["id"] for pid in ids_list if pid["id"] != primary_id]
-                    formatted_ids.extend(other_ids)
-                else:
-                    # Just show the primary ID without special formatting
-                    formatted_ids.append(primary_id)
-            elif show_all_ids:
-                # No primary ID, show all IDs
-                formatted_ids.extend([pid["id"] for pid in ids_list])
-
-            # Use singular "Player ID" when showing only primary, plural when showing all
-            field_name = "Player IDs" if show_all_ids else "Player ID"
-            if show_all_ids:
-                field_name += f" ({len(ids_list)})"
-
-            embed.add_field(
-                name=field_name,
-                value="\n".join(formatted_ids) if formatted_ids else "No IDs found",
-                inline=False,
-            )
-
-        # Add moderation records if enabled
-        if show_moderation_records:
-            from asgiref.sync import sync_to_async
-
-            from thetower.backend.sus.models import ModerationRecord
-
-            # Get tower ID for moderation lookup
-            if is_unverified:
-                tower_id = player.tower_id
-            else:
-                # Get primary tower ID for verified player
-                tower_id = None
-                for pid in details.get("all_ids", []):
-                    if pid.get("primary"):
-                        tower_id = pid["id"]
-                        break
-
-            # Get active moderation records for this player
-            active_moderations = []
-            if tower_id:
-                if is_unverified:
-                    # For unverified players, search by tower_id
-                    active_moderations = await sync_to_async(list)(
-                        ModerationRecord.objects.filter(resolved_at__isnull=True, tower_id=tower_id).order_by(  # Only active (unresolved) records
-                            "started_at"
-                        )
+            if len(ids_list) > 1:
+                # Show additional IDs (excluding the primary which is already in header)
+                additional_ids = [pid["id"] for pid in ids_list if pid["id"] != primary_id]
+                if additional_ids:
+                    embed.add_field(
+                        name=f"Additional Player IDs ({len(additional_ids)})",
+                        value="\n".join(additional_ids),
+                        inline=False,
                     )
-                else:
-                    # For verified players, search by all their tower_ids
-                    all_tower_ids = [pid["id"] for pid in details.get("all_ids", [])]
-                    active_moderations = await sync_to_async(list)(
-                        ModerationRecord.objects.filter(
-                            resolved_at__isnull=True, tower_id__in=all_tower_ids  # Only active (unresolved) records
-                        ).order_by("started_at")
-                    )
-
-            if active_moderations:
-                moderation_lines = []
-                for mod in active_moderations:
-                    status_emoji = {"sus": "🚨", "ban": "🚫", "shun": "🔇", "soft_ban": "⚠️"}.get(mod.moderation_type, "❓")
-
-                    started_date = mod.started_at.strftime("%Y-%m-%d")
-                    reason = mod.reason[:50] + "..." if mod.reason and len(mod.reason) > 50 else mod.reason or "No reason provided"
-
-                    moderation_lines.append(f"{status_emoji} **{mod.get_moderation_type_display()}** - {started_date}")
-                    moderation_lines.append(f"   └ {reason}")
-
-                embed.add_field(
-                    name=f"Active Moderation ({len(active_moderations)})",
-                    value="\n".join(moderation_lines),
-                    inline=False,
-                )
-            else:
-                embed.add_field(
-                    name="Moderation Status",
-                    value="✅ No active moderation records",
-                    inline=False,
-                )
 
         # Add info extensions from other cogs
         if requesting_user:
             info_providers = self.cog.bot.cog_manager.get_info_extensions("player_lookup")
             for provider_func in info_providers:
                 try:
-                    extension_fields = await provider_func(player, details, requesting_user, permission_context)
+                    extension_fields = await provider_func(standardized_details, requesting_user, permission_context)
                     if extension_fields:
                         for field in extension_fields:
                             embed.add_field(**field)
@@ -240,10 +176,6 @@ class UserInteractions:
 
         # Check if the requesting user can see all IDs
         show_all_ids = await self._check_show_all_ids_permission(requesting_user)
-        # Check if the requesting user can see moderation records
-        # IMPORTANT: Users should NEVER see their own moderation records for privacy
-        is_own_profile = str(requesting_user.id) == details.get("discord_id")
-        show_moderation_records = not is_own_profile and await self._check_show_moderation_records_permission(requesting_user)
 
         return await self.create_player_embed(
             player,
@@ -252,7 +184,6 @@ class UserInteractions:
             show_verification_message=False,
             discord_display_format="mention",
             show_all_ids=show_all_ids,
-            show_moderation_records=show_moderation_records,
             requesting_user=requesting_user,
             permission_context=permission_context,
         )
@@ -271,7 +202,7 @@ class UserInteractions:
         for i, player in enumerate(results[:5], 1):
             if isinstance(player, self.cog.UnverifiedPlayer):
                 # Handle unverified player
-                player_info = f"**Name:** {player.name}\n**Player ID:** {player.tower_id}\n**Status:** Unverified"
+                player_info = f"**Name:** {player.name}\n**Player ID:** {player.tower_id}"
                 embed.add_field(name=f"Player #{i} (Unverified)", value=player_info, inline=False)
             else:
                 # Handle verified player
@@ -311,10 +242,6 @@ class UserInteractions:
     async def _check_show_all_ids_permission(self, discord_user: discord.User) -> bool:
         """Check if a Discord user can see all player IDs."""
         return await self.cog.check_show_all_ids_permission(discord_user)
-
-    async def _check_show_moderation_records_permission(self, discord_user: discord.User) -> bool:
-        """Check if a Discord user can see moderation records."""
-        return await self.cog.check_show_moderation_records_permission(discord_user)
 
     async def handle_lookup_command(self, interaction: discord.Interaction, identifier: str) -> None:
         """Handle the /lookup slash command."""
@@ -359,13 +286,13 @@ class UserInteractions:
             player = results[0]
             if isinstance(player, self.cog.UnverifiedPlayer):
                 # Handle unverified player
-                embed = await self.create_player_embed(
-                    player, title_prefix="Player Profile", show_moderation_records=True, requesting_user=interaction.user
-                )
+                embed = await self.create_player_embed(player, title_prefix="Player Details", requesting_user=interaction.user)
                 await interaction.followup.send(embed=embed, ephemeral=True)
             else:
                 # Handle verified player
                 details = await get_player_details(player)
+                # Add is_verified flag for extensions
+                details["is_verified"] = True
                 embed = await self.create_lookup_embed(player, details, interaction.user)
                 # Create view with post publicly button (permissions are now handled automatically)
                 view = await PlayerView.create(
@@ -388,10 +315,7 @@ class UserInteractions:
                 player = verified_results[0]
                 details = await get_player_details(player)
                 embed = await self.create_lookup_embed(player, details, interaction.user)
-                # Check if user can see moderation records for the enhanced button
-                # IMPORTANT: Users should NEVER see their own moderation records for privacy
-                is_own_profile = str(interaction.user.id) == details.get("discord_id")
-                can_see_moderation = not is_own_profile and await self._check_show_moderation_records_permission(interaction.user)
+                # Create view with post publicly button (permissions are now handled automatically)
                 view = PlayerView(
                     self.cog,
                     show_creator_code_button=False,
@@ -399,16 +323,13 @@ class UserInteractions:
                     details=details,
                     embed_title="Player Details",
                     requesting_user=interaction.user,
-                    can_see_moderation=can_see_moderation,
                     guild_id=interaction.guild.id,
                 )
                 await interaction.followup.send(embed=embed, view=view, ephemeral=True)
             elif len(unverified_results) == 1 and not verified_results:
                 # Only one unverified result
                 player = unverified_results[0]
-                embed = await self.create_player_embed(
-                    player, title_prefix="Player Profile", show_moderation_records=True, requesting_user=interaction.user
-                )
+                embed = await self.create_player_embed(player, title_prefix="Player Profile", requesting_user=interaction.user)
                 await interaction.followup.send(embed=embed, ephemeral=True)
             else:
                 # Multiple results
@@ -441,6 +362,8 @@ class UserInteractions:
 
         # Get player details
         details = await get_player_details(player)
+        # Add is_verified flag for extensions
+        details["is_verified"] = True
 
         # Get permission context for the requesting user
         permission_context = await self.cog.get_user_permissions(interaction.user)
@@ -453,7 +376,6 @@ class UserInteractions:
             show_verification_message=True,
             discord_display_format="id",
             show_all_ids=await self._check_show_all_ids_permission(interaction.user),
-            show_moderation_records=False,  # Never show moderation records on own profile
             requesting_user=interaction.user,
             permission_context=permission_context,
         )
