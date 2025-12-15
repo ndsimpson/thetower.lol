@@ -107,7 +107,8 @@ class TourneyLiveData(BaseCog, name="Tourney Live Data", description="Commands f
             all_player_ids = [primary_id] + [pid["id"] for pid in details["all_ids"] if pid["id"] != primary_id]
 
             # Check if any of the player's IDs have joined the current live tournament
-            has_joined = any(await sync_to_async(check_all_live_entry)(player_id) for player_id in all_player_ids)
+            join_checks = [await sync_to_async(check_all_live_entry)(player_id) for player_id in all_player_ids]
+            has_joined = any(join_checks)
 
             if has_joined:
                 # Find which player ID has the live tournament entry
