@@ -2193,7 +2193,7 @@ class TourneyRolesRefreshButton(discord.ui.Button):
     """Button to refresh tournament roles for a specific user."""
 
     def __init__(self, cog, user_id: int, guild_id: int, requesting_user_id: int):
-        super().__init__(label="Update Tournament Roles", style=discord.ButtonStyle.primary, emoji="🔄")
+        super().__init__(label="Update Tournament Roles", style=discord.ButtonStyle.primary, emoji="🔄", row=2)
         self.cog = cog
         self.user_id = user_id
         self.guild_id = guild_id
