@@ -135,7 +135,7 @@ class TourneyLiveData(BaseCog, name="Tourney Live Data", description="Commands f
             else:
                 field_value = "⛔ Not Joined"
 
-            return [{"name": "Current Tournament", "value": field_value, "inline": True}]
+            return [{"name": "Current Tournament", "value": field_value, "inline": False}]
 
         except Exception as e:
             player_name = details.get("name", "Unknown")

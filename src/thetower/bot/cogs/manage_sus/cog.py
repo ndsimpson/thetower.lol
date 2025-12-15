@@ -219,7 +219,7 @@ class ManageSus(BaseCog, name="Manage Sus"):
                     resolved_parts = [f"{mod_type}: {count}" for mod_type, count in resolved_counts.items()]
                     resolved_text = ", ".join(resolved_parts)
 
-                fields.append({"name": "✅ Resolved Moderation", "value": resolved_text, "inline": True})
+                fields.append({"name": "✅ Resolved Moderation", "value": resolved_text, "inline": False})
 
             return fields
 

@@ -122,7 +122,9 @@ class TourneyRoleColors(BaseCog, name="Tourney Role Colors"):
         # Only show button if user is viewing their own profile
         details_discord_id = details.get("discord_id")
         if str(details_discord_id) != str(requesting_user.id):
-            self.logger.debug(f"TourneyRoleColors: Not viewing own profile - details.discord_id={details_discord_id}, requesting_user.id={requesting_user.id}")
+            self.logger.debug(
+                f"TourneyRoleColors: Not viewing own profile - details.discord_id={details_discord_id}, requesting_user.id={requesting_user.id}"
+            )
             return None
 
         # Get the guild member (needed for role checking)

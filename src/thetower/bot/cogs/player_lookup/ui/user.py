@@ -139,7 +139,7 @@ class UserInteractions:
             embed.add_field(
                 name="Creator Code",
                 value=f"`{creator_code}`",
-                inline=True,
+                inline=False,
             )
 
         # Add additional player IDs if the verified player has multiple IDs
