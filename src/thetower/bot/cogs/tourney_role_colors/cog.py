@@ -1,152 +1,253 @@
-"""
-Tourney Role Colors Cog
+"""Tourney Role Colors cog - Allow users to select roles based on prerequisites."""
 
-A Discord bot cog for managing tournament-based color role assignments.
-Users can select from qualified color roles based on their tournament rankings,
-with automatic role management when qualifications change.
-
-This cog follows the unified cog design architecture with:
-- Modular UI components separated by function/role
-- Integration with global settings system
-- Registry-based profile integration
-- Automatic qualification monitoring
-"""
+import logging
+from typing import Dict, List, Optional
 
 import discord
+from discord.ext import commands
 
 from thetower.bot.basecog import BaseCog
 
-from .ui import (
-    TourneyRoleColorsCore,
-    TourneyRoleColorsSettingsView,
-)
+from .ui import TourneyRoleColorsSettingsView
 
-
-class ColorSelectionButton(discord.ui.Button):
-    """Button for color role selection in player profiles."""
-
-    def __init__(self, cog):
-        super().__init__(label="🎨 Select Color Role", style=discord.ButtonStyle.primary, emoji="🎨")
-        self.cog = cog
-
-    async def callback(self, interaction: discord.Interaction):
-        """Show color selection interface."""
-        # Get qualified roles for this user
-        qualified_data = self.cog.core.get_qualified_roles_for_user(interaction.user)
-        current_role_id = self.cog.core.get_user_current_color_role(interaction.user)
-
-        if not qualified_data:
-            embed = discord.Embed(
-                title="🎨 No Color Roles Available",
-                description="You don't have any color roles available. Complete more tournaments to unlock color roles!",
-                color=discord.Color.orange(),
-            )
-            await interaction.response.send_message(embed=embed, ephemeral=True)
-            return
-
-        # Create the color selection view
-        view = self.cog.create_color_selection_view(interaction.user)
-
-        embed = discord.Embed(
-            title="🎨 Color Role Selection", description="Choose a category to view available color roles:", color=discord.Color.blue()
-        )
-
-        # Add current role info
-        if current_role_id:
-            current_role = interaction.guild.get_role(current_role_id)
-            if current_role:
-                embed.add_field(name="Current Role", value=current_role.mention, inline=False)
-
-        await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+logger = logging.getLogger(__name__)
 
 
 class TourneyRoleColors(BaseCog, name="Tourney Role Colors"):
-    """
-    Tournament-based color role management system.
+    """Manage selectable role colors with prerequisites and mutual exclusivity.
 
-    Automatically manages color role assignments based on tournament rankings
-    and user qualifications, with server-owner configurable categories.
+    Server owners can configure:
+    - Categories of roles (mutually exclusive groups)
+    - Individual role options within categories
+    - Prerequisite roles required to select each option
+    - Role inheritance (higher tier roles include lower tier prerequisites)
     """
 
-    # Settings view class for the cog manager
+    # Register the settings view class for the modular settings system
     settings_view_class = TourneyRoleColorsSettingsView
 
-    def __init__(self, bot):
+    def __init__(self, bot: commands.Bot) -> None:
         super().__init__(bot)
         self.logger.info("Initializing TourneyRoleColors")
 
-        # Store reference on bot for registry integration
-        self.bot.tourney_role_colors = self
-
-        # Initialize core instance variables
-        self.core = TourneyRoleColorsCore(self)
+        # Guild-specific settings structure:
+        # {
+        #     "categories": [
+        #         {
+        #             "name": "Orange",
+        #             "roles": [
+        #                 {
+        #                     "role_id": 123456789,
+        #                     "name": "Orange 100",
+        #                     "prerequisite_roles": [111111111, 222222222],  # Top 25, Top 100
+        #                     "inherits_from": None  # No inheritance - base tier
+        #                 },
+        #                 {
+        #                     "role_id": 987654321,
+        #                     "name": "Orange 200",
+        #                     "prerequisite_roles": [333333333],  # Top 200 (direct prereq)
+        #                     "inherits_from": 123456789  # Inherits from Orange 100 (single role)
+        #                     # Final prereqs: Top 25 OR Top 100 OR Top 200
+        #                 },
+        #                 {
+        #                     "role_id": 555555555,
+        #                     "name": "Orange 500",
+        #                     "prerequisite_roles": [444444444],  # Top 500
+        #                     "inherits_from": 987654321  # Inherits from Orange 200 (nested)
+        #                     # Final prereqs: Top 25 OR Top 100 OR Top 200 OR Top 500
+        #                 }
+        #             ]
+        #         },
+        #         {
+        #             "name": "Yellow",
+        #             "roles": [...]
+        #         }
+        #     ]
+        # }
+        self.guild_settings = {
+            "categories": [],
+        }
 
     async def cog_initialize(self) -> None:
-        """Initialize the cog and start background tasks."""
-        self.logger.info("TourneyRoleColors cog initializing")
+        """Initialize the cog - called by BaseCog during ready process."""
+        self.logger.info("Initializing Tourney Role Colors module")
 
-        # Register UI extension for profile integration
-        if hasattr(self.bot, "cog_manager"):
-            self.bot.cog_manager.register_ui_extension(
-                target_cog="player_lookup", source_cog="tourney_role_colors", provider_func=self._provide_color_selection_button
-            )
-            self.logger.info("Registered color selection UI extension for player profiles")
+        try:
+            async with self.task_tracker.task_context("Initialization") as tracker:
+                # Initialize parent
+                self.logger.debug("Initializing parent cog")
+                await super().cog_initialize()
 
-        # No additional initialization needed - BaseCog handles settings persistence
+                tracker.update_status("Marking ready")
+                self.set_ready(True)
+                self.logger.info("Tourney role colors initialization complete")
+
+        except Exception as e:
+            self.logger.error(f"Error during Tourney Role Colors initialization: {e}", exc_info=True)
+            self._has_errors = True
+            raise
 
     async def cog_unload(self) -> None:
-        """Clean up when the cog is unloaded."""
-        self.logger.info("TourneyRoleColors cog unloading")
+        """Clean up when cog is unloaded."""
+        # Call parent implementation for data saving
+        await super().cog_unload()
+        self.logger.info("Tourney role colors cog unloaded")
 
-        # Unregister UI extension
-        if hasattr(self.bot, "cog_manager"):
-            self.bot.cog_manager.unregister_ui_extensions_from_source("tourney_role_colors")
-            self.logger.info("Unregistered color selection UI extensions")
+    # === Helper Methods ===
 
-    @discord.ext.commands.Cog.listener()
-    async def on_member_update(self, before: discord.Member, after: discord.Member) -> None:
-        """Monitor role changes and adjust color roles automatically."""
-        await self.core.handle_member_update(before, after)
+    def get_all_managed_roles(self, guild_id: int) -> List[int]:
+        """Get all role IDs managed by this cog for a guild.
 
-    def create_color_selection_view(self, user: discord.Member) -> discord.ui.View:
-        """Create color selection view for the user (called by profile registry)."""
-        return self.core.create_color_selection_view(user)
+        Args:
+            guild_id: The guild ID to get roles for
 
-    def _provide_color_selection_button(self, details, requesting_user, guild_id, permission_context):
-        """Provide color selection button for player profiles."""
-        self.logger.info(f"TourneyRoleColors: _provide_color_selection_button called for user {requesting_user.id} in guild {guild_id}")
+        Returns:
+            List of all managed role IDs
+        """
+        categories = self.get_setting("categories", [], guild_id=guild_id)
+        all_roles = []
 
-        # Check if this cog is enabled for the guild
-        if not self.bot.cog_manager.can_guild_use_cog(self.cog_name, guild_id, False):
-            self.logger.info(f"TourneyRoleColors: Cog not enabled for guild {guild_id}")
-            return None
+        for category in categories:
+            for role_config in category.get("roles", []):
+                role_id = role_config.get("role_id")
+                if role_id:
+                    all_roles.append(role_id)
 
-        # Only show button if user is viewing their own profile
-        details_discord_id = details.get("discord_id")
-        if str(details_discord_id) != str(requesting_user.id):
-            self.logger.info(
-                f"TourneyRoleColors: Not viewing own profile - details.discord_id={details_discord_id}, requesting_user.id={requesting_user.id}"
-            )
-            return None
+        return all_roles
 
-        # Get the guild member (needed for role checking)
-        guild = self.bot.get_guild(guild_id)
-        if not guild:
-            self.logger.info(f"TourneyRoleColors: Guild {guild_id} not found")
-            return None
+    def get_eligible_roles(self, guild_id: int, user_role_ids: List[int]) -> List[Dict]:
+        """Get all roles a user is eligible to select based on their current roles.
 
-        member = guild.get_member(requesting_user.id)
-        if not member:
-            self.logger.info(f"TourneyRoleColors: Member {requesting_user.id} not found in guild {guild_id}")
-            return None
+        Args:
+            guild_id: The guild ID
+            user_role_ids: List of role IDs the user currently has
 
-        # Check if user has any qualified color roles
-        qualified_data = self.core.get_qualified_roles_for_user(member)
-        if not qualified_data:
-            self.logger.info(f"TourneyRoleColors: User {requesting_user.id} has no qualified color roles")
-            return None
+        Returns:
+            List of role configs the user can select, with resolved prerequisites
+        """
+        categories = self.get_setting("categories", [], guild_id=guild_id)
+        eligible_roles = []
 
-        self.logger.debug(f"TourneyRoleColors: Showing color selection button for user {requesting_user.id}")
-        # Create the button
-        button = ColorSelectionButton(self)
-        return button
+        for category in categories:
+            for role_config in category.get("roles", []):
+                # Resolve all prerequisites including inherited ones
+                all_prereqs = self._resolve_prerequisites(role_config, category.get("roles", []))
+
+                # Check if user has at least one prerequisite
+                if not all_prereqs:
+                    # No prerequisites means anyone can select it
+                    eligible_roles.append(
+                        {
+                            "category": category.get("name"),
+                            "role_id": role_config.get("role_id"),
+                            "name": role_config.get("name"),
+                            "prerequisites": [],
+                        }
+                    )
+                elif any(prereq in user_role_ids for prereq in all_prereqs):
+                    # User has at least one prerequisite
+                    eligible_roles.append(
+                        {
+                            "category": category.get("name"),
+                            "role_id": role_config.get("role_id"),
+                            "name": role_config.get("name"),
+                            "prerequisites": all_prereqs,
+                        }
+                    )
+
+        return eligible_roles
+
+    def _resolve_prerequisites(self, role_config: Dict, all_roles_in_category: List[Dict], visited: Optional[set] = None) -> List[int]:
+        """Recursively resolve all prerequisites for a role including inherited ones.
+
+        Handles nested inheritance (e.g., Orange 500 → Orange 200 → Orange 100).
+
+        Args:
+            role_config: The role configuration to resolve prerequisites for
+            all_roles_in_category: All role configs in the same category
+            visited: Set of role IDs already visited (to prevent circular dependencies)
+
+        Returns:
+            List of all prerequisite role IDs (deduplicated)
+        """
+        if visited is None:
+            visited = set()
+
+        # Prevent circular dependencies
+        current_role_id = role_config.get("role_id")
+        if current_role_id in visited:
+            self.logger.warning(f"Circular inheritance detected for role {current_role_id}")
+            return []
+
+        visited.add(current_role_id)
+
+        # Start with direct prerequisites
+        prereqs = set(role_config.get("prerequisite_roles", []))
+
+        # Add inherited prerequisites (single role inheritance)
+        inherits_from = role_config.get("inherits_from")
+        if inherits_from:
+            # Create a map for quick lookup
+            role_map = {r.get("role_id"): r for r in all_roles_in_category}
+
+            if inherits_from in role_map:
+                # Recursively resolve prerequisites from inherited role
+                inherited_prereqs = self._resolve_prerequisites(role_map[inherits_from], all_roles_in_category, visited.copy())
+                prereqs.update(inherited_prereqs)
+
+        return list(prereqs)
+
+    async def assign_role_to_user(self, guild: discord.Guild, member: discord.Member, role_id: int) -> tuple[bool, str]:
+        """Assign a role to a user, removing all other managed roles.
+
+        Args:
+            guild: The guild where the role assignment happens
+            member: The member to assign the role to
+            role_id: The role ID to assign
+
+        Returns:
+            Tuple of (success: bool, message: str)
+        """
+        # Check if user is eligible for this role
+        user_role_ids = [role.id for role in member.roles]
+        eligible_roles = self.get_eligible_roles(guild.id, user_role_ids)
+
+        # Find the requested role in eligible roles
+        target_role_config = None
+        for eligible in eligible_roles:
+            if eligible["role_id"] == role_id:
+                target_role_config = eligible
+                break
+
+        if not target_role_config:
+            return False, "You are not eligible for this role."
+
+        # Get the role object
+        role = guild.get_role(role_id)
+        if not role:
+            return False, "Role not found in server."
+
+        try:
+            # Remove all other managed roles from the user
+            all_managed_roles = self.get_all_managed_roles(guild.id)
+            roles_to_remove = [r for r in member.roles if r.id in all_managed_roles and r.id != role_id]
+
+            if roles_to_remove:
+                await member.remove_roles(*roles_to_remove, reason="Tourney role color selection")
+
+            # Add the new role
+            if role not in member.roles:
+                await member.add_roles(role, reason="Tourney role color selection")
+
+            return True, f"Successfully assigned {role.name}"
+
+        except discord.Forbidden:
+            return False, "Bot does not have permission to manage roles."
+        except discord.HTTPException as e:
+            self.logger.error(f"Error assigning role: {e}")
+            return False, "An error occurred while assigning the role."
+
+
+async def setup(bot: commands.Bot) -> None:
+    """Load the TourneyRoleColors cog."""
+    await bot.add_cog(TourneyRoleColors(bot))
