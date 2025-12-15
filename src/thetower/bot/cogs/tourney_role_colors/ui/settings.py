@@ -1031,12 +1031,10 @@ class EditRoleWizardView(ui.View):
                     self.selected_role = self.cog.bot.get_guild(self.guild_id).get_role(selected_role_id)
 
             if self.current_step == "prereqs" and self.prereq_select.values:
-                selected_prereq_ids = [int(v) for v in self.prereq_select.values]
+                selected_prereq_roles = self.prereq_select.values
                 self.selected_prereqs = []
-                for prereq_id in selected_prereq_ids:
-                    prereq_role = self.cog.bot.get_guild(self.guild_id).get_role(prereq_id)
-                    if prereq_role:
-                        self.selected_prereqs.append(f"role:{prereq_role.name}")
+                for prereq_role in selected_prereq_roles:
+                    self.selected_prereqs.append(f"role:{prereq_role.name}")
 
             # Check if role changed
             role_changed = self.selected_role.id != self.current_role_id
