@@ -871,47 +871,15 @@ class EditRoleWizardView(ui.View):
             ):  # Same category OR non-category
                 eligible_roles.append(role)
 
-        # Create options with inheritance info
-        options = []
-        for role in eligible_roles[:24]:  # Leave room for inheritance display
-            # Check if this role has prerequisites that would be inherited
-            inherited_prereqs = []
-            if str(role.id) in category_data.get("roles", {}):
-                inherited_prereqs = self.cog.core.get_all_prerequisites(self.guild_id, role.id)
-
-            # Pre-select current prerequisites
-            default = any(prereq.endswith(f":{role.name}") for prereq in self.selected_prereqs)
-
-            label = role.name
-            if inherited_prereqs:
-                inherited_names = []
-                for prereq in inherited_prereqs:
-                    if prereq.startswith("role:"):
-                        inherited_names.append(prereq[5:])  # Remove "role:" prefix
-                if inherited_names:
-                    label += f" (+inherits: {', '.join(inherited_names[:3])}"
-                    if len(inherited_names) > 3:
-                        label += f" +{len(inherited_names) - 3} more"
-                    label += ")"
-
-            if len(label) > 100:  # Discord limit
-                label = label[:97] + "..."
-
-            options.append(
-                discord.SelectOption(
-                    label=label,
-                    value=str(role.id),
-                    description=f"Inherits {len(inherited_prereqs)} prerequisites" if inherited_prereqs else None,
-                    default=default,
-                )
-            )
-
-        if options:
-            self.prereq_select = ui.Select(
-                placeholder="Select prerequisite roles...", options=options, max_values=len(options), custom_id="edit_prereq_select"
-            )
-            self.prereq_select.callback = self.prereq_selected
-            self.add_item(self.prereq_select)
+        # Use Discord's RoleSelect for better UX (multi-select with validation)
+        self.prereq_select = ui.RoleSelect(
+            placeholder="Select prerequisite roles...",
+            min_values=0,
+            max_values=10,  # Reasonable limit for prerequisites
+            custom_id="edit_prereq_select",
+        )
+        self.prereq_select.callback = self.prereq_selected
+        self.add_item(self.prereq_select)
 
         # Save button
         save_btn = ui.Button(label="💾 Save Changes", style=discord.ButtonStyle.success, custom_id="save_edit")
@@ -990,25 +958,63 @@ class EditRoleWizardView(ui.View):
             return
 
         self.setup_prereq_step()
+        current_prereq_text = ", ".join([p[5:] for p in self.selected_prereqs]) if self.selected_prereqs else "None"
         embed = discord.Embed(
             title="✏️ Edit Prerequisites",
             description=f"Editing **{self.selected_role.name}** in category **{self.category_name}**\n\n"
-            "Select which roles are required as prerequisites. Roles from the same category will show inheritance information.",
+            f"**Current Prerequisites:** {current_prereq_text}\n\n"
+            "Select which roles are required as prerequisites. You can select multiple roles.",
             color=discord.Color.blue(),
         )
 
         await interaction.response.edit_message(embed=embed, view=self)
 
     async def prereq_selected(self, interaction: discord.Interaction):
-        """Handle prerequisite selection."""
-        selected_prereq_ids = [int(v) for v in self.prereq_select.values]
+        """Handle prerequisite selection with validation."""
+        selected_roles = self.prereq_select.values
 
-        # Convert to prerequisite format
-        self.selected_prereqs = []
-        for prereq_id in selected_prereq_ids:
-            prereq_role = self.cog.bot.get_guild(self.guild_id).get_role(prereq_id)
-            if prereq_role:
-                self.selected_prereqs.append(f"role:{prereq_role.name}")
+        # Get eligible prerequisite roles (same category + non-category roles)
+        guild = self.cog.bot.get_guild(self.guild_id)
+        eligible_roles = []
+
+        # Get all roles in this category (for inheritance)
+        categories = self.cog.core.get_color_categories(self.guild_id)
+        category_data = categories.get(self.category_name, {})
+        category_role_ids = set(int(rid) for rid in category_data.get("roles", {}).keys())
+
+        # Get existing color role IDs to exclude
+        existing_color_role_ids = self.cog.core.get_all_color_role_ids(self.guild_id)
+
+        for role in guild.roles:
+            if (
+                not role.is_default() and not role.managed and (role.id in category_role_ids or role.id not in existing_color_role_ids)
+            ):  # Same category OR non-category
+                eligible_roles.append(role)
+
+        # Validate selected roles
+        invalid_roles = []
+        valid_roles = []
+
+        for selected_role in selected_roles:
+            if selected_role not in eligible_roles:
+                invalid_roles.append(selected_role)
+            else:
+                valid_roles.append(selected_role)
+
+        # If there are invalid selections, show error
+        if invalid_roles:
+            invalid_names = [role.name for role in invalid_roles]
+            embed = discord.Embed(
+                title="❌ Invalid Role Selection",
+                description=f"The following roles cannot be used as prerequisites: **{', '.join(invalid_names)}**\n\n"
+                "Prerequisites must be either roles from the same category or non-color roles.",
+                color=discord.Color.red(),
+            )
+            await interaction.response.edit_message(embed=embed, view=self)
+            return
+
+        # Convert valid roles to prerequisite format
+        self.selected_prereqs = [f"role:{role.name}" for role in valid_roles]
 
         # Update embed to show selected prerequisites
         embed = interaction.message.embeds[0]
