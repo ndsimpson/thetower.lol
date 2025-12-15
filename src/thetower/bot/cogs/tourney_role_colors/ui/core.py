@@ -90,12 +90,15 @@ class TourneyRoleColorsCore:
         all_prerequisites = self.get_all_prerequisites(user.guild.id, role_id)
 
         # User qualifies if they have ANY of the prerequisite roles
-        for prereq_name in all_prerequisites:
-            prereq_role_id = self._get_role_id_by_name(user.guild, prereq_name)
-            if prereq_role_id and user.get_role(prereq_role_id):
-                return True
-
-        return False
+        for prereq in all_prerequisites:
+            # prereq is a role ID string
+            try:
+                prereq_role_id = int(prereq)
+                if user.get_role(prereq_role_id):
+                    return True
+            except (ValueError, TypeError):
+                self.logger.warning(f"Invalid prerequisite format: {prereq}")
+                continue
 
     def get_qualified_roles_for_user(self, user: discord.Member) -> List[Dict[str, Any]]:
         """Get all color roles the user qualifies for, organized by category."""

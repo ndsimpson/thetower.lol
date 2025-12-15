@@ -90,6 +90,16 @@ class ViewCurrentConfigButton(ui.Button):
         self.cog = cog
         self.guild_id = guild_id
 
+    def _prereq_to_display_name(self, guild: discord.Guild, prereq: str) -> str:
+        """Convert a prerequisite to a display name."""
+        # prereq is a role ID string
+        try:
+            role_id = int(prereq)
+            role = guild.get_role(role_id)
+            return role.name if role else f"Unknown Role ({role_id})"
+        except (ValueError, TypeError):
+            return prereq
+
     async def callback(self, interaction: discord.Interaction):
         """Show current configuration overview."""
         categories = self.cog.core.get_color_categories(self.guild_id)
@@ -110,7 +120,8 @@ class ViewCurrentConfigButton(ui.Button):
                     role_name = role.name if role else f"Unknown Role ({role_id})"
 
                     prereqs = role_config.get("additional_prerequisites", [])
-                    prereq_text = ", ".join(sorted(prereqs)) if prereqs else "None"
+                    prereq_names = [self._prereq_to_display_name(interaction.guild, p) for p in prereqs]
+                    prereq_text = ", ".join(sorted(prereq_names)) if prereq_names else "None"
 
                     inherits = role_config.get("inherits_from")
                     if inherits:
@@ -184,6 +195,16 @@ class CategoryButton(ui.Button):
         self.cog = cog
         self.guild_id = guild_id
 
+    def _prereq_to_display_name(self, guild: discord.Guild, prereq: str) -> str:
+        """Convert a prerequisite to a display name."""
+        # prereq is a role ID string
+        try:
+            role_id = int(prereq)
+            role = guild.get_role(role_id)
+            return role.name if role else f"Unknown Role ({role_id})"
+        except (ValueError, TypeError):
+            return prereq
+
     async def callback(self, interaction: discord.Interaction):
         """Show category details and management options."""
         categories = self.cog.core.get_color_categories(self.guild_id)
@@ -204,13 +225,12 @@ class CategoryButton(ui.Button):
                 # Direct prerequisites
                 direct_prereqs = role_config.get("additional_prerequisites", [])
                 if direct_prereqs:
-                    # Convert role:RoleName to just RoleName
+                    # Convert prerequisites to display names
                     direct_names = []
                     for prereq in direct_prereqs:
-                        if prereq.startswith("role:"):
-                            direct_names.append(prereq[5:])  # Remove "role:" prefix
-                        else:
-                            direct_names.append(prereq)
+                        display_name = self._prereq_to_display_name(interaction.guild, prereq)
+                        if display_name:
+                            direct_names.append(display_name)
                     prereq_parts.extend(direct_names)
 
                 # Inherited prerequisites
@@ -460,8 +480,8 @@ class SelectPrerequisitesView(ui.View):
                 prereq_roles = [r for r in self.prereq_select.values if r.id != self.selected_role.id]
                 self.cog.logger.info(f"Selected prereq roles: {[r.name for r in prereq_roles]}")
 
-            # Convert to prerequisite format (role:role_name)
-            prereq_list = [f"role:{role.name}" for role in prereq_roles]
+            # Convert to prerequisite format (store as role IDs for robustness)
+            prereq_list = [str(role.id) for role in prereq_roles]
 
             self.cog.logger.info(f"Adding role {self.selected_role.name} with prereqs: {prereq_list}")
 
@@ -845,7 +865,16 @@ class EditRoleWizardView(ui.View):
         self.selected_prereqs = current_prereqs.copy()
 
         # Step 1: Role selection (prepopulated)
-        self.current_step = "role"
+
+    def _prereq_to_display_name(self, guild: discord.Guild, prereq: str) -> str:
+        """Convert a prerequisite to a display name."""
+        # prereq is a role ID string
+        try:
+            role_id = int(prereq)
+            role = guild.get_role(role_id)
+            return role.name if role else f"Unknown Role ({role_id})"
+        except (ValueError, TypeError):
+            return prereq
         self.setup_role_step()
 
     def setup_role_step(self):
@@ -977,7 +1006,8 @@ class EditRoleWizardView(ui.View):
             return
 
         self.setup_prereq_step()
-        current_prereq_text = ", ".join([p[5:] for p in self.selected_prereqs]) if self.selected_prereqs else "None"
+        current_prereq_names = [self._prereq_to_display_name(interaction.guild, p) for p in self.selected_prereqs]
+        current_prereq_text = ", ".join(current_prereq_names) if current_prereq_names else "None"
         embed = discord.Embed(
             title="✏️ Edit Prerequisites",
             description=f"Editing **{self.selected_role.name}** in category **{self.category_name}**\n\n"
@@ -1032,12 +1062,13 @@ class EditRoleWizardView(ui.View):
             await interaction.response.edit_message(embed=embed, view=self)
             return
 
-        # Convert valid roles to prerequisite format
-        self.selected_prereqs = [f"role:{role.name}" for role in valid_roles]
+        # Convert valid roles to prerequisite format (store as role IDs)
+        self.selected_prereqs = [str(role.id) for role in valid_roles]
 
         # Update embed to show selected prerequisites
         embed = interaction.message.embeds[0]
-        prereq_text = ", ".join([p[5:] for p in self.selected_prereqs]) if self.selected_prereqs else "None"
+        prereq_names = [self._prereq_to_display_name(interaction.guild, p) for p in self.selected_prereqs]
+        prereq_text = ", ".join(prereq_names) if prereq_names else "None"
         embed.description = f"Editing **{self.selected_role.name}** in category **{self.category_name}**\n\n**Selected Prerequisites:** {prereq_text}"
 
         await interaction.response.edit_message(embed=embed, view=self)
@@ -1055,7 +1086,7 @@ class EditRoleWizardView(ui.View):
                 selected_prereq_roles = self.prereq_select.values
                 self.selected_prereqs = []
                 for prereq_role in selected_prereq_roles:
-                    self.selected_prereqs.append(f"role:{prereq_role.name}")
+                    self.selected_prereqs.append(str(prereq_role.id))
 
             # Check if role changed
             role_changed = self.selected_role.id != self.current_role_id
