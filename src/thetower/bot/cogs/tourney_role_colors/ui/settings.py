@@ -189,6 +189,8 @@ class EditCategoryButton(ui.Button):
         view = ui.View(timeout=900)
         select = CategorySelectMenu(self.cog, self.guild_id, self.categories, "edit")
         view.add_item(select)
+        # Add back button
+        view.add_item(BackToCategoriesButton(self.cog, self.guild_id))
 
         await interaction.response.edit_message(content="Select a category to edit:", view=view, embed=None)
 
@@ -207,6 +209,8 @@ class DeleteCategoryButton(ui.Button):
         view = ui.View(timeout=900)
         select = CategorySelectMenu(self.cog, self.guild_id, self.categories, "delete")
         view.add_item(select)
+        # Add back button
+        view.add_item(BackToCategoriesButton(self.cog, self.guild_id))
 
         await interaction.response.edit_message(content="⚠️ Select a category to DELETE:", view=view, embed=None)
 
