@@ -38,16 +38,17 @@ class RoleSelectionView(ui.View):
                 self.roles_by_category[category] = []
             self.roles_by_category[category].append(role_config)
 
-        # Add Clear button first
-        clear_btn = ui.Button(label="Clear Role", style=discord.ButtonStyle.danger, emoji="❌")
-        clear_btn.callback = self.on_clear_role
-        self.add_item(clear_btn)
-
-        # Add category buttons (up to 5 per row, Discord handles wrapping)
+        # Add category buttons first (sorted alphabetically)
+        # Discord layout: 5 buttons per row
         for category_name in sorted(self.roles_by_category.keys()):
             btn = ui.Button(label=category_name, style=discord.ButtonStyle.primary)
             btn.callback = self._create_category_callback(category_name)
             self.add_item(btn)
+
+        # Add Clear button last so it's on its own row if categories are divisible by 5
+        clear_btn = ui.Button(label="Clear Role", style=discord.ButtonStyle.danger, emoji="❌")
+        clear_btn.callback = self.on_clear_role
+        self.add_item(clear_btn)
 
     def _create_category_callback(self, category_name: str):
         """Create a callback for a specific category button."""
