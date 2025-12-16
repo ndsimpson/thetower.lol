@@ -71,6 +71,9 @@ class RoleSelectionView(ui.View):
 
     async def refresh(self, interaction: discord.Interaction):
         """Refresh the view after a role change."""
+        # Refresh the member object to get up-to-date role list
+        self.member = await self.guild.fetch_member(self.member.id)
+
         # Rebuild the view with updated data
         user_role_ids = [role.id for role in self.member.roles]
         all_managed_roles = self.cog.get_all_managed_roles(self.guild.id)
@@ -106,10 +109,14 @@ class RoleSelectionView(ui.View):
                 categories = self.cog.get_setting("categories", [], guild_id=self.guild.id)
                 category_name = "Unknown"
                 for cat in categories:
+                    found = False
                     for role_config in cat.get("roles", []):
                         if role_config.get("role_id") == self.current_role_id:
                             category_name = cat.get("name")
+                            found = True
                             break
+                    if found:
+                        break
 
                 content += "**Current Selection:**\n"
                 content += f"**{category_name}:** {current_role.mention}\n\n"
