@@ -38,15 +38,21 @@ class RoleSelectionView(ui.View):
                 self.roles_by_category[category] = []
             self.roles_by_category[category].append(role_config)
 
-        # Add category buttons first (sorted alphabetically)
-        # Discord layout: 5 buttons per row
-        for category_name in sorted(self.roles_by_category.keys()):
-            btn = ui.Button(label=category_name, style=discord.ButtonStyle.primary)
+        # Add category buttons first (sorted alphabetically) with explicit row assignment
+        # Discord layout: 5 buttons per row (rows 0-4, max 5 rows)
+        sorted_categories = sorted(self.roles_by_category.keys())
+        for idx, category_name in enumerate(sorted_categories):
+            btn = ui.Button(label=category_name, style=discord.ButtonStyle.primary, row=idx // 5)
             btn.callback = self._create_category_callback(category_name)
             self.add_item(btn)
 
-        # Add Clear button last so it's on its own row if categories are divisible by 5
-        clear_btn = ui.Button(label="Clear Role", style=discord.ButtonStyle.danger, emoji="❌")
+        # Add Clear button on its own row if space allows, otherwise on the last row
+        # Calculate which row categories fill: if 1-5 categories, they use row 0, so clear goes to row 1
+        num_categories = len(sorted_categories)
+        rows_used = (num_categories + 4) // 5  # ceiling division to get rows needed
+        clear_role_row = min(rows_used, 4)  # put on its own row if possible (0-indexed, max 4)
+
+        clear_btn = ui.Button(label="Clear Role", style=discord.ButtonStyle.danger, emoji="❌", row=clear_role_row)
         clear_btn.callback = self.on_clear_role
         self.add_item(clear_btn)
 
