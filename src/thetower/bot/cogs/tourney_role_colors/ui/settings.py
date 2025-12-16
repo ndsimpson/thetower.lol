@@ -535,7 +535,24 @@ class AddRoleStep3SelectPrerequisitesView(ui.View):
         if not self.inherits_from and not self.prerequisite_role_ids:
             summary += "\n⚠️ This role has no prerequisites - anyone can select it!"
 
-        await interaction.response.edit_message(content=summary, view=None)
+        # After saving, return to the category management view for this category
+        view = RoleManagementView(self.cog, self.guild_id, self.category_idx, category)
+
+        roles = category.get("roles", [])
+        if roles:
+            role_list = "\n".join(
+                [
+                    f"**{idx + 1}.** <@&{role.get('role_id')}> - "
+                    f"{len(role.get('prerequisite_roles', []))} prereqs"
+                    + (f", inherits from <@&{role.get('inherits_from')}>" if role.get("inherits_from") else "")
+                    for idx, role in enumerate(roles[:10])
+                ]
+            )
+            summary += f"\n\n**Category: {category.get('name')}**\n\n{role_list}\n\nSelect an action:"
+        else:
+            summary += f"\n\n**Category: {category.get('name')}**\n\n" "No roles configured. Click 'Add Role' to get started."
+
+        await interaction.response.edit_message(content=summary, view=view)
 
 
 class EditRoleView(ui.View):
