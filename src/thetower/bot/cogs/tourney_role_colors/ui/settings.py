@@ -54,14 +54,16 @@ class TourneyRoleColorsSettingsView(ui.View):
 
         # Get current categories
         categories = self.cog.get_setting("categories", [], guild_id=self.guild_id)
+        # Sort categories alphabetically for display
+        sorted_categories = sorted(categories, key=lambda c: (c.get("name") or "").lower())
 
-        if categories:
+        if sorted_categories:
             category_info = []
-            for cat in categories:
+            for cat in sorted_categories:
                 roles_count = len(cat.get("roles", []))
                 category_info.append(f"**{cat.get('name')}**: {roles_count} roles")
 
-            embed.add_field(name=f"Categories ({len(categories)})", value="\n".join(category_info[:10]), inline=False)
+            embed.add_field(name=f"Categories ({len(sorted_categories)})", value="\n".join(category_info[:10]), inline=False)
         else:
             embed.add_field(name="Categories", value="No categories configured. Click 'Manage Categories' to get started.", inline=False)
 
