@@ -8,6 +8,27 @@ from discord import ui
 from thetower.bot.ui.context import SettingsViewContext
 
 
+def _sort_role_ids_by_name(cog, guild_id: int, role_ids: List[int]) -> List[int]:
+    """Return role IDs sorted alphabetically by role name.
+
+    Falls back to stringified ID when role lookup fails.
+    """
+    guild = None
+    try:
+        guild = getattr(cog, "bot", None).get_guild(guild_id) if getattr(cog, "bot", None) else None
+    except Exception:
+        guild = None
+
+    def _name(role_id: int) -> str:
+        if guild:
+            role = guild.get_role(role_id)
+            if role and role.name:
+                return role.name.lower()
+        return str(role_id)
+
+    return sorted(role_ids, key=_name)
+
+
 class TourneyRoleColorsSettingsView(ui.View):
     """Settings view for Tourney Role Colors cog."""
 
@@ -68,12 +89,15 @@ class ManageCategoriesButton(ui.Button):
         # Get current categories
         categories = self.cog.get_setting("categories", [], guild_id=self.guild_id)
 
+        # Sort categories alphabetically for display purposes (case-insensitive)
+        sorted_categories = sorted(categories, key=lambda cat: (cat.get("name") or "").lower())
+
         # Show category management view
         view = CategoryManagementView(self.cog, self.guild_id, categories)
 
         if categories:
             category_list = "\n".join(
-                [f"**{idx + 1}.** {cat.get('name')} ({len(cat.get('roles', []))} roles)" for idx, cat in enumerate(categories[:10])]
+                [f"**{idx + 1}.** {cat.get('name')} ({len(cat.get('roles', []))} roles)" for idx, cat in enumerate(sorted_categories[:10])]
             )
             message = f"**Current Categories:**\n\n{category_list}\n\nSelect an action below:"
         else:
@@ -135,6 +159,8 @@ class CreateCategoryModal(ui.Modal, title="Create New Category"):
         new_category = {"name": self.category_name.value, "roles": []}
 
         categories.append(new_category)
+        # Persist categories sorted alphabetically by name
+        categories.sort(key=lambda c: (c.get("name") or "").lower())
         self.cog.set_setting("categories", categories, guild_id=self.guild_id)
 
         # Refresh the category management view
@@ -191,10 +217,13 @@ class CategorySelectMenu(ui.Select):
         self.guild_id = guild_id
         self.action = action
 
-        # Create options from categories
+        # Create options from categories, sorted alphabetically but retaining original index values
+        indexed_categories = list(enumerate(categories[:25]))
+        indexed_categories.sort(key=lambda pair: (pair[1].get("name") or "").lower())
+
         options = [
-            discord.SelectOption(label=cat.get("name"), value=str(idx), description=f"{len(cat.get('roles', []))} roles configured")
-            for idx, cat in enumerate(categories[:25])  # Discord limit
+            discord.SelectOption(label=cat.get("name"), value=str(orig_idx), description=f"{len(cat.get('roles', []))} roles configured")
+            for orig_idx, cat in indexed_categories
         ]
 
         super().__init__(placeholder="Select a category...", options=options, min_values=1, max_values=1)
@@ -213,6 +242,8 @@ class CategorySelectMenu(ui.Select):
             # Delete the category
             deleted_name = category.get("name")
             categories.pop(category_idx)
+            # Persist categories sorted alphabetically by name
+            categories.sort(key=lambda c: (c.get("name") or "").lower())
             self.cog.set_setting("categories", categories, guild_id=self.guild_id)
 
             # Refresh the category management view
@@ -233,13 +264,15 @@ class CategorySelectMenu(ui.Select):
             view = RoleManagementView(self.cog, self.guild_id, category_idx, category)
 
             roles = category.get("roles", [])
-            if roles:
+            # Sort roles by name for display
+            display_roles = sorted(roles, key=lambda r: (r.get("name") or "").lower())
+            if display_roles:
                 role_list = "\n".join(
                     [
                         f"**{idx + 1}.** <@&{role.get('role_id')}> - "
                         f"{len(role.get('prerequisite_roles', []))} prereqs"
                         + (f", inherits from <@&{role.get('inherits_from')}>" if role.get("inherits_from") else "")
-                        for idx, role in enumerate(roles[:10])
+                        for idx, role in enumerate(display_roles[:10])
                     ]
                 )
                 message = f"**Category: {category.get('name')}**\n\n{role_list}\n\nSelect an action:"
@@ -247,6 +280,30 @@ class CategorySelectMenu(ui.Select):
                 message = f"**Category: {category.get('name')}**\n\nNo roles configured. Click 'Add Role' to get started."
 
             await interaction.response.edit_message(content=message, view=view, embed=None)
+
+
+class BackToCategoriesButton(ui.Button):
+    """Button to return to the category selection screen."""
+
+    def __init__(self, cog, guild_id: int):
+        super().__init__(label="Back to Categories", style=discord.ButtonStyle.secondary, emoji="⬅️")
+        self.cog = cog
+        self.guild_id = guild_id
+
+    async def callback(self, interaction: discord.Interaction):
+        categories = self.cog.get_setting("categories", [], guild_id=self.guild_id)
+        view = CategoryManagementView(self.cog, self.guild_id, categories)
+
+        if categories:
+            sorted_categories = sorted(categories, key=lambda cat: (cat.get("name") or "").lower())
+            category_list = "\n".join(
+                [f"**{idx + 1}.** {cat.get('name')} ({len(cat.get('roles', []))} roles)" for idx, cat in enumerate(sorted_categories[:10])]
+            )
+            message = f"**Current Categories:**\n\n{category_list}\n\nSelect an action below:"
+        else:
+            message = "**No categories configured**\n\nClick 'Create Category' to add your first category."
+
+        await interaction.response.edit_message(content=message, view=view, embed=None)
 
 
 class RoleManagementView(ui.View):
@@ -258,6 +315,9 @@ class RoleManagementView(ui.View):
         self.guild_id = guild_id
         self.category_idx = category_idx
         self.category = category
+
+        # Back to categories
+        self.add_item(BackToCategoriesButton(self.cog, self.guild_id))
 
         # Add buttons
         self.add_item(AddRoleButton(self.cog, self.guild_id, self.category_idx, category))
@@ -312,7 +372,11 @@ class AddRoleStep1SelectRoleView(ui.View):
             return
 
         # Move to Step 2: Select inheritance
-        existing_roles = self.category.get("roles", [])
+        # Sort existing roles by name for display
+        existing_roles = sorted(
+            self.category.get("roles", []),
+            key=lambda r: (r.get("name") or "").lower(),
+        )
 
         if existing_roles:
             view = AddRoleStep2SelectInheritanceView(self.cog, self.guild_id, self.category_idx, self.category, role_id, role_name)
@@ -354,7 +418,8 @@ class AddRoleStep2SelectInheritanceView(ui.View):
         self.role_name = role_name
 
         # Create select menu with existing roles (single selection)
-        existing_roles = category.get("roles", [])
+        # Sort roles alphabetically for display
+        existing_roles = sorted(category.get("roles", []), key=lambda r: (r.get("name") or "").lower())
         options = [
             discord.SelectOption(label=role.get("name", "Unknown"), value=str(role.get("role_id")), description="Inherits its prerequisites")
             for role in existing_roles[:25]
@@ -447,9 +512,10 @@ class AddRoleStep3SelectPrerequisitesView(ui.View):
 
         content += "\n"
 
-        # Show additional prerequisites
+        # Show additional prerequisites (alphabetically by role name)
         if self.prerequisite_role_ids:
-            prereq_mentions = ", ".join([f"<@&{rid}>" for rid in self.prerequisite_role_ids])
+            sorted_addl = _sort_role_ids_by_name(self.cog, self.guild_id, list(self.prerequisite_role_ids))
+            prereq_mentions = ", ".join([f"<@&{rid}>" for rid in sorted_addl])
             content += f"📋 **Additional Prerequisites:** {prereq_mentions}\n\n"
         else:
             content += "📋 **Additional Prerequisites:** None\n\n"
@@ -460,7 +526,8 @@ class AddRoleStep3SelectPrerequisitesView(ui.View):
             all_prereqs.update(self._resolve_inherited_prereqs(self.inherits_from))
 
         if all_prereqs:
-            all_mentions = ", ".join([f"<@&{rid}>" for rid in sorted(all_prereqs)])
+            sorted_all = _sort_role_ids_by_name(self.cog, self.guild_id, list(all_prereqs))
+            all_mentions = ", ".join([f"<@&{rid}>" for rid in sorted_all])
             content += f"✅ **Full Prerequisite Set:** {all_mentions}\n"
             content += f"   (Users need ANY of these roles to select **{self.role_name}**)\n"
         else:
@@ -516,6 +583,9 @@ class AddRoleStep3SelectPrerequisitesView(ui.View):
         }
 
         category["roles"].append(new_role)
+        # Persist roles and categories sorted alphabetically by name
+        category["roles"].sort(key=lambda r: (r.get("name") or "").lower())
+        categories.sort(key=lambda c: (c.get("name") or "").lower())
         self.cog.set_setting("categories", categories, guild_id=self.guild_id)
 
         # Build summary message
@@ -539,13 +609,14 @@ class AddRoleStep3SelectPrerequisitesView(ui.View):
         view = RoleManagementView(self.cog, self.guild_id, self.category_idx, category)
 
         roles = category.get("roles", [])
-        if roles:
+        display_roles = sorted(roles, key=lambda r: (r.get("name") or "").lower())
+        if display_roles:
             role_list = "\n".join(
                 [
                     f"**{idx + 1}.** <@&{role.get('role_id')}> - "
                     f"{len(role.get('prerequisite_roles', []))} prereqs"
                     + (f", inherits from <@&{role.get('inherits_from')}>" if role.get("inherits_from") else "")
-                    for idx, role in enumerate(roles[:10])
+                    for idx, role in enumerate(display_roles[:10])
                 ]
             )
             summary += f"\n\n**Category: {category.get('name')}**\n\n{role_list}\n\nSelect an action:"
@@ -575,6 +646,8 @@ class EditRoleView(ui.View):
 
         # Build inheritance select (single selection)
         existing_roles = [r for r in category.get("roles", []) if r.get("role_id") != self.role_id]
+        # Sort for display
+        existing_roles.sort(key=lambda r: (r.get("name") or "").lower())
         if existing_roles:
             options = [
                 discord.SelectOption(
@@ -624,19 +697,21 @@ class EditRoleView(ui.View):
             if inherited_role:
                 content += f"🔗 **Inherits from:** {inherited_role.get('name')} (<@&{self.inherits_from}>)\n"
 
-                # Resolve inherited prerequisites
+                # Resolve inherited prerequisites (alphabetically by role name)
                 inherited_prereqs = self._resolve_inherited_prereqs(self.inherits_from)
                 if inherited_prereqs:
-                    inherited_mentions = ", ".join([f"<@&{rid}>" for rid in inherited_prereqs])
+                    sorted_inherited = _sort_role_ids_by_name(self.cog, self.guild_id, list(inherited_prereqs))
+                    inherited_mentions = ", ".join([f"<@&{rid}>" for rid in sorted_inherited])
                     content += f"   ↳ Inherited prerequisites: {inherited_mentions}\n"
         else:
             content += "🔗 **Inherits from:** None\n"
 
         content += "\n"
 
-        # Show additional prerequisites
+        # Show additional prerequisites (alphabetically by role name)
         if self.prerequisite_role_ids:
-            prereq_mentions = ", ".join([f"<@&{rid}>" for rid in self.prerequisite_role_ids])
+            sorted_addl = _sort_role_ids_by_name(self.cog, self.guild_id, list(self.prerequisite_role_ids))
+            prereq_mentions = ", ".join([f"<@&{rid}>" for rid in sorted_addl])
             content += f"📋 **Additional Prerequisites:** {prereq_mentions}\n\n"
         else:
             content += "📋 **Additional Prerequisites:** None\n\n"
@@ -647,7 +722,8 @@ class EditRoleView(ui.View):
             all_prereqs.update(self._resolve_inherited_prereqs(self.inherits_from))
 
         if all_prereqs:
-            all_mentions = ", ".join([f"<@&{rid}>" for rid in sorted(all_prereqs)])
+            sorted_all = _sort_role_ids_by_name(self.cog, self.guild_id, list(all_prereqs))
+            all_mentions = ", ".join([f"<@&{rid}>" for rid in sorted_all])
             content += f"✅ **Full Prerequisite Set:** {all_mentions}\n"
             content += f"   (Users need ANY of these roles to select **{self.role_name}**)\n"
         else:
@@ -699,6 +775,9 @@ class EditRoleView(ui.View):
             "inherits_from": self.inherits_from,
         }
 
+        # Persist roles and categories sorted alphabetically by name
+        roles.sort(key=lambda r: (r.get("name") or "").lower())
+        categories.sort(key=lambda c: (c.get("name") or "").lower())
         self.cog.set_setting("categories", categories, guild_id=self.guild_id)
 
         # Build summary message
@@ -725,12 +804,13 @@ class EditRoleView(ui.View):
         view = RoleManagementView(self.cog, self.guild_id, self.category_idx, self.category)
 
         roles = self.category.get("roles", [])
+        display_roles = sorted(roles, key=lambda r: (r.get("name") or "").lower())
         role_list = "\n".join(
             [
                 f"**{idx + 1}.** <@&{role.get('role_id')}> - "
                 f"{len(role.get('prerequisite_roles', []))} prereqs"
                 + (f", inherits from <@&{role.get('inherits_from')}>" if role.get("inherits_from") else "")
-                for idx, role in enumerate(roles[:10])
+                for idx, role in enumerate(display_roles[:10])
             ]
         )
         message = f"**Category: {self.category.get('name')}**\n\n{role_list}\n\nSelect an action:"
@@ -812,14 +892,17 @@ class RoleSelectMenu(ui.Select):
         self.category_idx = category_idx
         self.action = action
 
-        # Create options from roles
+        # Create options from roles, sorted by name for display while retaining original indices
+        indexed_roles = list(enumerate(category.get("roles", [])[:25]))
+        indexed_roles.sort(key=lambda pair: (pair[1].get("name") or "").lower())
+
         options = [
             discord.SelectOption(
                 label=f"{role.get('name', 'Unknown')}",
-                value=str(idx),
+                value=str(orig_idx),
                 description=f"{len(role.get('prerequisite_roles', []))} prereqs" + (", inherits" if role.get("inherits_from") else ""),
             )
-            for idx, role in enumerate(category.get("roles", [])[:25])
+            for orig_idx, role in indexed_roles
         ]
 
         super().__init__(placeholder="Select a role...", options=options, min_values=1, max_values=1)
@@ -845,18 +928,22 @@ class RoleSelectMenu(ui.Select):
             # Delete the role
             deleted_name = role_config.get("name")
             roles.pop(role_idx)
+            # Persist roles and categories sorted alphabetically by name
+            roles.sort(key=lambda r: (r.get("name") or "").lower())
+            categories.sort(key=lambda c: (c.get("name") or "").lower())
             self.cog.set_setting("categories", categories, guild_id=self.guild_id)
 
             # Refresh the role management view
             view = RoleManagementView(self.cog, self.guild_id, self.category_idx, category)
             roles = category.get("roles", [])
-            if roles:
+            display_roles = sorted(roles, key=lambda r: (r.get("name") or "").lower())
+            if display_roles:
                 role_list = "\n".join(
                     [
                         f"**{idx + 1}.** <@&{role.get('role_id')}> - "
                         f"{len(role.get('prerequisite_roles', []))} prereqs"
                         + (f", inherits from <@&{role.get('inherits_from')}>" if role.get("inherits_from") else "")
-                        for idx, role in enumerate(roles[:10])
+                        for idx, role in enumerate(display_roles[:10])
                     ]
                 )
                 message = f"✅ Removed {deleted_name}\n\n**Category: {category.get('name')}**\n\n{role_list}\n\nSelect an action:"
