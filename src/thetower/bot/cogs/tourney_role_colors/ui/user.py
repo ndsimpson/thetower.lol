@@ -198,7 +198,7 @@ class CategoryRoleSelectionView(ui.View):
         content += "**Available roles in this category:**\n"
 
         for role_config in self.roles:
-            content += f"• {role_config['name']}: <@&{role_config['role_id']}>\n"
+            content += f"• <@&{role_config['role_id']}>\n"
 
         content += "\nClick a role to select it:"
 
