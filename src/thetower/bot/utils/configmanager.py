@@ -386,37 +386,6 @@ class ConfigManager:
         self.save_config()
         logger.info(f"Set enabled_cogs for guild {guild_id}: {enabled_cogs}")
 
-    def get_guild_prefix(self, guild_id: int) -> str | list[str] | None:
-        """Get the command prefix(es) for a guild.
-
-        Args:
-            guild_id: The guild ID
-
-        Returns:
-            The guild's prefix (string), list of prefixes, or None if using default
-        """
-        if guild_id is None:
-            raise ValueError("guild_id is required")
-
-        # Don't create empty structures when reading
-        return self.config.get("guilds", {}).get(str(guild_id), {}).get("prefix")
-
-    def set_guild_prefix(self, guild_id: int, prefix: str | list[str]) -> None:
-        """Set the command prefix(es) for a guild.
-
-        Args:
-            guild_id: The guild ID
-            prefix: The new prefix (string) or list of prefixes
-        """
-        if guild_id is None:
-            raise ValueError("guild_id is required")
-
-        guild_config = self.config.setdefault("guilds", {}).setdefault(str(guild_id), {})
-        guild_config["prefix"] = prefix
-
-        self.save_config()
-        logger.info(f"Set prefix for guild {guild_id}: {prefix}")
-
     def add_guild_enabled_cog(self, guild_id: int, cog_name: str) -> bool:
         """Add a cog to the guild's enabled list.
 

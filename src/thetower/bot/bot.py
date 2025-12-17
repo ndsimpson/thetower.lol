@@ -47,7 +47,7 @@ class DiscordBot(commands.Bot):
         self.permission_manager = PermissionManager(self.config)
 
         super().__init__(
-            command_prefix=self._get_prefix,
+            command_prefix=[],  # Empty list disables text commands (slash commands only)
             intents=intents,
             case_insensitive=True,
             # Add application_id for slash commands support
@@ -56,29 +56,6 @@ class DiscordBot(commands.Bot):
         )
         self.logger = logger
         self.cog_manager = CogManager(self)
-
-    def _get_prefix(self, bot, message):
-        """Get the command prefix(es) for a guild.
-
-        Returns the guild-specific prefix(es) if set, otherwise the default prefix.
-        Supports DMs by falling back to default prefix.
-        Can return a single prefix or a list of prefixes.
-        """
-        # Get default prefixes from config (no hardcoded fallback)
-        default_prefixes = self.config.get("prefixes", [])
-
-        # In DMs, use default prefixes
-        if message.guild is None:
-            return default_prefixes
-
-        # Get guild-specific prefix(es)
-        guild_prefixes = self.config.get_guild_prefix(message.guild.id)
-
-        # If guild has custom prefix(es), use them; otherwise use default
-        if guild_prefixes:
-            # If it's a list, return the list; if it's a string, return as-is
-            return guild_prefixes
-        return default_prefixes
 
     async def setup_hook(self) -> None:
         """This will just be executed when the bot starts the first time."""
@@ -120,42 +97,6 @@ class DiscordBot(commands.Bot):
                 self.logger.warning(
                     f"{context.author} (ID: {context.author.id}) tried to execute an owner only command in the bot's DMs, but the user is not an owner of the bot."
                 )
-        elif isinstance(error, commands.CommandNotFound):
-            # Log the unknown command attempt
-            command_name = (
-                context.message.content.split()[0][len(context.prefix) :] if context.message.content.startswith(context.prefix) else "Unknown"
-            )
-            self.logger.info(f"Unknown command '{command_name}' attempted by {context.author} (ID: {context.author.id})")
-
-            # Check if we should log to a Discord channel
-            error_channel_id = self.config.get("error_log_channel", None)
-            if error_channel_id:
-                try:
-                    channel = self.get_channel(int(error_channel_id))
-                    if channel:
-                        # Create informative embed for the error log channel
-                        embed = discord.Embed(
-                            title="Command Not Found",
-                            description="Unknown command attempted",
-                            color=discord.Color.orange(),
-                            timestamp=context.message.created_at,
-                        )
-
-                        # Add details about the command attempt
-                        embed.add_field(name="Attempted Command", value=f"`{context.message.content}`", inline=False)
-                        embed.add_field(name="User", value=f"{context.author.mention} ({context.author})", inline=True)
-                        embed.add_field(name="User ID", value=f"`{context.author.id}`", inline=True)
-
-                        # Add location details
-                        if context.guild:
-                            embed.add_field(name="Server", value=context.guild.name, inline=True)
-                            embed.add_field(name="Channel", value=f"{context.channel.mention}", inline=True)
-                        else:
-                            embed.add_field(name="Location", value="Direct Message", inline=True)
-
-                        await channel.send(embed=embed)
-                except Exception as e:
-                    self.logger.error(f"Failed to log CommandNotFound to Discord channel: {e}")
         elif isinstance(error, commands.MissingPermissions):
             embed = discord.Embed(
                 description="You are missing the permission(s) `" + ", ".join(error.missing_permissions) + "` to execute this command!",
@@ -274,38 +215,6 @@ class DiscordBot(commands.Bot):
                 description="I am missing the permission(s) `" + ", ".join(error.missing_permissions) + "` to fully perform this command!",
                 color=discord.Color.red(),
             )
-            await context.send(embed=embed)
-        elif isinstance(error, commands.MissingRequiredArgument):
-            # Get command signature and clean it up for display
-            signature = context.command.signature
-
-            # Create a more informative error message with command usage
-            command_name = context.command.qualified_name
-            prefix = context.prefix
-            usage = f"{prefix}{command_name} {signature}"
-
-            # Highlight the missing parameter in the error description
-            param_name = error.param.name
-            error_message = f"The argument `{param_name}` is required but was not provided."
-
-            embed = discord.Embed(
-                title="Missing Required Argument", description=f"{error_message}\n\n**Usage:**\n`{usage}`", color=discord.Color.red()
-            )
-
-            # If there's a command help text, include it
-            if context.command.help:
-                # Extract the first paragraph of help (stops at first double newline)
-                help_text = context.command.help.split("\n\n")[0].strip()
-                embed.add_field(name="Help", value=help_text, inline=False)
-
-            # Add examples if they exist in the help text
-            if context.command.help and "Examples:" in context.command.help:
-                examples_section = context.command.help.split("Examples:")[1].strip()
-                # Get only the example section, stopping at the next major section if it exists
-                if "\n\n" in examples_section:
-                    examples_section = examples_section.split("\n\n")[0].strip()
-                embed.add_field(name="Examples", value=examples_section, inline=False)
-
             await context.send(embed=embed)
         else:
             raise error

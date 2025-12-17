@@ -50,13 +50,10 @@ class SettingsMainView(View):
         )
 
         # Configuration settings
-        default_prefixes = bot.config.get("prefixes", [])
-        prefix_display = ", ".join([f"`{p}`" for p in default_prefixes]) if default_prefixes else "None configured"
         error_channel_id = bot.config.get("error_log_channel", None)
         error_channel = bot.get_channel(int(error_channel_id)) if error_channel_id else None
 
         config_info = [
-            f"**Default Prefixes:** {prefix_display}",
             f"**Error Log Channel:** {error_channel.mention if error_channel else 'Not set'}",
             f"**Load All Cogs:** {'Yes' if bot.config.get('load_all_cogs', False) else 'No'}",
         ]
@@ -92,11 +89,6 @@ class BotOwnerSettingsView(View):
     def __init__(self):
         super().__init__(timeout=900)
 
-        # Set default prefix button
-        prefix_btn = Button(label="Set Default Prefix", style=discord.ButtonStyle.primary, emoji="🔤", custom_id="set_default_prefix")
-        prefix_btn.callback = self.set_default_prefix
-        self.add_item(prefix_btn)
-
         # Cog management button
         cog_mgmt_btn = Button(label="Cog Management", style=discord.ButtonStyle.secondary, emoji="⚙️", custom_id="cog_management")
         cog_mgmt_btn.callback = self.show_cog_management
@@ -116,12 +108,6 @@ class BotOwnerSettingsView(View):
         back_btn = Button(label="Back", style=discord.ButtonStyle.gray, emoji="⬅️", custom_id="back_to_main")
         back_btn.callback = self.back_to_main
         self.add_item(back_btn)
-
-    async def set_default_prefix(self, interaction: discord.Interaction):
-        """Show the default prefix management interface."""
-        # Create prefix management view
-        view = BotPrefixManagementView()
-        await view.update_display(interaction)
 
     async def show_cog_reload(self, interaction: discord.Interaction):
         """Show the quick cog reload interface."""
@@ -269,279 +255,6 @@ class BotOwnerSettingsView(View):
         await interaction.response.edit_message(embed=embed, view=view)
 
 
-class GuildPrefixManagementView(View):
-    """View for managing guild-specific prefixes."""
-
-    def __init__(self, guild_id: int):
-        super().__init__(timeout=900)
-        self.guild_id = guild_id
-        self.selected_prefix_index = None
-        self.status_message = None
-
-        # Add prefix button
-        add_btn = Button(label="Add Prefix", style=discord.ButtonStyle.success, emoji="➕", custom_id="add_prefix")
-        add_btn.callback = self.add_prefix
-        self.add_item(add_btn)
-
-        # Edit prefix button
-        edit_btn = Button(label="Edit Prefix", style=discord.ButtonStyle.primary, emoji="✏️", custom_id="edit_prefix", disabled=True)
-        edit_btn.callback = self.edit_prefix
-        self.add_item(edit_btn)
-
-        # Delete prefix button
-        delete_btn = Button(label="Delete Prefix", style=discord.ButtonStyle.danger, emoji="🗑️", custom_id="delete_prefix", disabled=True)
-        delete_btn.callback = self.delete_prefix
-        self.add_item(delete_btn)
-
-        # Prefix selector dropdown
-        self.prefix_select = ui.Select(
-            placeholder="Select a prefix to manage...",
-            options=[
-                discord.SelectOption(label="Loading...", value="loading", description="Please wait while prefixes are loaded")
-            ],  # Will be populated dynamically
-            custom_id="prefix_selector",
-        )
-        self.prefix_select.callback = self.select_prefix
-        self.add_item(self.prefix_select)
-
-        # Refresh button
-        refresh_btn = Button(label="Refresh", style=discord.ButtonStyle.secondary, emoji="🔄", custom_id="refresh_prefixes")
-        refresh_btn.callback = self.refresh_prefixes
-        self.add_item(refresh_btn)
-
-        # Back button
-        back_btn = Button(label="Back", style=discord.ButtonStyle.gray, emoji="⬅️", custom_id="back_to_guild_settings")
-        back_btn.callback = self.back_to_guild_settings
-        self.add_item(back_btn)
-
-    async def update_display(self, interaction: discord.Interaction):
-        """Update the embed and populate prefix selector."""
-        bot = interaction.client
-
-        # Get guild prefixes
-        guild_config = bot.config.config.setdefault("guilds", {}).setdefault(str(self.guild_id), {})
-        guild_prefixes = guild_config.get("prefixes", [])
-
-        # Populate prefix selector
-        self.prefix_select.options = []
-        if guild_prefixes:
-            for i, prefix in enumerate(guild_prefixes):
-                option = discord.SelectOption(label=f"Prefix {i+1}: {prefix}", value=str(i), description=f"Command prefix: {prefix}")
-                self.prefix_select.options.append(option)
-        else:
-            # Add placeholder option when no prefixes exist
-            option = discord.SelectOption(label="No custom prefixes", value="none", description="Using default bot prefixes")
-            self.prefix_select.options.append(option)
-
-        # Update embed
-        embed = discord.Embed(title="🔤 Server Prefixes", description="Manage custom command prefixes for this server", color=discord.Color.blue())
-
-        # Show status message if any
-        if self.status_message:
-            embed.add_field(name="Status", value=self.status_message, inline=False)
-            self.status_message = None  # Clear after displaying
-
-        # Show current prefixes
-        if guild_prefixes:
-            prefix_list = []
-            for i, prefix in enumerate(guild_prefixes):
-                if self.selected_prefix_index == i:
-                    prefix_list.append(f"**`{prefix}`** ← Selected")
-                else:
-                    prefix_list.append(f"`{prefix}`")
-
-            embed.add_field(name=f"Server Prefixes ({len(guild_prefixes)})", value="\n".join(prefix_list), inline=False)
-        else:
-            embed.add_field(name="Server Prefixes", value="No custom prefixes set. Using default bot prefixes.", inline=False)
-
-        # Show default bot prefixes for reference
-        default_prefixes = bot.config.get("prefixes", [])
-        if default_prefixes:
-            default_display = ", ".join([f"`{p}`" for p in default_prefixes])
-            embed.add_field(name="Default Bot Prefixes", value=default_display, inline=False)
-
-        # Enable/disable buttons based on selection and available prefixes
-        has_prefixes = len(guild_prefixes) > 0
-        has_selection = self.selected_prefix_index is not None and has_prefixes
-        self.prefix_select.disabled = not has_prefixes
-        self.children[1].disabled = not has_selection  # edit_btn
-        self.children[2].disabled = not has_selection  # delete_btn
-
-        await interaction.response.edit_message(embed=embed, view=self)
-
-    async def select_prefix(self, interaction: discord.Interaction):
-        """Handle prefix selection."""
-        selected_value = self.prefix_select.values[0] if self.prefix_select.values else None
-        if selected_value in ["none", "loading"]:
-            self.selected_prefix_index = None
-        else:
-            self.selected_prefix_index = int(selected_value)
-        await self.update_display(interaction)
-
-    async def add_prefix(self, interaction: discord.Interaction):
-        """Add a new prefix."""
-        modal = GuildPrefixModal(is_edit=False)
-        await interaction.response.send_modal(modal)
-
-    async def edit_prefix(self, interaction: discord.Interaction):
-        """Edit the selected prefix."""
-        if self.selected_prefix_index is None:
-            await interaction.response.send_message("❌ No prefix selected.", ephemeral=True)
-            return
-
-        bot = interaction.client
-
-        guild_config = bot.config.config.setdefault("guilds", {}).setdefault(str(self.guild_id), {})
-        guild_prefixes = guild_config.get("prefixes", [])
-
-        if self.selected_prefix_index >= len(guild_prefixes):
-            await interaction.response.send_message("❌ Selected prefix no longer exists.", ephemeral=True)
-            return
-
-        current_prefix = guild_prefixes[self.selected_prefix_index]
-        modal = GuildPrefixModal(is_edit=True, current_prefix=current_prefix, prefix_index=self.selected_prefix_index)
-        await interaction.response.send_modal(modal)
-
-    async def delete_prefix(self, interaction: discord.Interaction):
-        """Delete the selected prefix."""
-        if self.selected_prefix_index is None:
-            await interaction.response.send_message("❌ No prefix selected.", ephemeral=True)
-            return
-
-        bot = interaction.client
-
-        guild_config = bot.config.config.setdefault("guilds", {}).setdefault(str(self.guild_id), {})
-        guild_prefixes = guild_config.get("prefixes", [])
-
-        if self.selected_prefix_index >= len(guild_prefixes):
-            await interaction.response.send_message("❌ Selected prefix no longer exists.", ephemeral=True)
-            return
-
-        deleted_prefix = guild_prefixes.pop(self.selected_prefix_index)
-
-        if guild_prefixes:
-            guild_config["prefixes"] = guild_prefixes
-        else:
-            # Remove the prefixes key if empty
-            if "prefixes" in guild_config:
-                del guild_config["prefixes"]
-
-        bot.config.save_config()
-
-        self.status_message = f"✅ Server prefix `{deleted_prefix}` deleted."
-        self.selected_prefix_index = None  # Clear selection
-
-        # Refresh display
-        await self.update_display(interaction)
-
-    async def refresh_prefixes(self, interaction: discord.Interaction):
-        """Refresh the display."""
-        await self.update_display(interaction)
-
-    async def back_to_guild_settings(self, interaction: discord.Interaction):
-        """Go back to guild settings."""
-        # Create a detailed server settings view
-        view = GuildOwnerSettingsView(self.guild_id)
-
-        guild = interaction.guild
-        embed = discord.Embed(title=f"🏰 {guild.name} Settings", description="Server-specific configuration", color=discord.Color.blue())
-
-        # Server Information
-        server_info = [
-            f"**Name:** {guild.name}",
-            f"**ID:** {guild.id}",
-            f"**Members:** {guild.member_count}",
-            f"**Owner:** {guild.owner.mention if guild.owner else 'Unknown'}",
-        ]
-        embed.add_field(name="Server Information", value="\n".join(server_info), inline=False)
-
-        # Server Configuration
-        bot = interaction.client
-
-        # Get current prefix for this guild
-        guild_config = bot.config.config.get("guilds", {}).get(str(self.guild_id), {})
-        guild_prefixes = guild_config.get("prefixes", [])
-
-        if guild_prefixes:
-            current_prefix = f"{guild_prefixes[0]} (custom)"
-        else:
-            default_prefixes = bot.config.get("prefixes", [])
-            if default_prefixes:
-                current_prefix = f"{default_prefixes[0]} (default)"
-            else:
-                current_prefix = "No prefix configured"
-
-        embed.add_field(name="Server Configuration", value=f"**Command Prefix:** {current_prefix}", inline=False)
-
-        # Enabled Features
-        enabled_cogs = []
-        all_cogs = bot.cog_manager.get_all_cogs_with_config()
-        for cog_name, config in all_cogs.items():
-            if config.get("enabled", False):
-                enabled_cogs.append(cog_name)
-
-        if enabled_cogs:
-            cogs_list = ", ".join(enabled_cogs)
-            embed.add_field(name="Enabled Features", value=f"**Cogs:** {len(enabled_cogs)} enabled\n**List:** {cogs_list}", inline=False)
-        else:
-            embed.add_field(name="Enabled Features", value="**Cogs:** 0 enabled", inline=False)
-
-        await interaction.response.edit_message(embed=embed, view=view)
-
-
-class GuildPrefixModal(ui.Modal, title="Manage Server Prefix"):
-    """Modal for adding or editing guild prefixes."""
-
-    def __init__(self, is_edit: bool = False, current_prefix: str = "", prefix_index: int = None):
-        super().__init__()
-        self.is_edit = is_edit
-        self.prefix_index = prefix_index
-
-        title_text = "Edit Server Prefix" if is_edit else "Add Server Prefix"
-        self.title = title_text
-
-        self.prefix_input = ui.TextInput(
-            label="Prefix", placeholder="Enter command prefix (e.g., ! or >)", required=True, max_length=5, default=current_prefix
-        )
-        self.add_item(self.prefix_input)
-
-    async def on_submit(self, interaction: discord.Interaction):
-        """Handle prefix add/edit."""
-        new_prefix = self.prefix_input.value.strip()
-
-        if not new_prefix:
-            await interaction.response.send_message("❌ Prefix cannot be empty", ephemeral=True)
-            return
-
-        bot = interaction.client
-
-        guild_config = bot.config.config.setdefault("guilds", {}).setdefault(str(interaction.guild.id), {})
-        guild_prefixes = guild_config.get("prefixes", [])
-
-        if self.is_edit and self.prefix_index is not None:
-            # Edit existing prefix
-            if self.prefix_index >= len(guild_prefixes):
-                await interaction.response.send_message("❌ Prefix no longer exists.", ephemeral=True)
-                return
-            old_prefix = guild_prefixes[self.prefix_index]
-            guild_prefixes[self.prefix_index] = new_prefix
-            action = f"updated from `{old_prefix}` to `{new_prefix}`"
-        else:
-            # Add new prefix
-            if new_prefix in guild_prefixes:
-                await interaction.response.send_message(f"❌ Prefix `{new_prefix}` already exists for this server.", ephemeral=True)
-                return
-            guild_prefixes.append(new_prefix)
-            action = f"added: `{new_prefix}`"
-
-        guild_config["prefixes"] = guild_prefixes
-        bot.config.save_config()
-
-        await interaction.response.send_message(
-            f"✅ Server prefix {action}\n\n*Click 'Refresh' in the prefix management view to see the updated list.*", ephemeral=True
-        )
-
-
 class GuildOwnerSettingsView(View):
     """Settings view for guild owners with limited access."""
 
@@ -549,20 +262,10 @@ class GuildOwnerSettingsView(View):
         super().__init__(timeout=900)
         self.guild_id = guild_id
 
-        # Set guild prefix button - now opens management view
-        prefix_btn = Button(label="Manage Server Prefixes", style=discord.ButtonStyle.primary, emoji="🔤", custom_id="manage_prefixes")
-        prefix_btn.callback = self.manage_prefixes
-        self.add_item(prefix_btn)
-
         # Cog settings button
         cog_settings_btn = Button(label="Cog Settings", style=discord.ButtonStyle.secondary, emoji="⚙️", custom_id="cog_settings")
         cog_settings_btn.callback = self.manage_cog_settings
         self.add_item(cog_settings_btn)
-
-        # Clear guild prefix button
-        clear_prefix_btn = Button(label="Use Default Prefix", style=discord.ButtonStyle.secondary, emoji="🔄", custom_id="clear_prefix")
-        clear_prefix_btn.callback = self.clear_prefix
-        self.add_item(clear_prefix_btn)
 
         # Back button
         back_btn = Button(label="Back", style=discord.ButtonStyle.gray, emoji="⬅️", custom_id="back_to_main")
@@ -583,25 +286,9 @@ class GuildOwnerSettingsView(View):
         ]
         embed.add_field(name="Server Information", value="\n".join(server_info), inline=False)
 
-        # Server Configuration
+        # Enabled Features
         bot = interaction.client
 
-        # Get current prefix for this guild
-        guild_config = bot.config.config.get("guilds", {}).get(str(self.guild_id), {})
-        guild_prefixes = guild_config.get("prefixes", [])
-
-        if guild_prefixes:
-            current_prefix = f"{guild_prefixes[0]} (custom)"
-        else:
-            default_prefixes = bot.config.get("prefixes", [])
-            if default_prefixes:
-                current_prefix = f"{default_prefixes[0]} (default)"
-            else:
-                current_prefix = "No prefix configured"
-
-        embed.add_field(name="Server Configuration", value=f"**Command Prefix:** {current_prefix}", inline=False)
-
-        # Enabled Features
         enabled_cogs = bot.cog_manager.config.get_guild_enabled_cogs(self.guild_id)
 
         if enabled_cogs:
@@ -611,55 +298,6 @@ class GuildOwnerSettingsView(View):
             embed.add_field(name="Enabled Features", value="**Cogs:** 0 enabled", inline=False)
 
         await interaction.response.edit_message(embed=embed, view=self)
-
-    async def manage_prefixes(self, interaction: discord.Interaction):
-        """Open guild prefix management view."""
-        view = GuildPrefixManagementView(self.guild_id)
-
-        # Populate the view before sending the message
-        bot = interaction.client
-
-        # Get guild prefixes
-        guild_config = bot.config.config.setdefault("guilds", {}).setdefault(str(view.guild_id), {})
-        guild_prefixes = guild_config.get("prefixes", [])
-
-        # Populate prefix selector
-        view.prefix_select.options = []
-        if guild_prefixes:
-            for i, prefix in enumerate(guild_prefixes):
-                option = discord.SelectOption(label=f"Prefix {i+1}: {prefix}", value=str(i), description=f"Command prefix: {prefix}")
-                view.prefix_select.options.append(option)
-        else:
-            # Add placeholder option when no prefixes exist
-            option = discord.SelectOption(label="No custom prefixes", value="none", description="Using default bot prefixes")
-            view.prefix_select.options.append(option)
-
-        # Create embed with populated data
-        embed = discord.Embed(title="🔤 Server Prefixes", description="Manage custom command prefixes for this server", color=discord.Color.blue())
-
-        # Show current prefixes
-        if guild_prefixes:
-            prefix_list = []
-            for i, prefix in enumerate(guild_prefixes):
-                prefix_list.append(f"`{prefix}`")
-
-            embed.add_field(name=f"Server Prefixes ({len(guild_prefixes)})", value="\n".join(prefix_list), inline=False)
-        else:
-            embed.add_field(name="Server Prefixes", value="No custom prefixes set. Using default bot prefixes.", inline=False)
-
-        # Show default bot prefixes for reference
-        default_prefixes = bot.config.get("prefixes", [])
-        if default_prefixes:
-            default_display = ", ".join([f"`{p}`" for p in default_prefixes])
-            embed.add_field(name="Default Bot Prefixes", value=default_display, inline=False)
-
-        # Enable/disable buttons based on available prefixes
-        has_prefixes = len(guild_prefixes) > 0
-        view.prefix_select.disabled = not has_prefixes
-        view.children[1].disabled = not has_prefixes  # edit_btn
-        view.children[2].disabled = not has_prefixes  # delete_btn
-
-        await interaction.response.edit_message(embed=embed, view=view)
 
     async def manage_cog_settings(self, interaction: discord.Interaction):
         """Open cog settings management view."""
@@ -756,24 +394,6 @@ class GuildOwnerSettingsView(View):
         view.configure_btn.disabled = True  # No selection yet
 
         await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
-
-    async def clear_prefix(self, interaction: discord.Interaction):
-        """Clear guild-specific prefix to use default."""
-        bot = interaction.client
-
-        # Remove guild-specific prefix
-        guild_config = bot.config.config.setdefault("guilds", {}).setdefault(str(self.guild_id), {})
-        if "prefix" in guild_config:
-            del guild_config["prefix"]
-        bot.config.save_config()
-
-        default_prefixes = bot.config.get("prefixes", [])
-        if default_prefixes:
-            default_prefix = default_prefixes[0]
-            message = f"✅ Server prefix cleared. Now using default prefix: `{default_prefix}`"
-        else:
-            message = "✅ Server prefix cleared. Now using default (no prefix configured)"
-        await interaction.response.send_message(message, ephemeral=True)
 
     async def back_to_main(self, interaction: discord.Interaction):
         """Go back to main settings view."""
@@ -1228,25 +848,8 @@ class CogSettingsView(View):
         ]
         embed.add_field(name="Server Information", value="\n".join(server_info), inline=False)
 
-        # Server Configuration
-        bot = interaction.client
-
-        # Get current prefix for this guild
-        guild_config = bot.config.config.get("guilds", {}).get(str(self.guild_id), {})
-        guild_prefixes = guild_config.get("prefixes", [])
-
-        if guild_prefixes:
-            current_prefix = f"{guild_prefixes[0]} (custom)"
-        else:
-            default_prefixes = bot.config.get("prefixes", [])
-            if default_prefixes:
-                current_prefix = f"{default_prefixes[0]} (default)"
-            else:
-                current_prefix = "No prefix configured"
-
-        embed.add_field(name="Server Configuration", value=f"**Command Prefix:** {current_prefix}", inline=False)
-
         # Enabled Features
+        bot = interaction.client
         enabled_cogs = bot.cog_manager.config.get_guild_enabled_cogs(self.guild_id)
 
         if enabled_cogs:
@@ -1925,258 +1528,6 @@ class GuildCogVisibilityView(View):
         await view.update_display(interaction)
 
 
-class PrefixModal(ui.Modal, title="Set Server Prefix"):
-    """Modal for setting a custom prefix."""
-
-    def __init__(self, guild_id: int):
-        super().__init__()
-        self.guild_id = guild_id
-
-        self.prefix_input = ui.TextInput(label="New Prefix", placeholder="Enter new command prefix (e.g., ! or >)", required=True, max_length=5)
-        self.add_item(self.prefix_input)
-
-    async def on_submit(self, interaction: discord.Interaction):
-        """Handle prefix update."""
-        new_prefix = self.prefix_input.value.strip()
-
-        if not new_prefix:
-            await interaction.response.send_message("❌ Prefix cannot be empty", ephemeral=True)
-            return
-
-        bot = interaction.client
-
-        # Set guild-specific prefix
-        guild_config = bot.config.config.setdefault("guilds", {}).setdefault(str(self.guild_id), {})
-        guild_config["prefix"] = new_prefix
-        bot.config.save_config()
-
-        await interaction.response.send_message(f"✅ Server prefix set to: `{new_prefix}`", ephemeral=True)
-
-
-class BotPrefixManagementView(View):
-    """View for managing the default bot prefixes."""
-
-    def __init__(self):
-        super().__init__(timeout=900)
-        self.selected_prefix_index = None
-        self.status_message = None
-
-        # Add prefix button
-        add_prefix_btn = Button(label="Add Prefix", style=discord.ButtonStyle.primary, emoji="➕", custom_id="add_prefix")
-        add_prefix_btn.callback = self.add_prefix
-        self.add_item(add_prefix_btn)
-
-        # Edit prefix button
-        edit_prefix_btn = Button(label="Edit Prefix", style=discord.ButtonStyle.secondary, emoji="✏️", custom_id="edit_prefix", disabled=True)
-        edit_prefix_btn.callback = self.edit_prefix
-        self.add_item(edit_prefix_btn)
-
-        # Delete prefix button
-        delete_prefix_btn = Button(label="Delete Prefix", style=discord.ButtonStyle.danger, emoji="🗑️", custom_id="delete_prefix", disabled=True)
-        delete_prefix_btn.callback = self.delete_prefix
-        self.add_item(delete_prefix_btn)
-
-        # Refresh button
-        refresh_btn = Button(label="Refresh", style=discord.ButtonStyle.gray, emoji="🔄", custom_id="refresh_prefixes")
-        refresh_btn.callback = self.refresh_display
-        self.add_item(refresh_btn)
-
-        # Back button
-        back_btn = Button(label="Back", style=discord.ButtonStyle.gray, emoji="⬅️", custom_id="back_to_bot_settings")
-        back_btn.callback = self.back_to_bot_settings
-        self.add_item(back_btn)
-
-        # Prefix selector dropdown
-        self.prefix_select = ui.Select(
-            placeholder="Select a prefix to edit/delete...",
-            options=[
-                discord.SelectOption(label="Loading...", value="loading", description="Please wait while prefixes are loaded")
-            ],  # Will be populated dynamically
-            custom_id="prefix_selector",
-        )
-        self.prefix_select.callback = self.select_prefix
-        self.add_item(self.prefix_select)
-
-    async def update_display(self, interaction: discord.Interaction):
-        """Update the embed with current prefix information."""
-        bot = interaction.client
-
-        prefixes = bot.config.get("prefixes", [])
-
-        embed = discord.Embed(
-            title="🔤 Default Bot Prefixes", description="Manage the default command prefixes for the bot", color=discord.Color.blue()
-        )
-
-        # Show status message if any
-        if self.status_message:
-            embed.add_field(name="Status", value=self.status_message, inline=False)
-            self.status_message = None  # Clear after displaying
-
-        if prefixes:
-            prefix_list = "\n".join([f"• `{prefix}`" for prefix in prefixes])
-            embed.add_field(name=f"Current Default Prefixes ({len(prefixes)})", value=prefix_list, inline=False)
-        else:
-            embed.add_field(name="Current Default Prefixes", value="No prefixes configured", inline=False)
-
-        embed.add_field(name="Note", value="These prefixes will be used when servers don't have their own custom prefix set.", inline=False)
-
-        # Update prefix selector
-        self.prefix_select.options = []
-        if prefixes:
-            for i, prefix in enumerate(prefixes):
-                option = discord.SelectOption(label=f"Prefix {i+1}: {prefix}", value=str(i), description="Click to select this prefix")
-                self.prefix_select.options.append(option)
-        else:
-            # Add placeholder option when no prefixes exist
-            option = discord.SelectOption(label="No prefixes configured", value="none", description="Add a prefix to get started")
-            self.prefix_select.options.append(option)
-
-        # Enable/disable edit/delete buttons and select based on available prefixes
-        has_selection = self.selected_prefix_index is not None
-        has_prefixes = len(prefixes) > 0
-        self.prefix_select.disabled = not has_prefixes
-        self.children[1].disabled = not (has_selection and has_prefixes)  # edit_prefix_btn
-        self.children[2].disabled = not (has_selection and has_prefixes)  # delete_prefix_btn
-
-        await interaction.response.edit_message(embed=embed, view=self)
-
-    async def select_prefix(self, interaction: discord.Interaction):
-        """Handle prefix selection."""
-        selected_value = self.prefix_select.values[0] if self.prefix_select.values else None
-        if selected_value in ["none", "loading"]:
-            self.selected_prefix_index = None
-        else:
-            self.selected_prefix_index = int(selected_value) if selected_value else None
-        await self.update_display(interaction)
-
-    async def add_prefix(self, interaction: discord.Interaction):
-        """Add a new prefix."""
-        modal = BotPrefixModal(is_edit=False)
-        await interaction.response.send_modal(modal)
-
-    async def edit_prefix(self, interaction: discord.Interaction):
-        """Edit the selected prefix."""
-        if self.selected_prefix_index is None:
-            await interaction.response.send_message("❌ No prefix selected.", ephemeral=True)
-            return
-
-        bot = interaction.client
-        prefixes = bot.config.get("prefixes", [])
-
-        if self.selected_prefix_index >= len(prefixes):
-            await interaction.response.send_message("❌ Selected prefix no longer exists.", ephemeral=True)
-            return
-
-        current_prefix = prefixes[self.selected_prefix_index]
-        modal = BotPrefixModal(is_edit=True, current_prefix=current_prefix, prefix_index=self.selected_prefix_index)
-        await interaction.response.send_modal(modal)
-
-    async def delete_prefix(self, interaction: discord.Interaction):
-        """Delete the selected prefix."""
-        if self.selected_prefix_index is None:
-            await interaction.response.send_message("❌ No prefix selected.", ephemeral=True)
-            return
-
-        bot = interaction.client
-        prefixes = bot.config.get("prefixes", [])
-
-        if self.selected_prefix_index >= len(prefixes):
-            await interaction.response.send_message("❌ Selected prefix no longer exists.", ephemeral=True)
-            return
-
-        deleted_prefix = prefixes.pop(self.selected_prefix_index)
-        bot.config.config["prefixes"] = prefixes
-        bot.config.save_config()
-
-        self.status_message = f"✅ Prefix `{deleted_prefix}` deleted successfully."
-
-        # Reset selection and refresh display
-        self.selected_prefix_index = None
-        await self.update_display(interaction)
-
-    async def refresh_display(self, interaction: discord.Interaction):
-        """Refresh the display."""
-        await self.update_display(interaction)
-
-    async def back_to_bot_settings(self, interaction: discord.Interaction):
-        """Go back to bot settings."""
-        # Recreate bot settings view
-        view = BotOwnerSettingsView()
-
-        embed = discord.Embed(title="🤖 Bot Settings", description="Global bot configuration", color=discord.Color.blue())
-
-        # Import here to avoid circular imports
-        bot = interaction.client
-
-        # Basic bot info
-        embed.add_field(
-            name="Bot Information", value=f"**Name:** {bot.user.name}\n**ID:** {bot.user.id}\n**Servers:** {len(bot.guilds)}", inline=False
-        )
-
-        # Configuration settings
-        default_prefixes = bot.config.get("prefixes", [])
-        prefix_display = ", ".join([f"`{p}`" for p in default_prefixes])
-        error_channel_id = bot.config.get("error_log_channel", None)
-        error_channel = bot.get_channel(int(error_channel_id)) if error_channel_id else None
-
-        config_info = [f"**Default Prefixes:** {prefix_display}", f"**Error Log Channel:** {error_channel.mention if error_channel else 'Not set'}"]
-        embed.add_field(name="Configuration", value="\n".join(config_info), inline=False)
-
-        await interaction.response.edit_message(embed=embed, view=view)
-
-
-class BotPrefixModal(ui.Modal, title="Manage Bot Prefix"):
-    """Modal for adding or editing bot prefixes."""
-
-    def __init__(self, is_edit: bool = False, current_prefix: str = "", prefix_index: int = None):
-        super().__init__()
-        self.is_edit = is_edit
-        self.prefix_index = prefix_index
-
-        title_text = "Edit Bot Prefix" if is_edit else "Add Bot Prefix"
-        self.title = title_text
-
-        self.prefix_input = ui.TextInput(
-            label="Prefix", placeholder="Enter command prefix (e.g., ! or >)", required=True, max_length=5, default=current_prefix
-        )
-        self.add_item(self.prefix_input)
-
-    async def on_submit(self, interaction: discord.Interaction):
-        """Handle prefix add/edit."""
-        new_prefix = self.prefix_input.value.strip()
-
-        if not new_prefix:
-            await interaction.response.send_message("❌ Prefix cannot be empty", ephemeral=True)
-            return
-
-        bot = interaction.client
-
-        prefixes = bot.config.get("prefixes", [])
-
-        if self.is_edit and self.prefix_index is not None:
-            # Edit existing prefix
-            if self.prefix_index >= len(prefixes):
-                await interaction.response.send_message("❌ Prefix no longer exists.", ephemeral=True)
-                return
-            old_prefix = prefixes[self.prefix_index]
-            prefixes[self.prefix_index] = new_prefix
-            action = f"updated from `{old_prefix}` to `{new_prefix}`"
-        else:
-            # Add new prefix
-            if new_prefix in prefixes:
-                await interaction.response.send_message(f"❌ Prefix `{new_prefix}` already exists.", ephemeral=True)
-                return
-            prefixes.append(new_prefix)
-            action = f"added: `{new_prefix}`"
-
-        bot.config.config["prefixes"] = prefixes
-        bot.config.save_config()
-
-        await interaction.response.send_message(
-            f"✅ Bot prefix {action}\n\n*Click 'Refresh' in the prefix management view to see the updated list.*", ephemeral=True
-        )
-
-
 class CogReloadView(View):
     """Quick reload view for loaded cogs."""
 
@@ -2313,13 +1664,10 @@ class CogReloadView(View):
         )
 
         # Configuration settings
-        default_prefixes = bot.config.get("prefixes", [])
-        prefix_display = ", ".join([f"`{p}`" for p in default_prefixes]) if default_prefixes else "None configured"
         error_channel_id = bot.config.get("error_log_channel", None)
         error_channel = bot.get_channel(int(error_channel_id)) if error_channel_id else None
 
         config_info = [
-            f"**Default Prefixes:** {prefix_display}",
             f"**Error Log Channel:** {error_channel.mention if error_channel else 'Not set'}",
             f"**Load All Cogs:** {'Yes' if bot.config.get('load_all_cogs', False) else 'No'}",
         ]
@@ -3042,12 +2390,13 @@ class CogManagementView(View):
         )
 
         # Configuration settings
-        default_prefixes = bot.config.get("prefixes", [])
-        prefix_display = ", ".join([f"`{p}`" for p in default_prefixes])
         error_channel_id = bot.config.get("error_log_channel", None)
         error_channel = bot.get_channel(int(error_channel_id)) if error_channel_id else None
 
-        config_info = [f"**Default Prefixes:** {prefix_display}", f"**Error Log Channel:** {error_channel.mention if error_channel else 'Not set'}"]
+        config_info = [
+            f"**Error Log Channel:** {error_channel.mention if error_channel else 'Not set'}",
+            f"**Load All Cogs:** {'Yes' if bot.config.get('load_all_cogs', False) else 'No'}",
+        ]
         embed.add_field(name="Configuration", value="\n".join(config_info), inline=False)
 
         await interaction.response.edit_message(embed=embed, view=view)
