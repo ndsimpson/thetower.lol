@@ -91,9 +91,13 @@ class TourneyRoleColors(BaseCog, name="Tourney Role Colors"):
                 tracker.update_status("Registering UI extensions")
                 self.register_ui_extensions()
 
-                # Run startup audit to clean up invalid color roles
-                tracker.update_status("Auditing existing color roles")
-                await self.audit_all_color_roles()
+                # Run startup audit if enabled (defaults to False)
+                # Check setting for each guild since this is a per-guild setting
+                tracker.update_status("Checking startup audit settings")
+                for guild in self.bot.guilds:
+                    if self.get_setting("enable_startup_audit", False, guild_id=guild.id):
+                        tracker.update_status(f"Auditing color roles for {guild.name}")
+                        await self.audit_guild_color_roles(guild)
 
                 tracker.update_status("Marking ready")
                 self.set_ready(True)
@@ -597,37 +601,48 @@ class TourneyRoleColors(BaseCog, name="Tourney Role Colors"):
             # Clean up the pending check
             self.pending_prereq_checks.pop(member_key, None)
 
+    async def audit_guild_color_roles(self, guild: discord.Guild) -> None:
+        """Audit all users with color roles in a specific guild.
+
+        Removes color roles from users who no longer meet prerequisites.
+        Individual removals are logged to the configured channel.
+
+        Args:
+            guild: The guild to audit
+        """
+        try:
+            categories = self.get_setting("categories", [], guild_id=guild.id)
+            if not categories:
+                return
+
+            # Iterate through all color roles and check their members
+            for category in categories:
+                for role_config in category.get("roles", []):
+                    role_id = role_config.get("role_id")
+                    if not role_id:
+                        continue
+
+                    role = guild.get_role(role_id)
+                    if not role:
+                        continue
+
+                    # Audit each member with this role
+                    for member in role.members:
+                        await self.audit_user_color_role(member)
+
+            self.logger.info(f"Startup audit complete for {guild.name}")
+
+        except Exception as e:
+            self.logger.error(f"Error auditing color roles in {guild.name}: {e}", exc_info=True)
+
     async def audit_all_color_roles(self) -> None:
-        """Audit all users with color roles on startup.
+        """Audit all users with color roles on startup for all guilds.
 
         Removes color roles from users who no longer meet prerequisites.
         Individual removals are logged to the configured channel.
         """
         for guild in self.bot.guilds:
-            try:
-                categories = self.get_setting("categories", [], guild_id=guild.id)
-                if not categories:
-                    continue
-
-                # Iterate through all color roles and check their members
-                for category in categories:
-                    for role_config in category.get("roles", []):
-                        role_id = role_config.get("role_id")
-                        if not role_id:
-                            continue
-
-                        role = guild.get_role(role_id)
-                        if not role:
-                            continue
-
-                        # Audit each member with this role
-                        for member in role.members:
-                            await self.audit_user_color_role(member)
-
-                self.logger.info(f"Startup audit complete for {guild.name}")
-
-            except Exception as e:
-                self.logger.error(f"Error auditing color roles in {guild.name}: {e}", exc_info=True)
+            await self.audit_guild_color_roles(guild)
 
         self.logger.info("Startup audit complete for all guilds")
 

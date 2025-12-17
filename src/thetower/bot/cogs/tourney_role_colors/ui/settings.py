@@ -41,6 +41,9 @@ class TourneyRoleColorsSettingsView(ui.View):
         # Add main management buttons
         self.add_item(ManageCategoriesButton(self.cog, self.guild_id))
 
+        # Add startup audit toggle button
+        self.add_item(StartupAuditToggleButton(self.cog, self.guild_id))
+
         # Add logging channel select
         self.add_item(RoleColorLogChannelSelect(self.cog, self.guild_id))
 
@@ -83,6 +86,11 @@ class TourneyRoleColorsSettingsView(ui.View):
         else:
             embed.add_field(name="Logging Channel", value="Not configured (changes not logged)", inline=False)
 
+        # Show startup audit status
+        startup_audit_enabled = self.cog.get_setting("enable_startup_audit", False, guild_id=self.guild_id)
+        audit_status = "✅ Enabled" if startup_audit_enabled else "❌ Disabled"
+        embed.add_field(name="Startup Audit", value=audit_status, inline=False)
+
         embed.set_footer(text="Categories are mutually exclusive - users can only have one role at a time")
 
         await interaction.response.edit_message(embed=embed, view=self)
@@ -93,6 +101,42 @@ class TourneyRoleColorsSettingsView(ui.View):
 
         view = CogSettingsView(self.guild_id)
         await view.update_display(interaction)
+
+
+class StartupAuditToggleButton(ui.Button):
+    """Button to toggle startup audit enabled/disabled."""
+
+    def __init__(self, cog, guild_id: int):
+        # Default to False if not set
+        audit_enabled = cog.get_setting("enable_startup_audit", False, guild_id=guild_id)
+
+        if audit_enabled:
+            label = "Startup Audit: Enabled"
+            style = discord.ButtonStyle.success
+            emoji = "✅"
+        else:
+            label = "Startup Audit: Disabled"
+            style = discord.ButtonStyle.danger
+            emoji = "❌"
+
+        super().__init__(label=label, style=style, emoji=emoji)
+        self.cog = cog
+        self.guild_id = guild_id
+        self.audit_enabled = audit_enabled
+
+    async def callback(self, interaction: discord.Interaction):
+        """Toggle startup audit enabled/disabled."""
+        new_state = not self.audit_enabled
+        self.cog.set_setting("enable_startup_audit", new_state, self.guild_id)
+
+        status = "enabled" if new_state else "disabled"
+        emoji = "✅" if new_state else "❌"
+
+        await interaction.response.send_message(
+            f"{emoji} Startup audit has been **{status}**. "
+            f"{'Invalid color roles will be removed when the bot starts.' if new_state else 'No automatic cleanup on bot startup.'}",
+            ephemeral=True,
+        )
 
 
 class ManageCategoriesButton(ui.Button):
