@@ -41,6 +41,9 @@ class TourneyRoleColorsSettingsView(ui.View):
         # Add main management buttons
         self.add_item(ManageCategoriesButton(self.cog, self.guild_id))
 
+        # Add logging channel select
+        self.add_item(RoleColorLogChannelSelect(self.cog, self.guild_id))
+
         # Back button
         back_btn = ui.Button(label="Back to Cog Settings", style=discord.ButtonStyle.gray, emoji="⬅️", custom_id="back_to_cog_settings")
         back_btn.callback = self.back_to_cog_settings
@@ -66,6 +69,19 @@ class TourneyRoleColorsSettingsView(ui.View):
             embed.add_field(name=f"Categories ({len(sorted_categories)})", value="\n".join(category_info[:10]), inline=False)
         else:
             embed.add_field(name="Categories", value="No categories configured. Click 'Manage Categories' to get started.", inline=False)
+
+        # Show logging channel status
+        log_channel_id = self.cog.get_setting("role_color_log_channel_id", guild_id=self.guild_id)
+        if log_channel_id:
+            guild = self.cog.bot.get_guild(self.guild_id)
+            if guild:
+                channel = guild.get_channel(log_channel_id)
+                if channel:
+                    embed.add_field(name="Logging Channel", value=f"Role changes logged to {channel.mention}", inline=False)
+                else:
+                    embed.add_field(name="Logging Channel", value="⚠️ Configured channel not found", inline=False)
+        else:
+            embed.add_field(name="Logging Channel", value="Not configured (changes not logged)", inline=False)
 
         embed.set_footer(text="Categories are mutually exclusive - users can only have one role at a time")
 
@@ -963,3 +979,34 @@ class RoleSelectMenu(ui.Select):
             # Show edit view with current values
             view = EditRoleView(self.cog, self.guild_id, self.category_idx, category, role_idx, role_config)
             await view.show(interaction)
+
+
+class RoleColorLogChannelSelect(ui.ChannelSelect):
+    """Channel select for choosing the role color logging channel."""
+
+    def __init__(self, cog, guild_id: int):
+        current_channel_id = cog.get_setting("role_color_log_channel_id", guild_id=guild_id)
+        placeholder = "Select role color logging channel..."
+        if current_channel_id:
+            guild = cog.bot.get_guild(guild_id)
+            if guild:
+                channel = guild.get_channel(current_channel_id)
+                if channel:
+                    placeholder = f"Current: {channel.name}"
+
+        super().__init__(placeholder=placeholder, min_values=0, max_values=1, channel_types=[discord.ChannelType.text])
+        self.cog = cog
+        self.guild_id = guild_id
+
+    async def callback(self, interaction: discord.Interaction):
+        """Handle channel selection."""
+        if not self.values:
+            # Clear the setting
+            self.cog.set_setting("role_color_log_channel_id", None, self.guild_id)
+            await interaction.response.send_message("✅ Role color logging channel cleared.", ephemeral=True)
+            return
+
+        channel = self.values[0]
+        self.cog.set_setting("role_color_log_channel_id", channel.id, self.guild_id)
+
+        await interaction.response.send_message(f"✅ Role color logging channel set to {channel.mention}.", ephemeral=True)

@@ -299,10 +299,15 @@ class TourneyRoleColors(BaseCog, name="Tourney Role Colors"):
 
             if roles_to_remove:
                 await member.remove_roles(*roles_to_remove, reason="Tourney role color selection")
+                # Log removals
+                for removed_role in roles_to_remove:
+                    await self.log_role_change(guild, member, removed_role, "removed", "User selected a different role")
 
             # Add the new role
             if role not in member.roles:
                 await member.add_roles(role, reason="Tourney role color selection")
+                # Log addition
+                await self.log_role_change(guild, member, role, "added", "User selection")
 
             return True, f"Successfully assigned {role.name}"
 
@@ -311,6 +316,41 @@ class TourneyRoleColors(BaseCog, name="Tourney Role Colors"):
         except discord.HTTPException as e:
             self.logger.error(f"Error assigning role: {e}")
             return False, "An error occurred while assigning the role."
+
+    async def log_role_change(self, guild: discord.Guild, member: discord.Member, role: discord.Role, action: str, reason: str = "") -> None:
+        """Log a role color change to the configured logging channel.
+
+        Args:
+            guild: The guild where the change happened
+            member: The member whose role changed
+            role: The role that was added or removed
+            action: "added" or "removed"
+            reason: Optional reason for the change
+        """
+        # Check if logging channel is configured
+        log_channel_id = self.get_setting("role_color_log_channel_id", guild_id=guild.id)
+        if not log_channel_id:
+            return  # No logging channel configured
+
+        channel = guild.get_channel(log_channel_id)
+        if not channel or not isinstance(channel, discord.TextChannel):
+            return  # Channel not found or not a text channel
+
+        # Create log embed
+        color = discord.Color.green() if action == "added" else discord.Color.red()
+        embed = discord.Embed(title=f"Role Color {action.capitalize()}", color=color, timestamp=discord.utils.utcnow())
+        embed.add_field(name="User", value=f"{member.mention} ({member.display_name})", inline=False)
+        embed.add_field(name="Role", value=role.mention, inline=False)
+        if reason:
+            embed.add_field(name="Reason", value=reason, inline=False)
+        embed.set_thumbnail(url=member.display_avatar.url)
+
+        try:
+            await channel.send(embed=embed)
+        except discord.Forbidden:
+            self.logger.warning(f"Missing permissions to send to log channel {channel.name} in {guild.name}")
+        except discord.HTTPException as e:
+            self.logger.error(f"Error sending to log channel: {e}")
 
     async def audit_user_color_role(self, member: discord.Member) -> bool:
         """Audit a single user's color role and remove if prerequisites not met.
@@ -361,6 +401,9 @@ class TourneyRoleColors(BaseCog, name="Tourney Role Colors"):
                     f"Removed {len(roles_to_remove)} invalid color role(s) from {member.display_name} "
                     f"in {member.guild.name}: {', '.join(r.name for r in roles_to_remove)}"
                 )
+                # Log each removal
+                for removed_role in roles_to_remove:
+                    await self.log_role_change(member.guild, member, removed_role, "removed", "Prerequisites no longer met")
                 return True
             except discord.Forbidden:
                 self.logger.error(f"Missing permissions to remove roles from {member.display_name}")
@@ -388,7 +431,6 @@ class TourneyRoleColors(BaseCog, name="Tourney Role Colors"):
             The role to keep
         """
         categories = self.get_setting("categories", [], guild_id=guild_id)
-        role_ids = [role.id for role in color_roles]
 
         # Build category map: category_name -> list of (role_id, role_config)
         category_roles: Dict[str, List[Tuple[int, Dict, discord.Role]]] = {}
@@ -501,10 +543,11 @@ class TourneyRoleColors(BaseCog, name="Tourney Role Colors"):
         # Check if a qualified prerequisite was added
         if added_roles:
             after_role_ids = [role.id for role in after.roles]
-            eligible_roles = self.get_eligible_roles(guild_id, after_role_ids)
+            # Check if user now has any eligible roles (meaning they have prerequisites)
+            has_eligible_roles = bool(self.get_eligible_roles(guild_id, after_role_ids))
 
             # If user now has prerequisites for their color role, cancel any pending check
-            if member_key in self.pending_prereq_checks:
+            if has_eligible_roles and member_key in self.pending_prereq_checks:
                 self.pending_prereq_checks[member_key].cancel()
                 del self.pending_prereq_checks[member_key]
                 self.logger.debug(f"Cancelled prerequisite check for {after.display_name}: qualified role added")
@@ -558,9 +601,8 @@ class TourneyRoleColors(BaseCog, name="Tourney Role Colors"):
         """Audit all users with color roles on startup.
 
         Removes color roles from users who no longer meet prerequisites.
+        Individual removals are logged to the configured channel.
         """
-        total_removed = 0
-
         for guild in self.bot.guilds:
             try:
                 categories = self.get_setting("categories", [], guild_id=guild.id)
@@ -580,17 +622,14 @@ class TourneyRoleColors(BaseCog, name="Tourney Role Colors"):
 
                         # Audit each member with this role
                         for member in role.members:
-                            removed = await self.audit_user_color_role(member)
-                            if removed:
-                                total_removed += 1
+                            await self.audit_user_color_role(member)
 
-                self.logger.info(f"Startup audit complete for {guild.name}: removed {total_removed} invalid color roles")
+                self.logger.info(f"Startup audit complete for {guild.name}")
 
             except Exception as e:
                 self.logger.error(f"Error auditing color roles in {guild.name}: {e}", exc_info=True)
 
-        if total_removed > 0:
-            self.logger.info(f"Startup audit complete: removed {total_removed} total invalid color roles")
+        self.logger.info("Startup audit complete for all guilds")
 
 
 async def setup(bot: commands.Bot) -> None:
