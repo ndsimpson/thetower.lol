@@ -1,7 +1,9 @@
 """Tourney Role Colors cog - Allow users to select roles based on prerequisites."""
 
+import asyncio
 import logging
-from typing import Dict, List, Optional
+import random
+from typing import Dict, List, Optional, Set, Tuple
 
 import discord
 from discord.ext import commands
@@ -29,6 +31,13 @@ class TourneyRoleColors(BaseCog, name="Tourney Role Colors"):
     def __init__(self, bot: commands.Bot) -> None:
         super().__init__(bot)
         self.logger.info("Initializing TourneyRoleColors")
+
+        # Track members being updated to prevent feedback loops
+        self.updating_members: Set[Tuple[int, int]] = set()
+
+        # Track pending prerequisite checks with debounce
+        # Key: (guild_id, user_id), Value: asyncio.Task
+        self.pending_prereq_checks: Dict[Tuple[int, int], asyncio.Task] = {}
 
         # Guild-specific settings structure:
         # {
@@ -82,6 +91,10 @@ class TourneyRoleColors(BaseCog, name="Tourney Role Colors"):
                 tracker.update_status("Registering UI extensions")
                 self.register_ui_extensions()
 
+                # Run startup audit to clean up invalid color roles
+                tracker.update_status("Auditing existing color roles")
+                await self.audit_all_color_roles()
+
                 tracker.update_status("Marking ready")
                 self.set_ready(True)
                 self.logger.info("Tourney role colors initialization complete")
@@ -100,6 +113,12 @@ class TourneyRoleColors(BaseCog, name="Tourney Role Colors"):
 
     async def cog_unload(self) -> None:
         """Clean up when cog is unloaded."""
+        # Cancel all pending prerequisite checks
+        for task in self.pending_prereq_checks.values():
+            if not task.done():
+                task.cancel()
+        self.pending_prereq_checks.clear()
+
         # Call parent implementation for data saving
         await super().cog_unload()
         self.logger.info("Tourney role colors cog unloaded")
@@ -292,6 +311,286 @@ class TourneyRoleColors(BaseCog, name="Tourney Role Colors"):
         except discord.HTTPException as e:
             self.logger.error(f"Error assigning role: {e}")
             return False, "An error occurred while assigning the role."
+
+    async def audit_user_color_role(self, member: discord.Member) -> bool:
+        """Audit a single user's color role and remove if prerequisites not met.
+
+        Args:
+            member: The member to audit (should have fresh data from fetch_member)
+
+        Returns:
+            True if a role was removed, False otherwise
+        """
+        guild_id = member.guild.id
+        member_key = (guild_id, member.id)
+
+        # Prevent feedback loops
+        if member_key in self.updating_members:
+            return False
+
+        # Get all color roles this user has from our cog
+        all_managed_roles = self.get_all_managed_roles(guild_id)
+        user_color_roles = [role for role in member.roles if role.id in all_managed_roles]
+
+        if not user_color_roles:
+            return False  # No color roles to audit
+
+        # If user has multiple color roles, resolve which to keep
+        if len(user_color_roles) > 1:
+            role_to_keep = self._resolve_multiple_color_roles(member, user_color_roles, guild_id)
+            roles_to_remove = [r for r in user_color_roles if r.id != role_to_keep.id]
+        else:
+            role_to_keep = user_color_roles[0]
+            roles_to_remove = []
+
+        # Check if user still meets prerequisites for the role to keep
+        user_role_ids = [role.id for role in member.roles]
+        eligible_roles = self.get_eligible_roles(guild_id, user_role_ids)
+        eligible_role_ids = [r["role_id"] for r in eligible_roles]
+
+        if role_to_keep.id not in eligible_role_ids:
+            # User no longer meets prerequisites, remove the role
+            roles_to_remove.append(role_to_keep)
+
+        # Remove any roles that need to be removed
+        if roles_to_remove:
+            try:
+                self.updating_members.add(member_key)
+                await member.remove_roles(*roles_to_remove, reason="Tourney role color audit: prerequisites not met")
+                self.logger.info(
+                    f"Removed {len(roles_to_remove)} invalid color role(s) from {member.display_name} "
+                    f"in {member.guild.name}: {', '.join(r.name for r in roles_to_remove)}"
+                )
+                return True
+            except discord.Forbidden:
+                self.logger.error(f"Missing permissions to remove roles from {member.display_name}")
+            except discord.HTTPException as e:
+                self.logger.error(f"Error removing roles from {member.display_name}: {e}")
+            finally:
+                self.updating_members.discard(member_key)
+
+        return False
+
+    def _resolve_multiple_color_roles(self, member: discord.Member, color_roles: List[discord.Role], guild_id: int) -> discord.Role:
+        """Resolve which color role to keep when user has multiple.
+
+        Logic:
+        1. Group roles by category, keep category with most roles
+        2. If tied, randomly pick a category
+        3. Within winning category, keep most foundational role (required by others)
+
+        Args:
+            member: The member with multiple color roles
+            color_roles: List of color roles the user has
+            guild_id: The guild ID
+
+        Returns:
+            The role to keep
+        """
+        categories = self.get_setting("categories", [], guild_id=guild_id)
+        role_ids = [role.id for role in color_roles]
+
+        # Build category map: category_name -> list of (role_id, role_config)
+        category_roles: Dict[str, List[Tuple[int, Dict, discord.Role]]] = {}
+
+        for role in color_roles:
+            for category in categories:
+                for role_config in category.get("roles", []):
+                    if role_config.get("role_id") == role.id:
+                        cat_name = category.get("name")
+                        if cat_name not in category_roles:
+                            category_roles[cat_name] = []
+                        category_roles[cat_name].append((role.id, role_config, role))
+                        break
+
+        # Find category with most roles
+        max_count = max(len(roles) for roles in category_roles.values())
+        top_categories = [cat for cat, roles in category_roles.items() if len(roles) == max_count]
+
+        # If tied, pick random category
+        winning_category = random.choice(top_categories) if len(top_categories) > 1 else top_categories[0]
+
+        # Within winning category, find most foundational role
+        winning_roles = category_roles[winning_category]
+
+        if len(winning_roles) == 1:
+            return winning_roles[0][2]  # Return the discord.Role object
+
+        # Count how many other roles each role is prerequisite for
+        role_scores: Dict[int, int] = {}
+
+        for role_id, role_config, role_obj in winning_roles:
+            score = 0
+            # Check how many OTHER roles user has that inherit from this role
+            for other_id, other_config, _ in winning_roles:
+                if other_id == role_id:
+                    continue
+                # Check if role_id is in other role's inherited prerequisites
+                other_category = next(c for c in categories if c.get("name") == winning_category)
+                inherited_prereqs = self._get_inherited_prerequisite_ids(other_config, other_category.get("roles", []))
+                if role_id in inherited_prereqs:
+                    score += 1
+            role_scores[role_id] = score
+
+        # Keep role with highest score (most foundational)
+        winning_role_id = max(role_scores, key=role_scores.get)
+        return next(role_obj for rid, _, role_obj in winning_roles if rid == winning_role_id)
+
+    def _get_inherited_prerequisite_ids(self, role_config: Dict, all_roles_in_category: List[Dict]) -> List[int]:
+        """Get all role IDs from inherited prerequisites (not external prerequisites).
+
+        Args:
+            role_config: The role configuration
+            all_roles_in_category: All role configs in the same category
+
+        Returns:
+            List of role IDs that are inherited from other color roles
+        """
+        inherited_ids = []
+        role_map = {r.get("role_id"): r for r in all_roles_in_category}
+
+        # Traverse inheritance chain
+        current_role = role_config
+        visited = set()
+
+        while current_role:
+            current_id = current_role.get("role_id")
+            if current_id in visited:
+                break  # Prevent cycles
+            visited.add(current_id)
+
+            inherits_from = current_role.get("inherits_from")
+            if inherits_from and inherits_from in role_map:
+                inherited_ids.append(inherits_from)
+                current_role = role_map[inherits_from]
+            else:
+                break
+
+        return inherited_ids
+
+    @commands.Cog.listener()
+    async def on_member_update(self, before: discord.Member, after: discord.Member) -> None:
+        """Monitor role changes and enforce prerequisite requirements.
+
+        When a prerequisite role is removed, start a 15-second debounce timer.
+        If another qualified prerequisite is added within that time, cancel the timer.
+        Otherwise, audit and potentially remove the color role.
+        """
+        # Only process if roles changed
+        if before.roles == after.roles:
+            return
+
+        guild_id = after.guild.id
+        member_key = (guild_id, after.id)
+
+        # Skip if we're currently updating this member (prevent feedback loops)
+        if member_key in self.updating_members:
+            return
+
+        # Check if member has any color roles from our cog
+        all_managed_roles = self.get_all_managed_roles(guild_id)
+        has_color_role = any(role.id in all_managed_roles for role in after.roles)
+
+        if not has_color_role:
+            return  # Nothing to monitor
+
+        # Get roles that were removed and added
+        removed_roles = set(before.roles) - set(after.roles)
+        added_roles = set(after.roles) - set(before.roles)
+
+        # Check if a qualified prerequisite was added
+        if added_roles:
+            after_role_ids = [role.id for role in after.roles]
+            eligible_roles = self.get_eligible_roles(guild_id, after_role_ids)
+
+            # If user now has prerequisites for their color role, cancel any pending check
+            if member_key in self.pending_prereq_checks:
+                self.pending_prereq_checks[member_key].cancel()
+                del self.pending_prereq_checks[member_key]
+                self.logger.debug(f"Cancelled prerequisite check for {after.display_name}: qualified role added")
+            return
+
+        # Check if any prerequisite roles were removed
+        if removed_roles:
+            # Cancel any existing pending check and start a new one
+            if member_key in self.pending_prereq_checks:
+                self.pending_prereq_checks[member_key].cancel()
+
+            # Start new debounce timer
+            task = asyncio.create_task(self._debounced_prerequisite_check(after.guild, after.id))
+            self.pending_prereq_checks[member_key] = task
+            self.logger.debug(f"Started 15s prerequisite check for {after.display_name} after role removal")
+
+    async def _debounced_prerequisite_check(self, guild: discord.Guild, user_id: int) -> None:
+        """Wait 15 seconds then audit the user's color role.
+
+        Args:
+            guild: The guild
+            user_id: The user ID to check
+        """
+        member_key = (guild.id, user_id)
+
+        try:
+            # Wait 15 seconds for role changes to settle
+            await asyncio.sleep(15)
+
+            # Fetch fresh member data
+            member = await guild.fetch_member(user_id)
+
+            # Audit the member's color role
+            removed = await self.audit_user_color_role(member)
+
+            if removed:
+                self.logger.info(f"Debounced audit removed color role from {member.display_name} " f"in {guild.name} due to missing prerequisites")
+
+        except asyncio.CancelledError:
+            # Task was cancelled (new role added or another removal happened)
+            self.logger.debug(f"Prerequisite check cancelled for user {user_id} in {guild.name}")
+        except discord.NotFound:
+            self.logger.warning(f"Member {user_id} not found in {guild.name} during audit")
+        except Exception as e:
+            self.logger.error(f"Error in debounced prerequisite check for user {user_id} in {guild.name}: {e}", exc_info=True)
+        finally:
+            # Clean up the pending check
+            self.pending_prereq_checks.pop(member_key, None)
+
+    async def audit_all_color_roles(self) -> None:
+        """Audit all users with color roles on startup.
+
+        Removes color roles from users who no longer meet prerequisites.
+        """
+        total_removed = 0
+
+        for guild in self.bot.guilds:
+            try:
+                categories = self.get_setting("categories", [], guild_id=guild.id)
+                if not categories:
+                    continue
+
+                # Iterate through all color roles and check their members
+                for category in categories:
+                    for role_config in category.get("roles", []):
+                        role_id = role_config.get("role_id")
+                        if not role_id:
+                            continue
+
+                        role = guild.get_role(role_id)
+                        if not role:
+                            continue
+
+                        # Audit each member with this role
+                        for member in role.members:
+                            removed = await self.audit_user_color_role(member)
+                            if removed:
+                                total_removed += 1
+
+                self.logger.info(f"Startup audit complete for {guild.name}: removed {total_removed} invalid color roles")
+
+            except Exception as e:
+                self.logger.error(f"Error auditing color roles in {guild.name}: {e}", exc_info=True)
+
+        if total_removed > 0:
+            self.logger.info(f"Startup audit complete: removed {total_removed} total invalid color roles")
 
 
 async def setup(bot: commands.Bot) -> None:
