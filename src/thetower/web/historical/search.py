@@ -38,6 +38,9 @@ def search_players_optimized(search_term, excluded_player_ids, page=20):
     )
 
     if is_player_id_search:
+        # Normalize to uppercase to align with stored player IDs
+        search_term = search_term.upper()
+        fragments = [frag.upper() for frag in fragments]
         # Player ID search - unified query
         match_conditions = Q()
         for i, fragment in enumerate(fragments):

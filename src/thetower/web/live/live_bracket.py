@@ -92,15 +92,15 @@ def live_bracket():
 
         # Determine league and selection based on inputs
         if selected_player_id_input.strip():
-            pid_input = selected_player_id_input.strip()
-            auto_league = get_league_for_player(pid_input)
+            pid_upper = selected_player_id_input.strip().upper()
+            auto_league = get_league_for_player(pid_upper)
             if auto_league:
                 league = auto_league
                 include_shun = include_shun_enabled_for("live_bracket")
                 df = get_live_data(league, include_shun)
                 bracket_order, fullish_brackets = get_bracket_data(df)
                 df = df[df.bracket.isin(fullish_brackets)].copy()
-                selected_player_id = pid_input
+                selected_player_id = pid_upper
             else:
                 st.error("Could not determine league for the given Player ID.")
                 return

@@ -90,8 +90,9 @@ def live_score():
     # Initialize selected_player from query params or session state
     initial_player = None
     if query_player_id:
-        # Find player by player_id
-        matching_players = df[df["player_id"] == query_player_id]
+        # Find player by player_id (case-insensitive by normalizing to uppercase)
+        qp_upper = query_player_id.strip().upper()
+        matching_players = df[df["player_id"] == qp_upper]
         if not matching_players.empty:
             initial_player = matching_players.iloc[0]["display_name"]
     elif query_player_name:
@@ -120,19 +121,21 @@ def live_score():
         )
 
     with id_col:
-        player_id_input = st.text_input("Or enter Player ID", value=(query_player_id or ""), key=f"player_id_input_{league}")
+        player_id_input = st.text_input(
+            "Or enter Player ID", value=(query_player_id.strip().upper() if query_player_id else ""), key=f"player_id_input_{league}"
+        )
 
     # Handle player_id input
     if player_id_input and not selected_player:
-        # Auto-detect league based on provided player ID (case as entered)
-        pid_input = player_id_input.strip()
-        auto_league = get_league_for_player(pid_input)
+        # Normalize to uppercase to align with stored player IDs, and auto-detect league
+        pid_upper = player_id_input.strip().upper()
+        auto_league = get_league_for_player(pid_upper)
         if auto_league and auto_league != league:
             # Refresh data for detected league
             df, latest_time, bracket_creation_times, tourney_start_date = get_placement_analysis_data(auto_league)
             df = process_display_names(df)
             league = auto_league
-        matching_players = df[df["player_id"] == pid_input]
+        matching_players = df[df["player_id"] == pid_upper]
         if not matching_players.empty:
             selected_player = matching_players.iloc[0]["display_name"]
         else:
@@ -146,7 +149,7 @@ def live_score():
                 try:
                     df_tmp, latest_time, bracket_creation_times, tourney_start_date = get_placement_analysis_data(lg)
                     df_tmp = process_display_names(df_tmp)
-                    match_df = df_tmp[df_tmp["player_id"] == pid_input]
+                    match_df = df_tmp[df_tmp["player_id"] == pid_upper]
                     if not match_df.empty:
                         df = df_tmp
                         league = lg
