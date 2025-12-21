@@ -16,7 +16,7 @@ from thetower.web.live.data_ops import (
     process_display_names,
     require_tournament_data,
 )
-from thetower.web.live.ui_components import setup_common_ui
+from thetower.web.live.ui_components import get_league_for_player, setup_common_ui
 
 
 @require_tournament_data
@@ -25,8 +25,8 @@ def live_score():
     logging.info("Starting live placement analysis")
     t2_start = perf_counter()
 
-    # Use common UI setup
-    options, league, is_mobile = setup_common_ui()
+    # Use common UI setup, but hide league selector (auto-detect via inputs)
+    options, league, is_mobile = setup_common_ui(show_league_selector=False)
 
     # Show data refresh and shun status upfront so users see it even if cache isn't ready
     try:
@@ -102,8 +102,8 @@ def live_score():
         if not matching_players.empty:
             initial_player = matching_players.iloc[0]["display_name"]
 
-    # Player selection with two input methods
-    st.markdown("### Select Player")
+    # Player selection via text inputs (no dropdown required)
+    st.markdown("### Enter Player")
     if is_mobile:
         # In mobile view, stack inputs vertically
         name_col = st.container()
@@ -112,32 +112,82 @@ def live_score():
         # In desktop view, use side-by-side columns
         name_col, id_col = st.columns([2, 1])
 
-    # Get unique players sorted by display name
-    unique_players = sorted(df["display_name"].unique())
-
     with name_col:
-        selected_player = st.selectbox(
-            "Search by player name",
-            [""] + unique_players,
-            index=(unique_players.index(initial_player) + 1) if initial_player and initial_player in unique_players else 0,
-            key=f"player_selector_{league}",
+        selected_player = st.text_input(
+            "Enter player name",
+            value=(initial_player or query_player_name or ""),
+            key="player_name_input",
         )
 
     with id_col:
-        player_id_input = st.text_input("Or enter Player ID", value=query_player_id or "", key=f"player_id_input_{league}")
+        player_id_input = st.text_input("Or enter Player ID", value=(query_player_id or ""), key=f"player_id_input_{league}")
 
     # Handle player_id input
     if player_id_input and not selected_player:
-        matching_players = df[df["player_id"] == player_id_input]
+        # Auto-detect league based on provided player ID (case as entered)
+        pid_input = player_id_input.strip()
+        auto_league = get_league_for_player(pid_input)
+        if auto_league and auto_league != league:
+            # Refresh data for detected league
+            df, latest_time, bracket_creation_times, tourney_start_date = get_placement_analysis_data(auto_league)
+            df = process_display_names(df)
+            league = auto_league
+        matching_players = df[df["player_id"] == pid_input]
         if not matching_players.empty:
             selected_player = matching_players.iloc[0]["display_name"]
         else:
-            st.error(f"Player ID '{player_id_input}' not found in current tournament data.")
-            return
+            # If not found in current df, try other leagues
+            from thetower.backend.tourney_results.constants import leagues as _leagues
+
+            found = False
+            for lg in _leagues:
+                if lg == league:
+                    continue
+                try:
+                    df_tmp, latest_time, bracket_creation_times, tourney_start_date = get_placement_analysis_data(lg)
+                    df_tmp = process_display_names(df_tmp)
+                    match_df = df_tmp[df_tmp["player_id"] == pid_input]
+                    if not match_df.empty:
+                        df = df_tmp
+                        league = lg
+                        selected_player = match_df.iloc[0]["display_name"]
+                        found = True
+                        break
+                except Exception:
+                    continue
+            if not found:
+                st.error(f"Player ID '{player_id_input}' not found in current tournament data.")
+                return
 
     if not selected_player:
-        st.info("👆 Please select a player or enter a Player ID to analyze placement")
-        return
+        # Try matching by entered name across leagues
+        if selected_player := (selected_player or "").strip():
+            name_lower = selected_player.lower()
+            # First try current league
+            match_df = df[(df["real_name"].str.lower() == name_lower) | (df["display_name"].str.lower() == name_lower)]
+            if match_df.empty:
+                from thetower.backend.tourney_results.constants import leagues as _leagues
+
+                for lg in _leagues:
+                    if lg == league:
+                        continue
+                    try:
+                        df_tmp, latest_time, bracket_creation_times, tourney_start_date = get_placement_analysis_data(lg)
+                        df_tmp = process_display_names(df_tmp)
+                        match_df = df_tmp[(df_tmp["real_name"].str.lower() == name_lower) | (df_tmp["display_name"].str.lower() == name_lower)]
+                        if not match_df.empty:
+                            df = df_tmp
+                            league = lg
+                            selected_player = match_df.iloc[0]["display_name"]
+                            break
+                    except Exception:
+                        continue
+            if not selected_player:
+                st.error("Player not found by name in any active league.")
+                return
+        else:
+            st.info("Enter a player name or Player ID to analyze placement")
+            return
 
     # Get the player's highest wave
     wave_to_analyze = df[df.display_name == selected_player].wave.max()
@@ -156,27 +206,36 @@ def live_score():
 
     # Group by checkpoints (30-minute intervals) and calculate averages, min, and max
     results_df["Checkpoint"] = results_df["Creation Time"].dt.floor("30min")
-    checkpoint_df = results_df.groupby("Checkpoint").agg({
-        "Position": ["mean", "min", "max"],
-        "Top Wave": "mean",
-        "Median Wave": "mean",
-        "Players Above": "mean",
-        "Bracket": "count"  # Count of brackets per checkpoint
-    }).round(1).reset_index()
+    checkpoint_df = (
+        results_df.groupby("Checkpoint")
+        .agg(
+            {
+                "Position": ["mean", "min", "max"],
+                "Top Wave": "mean",
+                "Median Wave": "mean",
+                "Players Above": "mean",
+                "Bracket": "count",  # Count of brackets per checkpoint
+            }
+        )
+        .round(1)
+        .reset_index()
+    )
 
     # Flatten multi-level column names
-    checkpoint_df.columns = ['_'.join(col).strip('_') if col[1] else col[0] for col in checkpoint_df.columns.values]
+    checkpoint_df.columns = ["_".join(col).strip("_") if col[1] else col[0] for col in checkpoint_df.columns.values]
 
     # Rename columns for display
-    checkpoint_df = checkpoint_df.rename(columns={
-        "Position_mean": "Avg Placement",
-        "Position_min": "Best Case",
-        "Position_max": "Worst Case",
-        "Top Wave_mean": "Avg Top Wave",
-        "Median Wave_mean": "Avg Median Wave",
-        "Players Above_mean": "Avg Players Above",
-        "Bracket_count": "Brackets"
-    })
+    checkpoint_df = checkpoint_df.rename(
+        columns={
+            "Position_mean": "Avg Placement",
+            "Position_min": "Best Case",
+            "Position_max": "Worst Case",
+            "Top Wave_mean": "Avg Top Wave",
+            "Median Wave_mean": "Avg Median Wave",
+            "Players Above_mean": "Avg Players Above",
+            "Bracket_count": "Brackets",
+        }
+    )
 
     # Keep original datetime format for checkpoint display
     checkpoint_df["Checkpoint"] = checkpoint_df["Checkpoint"].dt.strftime("%Y-%m-%d %H:%M:%S")
@@ -190,7 +249,7 @@ def live_score():
             "Avg Placement": st.column_config.NumberColumn("Avg Placement", help="Average placement position across brackets in this checkpoint"),
             "Best Case": st.column_config.NumberColumn("Best Case", help="Best (lowest) placement position in this checkpoint"),
             "Worst Case": st.column_config.NumberColumn("Worst Case", help="Worst (highest) placement position in this checkpoint"),
-            "Brackets": st.column_config.NumberColumn("Brackets", help="Number of brackets in this checkpoint")
+            "Brackets": st.column_config.NumberColumn("Brackets", help="Number of brackets in this checkpoint"),
         },
     )
 

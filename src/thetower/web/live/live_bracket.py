@@ -7,6 +7,7 @@ import pandas as pd
 import plotly.express as px
 import streamlit as st
 
+from thetower.backend.tourney_results.constants import leagues as ALL_LEAGUES
 from thetower.backend.tourney_results.data import get_player_id_lookup
 from thetower.backend.tourney_results.formatting import BASE_URL, make_player_url
 from thetower.backend.tourney_results.shun_config import include_shun_enabled_for
@@ -19,9 +20,8 @@ from thetower.web.live.data_ops import (
     process_bracket_selection,
     process_display_names,
     require_tournament_data,
-    update_bracket_index,
 )
-from thetower.web.live.ui_components import setup_common_ui
+from thetower.web.live.ui_components import get_league_for_player, setup_common_ui
 
 
 @require_tournament_data
@@ -30,8 +30,8 @@ def live_bracket():
     logging.info("Starting live bracket")
     t2_start = perf_counter()
 
-    # Use common UI setup
-    options, league, is_mobile = setup_common_ui()
+    # Use common UI setup, but hide league selector
+    options, league, is_mobile = setup_common_ui(show_league_selector=False)
 
     # Get data refresh timestamp
     refresh_timestamp = get_data_refresh_timestamp(league)
@@ -78,36 +78,78 @@ def live_bracket():
     selected_player_id = None
     selected_bracket = None
 
-    # Handle selection methods
+    # Handle selection methods via text inputs with auto league detection
     if options.current_player:
         selected_real_name = options.current_player
     elif options.current_player_id:
         selected_player_id = options.current_player_id
     else:
-        selected_real_name = name_col.selectbox("Bracket of...", [""] + sorted(df.real_name.unique()), key=f"player_name_selector_{league}")
-        selected_player_id = id_col.selectbox("...or by player id", [""] + sorted(df.player_id.unique()), key=f"player_id_selector_{league}")
+        selected_real_name_input = name_col.text_input("Search by Player Name", value="", key=f"player_name_input_{league}")
+        selected_player_id_input = id_col.text_input("Or by Player ID", value="", key=f"player_id_input_{league}")
 
-        if not selected_real_name and not selected_player_id:
-            # Add navigation buttons (only on hidden site)
-            if hidden_features:
-                prev_col, curr_col, next_col = st.columns([1, 2, 1])
+        # Optional bracket ID search
+        selected_bracket_input = st.text_input("Or search by Bracket ID", value="", key=f"bracket_id_input_{league}")
 
-                with prev_col:
-                    if st.button("← Previous Bracket", key=f"prev_{league}"):
-                        update_bracket_index(bracket_idx - 1, len(bracket_order) - 1, league)
-
-                with curr_col:
-                    selected_bracket_direct = st.selectbox(
-                        "Select Bracket", bracket_order, index=st.session_state[f"current_bracket_idx_{league}"], key=f"bracket_selector_{league}"
-                    )
-                    if selected_bracket_direct != bracket_order[st.session_state[f"current_bracket_idx_{league}"]]:
-                        update_bracket_index(bracket_order.index(selected_bracket_direct), len(bracket_order) - 1, league)
-
-                with next_col:
-                    if st.button("Next Bracket →", key=f"next_{league}"):
-                        update_bracket_index(bracket_idx + 1, len(bracket_order) - 1, league)
-
-                selected_bracket = bracket_order[st.session_state[f"current_bracket_idx_{league}"]]
+        # Determine league and selection based on inputs
+        if selected_player_id_input.strip():
+            pid_input = selected_player_id_input.strip()
+            auto_league = get_league_for_player(pid_input)
+            if auto_league:
+                league = auto_league
+                include_shun = include_shun_enabled_for("live_bracket")
+                df = get_live_data(league, include_shun)
+                bracket_order, fullish_brackets = get_bracket_data(df)
+                df = df[df.bracket.isin(fullish_brackets)].copy()
+                selected_player_id = pid_input
+            else:
+                st.error("Could not determine league for the given Player ID.")
+                return
+        elif selected_real_name_input.strip():
+            name_lower = selected_real_name_input.strip().lower()
+            found = False
+            for lg in ALL_LEAGUES:
+                try:
+                    include_shun = include_shun_enabled_for("live_bracket")
+                    df_tmp = get_live_data(lg, include_shun)
+                    order_tmp, full_tmp = get_bracket_data(df_tmp)
+                    df_tmp = df_tmp[df_tmp.bracket.isin(full_tmp)].copy()
+                    if not df_tmp.empty:
+                        # Case-insensitive match on real/display name
+                        match_df = df_tmp[(df_tmp["real_name"].str.lower() == name_lower) | (df_tmp["display_name"].str.lower() == name_lower)]
+                        if not match_df.empty:
+                            df = df_tmp
+                            bracket_order = order_tmp
+                            league = lg
+                            selected_real_name = match_df.iloc[0]["real_name"]
+                            found = True
+                            break
+                except Exception:
+                    continue
+            if not found:
+                st.error("Player name not found in any active league.")
+                return
+        elif selected_bracket_input.strip():
+            # Try to locate bracket across leagues
+            br_id = selected_bracket_input.strip()
+            found = False
+            for lg in ALL_LEAGUES:
+                try:
+                    include_shun = include_shun_enabled_for("live_bracket")
+                    df_tmp = get_live_data(lg, include_shun)
+                    order_tmp, full_tmp = get_bracket_data(df_tmp)
+                    df_tmp = df_tmp[df_tmp.bracket.isin(full_tmp)].copy()
+                    if br_id in order_tmp:
+                        df = df_tmp
+                        bracket_order = order_tmp
+                        league = lg
+                        selected_bracket = br_id
+                        found = True
+                        break
+                except Exception:
+                    continue
+            if not found:
+                st.error("Bracket ID not found in any active league.")
+                return
 
     if not any([selected_real_name, selected_player_id, selected_bracket]):
         return
@@ -117,6 +159,7 @@ def live_bracket():
         bracket_id, tdf, selected_real_name, bracket_idx = process_bracket_selection(
             df, selected_real_name, selected_player_id, selected_bracket, bracket_order
         )
+        # Update session state for selected bracket index but do not render nav controls
         st.session_state[f"current_bracket_idx_{league}"] = bracket_idx
     except ValueError as e:
         if selected_player_id:

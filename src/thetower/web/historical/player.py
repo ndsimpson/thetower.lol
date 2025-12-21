@@ -142,7 +142,9 @@ def compute_player_lookup():
     player_df = player_df.rename({"tourney_name": "name", "position": "#"}, axis=1)
     # Allow limiting the full results to a patch and filtering by battle conditions (match graph_tab /comparison)
     patches_options = sorted([patch for patch in get_patches() if patch.version_minor], key=lambda patch: patch.start_date, reverse=True)
-    raw_graph_options = [options.default_graph.value] + [value for value in list(Graph.__members__.keys()) + patches_options if value != options.default_graph.value]
+    raw_graph_options = [options.default_graph.value] + [
+        value for value in list(Graph.__members__.keys()) + patches_options if value != options.default_graph.value
+    ]
 
     raw_patch = info_tab.selectbox("Limit results to a patch? (see side bar to change default)", raw_graph_options, key="player_raw_patch")
 
@@ -196,7 +198,9 @@ def compute_player_lookup():
     league_graph_position = col3.checkbox("Graph position instead of wave", key="league_graph_position")
     show_patch_lines = col4.checkbox("Show patch start lines", key="show_patch_lines")
 
-    rolling_average = league_graph_tab.slider("Use rolling average for results from how many tourneys?", min_value=1, max_value=10, value=5, key="league_rolling_average")
+    rolling_average = league_graph_tab.slider(
+        "Use rolling average for results from how many tourneys?", min_value=1, max_value=10, value=5, key="league_rolling_average"
+    )
 
     league_filtered_df = player_df
 
@@ -212,38 +216,37 @@ def compute_player_lookup():
     selected_leagues = league_select if league_select else leagues
 
     fig = go.Figure()
-    colors = ['#CD7F32', '#C0C0C0', '#FFD700', '#E5E4E2', '#B9F2FF', '#FF6347', '#8A2BE2']  # Colors for leagues: Bronze to Grandmaster
+    colors = ["#CD7F32", "#C0C0C0", "#FFD700", "#E5E4E2", "#B9F2FF", "#FF6347", "#8A2BE2"]  # Colors for leagues: Bronze to Grandmaster
 
-    y_col = '#' if league_graph_position else 'wave'
+    y_col = "#" if league_graph_position else "wave"
 
     for i, league in enumerate(leagues):
         if league in selected_leagues:
-            league_data = league_filtered_df[league_filtered_df.league == league].sort_values('date')
+            league_data = league_filtered_df[league_filtered_df.league == league].sort_values("date")
             if not league_data.empty:
                 league_data = league_data.copy()
-                league_data['average'] = league_data[y_col].rolling(rolling_average, min_periods=1, center=True).mean()
-                fig.add_trace(go.Scatter(
-                    x=league_data.date,
-                    y=league_data[y_col],
-                    mode='lines+markers',
-                    name=f"{league} - actual",
-                    line=dict(color=colors[i] if i < len(colors) else None)
-                ))
-                fig.add_trace(go.Scatter(
-                    x=league_data.date,
-                    y=league_data['average'],
-                    mode='lines',
-                    name=f"{league} - {rolling_average} avg",
-                    line=dict(color=colors[i] if i < len(colors) else None, dash='dot')
-                ))
+                league_data["average"] = league_data[y_col].rolling(rolling_average, min_periods=1, center=True).mean()
+                fig.add_trace(
+                    go.Scatter(
+                        x=league_data.date,
+                        y=league_data[y_col],
+                        mode="lines+markers",
+                        name=f"{league} - actual",
+                        line=dict(color=colors[i] if i < len(colors) else None),
+                    )
+                )
+                fig.add_trace(
+                    go.Scatter(
+                        x=league_data.date,
+                        y=league_data["average"],
+                        mode="lines",
+                        name=f"{league} - {rolling_average} avg",
+                        line=dict(color=colors[i] if i < len(colors) else None, dash="dot"),
+                    )
+                )
 
     y_title = "Position" if league_graph_position else "Wave"
-    fig.update_layout(
-        title=f"{y_title} Progression by League",
-        xaxis_title="Date",
-        yaxis_title=y_title,
-        hovermode="x unified"
-    )
+    fig.update_layout(title=f"{y_title} Progression by League", xaxis_title="Date", yaxis_title=y_title, hovermode="x unified")
 
     if league_graph_position:
         fig.update_yaxes(autorange="reversed")  # Position 1 is best
@@ -336,9 +339,15 @@ def draw_info_tab(info_tab, user, player_id, player_df, hidden_features):
         button_style = "display: inline-block; padding: 8px 16px; background-color: #FF4B4B; color: white; text-align: center; text-decoration: none; border-radius: 4px; font-weight: 500;"
         center_style = "text-align: center; margin-bottom: 1rem;"
 
-        live_col1.markdown(f'<div style="{center_style}"><a href="{bracket_url}" style="{button_style}">Bracket View</a></div>', unsafe_allow_html=True)
-        live_col2.markdown(f'<div style="{center_style}"><a href="{comparison_url}" style="{button_style}">Bracket Comparison</a></div>', unsafe_allow_html=True)
-        live_col3.markdown(f'<div style="{center_style}"><a href="{placement_url}" style="{button_style}">Placement Analysis</a></div>', unsafe_allow_html=True)
+        live_col1.markdown(
+            f'<div style="{center_style}"><a href="{bracket_url}" style="{button_style}">Bracket View</a></div>', unsafe_allow_html=True
+        )
+        live_col2.markdown(
+            f'<div style="{center_style}"><a href="{comparison_url}" style="{button_style}">Bracket Comparison</a></div>', unsafe_allow_html=True
+        )
+        live_col3.markdown(
+            f'<div style="{center_style}"><a href="{placement_url}" style="{button_style}">Placement Analysis</a></div>', unsafe_allow_html=True
+        )
 
 
 def write_for_each_patch(patch_tab, player_df):
@@ -427,7 +436,7 @@ def handle_start_date_loop(fig, graph_position_instead, tbdf):
         fig.add_vline(x=start, line_width=3, line_dash="dash", line_color="#888", opacity=0.4)
         fig.add_annotation(
             x=start,
-            y=(tbdf['#'].min() + 10 * (index % 5)) if graph_position_instead else (tbdf.wave.max() - 150 * (index % 5 + 1)),
+            y=(tbdf["#"].min() + 10 * (index % 5)) if graph_position_instead else (tbdf.wave.max() - 150 * (index % 5 + 1)),
             text=f"Patch {name}{interim} start",
             showarrow=True,
             arrowhead=1,

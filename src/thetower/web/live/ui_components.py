@@ -13,8 +13,12 @@ def get_league_for_player(player_id: str) -> str:
     return None
 
 
-def setup_common_ui():
-    """Setup common UI elements across live views"""
+def setup_common_ui(show_league_selector: bool = True):
+    """Setup common UI elements across live views
+
+    Args:
+        show_league_selector: Whether to render the league selector. Defaults to True.
+    """
     options = get_options(links=False)
 
     # Check if we have a player_id in query params
@@ -26,8 +30,11 @@ def setup_common_ui():
         else:
             st.session_state.selected_league = "Legend"  # Default if not found
     else:
-        # Show league selector as normal
-        league = get_league_selection(options)
+        # Either show the selector or use existing/default league without rendering
+        if show_league_selector:
+            league = get_league_selection(options)
+        else:
+            league = st.session_state.get("selected_league", "Legend")
 
     with st.sidebar:
         is_mobile = st.session_state.get("mobile_view", False)
