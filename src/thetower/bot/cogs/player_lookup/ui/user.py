@@ -151,7 +151,8 @@ class UserInteractions:
         if discord_id:
             embed_description = f"👤 {display_name} ({discord_id}) {status_emoji}\n{primary_id}"
         else:
-            embed_description = f"👤 {display_name} {status_emoji}\n{primary_id}"
+            # For unverified players with no discord_id, just show the name (avoid redundant Tower ID)
+            embed_description = f"👤 {display_name} {status_emoji}"
 
         # Create embed with streamlined title and description
         embed = discord.Embed(
