@@ -114,8 +114,11 @@ def live_bracket():
                     order_tmp, full_tmp = get_bracket_data(df_tmp)
                     df_tmp = df_tmp[df_tmp.bracket.isin(full_tmp)].copy()
                     if not df_tmp.empty:
-                        # Case-insensitive match on real/display name
-                        match_df = df_tmp[(df_tmp["real_name"].str.lower() == name_lower) | (df_tmp["display_name"].str.lower() == name_lower)]
+                        # Case-insensitive match on real/tourney name
+                        match_df = df_tmp[
+                            (df_tmp["real_name"].str.lower() == name_lower)
+                            | (df_tmp["name"].str.lower() == name_lower)
+                        ]
                         if not match_df.empty:
                             df = df_tmp
                             bracket_order = order_tmp
