@@ -320,6 +320,8 @@ class PostPubliclyButton(discord.ui.Button):
         from .user import UserInteractions
 
         user_interactions = UserInteractions(self.cog)
+        # Fetch permission context so info extensions (e.g., moderation) can be included
+        permission_context = await self.cog.get_user_permissions(self.requesting_user)
         embed = await user_interactions.create_player_embed(
             self.player,
             self.details,
@@ -327,7 +329,8 @@ class PostPubliclyButton(discord.ui.Button):
             show_verification_message=True,
             discord_display_format="mention",
             show_all_ids=show_all_ids,
-            requesting_user=self.requesting_user,  # Pass requesting_user to include info extensions
+            requesting_user=self.requesting_user,
+            permission_context=permission_context,
         )
 
         # Post publicly to the channel
