@@ -275,6 +275,7 @@ class UserInteractions:
         identifier = identifier.strip()
         # Parse Discord mentions to extract user ID
         identifier = self.parse_discord_mention(identifier)
+        # Normalize case: uppercase for potential player IDs, but search handles this internally
         results = await self.cog.search_player(identifier)
 
         if not results:

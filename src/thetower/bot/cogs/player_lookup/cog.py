@@ -257,7 +257,9 @@ class PlayerLookup(BaseCog, name="Player Lookup", description="Universal player 
         await self.wait_until_ready()
         search_term = search_term.strip()
 
-        # Apply case sensitivity setting
+        # Store original for player ID searches (which are uppercase)
+        search_term_upper = search_term.upper()
+        # Apply case sensitivity setting for name searches
         if not self.case_sensitive:
             search_term = search_term.lower()
 
@@ -277,25 +279,36 @@ class PlayerLookup(BaseCog, name="Player Lookup", description="Universal player 
             # For exact matches, we need to check both verified and unverified sources
             results = []
 
-            # Check verified players first
+            # Check verified players first (try both original and uppercase for player IDs)
             verified_player = await self.get_player_by_any(search_term)
+            if not verified_player and search_term != search_term_upper:
+                # Try uppercase version for player IDs
+                verified_player = await self.get_player_by_any(search_term_upper)
             if verified_player:
                 results.append(verified_player)
 
-            # Check moderation records for exact tower_id matches
+            # Check moderation records for exact tower_id matches (try both)
             moderation_results = await sync_to_async(list)(
                 ModerationRecord.objects.filter(tower_id__iexact=search_term).values_list("tower_id", flat=True).distinct()
             )
+            if not moderation_results and search_term != search_term_upper:
+                moderation_results = await sync_to_async(list)(
+                    ModerationRecord.objects.filter(tower_id__iexact=search_term_upper).values_list("tower_id", flat=True).distinct()
+                )
             for tower_id in moderation_results:
                 # Only add if not already found
                 if not player_id_already_in_results(tower_id, results):
                     unverified_player = UnverifiedPlayer(tower_id)
                     results.append(unverified_player)
 
-            # Check tourney records for exact player_id matches
+            # Check tourney records for exact player_id matches (try both)
             tourney_results = await sync_to_async(list)(
                 TourneyRow.objects.filter(player_id__iexact=search_term).values_list("player_id", flat=True).distinct()
             )
+            if not tourney_results and search_term != search_term_upper:
+                tourney_results = await sync_to_async(list)(
+                    TourneyRow.objects.filter(player_id__iexact=search_term_upper).values_list("player_id", flat=True).distinct()
+                )
             for player_id in tourney_results:
                 # Only add if not already found
                 if not player_id_already_in_results(player_id, results):
@@ -312,17 +325,17 @@ class PlayerLookup(BaseCog, name="Player Lookup", description="Universal player 
             name_results = await sync_to_async(list)(KnownPlayer.objects.filter(name__icontains=search_term))
             results.extend(name_results)
 
-            # Search by player ID
-            id_results = await sync_to_async(list)(KnownPlayer.objects.filter(ids__id__icontains=search_term).distinct())
+            # Search by player ID (use uppercase for player IDs)
+            id_results = await sync_to_async(list)(KnownPlayer.objects.filter(ids__id__icontains=search_term_upper).distinct())
             results.extend([r for r in id_results if r not in results])
 
             # Search by Discord ID
             discord_results = await sync_to_async(list)(KnownPlayer.objects.filter(discord_id__icontains=search_term))
             results.extend([r for r in discord_results if r not in results])
 
-            # Search by tower_id in ModerationRecord for unverified players
+            # Search by tower_id in ModerationRecord for unverified players (use uppercase)
             moderation_results = await sync_to_async(list)(
-                ModerationRecord.objects.filter(tower_id__icontains=search_term).values_list("tower_id", flat=True).distinct()
+                ModerationRecord.objects.filter(tower_id__icontains=search_term_upper).values_list("tower_id", flat=True).distinct()
             )
             # For moderation results, create UnverifiedPlayer objects
             for tower_id in moderation_results:
@@ -331,9 +344,9 @@ class PlayerLookup(BaseCog, name="Player Lookup", description="Universal player 
                     unverified_player = UnverifiedPlayer(tower_id)
                     results.append(unverified_player)
 
-            # Search by player_id in TourneyRow for unverified players
+            # Search by player_id in TourneyRow for unverified players (use uppercase)
             tourney_results = await sync_to_async(list)(
-                TourneyRow.objects.filter(player_id__icontains=search_term).values_list("player_id", flat=True).distinct()
+                TourneyRow.objects.filter(player_id__icontains=search_term_upper).values_list("player_id", flat=True).distinct()
             )
             # For tourney results, create UnverifiedPlayer objects
             for player_id in tourney_results:
