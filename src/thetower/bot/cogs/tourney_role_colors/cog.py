@@ -145,7 +145,10 @@ class TourneyRoleColors(BaseCog, name="Tourney Role Colors"):
         Returns:
             A button that opens role selection, or None if not applicable
         """
-        # Only show button if user is viewing their own profile
+        # Only show button if user is viewing their own profile (verified players only)
+        if details.get("is_verified") is False:
+            return None
+
         if details.get("discord_id") and str(details["discord_id"]) != str(requesting_user.id):
             return None
 
