@@ -104,6 +104,7 @@ def calculate_positions(ids: list[int], indices: list[int], waves: list[int], ex
     positions = []
     current = 0
     borrow = 1
+    last_valid_wave = None
 
     # Flatten list of exclude_ids if it's nested
     if any(isinstance(item, (list, set)) for item in exclude_ids):
@@ -116,13 +117,15 @@ def calculate_positions(ids: list[int], indices: list[int], waves: list[int], ex
             positions.append(-1)
             continue
 
-        if idx - 1 in indices and wave == waves[idx - 1]:
+        # Compare with the last valid (non-excluded) player's wave
+        if last_valid_wave is not None and wave == last_valid_wave:
             borrow += 1
         else:
             current += borrow
             borrow = 1
 
         positions.append(current)
+        last_valid_wave = wave
 
     return positions
 
