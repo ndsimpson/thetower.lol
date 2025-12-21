@@ -85,7 +85,26 @@ def get_processed_data(league: str, shun: bool = False):
     first_moment = tdf.datetime.iloc[-1]
     last_moment = tdf.datetime.iloc[0]
     ldf = df[df.datetime == last_moment].copy()
-    ldf.index = ldf.index + 1
+
+    # Sort by wave descending to ensure proper position calculation
+    ldf = ldf.sort_values("wave", ascending=False).reset_index(drop=True)
+
+    # Calculate positions accounting for ties (same wave = same position)
+    positions = []
+    current = 0
+    borrow = 1
+    last_wave = None
+
+    for wave in ldf["wave"]:
+        if last_wave is not None and wave == last_wave:
+            borrow += 1
+        else:
+            current += borrow
+            borrow = 1
+        positions.append(current)
+        last_wave = wave
+
+    ldf.index = positions
 
     return df, tdf, ldf, first_moment, last_moment
 
@@ -212,21 +231,18 @@ def get_placement_analysis_data(league: str):
                             payload_snapshot_name = None
 
                         last_snapshot_name = last_file.name
-                        logging.info(f"get_placement_analysis_data: payload snapshot name={payload_snapshot_name}, latest snapshot name={last_snapshot_name}")
+                        logging.info(
+                            f"get_placement_analysis_data: payload snapshot name={payload_snapshot_name}, latest snapshot name={last_snapshot_name}"
+                        )
 
                         if payload_snapshot_name != last_snapshot_name:
-                            logging.warning(
-                                "get_placement_analysis_data: cache snapshot does not match latest CSV; refusing to use stale cache"
-                            )
+                            logging.warning("get_placement_analysis_data: cache snapshot does not match latest CSV; refusing to use stale cache")
                             # Surface an actionable message to the UI via ValueError
-                            raise ValueError(
-                                "Live Placement Analysis is lagging behind live data.  Please wait while we catch up."
-                            )
+                            raise ValueError("Live Placement Analysis is lagging behind live data.  Please wait while we catch up.")
                         # Parse bracket_creation_times (stored as ISO strings) back to datetimes
                         raw_times = payload.get("bracket_creation_times", {}) or {}
                         bracket_creation_times = {
-                            br: (datetime.datetime.fromisoformat(ts) if isinstance(ts, str) else ts)
-                            for br, ts in raw_times.items()
+                            br: (datetime.datetime.fromisoformat(ts) if isinstance(ts, str) else ts) for br, ts in raw_times.items()
                         }
                         logging.info(f"get_placement_analysis_data: parsed {len(bracket_creation_times)} bracket_creation_times from cache")
 
@@ -436,7 +452,9 @@ def get_quantile_analysis_data(league: str):
                             payload_snapshot_name = None
 
                         last_snapshot_name = last_file.name
-                        logging.info(f"get_quantile_analysis_data: payload snapshot name={payload_snapshot_name}, latest snapshot name={last_snapshot_name}")
+                        logging.info(
+                            f"get_quantile_analysis_data: payload snapshot name={payload_snapshot_name}, latest snapshot name={last_snapshot_name}"
+                        )
 
                         if payload_snapshot_name != last_snapshot_name:
                             logging.warning("get_quantile_analysis_data: cache snapshot does not match latest CSV")
