@@ -126,14 +126,14 @@ class PlayerView(discord.ui.View):
         else:
             self.player_id = None
 
-        # Determine if this is the user's own profile
+        # Determine if this is the user's own profile (only for verified players with discord_id)
         is_own_profile = False
-        if self.player and self.requesting_user:
-            player_discord_id = getattr(self.player, "discord_id", None) or (details.get("discord_id") if details else None)
+        if self.player and self.requesting_user and details:
+            player_discord_id = details.get("discord_id")
             is_own_profile = str(player_discord_id) == str(self.requesting_user.id) if player_discord_id else False
 
         # Only add the creator code button if this is the user's own profile and they meet role requirements
-        if is_own_profile and details:
+        if is_own_profile and details and details.get("is_verified"):
             show_button = True
             required_role_id = self.cog.creator_code_required_role_id
             if required_role_id is not None and guild_id:
