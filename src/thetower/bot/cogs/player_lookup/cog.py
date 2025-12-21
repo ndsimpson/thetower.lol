@@ -264,10 +264,12 @@ class PlayerLookup(BaseCog, name="Player Lookup", description="Universal player 
             search_term = search_term.lower()
 
         # Helper function to check if player_id is already in results
-        def player_id_already_in_results(player_id: str, results: List[Any]) -> bool:
+        async def player_id_already_in_results(player_id: str, results: List[Any]) -> bool:
             for r in results:
                 if isinstance(r, KnownPlayer):
-                    if any(pid.id == player_id for pid in r.ids.all()):
+                    # Wrap the Django query in sync_to_async
+                    ids = await sync_to_async(list)(r.ids.all())
+                    if any(pid.id == player_id for pid in ids):
                         return True
                 elif isinstance(r, UnverifiedPlayer):
                     if r.tower_id == player_id:
@@ -297,7 +299,7 @@ class PlayerLookup(BaseCog, name="Player Lookup", description="Universal player 
                 )
             for tower_id in moderation_results:
                 # Only add if not already found
-                if not player_id_already_in_results(tower_id, results):
+                if not await player_id_already_in_results(tower_id, results):
                     unverified_player = UnverifiedPlayer(tower_id)
                     results.append(unverified_player)
 
@@ -311,7 +313,7 @@ class PlayerLookup(BaseCog, name="Player Lookup", description="Universal player 
                 )
             for player_id in tourney_results:
                 # Only add if not already found
-                if not player_id_already_in_results(player_id, results):
+                if not await player_id_already_in_results(player_id, results):
                     unverified_player = UnverifiedPlayer(player_id)
                     results.append(unverified_player)
 
@@ -339,7 +341,7 @@ class PlayerLookup(BaseCog, name="Player Lookup", description="Universal player 
             )
             # For moderation results, create UnverifiedPlayer objects
             for tower_id in moderation_results:
-                if not player_id_already_in_results(tower_id, results):
+                if not await player_id_already_in_results(tower_id, results):
                     # Create an UnverifiedPlayer object
                     unverified_player = UnverifiedPlayer(tower_id)
                     results.append(unverified_player)
@@ -350,7 +352,7 @@ class PlayerLookup(BaseCog, name="Player Lookup", description="Universal player 
             )
             # For tourney results, create UnverifiedPlayer objects
             for player_id in tourney_results:
-                if not player_id_already_in_results(player_id, results):
+                if not await player_id_already_in_results(player_id, results):
                     # Create an UnverifiedPlayer object
                     unverified_player = UnverifiedPlayer(player_id)
                     results.append(unverified_player)
