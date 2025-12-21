@@ -55,6 +55,32 @@ class UserInteractions:
 
         return embed
 
+    def _build_standardized_details(self, player, details: dict = None) -> dict:
+        """Build standardized details dict for verified or unverified players.
+
+        Args:
+            player: The KnownPlayer or UnverifiedPlayer object
+            details: Player details dictionary (for verified players, None for unverified)
+
+        Returns:
+            Standardized details dict with consistent structure
+        """
+        is_unverified = isinstance(player, self.cog.UnverifiedPlayer)
+
+        if is_unverified:
+            # Create consistent details dict for unverified players
+            return {
+                "name": player.name,
+                "primary_id": player.tower_id,
+                "all_ids": [{"id": player.tower_id, "primary": True}],
+                "is_verified": False,
+            }
+        else:
+            # For verified players, add is_verified flag to existing details
+            standardized_details = dict(details)  # Copy existing details
+            standardized_details["is_verified"] = True
+            return standardized_details
+
     async def create_player_embed(
         self,
         player,
@@ -177,11 +203,14 @@ class UserInteractions:
         # Check if the requesting user can see all IDs
         show_all_ids = await self._check_show_all_ids_permission(requesting_user)
 
+        # Determine if this is a verified player
+        is_verified = not isinstance(player, self.cog.UnverifiedPlayer)
+
         return await self.create_player_embed(
             player,
             details,
             title_prefix="Player Details",
-            show_verification_message=False,
+            show_verification_message=is_verified,  # Always show for verified players
             discord_display_format="mention",
             show_all_ids=show_all_ids,
             requesting_user=requesting_user,
@@ -286,9 +315,19 @@ class UserInteractions:
         if len(results) == 1:
             player = results[0]
             if isinstance(player, self.cog.UnverifiedPlayer):
-                # Handle unverified player
-                embed = await self.create_player_embed(player, title_prefix="Player Details", requesting_user=interaction.user)
-                await interaction.followup.send(embed=embed, ephemeral=True)
+                # Handle unverified player using the same lookup embed flow
+                details = self._build_standardized_details(player, None)
+                embed = await self.create_lookup_embed(player, None, interaction.user)
+                # Create view with same infrastructure as verified lookups
+                view = await PlayerView.create(
+                    self.cog,
+                    requesting_user=interaction.user,
+                    player=player,
+                    details=details,
+                    embed_title="Player Details",
+                    guild_id=interaction.guild.id,
+                )
+                await interaction.followup.send(embed=embed, view=view, ephemeral=True)
             else:
                 # Handle verified player
                 details = await get_player_details(player)
@@ -299,7 +338,6 @@ class UserInteractions:
                 view = await PlayerView.create(
                     self.cog,
                     requesting_user=interaction.user,
-                    show_creator_code_button=False,
                     player=player,
                     details=details,
                     embed_title="Player Details",
@@ -315,102 +353,40 @@ class UserInteractions:
                 # Only one verified result
                 player = verified_results[0]
                 details = await get_player_details(player)
+                details = self._build_standardized_details(player, details)
                 embed = await self.create_lookup_embed(player, details, interaction.user)
                 # Create view with post publicly button (permissions are now handled automatically)
-                view = PlayerView(
+                view = await PlayerView.create(
                     self.cog,
-                    show_creator_code_button=False,
+                    requesting_user=interaction.user,
                     player=player,
                     details=details,
                     embed_title="Player Details",
-                    requesting_user=interaction.user,
                     guild_id=interaction.guild.id,
                 )
                 await interaction.followup.send(embed=embed, view=view, ephemeral=True)
             elif len(unverified_results) == 1 and not verified_results:
                 # Only one unverified result
                 player = unverified_results[0]
-                embed = await self.create_player_embed(player, title_prefix="Player Profile", requesting_user=interaction.user)
-                await interaction.followup.send(embed=embed, ephemeral=True)
+                details = self._build_standardized_details(player, None)
+                # Use the same lookup embed flow for unverified
+                embed = await self.create_lookup_embed(player, None, interaction.user)
+                # Create view with same infrastructure as verified lookups
+                view = await PlayerView.create(
+                    self.cog,
+                    requesting_user=interaction.user,
+                    player=player,
+                    details=details,
+                    embed_title="Player Details",
+                    guild_id=interaction.guild.id,
+                )
+                await interaction.followup.send(embed=embed, view=view, ephemeral=True)
             else:
                 # Multiple results
                 embed = await self.create_multiple_results_embed(results, identifier, interaction.user)
                 await interaction.followup.send(embed=embed, ephemeral=True)
 
     async def handle_profile_command(self, interaction: discord.Interaction, identifier: str) -> None:
-        """Handle the /profile slash command."""
-        if not await self.cog.wait_until_ready():
-            await interaction.response.send_message("⏳ Still initializing, please try again shortly.", ephemeral=True)
-            return
-
-        # Defer the response to prevent timeout (gives us 15 minutes instead of 3 seconds)
-        await interaction.response.defer(ephemeral=True)
-
-        # Parse Discord mentions to extract user ID if needed
-        identifier = self.parse_discord_mention(identifier)
-
-        # Try to find player by the identifier (should be Discord ID for profile)
-        from asgiref.sync import sync_to_async
-
-        from thetower.backend.sus.models import KnownPlayer
-
-        player = await sync_to_async(KnownPlayer.objects.filter(discord_id=identifier).first)()
-
-        if not player:
-            embed = await self.create_unverified_embed()
-            await interaction.followup.send(embed=embed, ephemeral=True)
-            return
-
-        # Get player details
-        details = await get_player_details(player)
-        # Add is_verified flag for extensions
-        details["is_verified"] = True
-
-        # Get permission context for the requesting user
-        permission_context = await self.cog.get_user_permissions(interaction.user)
-
-        # Create profile embed (always shows verification message for profiles)
-        embed = await self.create_player_embed(
-            player,
-            details,
-            title_prefix="Player Profile",
-            show_verification_message=True,
-            discord_display_format="id",
-            show_all_ids=await self._check_show_all_ids_permission(interaction.user),
-            requesting_user=interaction.user,
-            permission_context=permission_context,
-        )
-
-        # Check if tournament roles button should be shown
-        show_tourney_roles_button = False
-        tourney_cog = self.cog.bot.get_cog("Tournament Roles")
-        if tourney_cog and hasattr(self.cog.bot, "cog_manager"):
-            cog_manager = self.cog.bot.cog_manager
-            show_tourney_roles_button = cog_manager.can_guild_use_cog("tourney_roles", interaction.guild.id)
-
-        # Check if creator code button should be shown (only if user has required role or no role is required)
-        show_creator_code_button = True
-        required_role_id = self.cog.creator_code_required_role_id
-        if required_role_id is not None:
-            # Check if user has the required role
-            member = interaction.guild.get_member(interaction.user.id) if interaction.guild else None
-            if member:
-                show_creator_code_button = any(role.id == required_role_id for role in member.roles)
-            else:
-                show_creator_code_button = False
-
-        # Create view with set creator code button and optionally tournament roles button
-        view = await PlayerView.create(
-            self.cog,
-            requesting_user=interaction.user,
-            show_creator_code_button=show_creator_code_button,
-            current_code=details.get("creator_code"),
-            player=player,
-            details=details,
-            embed_title="Player Profile",
-            show_tourney_roles_button=show_tourney_roles_button,
-            user_id=int(identifier),
-            guild_id=interaction.guild.id,
-        )
-
-        await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+        """Handle the /profile slash command by routing to lookup with user's Discord ID."""
+        # Profile is just a lookup of the user's own Discord ID
+        await self.handle_lookup_command(interaction, str(interaction.user.id))

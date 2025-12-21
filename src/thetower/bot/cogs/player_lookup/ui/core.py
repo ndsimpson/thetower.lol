@@ -126,9 +126,31 @@ class PlayerView(discord.ui.View):
         else:
             self.player_id = None
 
-        # Only add the creator code button if allowed
-        if self.show_creator_code_button:
-            self.add_item(SetCreatorCodeButton(self.cog, self.current_code))
+        # Determine if this is the user's own profile
+        is_own_profile = False
+        if self.player and self.requesting_user:
+            player_discord_id = getattr(self.player, "discord_id", None) or (details.get("discord_id") if details else None)
+            is_own_profile = str(player_discord_id) == str(self.requesting_user.id) if player_discord_id else False
+
+        # Only add the creator code button if this is the user's own profile and they meet role requirements
+        if is_own_profile and details:
+            show_button = True
+            required_role_id = self.cog.creator_code_required_role_id
+            if required_role_id is not None and guild_id:
+                # Check if user has the required role
+                guild = self.cog.bot.get_guild(guild_id)
+                if guild:
+                    member = guild.get_member(self.requesting_user.id)
+                    if member:
+                        show_button = any(role.id == required_role_id for role in member.roles)
+                    else:
+                        show_button = False
+                else:
+                    show_button = False
+
+            if show_button:
+                current_code = details.get("creator_code")
+                self.add_item(SetCreatorCodeButton(self.cog, current_code))
 
         # Only add the tournament roles button if allowed and we have the required IDs
         # Note: Tournament roles button is now provided via UI extension registry
