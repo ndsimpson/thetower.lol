@@ -795,85 +795,6 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
 
         return stats
 
-    async def schedule_periodic_updates(self):
-        """Schedule periodic role updates"""
-        await self.bot.wait_until_ready()
-        while not self.bot.is_closed():
-            try:
-                # Skip checks if already updating
-                if self.currently_updating:
-                    await asyncio.sleep(300)  # Check every 5 minutes
-                    continue
-
-                # Check if it's time to run an update
-                should_update = False
-                if not self.last_full_update:
-                    # Check if update_on_startup is enabled
-                    if self.get_global_setting("update_on_startup", True):
-                        should_update = True
-                    elif not self.startup_message_shown:
-                        # Only log this message once
-                        self.logger.info("No previous update found, but update_on_startup is disabled. Waiting for manual update.")
-                        self.startup_message_shown = True
-                else:
-                    time_since_update = (datetime.datetime.now(datetime.timezone.utc) - self.last_full_update).total_seconds()
-                    if time_since_update >= self.update_interval:
-                        should_update = True
-
-                if should_update:
-                    # Log what we're about to do
-                    if not self.last_full_update:
-                        self.logger.info("No previous update found, running initial role update")
-                    else:
-                        time_since_update = (datetime.datetime.now(datetime.timezone.utc) - self.last_full_update).total_seconds()
-                        self.logger.info(f"Time since last update ({time_since_update:.1f}s) exceeds interval, running role update")
-                    # Check if the cog is enabled for any guilds
-                    enabled_guilds = []
-                    for guild in self.bot.guilds:
-                        try:
-                            if self.bot.cog_manager.can_guild_use_cog(self.cog_name, guild.id, False):  # Assume not bot owner for guild check
-                                enabled_guilds.append(guild)
-                        except Exception as e:
-                            self.logger.debug(f"Error checking cog enablement for guild {guild.id}: {e}")
-
-                    if not enabled_guilds:
-                        self.logger.debug("TourneyRoles cog is not enabled for any guilds, skipping update")
-                        # Sleep until next check
-                        await asyncio.sleep(300)  # Check every 5 minutes if update needed
-                        continue
-
-                    # For automatic updates, create a message in the log channel
-                    log_channel_id = self.get_setting("log_channel_id", guild_id=enabled_guilds[0].id) if enabled_guilds else None
-                    if log_channel_id:
-                        try:
-                            channel = self.bot.get_channel(int(log_channel_id))
-                            if channel:
-                                # Get dry run status
-                                dry_run = self.get_global_setting("dry_run", False)
-                                initial_message = (
-                                    "🔍 Starting automatic role update in DRY RUN mode..." if dry_run else "🔄 Starting automatic role update..."
-                                )
-                                message = await channel.send(f"{initial_message} This may take a while.")
-
-                                # Run the update with progress tracking
-                                await self.start_update_with_progress(message, manual_update=False)
-                            else:
-                                # No valid channel, run update without progress message
-                                self.logger.warning("Log channel not found for automatic update progress message")
-                                await self.update_all_roles()
-                        except Exception as e:
-                            self.logger.error(f"Error creating progress message for automatic update: {e}")
-                            await self.update_all_roles()  # Still run the update
-                    else:
-                        # No log channel configured, run without progress message
-                        await self.update_all_roles()
-
-                # Sleep until next check
-                await asyncio.sleep(300)  # Check every 5 minutes if update needed
-            except Exception as e:
-                self.logger.error(f"Error in periodic role update: {e}")
-                await asyncio.sleep(self.get_global_setting("error_retry_delay", 300))  # Sleep on error
-
     async def update_all_roles(self):
         """Update roles for all users across all enabled guilds using separated calculation and application phases"""
         if self.currently_updating:
@@ -1437,10 +1358,11 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
                 tracker.update_status("Checking tournament data")
                 await self._check_tournament_data_on_startup()
 
-                # 4. Start the update task
-                self.logger.debug("Starting update task")
-                tracker.update_status("Starting update task")
-                self.update_task = self.bot.loop.create_task(self.schedule_periodic_updates())
+                # 4. Run startup role update if enabled
+                if self.get_global_setting("update_on_startup", True):
+                    self.logger.debug("Running startup role update")
+                    tracker.update_status("Running startup role update")
+                    await self.update_all_roles()
 
                 # 5. Mark as ready and complete initialization
                 self.set_ready(True)
