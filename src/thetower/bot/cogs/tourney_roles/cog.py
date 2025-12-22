@@ -1661,6 +1661,52 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
         except Exception as e:
             self.logger.error(f"Error handling tourney_data_refreshed event: {e}", exc_info=True)
 
+    @commands.Cog.listener()
+    async def on_member_verified(self, member: discord.Member, player_id: str, reason: str):
+        """Handle member verification - apply tournament roles immediately."""
+        try:
+            # Only process if this cog is enabled for the guild
+            if not self.bot.cog_manager.can_guild_use_cog(self.cog_name, member.guild.id, False):
+                return
+
+            self.logger.info(f"Member verified: {member.name} ({member.id}) - applying tournament roles")
+
+            # Check cache first
+            cached_role = self.role_cache.get(member.guild.id, {}).get(str(member.id))
+
+            if cached_role is None:
+                # Not in cache - try to calculate
+                single_user_mapping = await self.get_discord_to_player_mapping(discord_id=str(member.id))
+
+                if single_user_mapping:
+                    # User has player data - calculate their role
+                    await self.calculate_roles_for_users([member.id], member.guild.id, discord_to_player=single_user_mapping)
+                else:
+                    self.logger.info(f"User {member.name} ({member.id}) has no player data - skipping role calculation")
+                    return
+
+            # Apply roles (will use cache if available, or handle verification requirement)
+            await self.apply_roles_for_users([member.id], member.guild.id)
+
+        except Exception as e:
+            self.logger.error(f"Error handling member verification for {member.name}: {e}")
+
+    @commands.Cog.listener()
+    async def on_member_unverified(self, member: discord.Member, player_id: str, reason: str):
+        """Handle member unverification - remove tournament roles immediately."""
+        try:
+            # Only process if this cog is enabled for the guild
+            if not self.bot.cog_manager.can_guild_use_cog(self.cog_name, member.guild.id, False):
+                return
+
+            self.logger.info(f"Member unverified: {member.name} ({member.id}) - removing tournament roles")
+
+            # Apply roles (will remove all tournament roles since they're not verified)
+            await self.apply_roles_for_users([member.id], member.guild.id)
+
+        except Exception as e:
+            self.logger.error(f"Error handling member unverification for {member.name}: {e}")
+
     async def refresh_user_roles_for_user(self, user_id: int, guild_id: int) -> str:
         """Public method for other cogs to refresh tournament roles for a specific user.
 

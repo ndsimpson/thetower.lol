@@ -835,3 +835,43 @@ class Validation(BaseCog, name="Validation"):
                     break
                     break
                     break
+
+    @commands.Cog.listener()
+    async def on_member_moderated(self, tower_id: str, moderation_type: str, record, requesting_user: discord.User, updated: bool = False):
+        """Handle member moderation - remove verified role immediately for bans."""
+        try:
+            # Only handle bans for now - other moderation types don't affect verification
+            if moderation_type != "ban":
+                return
+
+            self.logger.info(f"Member banned via moderation: tower_id {tower_id} - checking for verified role removal")
+
+            # Find the Discord user for this Tower ID
+            from thetower.backend.sus.models import KnownPlayer, PlayerId
+
+            def get_discord_id():
+                try:
+                    # Find the PlayerId for this tower_id
+                    player_id_obj = PlayerId.objects.filter(id=tower_id).select_related("player").first()
+                    if player_id_obj and player_id_obj.player.discord_id:
+                        return player_id_obj.player.discord_id
+                except Exception as e:
+                    self.logger.error(f"Error looking up Discord ID for tower_id {tower_id}: {e}")
+                return None
+
+            discord_id = await sync_to_async(get_discord_id)()
+            if not discord_id:
+                self.logger.info(f"No Discord ID found for tower_id {tower_id} - skipping verified role removal")
+                return
+
+            # Remove verified role from all guilds the bot is in
+            for guild in self.bot.guilds:
+                try:
+                    success = await self.remove_verified_role_from_user(int(discord_id), guild.id)
+                    if success:
+                        self.logger.info(f"Removed verified role from user {discord_id} in guild {guild.name} due to ban")
+                except Exception as e:
+                    self.logger.error(f"Error removing verified role from user {discord_id} in guild {guild.name}: {e}")
+
+        except Exception as e:
+            self.logger.error(f"Error handling member moderation event: {e}")
