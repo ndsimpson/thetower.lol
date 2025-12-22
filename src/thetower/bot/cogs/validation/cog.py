@@ -150,6 +150,100 @@ class Validation(BaseCog, name="Validation"):
         modal = VerificationModal(self)
         await interaction.response.send_modal(modal)
 
+    @app_commands.command(name="check", description="Bot owner: list banned users in this server")
+    @app_commands.guild_only()
+    async def check_banned(self, interaction: discord.Interaction) -> None:
+        """Bot-owner command to list guild members with active bans."""
+        from asgiref.sync import sync_to_async
+
+        # Owner-only guard
+        if not await self.bot.is_owner(interaction.user):
+            await interaction.response.send_message("❌ You do not have permission to run this command.", ephemeral=True)
+            return
+
+        await interaction.response.defer()
+
+        guild = interaction.guild
+
+        def fetch_banned():
+            from thetower.backend.sus.models import ModerationRecord
+            from thetower.backend.tourney_results.models import TourneyRow
+
+            ban_ids = ModerationRecord.get_active_moderation_ids("ban")
+
+            banned_records = []
+            players = KnownPlayer.objects.filter(discord_id__isnull=False).exclude(discord_id="").select_related().prefetch_related("ids")
+
+            for player in players:
+                player_ids = list(player.ids.all())
+                if not player_ids:
+                    continue
+
+                # Check for active ban via any of the player's tower IDs
+                if not any(pid.id in ban_ids for pid in player_ids):
+                    continue
+
+                primary = next((pid for pid in player_ids if pid.primary), player_ids[0])
+
+                latest_row = TourneyRow.objects.filter(player_id=primary.id).select_related("result").order_by("-result__date").first()
+                latest_date = latest_row.result.date if latest_row else None
+
+                banned_records.append(
+                    {
+                        "discord_id": player.discord_id,
+                        "player_id": primary.id,
+                        "player_name": player.name,
+                        "latest_tourney_date": latest_date,
+                    }
+                )
+
+            return banned_records
+
+        banned_records = await sync_to_async(fetch_banned)()
+
+        # Filter to members of this guild
+        members = {}
+        for record in banned_records:
+            member = guild.get_member(int(record["discord_id"])) if record.get("discord_id") else None
+            if member:
+                members[member.id] = (member, record)
+
+        if not members:
+            await interaction.followup.send("No active bans found for members of this server.")
+            return
+
+        lines = []
+        for member_id, (member, record) in members.items():
+            latest = record["latest_tourney_date"].date().isoformat() if record["latest_tourney_date"] else "N/A"
+            lines.append(
+                f"{member.mention} ({member})\n"
+                f"• Player ID: `{record['player_id']}`\n"
+                f"• Player Name: {record['player_name']}\n"
+                f"• Last Tourney Date: {latest}"
+            )
+
+        # Discord message length safeguard
+        content = "\n\n".join(lines)
+        if len(content) > 1800:
+            # Chunk if very large
+            chunks = []
+            chunk = []
+            length = 0
+            for line in lines:
+                if length + len(line) + 2 > 1800:
+                    chunks.append("\n\n".join(chunk))
+                    chunk = []
+                    length = 0
+                chunk.append(line)
+                length += len(line) + 2
+            if chunk:
+                chunks.append("\n\n".join(chunk))
+
+            for idx, chunk_text in enumerate(chunks, 1):
+                await interaction.followup.send(f"**Banned Members (part {idx}/{len(chunks)})**\n{chunk_text}")
+        else:
+            await interaction.followup.send(f"**Banned Members**\n{content}")
+
     async def _check_additional_interaction_permissions(self, interaction: discord.Interaction) -> bool:
         """Override additional interaction permissions for slash commands.
 
