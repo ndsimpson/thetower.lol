@@ -202,14 +202,30 @@ class Validation(BaseCog, name="Validation"):
                     if verified_role in member.roles:
                         discord_id_str = str(member.id)
 
-                        def should_have_role():
+                        def get_startup_verification_status():
                             try:
-                                return KnownPlayer.objects.filter(discord_id=discord_id_str, approved=True).exists()
-                            except Exception:
-                                return False
+                                player = KnownPlayer.objects.get(discord_id=discord_id_str)
 
-                        if not await sync_to_async(should_have_role)():
-                            await self._remove_verified_role(member, verified_role, "startup reconciliation - not approved")
+                                # Check if approved
+                                if not player.approved:
+                                    return {"should_have_role": False, "reason": "not approved"}
+
+                                # Check for active ban records
+                                from thetower.backend.sus.models import ModerationRecord
+
+                                ban_ids = ModerationRecord.get_active_moderation_ids("ban")
+                                player_tower_ids = [pid.id for pid in player.ids.all()]
+                                if any(pid in ban_ids for pid in player_tower_ids):
+                                    return {"should_have_role": False, "reason": "active ban moderation"}
+
+                                return {"should_have_role": True, "reason": None}
+                            except KnownPlayer.DoesNotExist:
+                                return {"should_have_role": False, "reason": "not approved"}
+
+                        status = await sync_to_async(get_startup_verification_status)()
+                        if not status["should_have_role"]:
+                            reason = f"startup reconciliation - {status['reason']}"
+                            await self._remove_verified_role(member, verified_role, reason)
                             roles_removed += 1
 
                 if roles_added > 0 or roles_removed > 0:
@@ -451,7 +467,7 @@ class Validation(BaseCog, name="Validation"):
         """Handle member joins - auto-verify known players."""
         from asgiref.sync import sync_to_async
 
-        from thetower.backend.sus.models import KnownPlayer, PlayerId
+        from thetower.backend.sus.models import KnownPlayer
 
         try:
             verified_role_id = self.get_setting("verified_role_id", guild_id=member.guild.id)
@@ -468,7 +484,15 @@ class Validation(BaseCog, name="Validation"):
             def should_have_verified_role():
                 try:
                     player = KnownPlayer.objects.get(discord_id=discord_id_str)
-                    return player.approved
+                    if not player.approved:
+                        return False
+
+                    # Check for active ban records - banned players don't get verified role
+                    from thetower.backend.sus.models import ModerationRecord
+
+                    ban_ids = ModerationRecord.get_active_moderation_ids("ban")
+                    player_tower_ids = [pid.id for pid in player.ids.all()]
+                    return not any(pid in ban_ids for pid in player_tower_ids)
                 except KnownPlayer.DoesNotExist:
                     return False
 
@@ -484,7 +508,7 @@ class Validation(BaseCog, name="Validation"):
         """Handle member updates - monitor verified role changes."""
         from asgiref.sync import sync_to_async
 
-        from thetower.backend.sus.models import KnownPlayer, PlayerId
+        from thetower.backend.sus.models import KnownPlayer
 
         try:
             verified_role_id = self.get_setting("verified_role_id", guild_id=after.guild.id)
@@ -509,20 +533,34 @@ class Validation(BaseCog, name="Validation"):
             # Role was changed externally - need to correct it
             discord_id_str = str(after.id)
 
-            def should_have_verified_role():
+            def get_verification_status():
                 try:
                     player = KnownPlayer.objects.get(discord_id=discord_id_str)
-                    return player.approved
+
+                    # Check if approved
+                    if not player.approved:
+                        return {"should_have_role": False, "reason": "not approved"}
+
+                    # Check for active ban records
+                    from thetower.backend.sus.models import ModerationRecord
+
+                    ban_ids = ModerationRecord.get_active_moderation_ids("ban")
+                    player_tower_ids = [pid.id for pid in player.ids.all()]
+                    if any(pid in ban_ids for pid in player_tower_ids):
+                        return {"should_have_role": False, "reason": "active ban"}
+
+                    return {"should_have_role": True, "reason": None}
                 except KnownPlayer.DoesNotExist:
-                    return False
+                    return {"should_have_role": False, "reason": "not approved"}
 
-            should_have_role = await sync_to_async(should_have_verified_role)()
+            status = await sync_to_async(get_verification_status)()
 
-            if has_role and not should_have_role:
+            if has_role and not status["should_have_role"]:
                 # Role was added but user shouldn't have it - remove it
-                await self._remove_verified_role(after, verified_role, "role added externally without verification, correcting")
+                reason = f"role added externally without verification, correcting ({status['reason']})"
+                await self._remove_verified_role(after, verified_role, reason)
 
-            elif not has_role and should_have_role:
+            elif not has_role and status["should_have_role"]:
                 # Role was removed but user should have it - add it back
                 await self._add_verified_role(after, verified_role, "role removed externally, correcting")
 
