@@ -327,15 +327,13 @@ class Validation(BaseCog, name="Validation"):
                     if verified_role in member.roles:
                         discord_id_str = str(member.id)
 
-                        def get_startup_verification_status():
+                        async def get_startup_verification_status():
                             try:
-                                player = KnownPlayer.objects.get(discord_id=discord_id_str)
+                                player = await sync_to_async(KnownPlayer.objects.get)(discord_id=discord_id_str)
 
-                                # Check if approved
                                 if not player.approved:
                                     return {"should_have_role": False, "reason": "not approved"}
 
-                                # Check for active ban records
                                 if await self._has_active_ban(discord_id_str):
                                     return {"should_have_role": False, "reason": "active ban moderation"}
 
@@ -343,7 +341,7 @@ class Validation(BaseCog, name="Validation"):
                             except KnownPlayer.DoesNotExist:
                                 return {"should_have_role": False, "reason": "not approved"}
 
-                        status = await sync_to_async(get_startup_verification_status)()
+                        status = await get_startup_verification_status()
                         if not status["should_have_role"]:
                             reason = f"startup reconciliation - {status['reason']}"
                             await self._remove_verified_role(member, verified_role, reason)
