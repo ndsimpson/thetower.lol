@@ -63,6 +63,7 @@ from .user import (
     BCManagementView,
     GenerateBCButton,
     ResendBCButton,
+    RunAllSchedulesButton,
     ScheduleLeagueSelect,
     ScheduleSelect,
     SettingsBCButton,
@@ -79,17 +80,16 @@ __all__ = [
     "TOWERBCS_AVAILABLE",
     "ALL_LEAGUES",
     "DEFAULT_ENABLED_LEAGUES",
-
     # User
     "BCManagementView",
     "ViewBCButton",
     "ViewLeagueSelect",
     "GenerateBCButton",
     "ResendBCButton",
+    "RunAllSchedulesButton",
     "ScheduleSelect",
     "SettingsBCButton",
     "ScheduleLeagueSelect",
-
     # Admin
     "BCSettingsView",
     "ConfigureLeaguesButton",
@@ -112,7 +112,6 @@ __all__ = [
     "ConfigureRunSchedulePermButton",
     "ConfigureManageSchedulesPermButton",
     "ActionMentionableSelect",
-
     # Settings
     "BattleConditionsSettingsView",
     "BattleConditionsConfigureLeaguesButton",
@@ -132,5 +131,5 @@ __all__ = [
     "BattleConditionsDeleteScheduleButton",
     "BattleConditionsDeleteScheduleSelect",
     "BattleConditionsTogglePauseScheduleButton",
-    "BattleConditionsTogglePauseSelect"
+    "BattleConditionsTogglePauseSelect",
 ]

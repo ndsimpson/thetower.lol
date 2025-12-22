@@ -24,6 +24,7 @@ class BCManagementView(discord.ui.View):
         # Add Run Schedule button if user has permission
         if can_run_schedule:
             self.add_item(ResendBCButton())
+            self.add_item(RunAllSchedulesButton())
 
         # Add Settings button for owners only
         if is_owner:
@@ -243,6 +244,89 @@ class ResendBCButton(discord.ui.Button):
         select_view.add_item(ScheduleSelect(cog, destination_schedules, guild_id))
 
         await interaction.response.send_message("Select a schedule to run immediately:", view=select_view, ephemeral=True)
+
+
+class RunAllSchedulesButton(discord.ui.Button):
+    """Button to trigger all schedules in the guild."""
+
+    def __init__(self):
+        super().__init__(label="Run All Schedules", style=discord.ButtonStyle.secondary, emoji="🚀")
+
+    async def callback(self, interaction: discord.Interaction):
+        view: BCManagementView = self.view
+        cog = view.cog
+        guild_id = interaction.guild.id
+
+        if not TOWERBCS_AVAILABLE:
+            await interaction.response.send_message("⚠️ Battle conditions package not available.", ephemeral=True)
+            return
+
+        # Get all schedules for this guild
+        destination_schedules = cog.get_setting("destination_schedules", guild_id=guild_id)
+        if not destination_schedules:
+            destination_schedules = []
+
+        if not destination_schedules:
+            await interaction.response.send_message(
+                "❌ No schedules configured for this server.\n" "Use Settings → Manage Schedules to create one.", ephemeral=True
+            )
+            return
+
+        # Defer as this might take a moment
+        await interaction.response.defer(ephemeral=True)
+
+        # Get tournament info
+        tourney_id, tourney_date, days_until = BattleConditionsCore.get_tournament_info()
+
+        # Get enabled leagues (global setting)
+        enabled_leagues = cog.get_global_setting("enabled_leagues") or []
+
+        # Process all schedules
+        total_sent = 0
+        schedule_count = 0
+        for schedule in destination_schedules:
+            schedule_count += 1
+            destination_id = schedule.get("destination_id")
+            leagues = schedule.get("leagues", [])
+            paused = schedule.get("paused", False)
+
+            # Skip paused schedules
+            if paused:
+                continue
+
+            # Get channel
+            channel = cog.bot.get_channel(int(destination_id))
+            if not channel:
+                cog.logger.warning(f"Could not find destination with ID {destination_id}")
+                continue
+
+            # Verify channel is in the correct guild
+            if channel.guild.id != guild_id:
+                cog.logger.warning(f"Channel {destination_id} guild mismatch: expected {guild_id}, got {channel.guild.id}")
+                continue
+
+            # Send BCs to channel
+            sent_count = 0
+            for league in leagues:
+                # Skip leagues that aren't enabled
+                if league not in enabled_leagues:
+                    continue
+
+                try:
+                    conditions = await BattleConditionsCore.get_battle_conditions(league)
+                    success = await BattleConditionsCore.send_battle_conditions_embed(channel, league, tourney_date, conditions)
+                    if success:
+                        sent_count += 1
+                        total_sent += 1
+                except Exception as e:
+                    cog.logger.error(f"Error sending BC for {league}: {e}")
+
+            cog.logger.info(f"Processed schedule for {channel.name}: sent {sent_count} league(s)")
+
+        # Confirm to user
+        await interaction.followup.send(
+            f"✅ Processed {schedule_count} schedule(s), sent battle conditions for {total_sent} league(s) total.", ephemeral=True
+        )
 
 
 class ScheduleSelect(discord.ui.Select):
