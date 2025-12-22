@@ -638,6 +638,78 @@ class TourneyRoleColors(BaseCog, name="Tourney Role Colors"):
         except Exception as e:
             self.logger.error(f"Error auditing color roles in {guild.name}: {e}", exc_info=True)
 
+    @commands.Cog.listener()
+    async def on_tourney_role_added(self, member: discord.Member, role: discord.Role) -> None:
+        """Handle tournament role additions - check if user now qualifies for color roles."""
+        try:
+            guild_id = member.guild.id
+            member_key = (guild_id, member.id)
+
+            # Skip if we're currently updating this member (prevent feedback loops)
+            if member_key in self.updating_members:
+                return
+
+            # Check if member has any color roles from our cog
+            all_managed_roles = self.get_all_managed_roles(guild_id)
+            has_color_role = any(role.id in all_managed_roles for role in member.roles)
+
+            if not has_color_role:
+                return  # Nothing to check
+
+            # User has a color role - check if they still qualify with the new tournament role
+            after_role_ids = [role.id for role in member.roles]
+            has_eligible_roles = bool(self.get_eligible_roles(guild_id, after_role_ids))
+
+            # If user no longer has prerequisites, start debounced check
+            if not has_eligible_roles:
+                # Cancel any existing pending check and start a new one
+                if member_key in self.pending_prereq_checks:
+                    self.pending_prereq_checks[member_key].cancel()
+
+                # Start new debounce timer
+                task = asyncio.create_task(self._debounced_prerequisite_check(member.guild, member.id))
+                self.pending_prereq_checks[member_key] = task
+                self.logger.debug(f"Started 15s prerequisite check for {member.display_name} after tournament role addition")
+
+        except Exception as e:
+            self.logger.error(f"Error handling tourney_role_added for {member.display_name}: {e}")
+
+    @commands.Cog.listener()
+    async def on_tourney_role_removed(self, member: discord.Member, role: discord.Role) -> None:
+        """Handle tournament role removals - check if user still qualifies for color roles."""
+        try:
+            guild_id = member.guild.id
+            member_key = (guild_id, member.id)
+
+            # Skip if we're currently updating this member (prevent feedback loops)
+            if member_key in self.updating_members:
+                return
+
+            # Check if member has any color roles from our cog
+            all_managed_roles = self.get_all_managed_roles(guild_id)
+            has_color_role = any(role.id in all_managed_roles for role in member.roles)
+
+            if not has_color_role:
+                return  # Nothing to check
+
+            # User has a color role - check if they still qualify after tournament role removal
+            after_role_ids = [role.id for role in member.roles]
+            has_eligible_roles = bool(self.get_eligible_roles(guild_id, after_role_ids))
+
+            # If user no longer has prerequisites, start debounced check
+            if not has_eligible_roles:
+                # Cancel any existing pending check and start a new one
+                if member_key in self.pending_prereq_checks:
+                    self.pending_prereq_checks[member_key].cancel()
+
+                # Start new debounce timer
+                task = asyncio.create_task(self._debounced_prerequisite_check(member.guild, member.id))
+                self.pending_prereq_checks[member_key] = task
+                self.logger.debug(f"Started 15s prerequisite check for {member.display_name} after tournament role removal")
+
+        except Exception as e:
+            self.logger.error(f"Error handling tourney_role_removed for {member.display_name}: {e}")
+
     async def audit_all_color_roles(self) -> None:
         """Audit all users with color roles on startup for all guilds.
 

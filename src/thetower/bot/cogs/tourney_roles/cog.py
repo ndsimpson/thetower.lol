@@ -758,7 +758,7 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
 
                     # Dispatch custom events for individual role changes
                     for change in changes:
-                        if change.startswith("+"):
+                        if change.startswith('+'):
                             role_name = change[1:]  # Remove the + prefix
                             # Find the role object that was added
                             added_role = None
@@ -768,7 +768,7 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
                                     break
                             if added_role:
                                 self.bot.dispatch("tourney_role_added", member, added_role)
-                        elif change.startswith("-"):
+                        elif change.startswith('-'):
                             role_name = change[1:]  # Remove the - prefix
                             # Find the role object that was removed
                             removed_role = None
