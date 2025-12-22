@@ -118,6 +118,34 @@ class Validation(BaseCog, name="Validation"):
                     await interaction.response.send_message("✅ You are already verified!", ephemeral=True)
                 return
 
+        # Block verification if user has an active ban moderation
+        try:
+            if await self._has_active_ban(str(interaction.user.id)):
+                # Log the blocked attempt to the verification log channel for moderator awareness
+                try:
+                    await self._log_detailed_verification(
+                        interaction.guild.id,
+                        interaction.user,
+                        player_id=None,
+                        reason="Verification blocked due to active ban",
+                        success=False,
+                    )
+                except Exception as log_exc:
+                    self.logger.error(f"Failed to log blocked verification attempt for {interaction.user.id}: {log_exc}")
+
+                await interaction.response.send_message(
+                    "❌ Verification blocked: you have an active ban on your account. Please contact a moderator.",
+                    ephemeral=True,
+                )
+                return
+        except Exception as exc:
+            self.logger.error(f"Error checking active ban for {interaction.user.id}: {exc}")
+            await interaction.response.send_message(
+                "❌ Verification could not proceed due to an internal error. Please contact a moderator.",
+                ephemeral=True,
+            )
+            return
+
         # Open the verification modal
         modal = VerificationModal(self)
         await interaction.response.send_modal(modal)
@@ -192,10 +220,11 @@ class Validation(BaseCog, name="Validation"):
                         member = guild.get_member(discord_id)
 
                         if member:
-                            # Member is in guild - should have verified role
-                            if verified_role not in member.roles:
-                                await self._add_verified_role(member, verified_role, "startup reconciliation")
-                                roles_added += 1
+                            # Member is in guild - should have verified role if not banned
+                            if not await self._has_active_ban(str(discord_id)):
+                                if verified_role not in member.roles:
+                                    await self._add_verified_role(member, verified_role, "startup reconciliation")
+                                    roles_added += 1
                     except (ValueError, TypeError):
                         continue
 
@@ -213,11 +242,7 @@ class Validation(BaseCog, name="Validation"):
                                     return {"should_have_role": False, "reason": "not approved"}
 
                                 # Check for active ban records
-                                from thetower.backend.sus.models import ModerationRecord
-
-                                ban_ids = ModerationRecord.get_active_moderation_ids("ban")
-                                player_tower_ids = [pid.id for pid in player.ids.all()]
-                                if any(pid in ban_ids for pid in player_tower_ids):
+                                if await self._has_active_ban(discord_id_str):
                                     return {"should_have_role": False, "reason": "active ban moderation"}
 
                                 return {"should_have_role": True, "reason": None}
@@ -252,6 +277,11 @@ class Validation(BaseCog, name="Validation"):
         from thetower.backend.sus.models import KnownPlayer, PlayerId
 
         try:
+            # Do not add role if member has an active ban
+            if await self._has_active_ban(str(member.id)):
+                self.logger.info(f"Skipping verified role for {member} ({member.id}) due to active ban")
+                return False
+
             # Track this as a bot action to prevent feedback loop
             self._bot_role_changes.add((member.id, member.guild.id))
 
@@ -292,6 +322,27 @@ class Validation(BaseCog, name="Validation"):
             # Remove from tracking set after a short delay to allow event to fire
             await asyncio.sleep(1)
             self._bot_role_changes.discard((member.id, member.guild.id))
+
+    async def _has_active_ban(self, discord_id_str: str) -> bool:
+        """Check if a Discord user has any active ban moderation records."""
+
+        from asgiref.sync import sync_to_async
+
+        def check_ban():
+            try:
+                from thetower.backend.sus.models import ModerationRecord
+
+                player = KnownPlayer.objects.get(discord_id=discord_id_str)
+                ban_ids = ModerationRecord.get_active_moderation_ids("ban")
+                player_tower_ids = [pid.id for pid in player.ids.all()]
+                return any(pid in ban_ids for pid in player_tower_ids)
+            except KnownPlayer.DoesNotExist:
+                return False
+            except Exception as exc:  # defensive logging; do not fail hard
+                self.logger.error(f"Error checking active ban for {discord_id_str}: {exc}")
+                return False
+
+        return await sync_to_async(check_ban)()
 
     async def _remove_verified_role(self, member: discord.Member, role: discord.Role, reason: str) -> bool:
         """Remove verified role from a member and log it.
