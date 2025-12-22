@@ -333,8 +333,20 @@ class Validation(BaseCog, name="Validation"):
 
             player_id = await sync_to_async(get_player_id)()
 
-            # Log detailed verification event (as unsuccessful for removal)
-            await self._log_detailed_verification(member.guild.id, member, player_id=player_id, reason=reason, success=False)
+            # Determine if this is a moderation-related removal or a verification failure
+            is_moderation_removal = "moderation" in reason.lower() or "ban" in reason.lower()
+
+            # Log detailed verification event (success=False for failures, but moderation removals use different logging)
+            if is_moderation_removal:
+                # For moderation removals, log as a role change rather than verification failure
+                await self._log_role_change(
+                    member.guild.id,
+                    f"🔨 **Role Removed (Moderation)** - {member.mention} had {role.mention} removed\n**Reason:** {reason}",
+                    discord.Color.orange(),
+                )
+            else:
+                # For actual verification failures/removals, log as unsuccessful verification
+                await self._log_detailed_verification(member.guild.id, member, player_id=player_id, reason=reason, success=False)
 
             # Dispatch custom event for member unverification
             self.bot.dispatch("member_unverified", member, player_id, reason)
@@ -386,12 +398,13 @@ class Validation(BaseCog, name="Validation"):
         if player_id:
             embed.add_field(name="Player ID", value=f"`{player_id}`", inline=True)
 
-        # Add role assignment info
-        verified_role_id = self.get_setting("verified_role_id", guild_id=guild_id)
-        if verified_role_id:
-            role = guild.get_role(verified_role_id)
-            if role:
-                embed.add_field(name="Role Assigned", value=role.mention, inline=True)
+        # Add role assignment info (only for successful verifications)
+        if success:
+            verified_role_id = self.get_setting("verified_role_id", guild_id=guild_id)
+            if verified_role_id:
+                role = guild.get_role(verified_role_id)
+                if role:
+                    embed.add_field(name="Role Assigned", value=role.mention, inline=True)
 
         # Add reason if provided
         if reason:
