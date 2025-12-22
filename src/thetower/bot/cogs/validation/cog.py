@@ -229,16 +229,37 @@ class Validation(BaseCog, name="Validation"):
         Returns:
             True if successful, False otherwise
         """
+        from asgiref.sync import sync_to_async
+
+        from thetower.backend.sus.models import KnownPlayer, PlayerId
+
         try:
             # Track this as a bot action to prevent feedback loop
             self._bot_role_changes.add((member.id, member.guild.id))
 
             await member.add_roles(role, reason=f"Verification: {reason}")
 
-            # Log to verification channel
-            await self._log_role_change(
-                member.guild.id, f"✅ {member.mention} has been verified ({reason}), applying {role.mention}", discord.Color.green()
-            )
+            # Get player ID for detailed logging
+            discord_id_str = str(member.id)
+
+            def get_player_id():
+                try:
+                    player = KnownPlayer.objects.get(discord_id=discord_id_str)
+                    # First try to get primary ID
+                    primary_id = PlayerId.objects.filter(player=player, primary=True).first()
+                    if primary_id:
+                        return primary_id.id
+
+                    # If no primary ID, just pick any available ID
+                    any_id = PlayerId.objects.filter(player=player).first()
+                    return any_id.id if any_id else None
+                except KnownPlayer.DoesNotExist:
+                    return None
+
+            player_id = await sync_to_async(get_player_id)()
+
+            # Log detailed verification event
+            await self._log_detailed_verification(member.guild.id, member, player_id=player_id, reason=reason, success=True)
 
             self.logger.info(f"Added verified role to {member} ({member.id}) in {member.guild.name}: {reason}")
             return True
@@ -264,14 +285,37 @@ class Validation(BaseCog, name="Validation"):
         Returns:
             True if successful, False otherwise
         """
+        from asgiref.sync import sync_to_async
+
+        from thetower.backend.sus.models import KnownPlayer, PlayerId
+
         try:
             # Track this as a bot action to prevent feedback loop
             self._bot_role_changes.add((member.id, member.guild.id))
 
             await member.remove_roles(role, reason=f"Verification: {reason}")
 
-            # Log to verification channel
-            await self._log_role_change(member.guild.id, f"⚠️ {role.mention} was removed from {member.mention} ({reason})", discord.Color.orange())
+            # Get player ID for detailed logging
+            discord_id_str = str(member.id)
+
+            def get_player_id():
+                try:
+                    player = KnownPlayer.objects.get(discord_id=discord_id_str)
+                    # First try to get primary ID
+                    primary_id = PlayerId.objects.filter(player=player, primary=True).first()
+                    if primary_id:
+                        return primary_id.id
+
+                    # If no primary ID, just pick any available ID
+                    any_id = PlayerId.objects.filter(player=player).first()
+                    return any_id.id if any_id else None
+                except KnownPlayer.DoesNotExist:
+                    return None
+
+            player_id = await sync_to_async(get_player_id)()
+
+            # Log detailed verification event (as unsuccessful for removal)
+            await self._log_detailed_verification(member.guild.id, member, player_id=player_id, reason=reason, success=False)
 
             self.logger.info(f"Removed verified role from {member} ({member.id}) in {member.guild.name}: {reason}")
             return True
@@ -285,6 +329,96 @@ class Validation(BaseCog, name="Validation"):
 
             await asyncio.sleep(1)
             self._bot_role_changes.discard((member.id, member.guild.id))
+
+    async def _log_detailed_verification(
+        self, guild_id: int, member: discord.Member, player_id: str = None, reason: str = None, image_filename: str = None, success: bool = True
+    ) -> None:
+        """Log a detailed verification event to the verification log channel.
+
+        Args:
+            guild_id: The guild ID
+            member: The Discord member
+            player_id: The player's ID (optional)
+            reason: Reason for verification (optional)
+            image_filename: Filename of verification image (optional)
+            success: Whether verification was successful
+        """
+        log_channel_id = self.get_setting("verification_log_channel_id", guild_id=guild_id)
+        if not log_channel_id:
+            return
+
+        guild = self.bot.get_guild(guild_id)
+        if not guild:
+            return
+
+        log_channel = guild.get_channel(log_channel_id)
+        if not log_channel:
+            return
+
+        # Create embed
+        title = "✅ Verification Successful" if success else "❌ Verification Failed"
+        color = discord.Color.green() if success else discord.Color.red()
+        embed = discord.Embed(title=title, color=color, timestamp=discord.utils.utcnow())
+
+        # Add user information fields
+        embed.add_field(name="Discord User", value=f"{member.mention}\n`{member.name}`", inline=True)
+        embed.add_field(name="Discord ID", value=f"`{member.id}`", inline=True)
+        if player_id:
+            embed.add_field(name="Player ID", value=f"`{player_id}`", inline=True)
+
+        # Add role assignment info
+        verified_role_id = self.get_setting("verified_role_id", guild_id=guild_id)
+        if verified_role_id:
+            role = guild.get_role(verified_role_id)
+            if role:
+                embed.add_field(name="Role Assigned", value=role.mention, inline=True)
+
+        # Add reason if provided
+        if reason:
+            embed.add_field(name="Reason", value=reason, inline=False)
+
+        # Set user avatar
+        embed.set_thumbnail(url=member.display_avatar.url)
+
+        # Prepare file attachment if image was provided
+        file = None
+        if image_filename and (self.data_directory / image_filename).exists():
+            file = discord.File(self.data_directory / image_filename, filename=image_filename)
+            embed.set_image(url=f"attachment://{image_filename}")
+
+        try:
+            if file:
+                await log_channel.send(embed=embed, file=file)
+            else:
+                await log_channel.send(embed=embed)
+        except discord.Forbidden as forbidden_exc:
+            # Try plain text if embed fails due to permissions
+            self.logger.warning(f"Missing embed permission in verification log channel {log_channel_id}: {forbidden_exc}")
+            try:
+                status = "✅ **Verification Successful**" if success else "❌ **Verification Failed**"
+                text_message = f"{status}\n" f"**Discord User:** {member.mention} (`{member.name}`)\n" f"**Discord ID:** `{member.id}`\n"
+                if player_id:
+                    text_message += f"**Player ID:** `{player_id}`\n"
+                if verified_role_id:
+                    role = guild.get_role(verified_role_id)
+                    if role:
+                        text_message += f"**Role Assigned:** {role.mention}\n"
+                if reason:
+                    text_message += f"**Reason:** {reason}\n"
+
+                # Need to re-create the file object since it was already consumed
+                new_file = None
+                if file and image_filename and (self.data_directory / image_filename).exists():
+                    new_file = discord.File(self.data_directory / image_filename, filename=image_filename)
+
+                if new_file:
+                    await log_channel.send(content=text_message, file=new_file)
+                else:
+                    await log_channel.send(content=text_message)
+            except Exception as fallback_exc:
+                self.logger.error(f"Failed to send plain text verification log: {fallback_exc}")
+        except Exception as log_exc:
+            self.logger.error(f"Failed to log verification to channel {log_channel_id}: {log_exc}")
 
     async def _log_role_change(self, guild_id: int, message: str, color: discord.Color) -> None:
         """Log a role change to the verification log channel.
@@ -334,7 +468,7 @@ class Validation(BaseCog, name="Validation"):
             def should_have_verified_role():
                 try:
                     player = KnownPlayer.objects.get(discord_id=discord_id_str)
-                    return PlayerId.objects.filter(player=player, primary=True).exists()
+                    return player.approved
                 except KnownPlayer.DoesNotExist:
                     return False
 
@@ -378,7 +512,7 @@ class Validation(BaseCog, name="Validation"):
             def should_have_verified_role():
                 try:
                     player = KnownPlayer.objects.get(discord_id=discord_id_str)
-                    return PlayerId.objects.filter(player=player, primary=True).exists()
+                    return player.approved
                 except KnownPlayer.DoesNotExist:
                     return False
 
@@ -651,6 +785,8 @@ class Validation(BaseCog, name="Validation"):
                         logger.error(f"Failed to log un-verification to channel {log_channel_id}: {log_exc}")
 
                     # Only log to one channel to avoid spam
+                    break
+                    break
                     break
                     break
                     break
