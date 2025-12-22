@@ -1,6 +1,8 @@
+import asyncio
 import logging
 
 import discord
+from asgiref.sync import sync_to_async
 from discord import app_commands
 from discord.ext import commands
 
@@ -288,8 +290,6 @@ class Validation(BaseCog, name="Validation"):
             return False
         finally:
             # Remove from tracking set after a short delay to allow event to fire
-            import asyncio
-
             await asyncio.sleep(1)
             self._bot_role_changes.discard((member.id, member.guild.id))
 
@@ -347,8 +347,6 @@ class Validation(BaseCog, name="Validation"):
             return False
         finally:
             # Remove from tracking set after a short delay to allow event to fire
-            import asyncio
-
             await asyncio.sleep(1)
             self._bot_role_changes.discard((member.id, member.guild.id))
 
@@ -847,7 +845,7 @@ class Validation(BaseCog, name="Validation"):
             self.logger.info(f"Member banned via moderation: tower_id {tower_id} - checking for verified role removal")
 
             # Find the Discord user for this Tower ID
-            from thetower.backend.sus.models import KnownPlayer, PlayerId
+            from thetower.backend.sus.models import PlayerId
 
             def get_discord_id():
                 try:
