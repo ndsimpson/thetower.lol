@@ -277,6 +277,9 @@ class Validation(BaseCog, name="Validation"):
             # Log detailed verification event
             await self._log_detailed_verification(member.guild.id, member, player_id=player_id, reason=reason, success=True)
 
+            # Dispatch custom event for member verification
+            self.bot.dispatch("member_verified", member, player_id, reason)
+
             self.logger.info(f"Added verified role to {member} ({member.id}) in {member.guild.name}: {reason}")
             return True
 
@@ -332,6 +335,9 @@ class Validation(BaseCog, name="Validation"):
 
             # Log detailed verification event (as unsuccessful for removal)
             await self._log_detailed_verification(member.guild.id, member, player_id=player_id, reason=reason, success=False)
+
+            # Dispatch custom event for member unverification
+            self.bot.dispatch("member_unverified", member, player_id, reason)
 
             self.logger.info(f"Removed verified role from {member} ({member.id}) in {member.guild.name}: {reason}")
             return True
