@@ -141,6 +141,9 @@ class ModerationRecordForm(discord.ui.Modal):
                 reason=reason,
             )
 
+            # Dispatch custom event for member moderation
+            self.cog.bot.dispatch("member_moderated", tower_id, moderation_type, record, interaction.user)
+
             self.cog.logger.info(f"Created moderation record {record.id} for tower_id {tower_id} by Discord user {interaction.user.id}")
             return True
 
@@ -158,6 +161,9 @@ class ModerationRecordForm(discord.ui.Modal):
             record.reason = reason
 
             await sync_to_async(record.save)()
+
+            # Dispatch custom event for member moderation update
+            self.cog.bot.dispatch("member_moderated", record.tower_id, moderation_type, record, interaction.user, updated=True)
 
             self.cog.logger.info(f"Updated moderation record {record.id} by Discord user {interaction.user.id}")
             return True
