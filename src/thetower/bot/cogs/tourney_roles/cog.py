@@ -710,6 +710,8 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
                             for role in current_tourney_roles:
                                 changes.append(f"-{role.name}")
                                 stats["roles_removed"] += 1
+                                # Dispatch custom event for role removal
+                                self.bot.dispatch("tourney_role_removed", member, role)
 
                             if changes:
                                 await self.log_role_change(guild_id, member.name, changes, immediate=is_single_user_mode)
@@ -753,6 +755,29 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
                 try:
                     if not dry_run:
                         await member.edit(roles=new_roles, reason="Tournament participation role update")
+
+                    # Dispatch custom events for individual role changes
+                    for change in changes:
+                        if change.startswith("+"):
+                            role_name = change[1:]  # Remove the + prefix
+                            # Find the role object that was added
+                            added_role = None
+                            for role in new_roles:
+                                if role.name == role_name and str(role.id) in all_managed_role_ids:
+                                    added_role = role
+                                    break
+                            if added_role:
+                                self.bot.dispatch("tourney_role_added", member, added_role)
+                        elif change.startswith("-"):
+                            role_name = change[1:]  # Remove the - prefix
+                            # Find the role object that was removed
+                            removed_role = None
+                            for role_id, role in current_tourney_roles.items():
+                                if role.name == role_name:
+                                    removed_role = role
+                                    break
+                            if removed_role:
+                                self.bot.dispatch("tourney_role_removed", member, removed_role)
 
                     # Log changes
                     await self.log_role_change(guild_id, member.name, changes, immediate=is_single_user_mode)
@@ -1522,6 +1547,9 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
                                 await after.add_roles(role, reason="Correcting tournament role removal")
                                 self.logger.info(f"Restored tournament role {role.name} to {after.name}")
 
+                                # Dispatch custom event for role addition
+                                self.bot.dispatch("tourney_role_added", after, role)
+
                                 # Log using unified function with immediate flush
                                 await self.log_role_change(after.guild.id, after.name, [f"+{role.name}"], immediate=True)
                             finally:
@@ -1545,6 +1573,10 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
                                 await after.remove_roles(*roles_to_remove, reason="Removing extra tournament roles")
                                 removed_names = [role.name for role in roles_to_remove]
                                 self.logger.info(f"Removed extra tournament roles {removed_names} from {after.name}")
+
+                                # Dispatch custom events for role removals
+                                for role in roles_to_remove:
+                                    self.bot.dispatch("tourney_role_removed", after, role)
 
                                 # Log using unified function with immediate flush
                                 changes = [f"-{name}" for name in removed_names]
@@ -2074,8 +2106,14 @@ class TourneySelfRefreshButton(discord.ui.Button):
                     # Apply role changes
                     if roles_to_add:
                         await member.add_roles(*roles_to_add, reason="User refreshed tournament roles")
+                        # Dispatch custom events for role additions
+                        for role in roles_to_add:
+                            self.cog.bot.dispatch("tourney_role_added", member, role)
                     if roles_to_remove:
                         await member.remove_roles(*roles_to_remove, reason="User refreshed tournament roles")
+                        # Dispatch custom events for role removals
+                        for role in roles_to_remove:
+                            self.cog.bot.dispatch("tourney_role_removed", member, role)
 
                     # Log changes if any
                     if changes:
