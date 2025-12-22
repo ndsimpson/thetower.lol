@@ -338,12 +338,32 @@ class Validation(BaseCog, name="Validation"):
 
             # Log detailed verification event (success=False for failures, but moderation removals use different logging)
             if is_moderation_removal:
-                # For moderation removals, log as a role change rather than verification failure
-                await self._log_role_change(
-                    member.guild.id,
-                    f"🔨 **Role Removed (Moderation)** - {member.mention} had {role.mention} removed\n**Reason:** {reason}",
-                    discord.Color.orange(),
-                )
+                # For moderation removals, log in the same structured format as verification logs
+                log_channel_id = self.get_setting("verification_log_channel_id", guild_id=member.guild.id)
+                if log_channel_id:
+                    log_channel = member.guild.get_channel(log_channel_id)
+                    if log_channel:
+                        embed = discord.Embed(
+                            title="🔨 Role Removed (Moderation)",
+                            color=discord.Color.orange(),
+                            timestamp=discord.utils.utcnow(),
+                        )
+
+                        embed.add_field(name="Discord User", value=f"{member.mention}\n`{member.name}`", inline=True)
+                        embed.add_field(name="Discord ID", value=f"`{member.id}`", inline=True)
+                        if player_id:
+                            embed.add_field(name="Player ID", value=f"`{player_id}`", inline=True)
+
+                        embed.add_field(name="Role Removed", value=role.mention, inline=True)
+                        if reason:
+                            embed.add_field(name="Reason", value=reason, inline=False)
+
+                        embed.set_thumbnail(url=member.display_avatar.url)
+
+                        try:
+                            await log_channel.send(embed=embed)
+                        except Exception as log_exc:
+                            self.logger.error(f"Failed to log moderation role removal to channel {log_channel_id}: {log_exc}")
             else:
                 # For actual verification failures/removals, log as unsuccessful verification
                 await self._log_detailed_verification(member.guild.id, member, player_id=player_id, reason=reason, success=False)
