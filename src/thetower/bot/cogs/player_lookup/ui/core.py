@@ -311,6 +311,13 @@ class PostPubliclyButton(discord.ui.Button):
             await interaction.response.send_message("❌ Error checking permissions. Please try again.", ephemeral=True)
             return
 
+        # Defer immediately to keep the interaction token alive; followup will send the embed
+        try:
+            await interaction.response.defer()
+        except Exception as e:
+            self.cog.logger.error(f"Failed to defer interaction for public profile: {e}")
+            return
+
         # Check permissions for what information can be shown publicly
         show_all_ids = False
         if hasattr(self.cog.bot, "player_lookup") and self.cog.bot.player_lookup:
@@ -333,12 +340,15 @@ class PostPubliclyButton(discord.ui.Button):
             permission_context=permission_context,
         )
 
-        # Post publicly to the channel
+        # Post publicly to the channel via followup (response was deferred)
         try:
-            await interaction.response.send_message(embed=embed)
+            await interaction.followup.send(embed=embed)
         except Exception as e:
             self.cog.logger.error(f"Error posting public profile: {e}")
-            await interaction.response.send_message("❌ Failed to post profile publicly. Please try again.", ephemeral=True)
+            try:
+                await interaction.followup.send("❌ Failed to post profile publicly. Please try again.", ephemeral=True)
+            except Exception as e2:
+                self.cog.logger.error(f"Followup error response failed: {e2}")
 
 
 class ProfileView(discord.ui.View):
