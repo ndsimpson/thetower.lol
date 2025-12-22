@@ -148,7 +148,7 @@ class VerificationAuditButton(ui.Button):
                     discord_id_str = str(member.id)
                     try:
                         # Use filter instead of get to handle multiple entries
-                        players = KnownPlayer.objects.filter(discord_id=discord_id_str)
+                        players = KnownPlayer.objects.filter(discord_id=discord_id_str, approved=True)
                         player_count = players.count()
 
                         if player_count == 0:
@@ -177,7 +177,7 @@ class VerificationAuditButton(ui.Button):
                 players_without_role = []
 
                 # Get all KnownPlayers with discord_id
-                known_players = KnownPlayer.objects.filter(discord_id__isnull=False).exclude(discord_id="")
+                known_players = KnownPlayer.objects.filter(discord_id__isnull=False).exclude(discord_id="").filter(approved=True)
 
                 for player in known_players:
                     try:

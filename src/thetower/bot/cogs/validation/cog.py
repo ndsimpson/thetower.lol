@@ -160,7 +160,7 @@ class Validation(BaseCog, name="Validation"):
         """Reconcile verified roles with KnownPlayers on startup."""
         from asgiref.sync import sync_to_async
 
-        from thetower.backend.sus.models import KnownPlayer, PlayerId
+        from thetower.backend.sus.models import KnownPlayer
 
         self.logger.info("Running startup verification reconciliation...")
 
@@ -174,9 +174,9 @@ class Validation(BaseCog, name="Validation"):
                 if not verified_role:
                     continue
 
-                # Get all KnownPlayers with discord_id and at least one primary PlayerId
+                # Get all KnownPlayers with discord_id and approved=True
                 def get_known_players():
-                    return list(KnownPlayer.objects.filter(discord_id__isnull=False).exclude(discord_id="").filter(ids__primary=True).distinct())
+                    return list(KnownPlayer.objects.filter(discord_id__isnull=False).exclude(discord_id="").filter(approved=True).distinct())
 
                 known_players = await sync_to_async(get_known_players)()
 
@@ -204,13 +204,12 @@ class Validation(BaseCog, name="Validation"):
 
                         def should_have_role():
                             try:
-                                player = KnownPlayer.objects.get(discord_id=discord_id_str)
-                                return PlayerId.objects.filter(player=player, primary=True).exists()
-                            except KnownPlayer.DoesNotExist:
+                                return KnownPlayer.objects.filter(discord_id=discord_id_str, approved=True).exists()
+                            except Exception:
                                 return False
 
                         if not await sync_to_async(should_have_role)():
-                            await self._remove_verified_role(member, verified_role, "startup reconciliation - no primary PlayerId")
+                            await self._remove_verified_role(member, verified_role, "startup reconciliation - not approved")
                             roles_removed += 1
 
                 if roles_added > 0 or roles_removed > 0:
@@ -445,7 +444,7 @@ class Validation(BaseCog, name="Validation"):
         await super().cog_unload()
 
     def _unverify_player(self, discord_id, requesting_user):
-        """Un-verify a player by marking all their PlayerIds as non-primary.
+        """Un-verify a player by marking their KnownPlayer as unapproved.
 
         Args:
             discord_id: Discord ID of the player to un-verify
@@ -470,12 +469,13 @@ class Validation(BaseCog, name="Validation"):
             except KnownPlayer.DoesNotExist:
                 return {"success": False, "message": f"No verified player found with Discord ID {discord_id}."}
 
-            # Mark all PlayerIds as non-primary
-            updated_count = PlayerId.objects.filter(player_id=player.id).update(primary=False)
+            # Mark the player as unapproved
+            player.approved = False
+            player.save()
 
             return {
                 "success": True,
-                "message": f"Successfully un-verified player {player.name} (Discord ID: {discord_id}). {updated_count} player IDs marked as non-primary.",
+                "message": f"Successfully un-verified player {player.name} (Discord ID: {discord_id}). Player marked as unapproved.",
                 "player_id": player.id,
                 "player_name": player.name,
                 "discord_id": discord_id,

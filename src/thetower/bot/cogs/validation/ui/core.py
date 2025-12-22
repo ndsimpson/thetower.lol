@@ -283,7 +283,7 @@ class VerificationModal(ui.Modal, title="Player Verification"):
 
 
 class UnverifyButton(discord.ui.Button):
-    """Button to un-verify a player (removes verified role and marks IDs as non-primary)."""
+    """Button to un-verify a player (removes verified role and marks player as unapproved)."""
 
     def __init__(self, cog, discord_id, name, requesting_user, guild_id):
         super().__init__(label="Un-verify Player", style=discord.ButtonStyle.danger, emoji="🚫", row=1)
