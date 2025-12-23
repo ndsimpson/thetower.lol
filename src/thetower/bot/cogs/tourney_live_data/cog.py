@@ -61,28 +61,21 @@ class TourneyLiveData(BaseCog, name="Tourney Live Data", description="Commands f
                     latest_entry = player_data.loc[player_data.datetime.idxmax()]
                     player_bracket = latest_entry.bracket
 
-                    # Get global position by finding the player's rank in the latest data
+                    # Get global position using tie-aware ranking on wave (descending)
                     latest_datetime = filtered_df.datetime.max()
                     latest_df = filtered_df[filtered_df.datetime == latest_datetime]
                     latest_df = latest_df.sort_values("wave", ascending=False).reset_index(drop=True)
+                    # Assign the same position to equal waves (method='min' gives the lowest index for the tie group)
+                    latest_df["global_rank"] = latest_df["wave"].rank(method="min", ascending=False).astype(int)
+                    global_row = latest_df[latest_df.player_id == player_id]
+                    global_position = int(global_row["global_rank"].iloc[0]) if not global_row.empty else None
 
-                    # Find player's global position (1-indexed)
-                    global_position = None
-                    for idx, row in latest_df.iterrows():
-                        if row.player_id == player_id:
-                            global_position = idx + 1
-                            break
-
-                    # Get bracket-specific position
+                    # Get bracket-specific position using tie-aware ranking within bracket
                     bracket_df = latest_df[latest_df.bracket == player_bracket]
                     bracket_df = bracket_df.sort_values("wave", ascending=False).reset_index(drop=True)
-
-                    # Find player's position within their bracket (1-indexed)
-                    bracket_position = None
-                    for idx, row in bracket_df.iterrows():
-                        if row.player_id == player_id:
-                            bracket_position = idx + 1
-                            break
+                    bracket_df["bracket_rank"] = bracket_df["wave"].rank(method="min", ascending=False).astype(int)
+                    bracket_row = bracket_df[bracket_df.player_id == player_id]
+                    bracket_position = int(bracket_row["bracket_rank"].iloc[0]) if not bracket_row.empty else None
 
                     if global_position is not None and bracket_position is not None:
                         wave = int(latest_entry.wave)
