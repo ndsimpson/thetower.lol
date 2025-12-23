@@ -55,6 +55,11 @@ class Validation(BaseCog, name="Validation"):
 
             player, created = KnownPlayer.objects.get_or_create(discord_id=discord_id, defaults=dict(approved=True, name=author_name))
 
+            # If player already exists but was unapproved, re-approve them
+            if not created and not player.approved:
+                player.approved = True
+                player.save()
+
             # First, set all existing PlayerIds for this player to non-primary
             PlayerId.objects.filter(player_id=player.id).update(primary=False)
 
