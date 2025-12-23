@@ -749,6 +749,33 @@ class Validation(BaseCog, name="Validation"):
                 # Role was removed but user should have it - add it back
                 await self._add_verified_role(after, verified_role, "role removed externally, correcting")
 
+            elif has_role and status["should_have_role"]:
+                # Role was added correctly by external source - log confirmation
+                self.logger.info(f"Verified role added externally to {after.name} ({after.id}) - confirmed accurate")
+
+                # Get player ID for detailed logging
+                def get_player_id():
+                    try:
+                        player = KnownPlayer.objects.get(discord_id=discord_id_str)
+                        primary_id = PlayerId.objects.filter(player=player, primary=True).first()
+                        if primary_id:
+                            return primary_id.id
+                        any_id = PlayerId.objects.filter(player=player).first()
+                        return any_id.id if any_id else None
+                    except KnownPlayer.DoesNotExist:
+                        return None
+
+                player_id = await sync_to_async(get_player_id)()
+
+                # Log the accurate external addition
+                await self._log_detailed_verification(
+                    after.guild.id,
+                    after,
+                    player_id=player_id,
+                    reason="role added externally, confirmed accurate",
+                    success=True,
+                )
+
         except Exception as exc:
             self.logger.error(f"Error in on_member_update for {after} ({after.id}): {exc}", exc_info=True)
 
