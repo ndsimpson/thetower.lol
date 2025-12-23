@@ -132,9 +132,10 @@ class TourneyLiveData(BaseCog, name="Tourney Live Data", description="Commands f
                     bracket_url = f"https://{BASE_URL}/livebracketview?player_id={active_player_id}"
                     comparison_url = f"https://{BASE_URL}/comparison?bracket_player={active_player_id}"
                     placement_url = f"https://{BASE_URL}/liveplacement?player_id={active_player_id}"
-                    player_stats_url = f"https://{BASE_URL}/player?player_id={active_player_id}"
+                    # Historical player page expects the query parameter name `player`
+                    player_history_url = f"https://{BASE_URL}/player?player={active_player_id}"
 
-                    field_value = f"✅ Joined ({league})\n**Global:** #{global_position} • **Bracket:** #{bracket_position} • **Wave:** {wave}\n[Bracket View]({bracket_url}) • [Comparison]({comparison_url}) • [Live Placement Analysis]({placement_url}) • [Player Stats]({player_stats_url})\n*Last updated: {last_refresh}*"
+                    field_value = f"✅ Joined ({league})\n**Global:** #{global_position} • **Bracket:** #{bracket_position} • **Wave:** {wave}\n[Player History]({player_history_url})\n[Bracket View]({bracket_url}) • [Comparison]({comparison_url}) • [Live Placement Analysis]({placement_url})\n*Last updated: {last_refresh}*"
                 else:
                     # Fallback if we can't get detailed stats
                     field_value = "✅ Joined"
