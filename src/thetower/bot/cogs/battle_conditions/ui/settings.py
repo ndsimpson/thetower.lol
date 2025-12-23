@@ -23,6 +23,12 @@ class BattleConditionsSettingsView(discord.ui.View):
         # Manage schedules button
         self.add_item(BattleConditionsManageSchedulesButton(self.cog))
 
+        # Global settings (bot owner only)
+        if context.is_bot_owner:
+            from .admin import GlobalSettingsButton
+
+            self.add_item(GlobalSettingsButton())
+
         # Back button
         back_btn = discord.ui.Button(label="Back to Cog Settings", style=discord.ButtonStyle.gray, emoji="⬅️", custom_id="back_to_cog_settings")
         back_btn.callback = self.back_to_cog_settings
@@ -33,6 +39,14 @@ class BattleConditionsSettingsView(discord.ui.View):
         embed = discord.Embed(
             title="⚙️ Battle Conditions Settings", description="Configure battle conditions for this server", color=discord.Color.blue()
         )
+
+        # Global view window
+        view_window = self.cog.get_global_setting("bc_view_window_days")
+        if view_window is None:
+            view_window = self.cog.guild_settings.get("bc_view_window_days")
+
+        window_text = "Always available" if view_window is None else f"{view_window} day(s) before tournament"
+        embed.add_field(name="BC View Window (Global)", value=window_text, inline=False)
 
         # Current enabled leagues (global setting)
         enabled_leagues = self.cog.get_global_setting("enabled_leagues") or []
