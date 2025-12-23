@@ -13,20 +13,11 @@ from discord.ext import tasks
 from thetower.backend.tourney_results.constants import how_many_results_hidden_site, leagues, legend
 from thetower.backend.tourney_results.data import get_results_for_patch, get_shun_ids, get_sus_ids, get_tourneys
 from thetower.backend.tourney_results.models import PatchNew as Patch
+from thetower.backend.tourney_results.shun_config import include_shun_enabled_for
 from thetower.bot.basecog import BaseCog
 from thetower.bot.exceptions import ChannelUnauthorized, UserUnauthorized
 
 from .ui import TourneyAdminView, TourneyStatsSettingsView
-
-
-def include_shun_roles_enabled() -> bool:
-    """Check for repo-root flag file `include_shun_roles`.
-
-    If the file exists, the bot will INCLUDE shunned players (i.e. not treat them as excluded).
-    """
-    repo_root = Path(__file__).resolve().parents[4]
-    return (repo_root / "include_shun_roles").exists()
-
 
 # Define league hierarchy - order matters for importance
 LEAGUE_HIERARCHY = ["legend", "champion", "platinum", "gold", "silver", "copper"]
@@ -283,16 +274,17 @@ class TourneyStats(BaseCog, name="Tourney Stats"):
                     self.logger.warning("No tournament date found in database - this may indicate no tournaments exist")
 
                 self.task_tracker.update_task_status(task_name, "Getting excluded player IDs...")
-                # Get sus IDs to filter out. The bot respects its own repo-root flag
-                # `include_shun_roles` — if present, shunned players are INCLUDED and
-                # therefore not added to the exclusion list.
-                if include_shun_roles_enabled():
-                    sus_ids = await sync_to_async(get_sus_ids)()
-                else:
-                    sus_ids = await sync_to_async(get_sus_ids)()
+                # Get sus IDs to filter out. The bot respects the include_shun.json config
+                # which determines whether shunned players should be included or excluded.
+                sus_ids = await sync_to_async(get_sus_ids)()
+
+                # Add shun IDs only if not enabled in config
+                include_shun = include_shun_enabled_for("player")
+                if not include_shun:
                     shun_ids = await sync_to_async(get_shun_ids)()
                     sus_ids = sus_ids.union(shun_ids)
-                self.logger.info(f"Found {len(sus_ids)} excluded player IDs")
+
+                self.logger.info(f"Found {len(sus_ids)} excluded player IDs (include_shun_enabled={include_shun})")
 
                 # Clear existing data if refreshing
                 self.league_dfs = {}
