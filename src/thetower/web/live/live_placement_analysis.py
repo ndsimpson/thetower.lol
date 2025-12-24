@@ -141,9 +141,11 @@ def live_score():
         st.info("Enter a player name or Player ID to analyze placement")
         return
 
-    # Try matching by entered name in selected league
+    # Try matching by entered name in selected league (supports partial matches)
     name_lower = selected_player.strip().lower()
-    match_df = df[(df["real_name"].str.lower() == name_lower) | (df["display_name"].str.lower() == name_lower)]
+    match_df = df[
+        (df["real_name"].str.lower().str.contains(name_lower, na=False)) | (df["display_name"].str.lower().str.contains(name_lower, na=False))
+    ]
     if not match_df.empty:
         selected_player = match_df.iloc[0]["display_name"]
     else:

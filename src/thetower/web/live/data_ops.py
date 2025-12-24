@@ -337,17 +337,32 @@ def process_bracket_selection(df, selected_real_name, selected_player_id, select
         if selected_bracket:
             bracket_id = selected_bracket
             tdf = df[df.bracket == bracket_id]
+            if tdf.empty:
+                raise ValueError(f"Bracket {bracket_id} not found")
             selected_real_name = tdf.real_name.iloc[0]
             bracket_index = bracket_order.index(bracket_id)
         elif selected_player_id:
-            selected_real_name = df[df.player_id == selected_player_id].real_name.iloc[0]
+            player_match = df[df.player_id == selected_player_id]
+            if player_match.empty:
+                raise ValueError(f"Player ID {selected_player_id} not found")
+            selected_real_name = player_match.real_name.iloc[0]
             sdf = df[df.real_name == selected_real_name]
             bracket_id = sdf.bracket.iloc[0]
             tdf = df[df.bracket == bracket_id]
             bracket_index = bracket_order.index(bracket_id)
         elif selected_real_name:
-            sdf = df[df.real_name == selected_real_name]
+            # Support partial matching for player names
+            name_lower = selected_real_name.lower()
+            # Try matching on real_name and name (tourney name) columns
+            sdf = df[df.real_name.str.lower().str.contains(name_lower, na=False, regex=False)]
+            # Also check tourney name if the column exists
+            if "name" in df.columns:
+                sdf_alt = df[df["name"].str.lower().str.contains(name_lower, na=False, regex=False)]
+                sdf = pd.concat([sdf, sdf_alt]).drop_duplicates()
+            if sdf.empty:
+                raise ValueError(f"Player '{selected_real_name}' not found")
             bracket_id = sdf.bracket.iloc[0]
+            selected_real_name = sdf.real_name.iloc[0]
             tdf = df[df.bracket == bracket_id]
             bracket_index = bracket_order.index(bracket_id)
         return bracket_id, tdf, selected_real_name, bracket_index
