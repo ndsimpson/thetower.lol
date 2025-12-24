@@ -200,15 +200,8 @@ class PlayerLookupSettingsView(BaseSettingsView):
         modal = SettingModal(self.cog, setting_name, getattr(self, setting_name))
         await interaction.response.send_modal(modal)
 
-    @discord.ui.button(label="Back", style=discord.ButtonStyle.secondary, emoji="⬅️")
-    async def back_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        """Return to cog management."""
-        embed = discord.Embed(
-            title="Returned to Cog Management",
-            description="Use the cog management interface to select another cog or return to the main menu.",
-            color=discord.Color.blue(),
-        )
-        await interaction.response.edit_message(embed=embed, view=None)
+        # Add back button for navigation
+        self.add_back_button()
 
 
 class SettingModal(discord.ui.Modal):

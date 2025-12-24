@@ -62,3 +62,31 @@ class BaseSettingsView(View):
             The Discord bot/client instance
         """
         return self.interaction.client
+
+    async def back_to_cog_settings(self, interaction: discord.Interaction):
+        """Navigate back to the main cog settings selection view.
+
+        This is a common pattern for cog settings views that need a back button.
+        Import is done inline to avoid circular dependencies.
+        """
+        from thetower.bot.ui.settings_views import CogSettingsView
+
+        view = CogSettingsView(self.guild_id)
+        await view.update_display(interaction)
+
+    def add_back_button(self):
+        """Add a standard 'Back to Cog Settings' button to this view.
+
+        This is a convenience method that adds a consistent back button
+        which calls back_to_cog_settings when clicked.
+
+        Example:
+            class MyCogSettingsView(BaseSettingsView):
+                def __init__(self, context: SettingsViewContext):
+                    super().__init__(context)
+                    # ... add your buttons ...
+                    self.add_back_button()  # Add back button last
+        """
+        back_btn = discord.ui.Button(label="Back to Cog Settings", style=discord.ButtonStyle.gray, emoji="⬅️", custom_id="back_to_cog_settings")
+        back_btn.callback = self.back_to_cog_settings
+        self.add_item(back_btn)

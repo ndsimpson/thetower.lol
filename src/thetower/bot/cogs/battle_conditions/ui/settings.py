@@ -27,9 +27,7 @@ class BattleConditionsSettingsView(BaseSettingsView):
             self.add_item(GlobalSettingsButton())
 
         # Back button
-        back_btn = discord.ui.Button(label="Back to Cog Settings", style=discord.ButtonStyle.gray, emoji="⬅️", custom_id="back_to_cog_settings")
-        back_btn.callback = self.back_to_cog_settings
-        self.add_item(back_btn)
+        self.add_back_button()
 
     async def update_display(self, interaction: discord.Interaction):
         """Update the embed with current battle conditions settings."""
@@ -67,15 +65,6 @@ class BattleConditionsSettingsView(BaseSettingsView):
             embed.add_field(name="Schedules", value="No schedules configured", inline=False)
 
         await interaction.response.edit_message(embed=embed, view=self)
-
-    async def back_to_cog_settings(self, interaction: discord.Interaction):
-        """Go back to the cog settings selection view."""
-        # Import here to avoid circular imports
-        from thetower.bot.ui.settings_views import CogSettingsView
-
-        # Recreate the cog settings view
-        view = CogSettingsView(self.guild_id)
-        await view.update_display(interaction)
 
 
 class BattleConditionsConfigureLeaguesButton(discord.ui.Button):

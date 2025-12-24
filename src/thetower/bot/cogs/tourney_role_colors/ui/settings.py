@@ -55,9 +55,7 @@ class TourneyRoleColorsSettingsView(BaseSettingsView):
         self.add_item(RoleColorLogChannelSelect(self.cog, self.guild_id))
 
         # Back button
-        back_btn = ui.Button(label="Back to Cog Settings", style=discord.ButtonStyle.gray, emoji="⬅️", custom_id="back_to_cog_settings")
-        back_btn.callback = self.back_to_cog_settings
-        self.add_item(back_btn)
+        self.add_back_button()
 
     async def update_display(self, interaction: discord.Interaction):
         """Update the embed with current tourney role colors settings."""
@@ -115,13 +113,6 @@ class TourneyRoleColorsSettingsView(BaseSettingsView):
         embed.set_footer(text="Categories are mutually exclusive - users can only have one role at a time")
 
         await interaction.response.edit_message(embed=embed, view=self)
-
-    async def back_to_cog_settings(self, interaction: discord.Interaction):
-        """Go back to the cog settings selection view."""
-        from thetower.bot.ui.settings_views import CogSettingsView
-
-        view = CogSettingsView(self.guild_id)
-        await view.update_display(interaction)
 
 
 class StartupAuditToggleButton(ui.Button):
