@@ -1,8 +1,11 @@
 """Core business logic and shared components for Battle Conditions cog."""
 
-from typing import List, Optional
+from typing import TYPE_CHECKING, List, Optional
 
 import discord
+
+if TYPE_CHECKING:
+    from ..cog import BattleConditions
 
 # Graceful towerbcs import handling
 try:
@@ -50,7 +53,7 @@ class BattleConditionsCore:
 
         try:
             return predict_future_tournament(tourney_id, league)
-        except Exception as e:
+        except Exception:
             return ["❌ Error fetching battle conditions"]
 
     @staticmethod
