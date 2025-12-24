@@ -1036,11 +1036,6 @@ class Validation(BaseCog, name="Validation"):
 
                     # Only log to one channel to avoid spam
                     break
-                    break
-                    break
-                    break
-                    break
-                    break
 
     @commands.Cog.listener()
     async def on_member_moderated(self, tower_id: str, moderation_type: str, record, requesting_user: discord.User, updated: bool = False):

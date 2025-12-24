@@ -14,4 +14,3 @@ async def setup(bot: commands.Bot) -> None:
     # Note: Slash command syncing is now handled automatically by CogManager
     # when cogs are enabled/disabled for guilds
     bot.logger.info("ManageSus cog loaded - slash commands will sync per-guild via CogManager")
-    bot.logger.info("ManageSus cog loaded - slash commands will sync per-guild via CogManager")

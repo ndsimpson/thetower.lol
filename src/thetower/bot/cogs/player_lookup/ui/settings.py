@@ -302,7 +302,6 @@ class SettingModal(discord.ui.Modal):
         except ValueError as e:
             embed = discord.Embed(title="Invalid Value", description=f"Error: {str(e)}", color=discord.Color.red())
             await interaction.response.send_message(embed=embed, ephemeral=True)
-            await interaction.response.send_message(embed=embed, ephemeral=True)
 
 
 class ChannelSelectView(discord.ui.View):

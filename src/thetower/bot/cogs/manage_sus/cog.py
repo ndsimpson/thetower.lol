@@ -484,7 +484,3 @@ async def setup(bot: commands.Bot) -> None:
     # when cogs are enabled/disabled for guilds
     bot.logger.info("ManageSus cog loaded - slash commands will sync per-guild via CogManager")
     # when cogs are enabled/disabled for guilds
-    bot.logger.info("ManageSus cog loaded - slash commands will sync per-guild via CogManager")
-    bot.logger.info("ManageSus cog loaded - slash commands will sync per-guild via CogManager")
-    bot.logger.info("ManageSus cog loaded - slash commands will sync per-guild via CogManager")
-    bot.logger.info("ManageSus cog loaded - slash commands will sync per-guild via CogManager")

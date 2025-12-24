@@ -598,4 +598,3 @@ class BackButton(discord.ui.Button):
         view = AdminSusManagementView(self.view.cog, interaction.guild.id)
         embed = await view.update_view(interaction)
         await interaction.response.edit_message(embed=embed, view=view)
-        await interaction.response.edit_message(embed=embed, view=view)

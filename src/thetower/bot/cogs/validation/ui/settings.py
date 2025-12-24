@@ -544,4 +544,3 @@ class ValidationGroupsSelectView(discord.ui.View):
         # Return to the main settings view
         view = ValidationSettingsView(self.context)
         await interaction.response.edit_message(embed=embed, view=view)
-        await interaction.response.edit_message(embed=embed, view=view)

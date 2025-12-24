@@ -638,4 +638,3 @@ def resolve_moderation_records(modeladmin, request, queryset):
 ModerationRecordAdmin.actions = [queue_recalculation_for_moderation_records, resolve_moderation_records]
 queue_recalculation_for_moderation_records.short_description = "Queue tournament recalculation for selected players"
 resolve_moderation_records.short_description = "Resolve selected moderation records"
-resolve_moderation_records.short_description = "Resolve selected moderation records"

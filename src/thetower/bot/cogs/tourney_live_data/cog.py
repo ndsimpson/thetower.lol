@@ -168,5 +168,3 @@ class TourneyLiveData(BaseCog, name="Tourney Live Data", description="Commands f
             self.logger.error(f"Tourney Live Data initialization failed: {e}", exc_info=True)
             self._has_errors = True
             raise
-            raise
-            raise

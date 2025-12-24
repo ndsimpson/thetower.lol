@@ -998,4 +998,3 @@ class BaseCog(commands.Cog):
             permissions["target_channel"] = target_channel
 
         self.set_setting(config_key, permissions, guild_id=guild_id)
-        self.set_setting(config_key, permissions, guild_id=guild_id)
