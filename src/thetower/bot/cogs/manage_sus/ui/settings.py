@@ -22,124 +22,104 @@ class ManageSusSettingsView(BaseSettingsView):
             "manage_sus", "privileged_groups_for_moderation_records", []
         )
 
-        # Add toggle buttons for boolean settings
-        self.add_toggle_button("Show Moderation Records", "show_moderation_records_in_profiles", self.show_moderation_records_in_profiles)
+        # Add configuration buttons for each group setting
+        self.add_item(ManageSusConfigureGroupButton(self.cog, "view_groups", "View Groups", "👁️"))
+        self.add_item(ManageSusConfigureGroupButton(self.cog, "manage_groups", "Manage Groups", "✏️"))
+        self.add_item(ManageSusConfigureGroupButton(self.cog, "privileged_groups_for_full_ids", "Full IDs Groups", "🆔"))
+        self.add_item(ManageSusConfigureGroupButton(self.cog, "privileged_groups_for_moderation_records", "Mod Records Groups", "📋"))
 
-        # Build options list for numeric settings
-        options = [
-            discord.SelectOption(
-                label="Privileged Groups for View",
-                value="view_groups",
-                description="Django groups that can view moderation records",
-            ),
-            discord.SelectOption(
-                label="Privileged Groups for Manage",
-                value="manage_groups",
-                description="Django groups that can create/update moderation records",
-            ),
-            discord.SelectOption(
-                label="Privileged Groups for Full IDs",
-                value="privileged_groups_for_full_ids",
-                description="Django groups that can see all player IDs",
-            ),
-            discord.SelectOption(
-                label="Privileged Groups for Moderation Records",
-                value="privileged_groups_for_moderation_records",
-                description="Django groups that can see moderation records in profiles",
-            ),
-        ]
+        # Add toggle button for boolean setting
+        self.add_item(ManageSusToggleButton(self.cog, "show_moderation_records_in_profiles", "Show Moderation Records"))
 
-        # Create the select for numeric settings
-        self.setting_select = discord.ui.Select(
-            placeholder="Modify settings",
-            options=options,
+        # Add back button
+        self.add_back_button()
+
+    async def update_display(self, interaction: discord.Interaction):
+        """Update the embed with current manage sus settings."""
+        embed = discord.Embed(
+            title="⚙️ Manage Sus Settings", description="Configure moderation record permissions and visibility", color=discord.Color.blue()
         )
-        self.setting_select.callback = self.setting_select_callback
-        self.add_item(self.setting_select)
 
-    def get_setting(self, key: str, default=None):
-        """Get a setting value from global config."""
-        return self.cog.config.get_global_cog_setting("manage_sus", key, default)
+        # Get current settings
+        view_groups = self.cog.config.get_global_cog_setting("manage_sus", "view_groups", [])
+        manage_groups = self.cog.config.get_global_cog_setting("manage_sus", "manage_groups", [])
+        full_ids_groups = self.cog.config.get_global_cog_setting("manage_sus", "privileged_groups_for_full_ids", [])
+        mod_records_groups = self.cog.config.get_global_cog_setting("manage_sus", "privileged_groups_for_moderation_records", [])
+        show_mod_records = self.cog.config.get_global_cog_setting("manage_sus", "show_moderation_records_in_profiles", True)
 
-    def set_setting(self, key: str, value):
-        """Set a setting value in global config."""
-        self.cog.config.set_global_cog_setting("manage_sus", key, value)
+        # View Groups
+        view_text = ", ".join(view_groups) if view_groups else "None configured"
+        embed.add_field(name="👁️ View Groups", value=view_text, inline=False)
 
-    def add_toggle_button(self, label: str, setting_name: str, current_value: bool):
-        """Add a toggle button for a boolean setting."""
+        # Manage Groups
+        manage_text = ", ".join(manage_groups) if manage_groups else "None configured"
+        embed.add_field(name="✏️ Manage Groups", value=manage_text, inline=False)
+
+        # Full IDs Groups
+        full_ids_text = ", ".join(full_ids_groups) if full_ids_groups else "None configured"
+        embed.add_field(name="🆔 Full IDs Groups", value=full_ids_text, inline=False)
+
+        # Moderation Records Groups
+        mod_records_text = ", ".join(mod_records_groups) if mod_records_groups else "None configured"
+        embed.add_field(name="📋 Mod Records Groups", value=mod_records_text, inline=False)
+
+        # Show Moderation Records
+        show_text = "✅ Enabled" if show_mod_records else "❌ Disabled"
+        embed.add_field(name="Show Moderation Records in Profiles", value=show_text, inline=False)
+
+        await interaction.response.edit_message(embed=embed, view=self)
+
+
+class ManageSusConfigureGroupButton(discord.ui.Button):
+    """Button to configure Django groups for a specific permission."""
+
+    def __init__(self, cog: BaseCog, setting_key: str, label: str, emoji: str):
+        super().__init__(label=label, style=discord.ButtonStyle.primary, emoji=emoji)
+        self.cog = cog
+        self.setting_key = setting_key
+
+    async def callback(self, interaction: discord.Interaction):
+        # Get current groups
+        current_groups = self.cog.config.get_global_cog_setting("manage_sus", self.setting_key, [])
+
+        # Show groups management view
+        view = GroupsSelectView(self.cog, interaction, current_groups, setting_key=self.setting_key)
+        embed = view.create_selection_embed()
+        await interaction.response.edit_message(embed=embed, view=view)
+
+
+class ManageSusToggleButton(discord.ui.Button):
+    """Button to toggle a boolean setting."""
+
+    def __init__(self, cog: BaseCog, setting_key: str, label: str):
+        self.cog = cog
+        self.setting_key = setting_key
+        current_value = cog.config.get_global_cog_setting("manage_sus", setting_key, True)
+
         emoji = "✅" if current_value else "❌"
         style = discord.ButtonStyle.success if current_value else discord.ButtonStyle.secondary
 
-        button = discord.ui.Button(label=f"{label}: {'ON' if current_value else 'OFF'}", style=style, emoji=emoji, custom_id=f"toggle_{setting_name}")
-        button.callback = self.create_toggle_callback(setting_name)
-        self.add_item(button)
+        super().__init__(label=f"{label}: {'ON' if current_value else 'OFF'}", style=style, emoji=emoji)
 
-    def create_toggle_callback(self, setting_name: str):
-        """Create a callback for a toggle button."""
+    async def callback(self, interaction: discord.Interaction):
+        # Toggle the setting
+        current_value = self.cog.config.get_global_cog_setting("manage_sus", self.setting_key, True)
+        new_value = not current_value
 
-        async def toggle_callback(interaction: discord.Interaction):
-            # Toggle the setting
-            current_value = getattr(self, setting_name)
-            new_value = not current_value
+        # Save immediately
+        self.cog.config.set_global_cog_setting("manage_sus", self.setting_key, new_value)
 
-            # Save the setting
-            self.set_setting(setting_name, new_value)
+        # Recreate main settings view with updated value
+        from thetower.bot.ui.context import SettingsViewContext
 
-            # Update the instance variable
-            setattr(self, setting_name, new_value)
-
-            # Update the button
-            self.update_toggle_button(setting_name, new_value)
-
-            # Update the display
-            embed = self.create_settings_embed()
-            await interaction.response.edit_message(embed=embed, view=self)
-
-        return toggle_callback
-
-    def update_toggle_button(self, setting_name: str, new_value: bool):
-        """Update a toggle button's appearance."""
-        emoji = "✅" if new_value else "❌"
-        style = discord.ButtonStyle.success if new_value else discord.ButtonStyle.secondary
-
-        # Find and update the button
-        for item in self.children:
-            if isinstance(item, discord.ui.Button) and item.custom_id == f"toggle_{setting_name}":
-                item.label = f"{setting_name.replace('_', ' ').title()}: {'ON' if new_value else 'OFF'}"
-                item.style = style
-                item.emoji = emoji
-                break
-
-    def create_settings_embed(self) -> discord.Embed:
-        """Create the settings embed with current values."""
-        embed = discord.Embed(title="⚙️ Manage Sus Settings", color=discord.Color.blue())
-
-        embed.add_field(
-            name="🔐 Permission Settings",
-            value=f"**Privileged Groups for View:** {len(self.view_groups)} groups\n**Privileged Groups for Manage:** {len(self.manage_groups)} groups\n**Privileged Groups for Full IDs:** {len(self.privileged_groups_for_full_ids)} groups\n**Privileged Groups for Moderation Records:** {len(self.privileged_groups_for_moderation_records)} groups",
-            inline=True,
+        context = SettingsViewContext(
+            guild_id=interaction.guild.id if interaction.guild else None,
+            cog_instance=self.cog,
+            interaction=interaction,
+            is_bot_owner=await self.cog.bot.is_owner(interaction.user),
         )
-
-        embed.set_footer(text="Use dropdown for group settings • Toggle buttons for boolean settings")
-        return embed
-
-    async def setting_select_callback(self, interaction: discord.Interaction):
-        """Handle setting selection for configuration."""
-        setting_name = self.setting_select.values[0]
-
-        # Special handling for group settings
-        if setting_name in ["view_groups", "manage_groups", "privileged_groups_for_full_ids", "privileged_groups_for_moderation_records"]:
-            view = GroupsSelectView(self.cog, interaction, getattr(self, setting_name), setting_key=setting_name)
-            embed = view.create_selection_embed()
-            await interaction.response.edit_message(embed=embed, view=view)
-            return
-
-        # Create a modal for the selected setting
-        modal = SettingModal(self.cog, setting_name, getattr(self, setting_name))
-        await interaction.response.send_modal(modal)
-
-        # Add back button for navigation
-        self.add_back_button()
+        settings_view = ManageSusSettingsView(context)
+        await settings_view.update_display(interaction)
 
 
 class SettingModal(discord.ui.Modal):
@@ -214,9 +194,6 @@ class GroupsSelectView(discord.ui.View):
         # Get available Django groups
         self._load_available_groups()
 
-        # Add remove buttons for current groups (max 4 to fit Discord limits)
-        # Note: Individual remove buttons removed in favor of single "Remove Groups" button
-
         # Add the "Add Group" button
         add_button = discord.ui.Button(label="Add Group", style=discord.ButtonStyle.primary, emoji="➕", custom_id="add_group")
         add_button.callback = self.add_group_callback
@@ -227,6 +204,11 @@ class GroupsSelectView(discord.ui.View):
             remove_button = discord.ui.Button(label="Remove Groups", style=discord.ButtonStyle.danger, emoji="🗑️", custom_id="remove_groups")
             remove_button.callback = self.remove_groups_callback
             self.add_item(remove_button)
+
+    @property
+    def has_unsaved_changes(self) -> bool:
+        """Check if there are unsaved changes."""
+        return self.selected_groups != self.current_groups
 
     def _load_available_groups(self):
         """Load available Django groups synchronously."""
@@ -373,7 +355,12 @@ class GroupsSelectView(discord.ui.View):
         else:
             embed.add_field(name="Selected Groups (0)", value=no_groups_message, inline=False)
 
-        embed.set_footer(text="Use 'Add Group' to add more groups • Use 'Remove Groups' to delete groups • Click Save when done")
+        # Show unsaved changes indicator
+        if self.has_unsaved_changes:
+            embed.color = discord.Color.orange()
+            embed.set_footer(text="⚠️ UNSAVED CHANGES • Click 'Save Changes' to apply or 'Cancel' to discard")
+        else:
+            embed.set_footer(text="Use 'Add Group' to add more groups • Use 'Remove Groups' to delete groups")
         return embed
 
     @discord.ui.button(label="Save Changes", style=discord.ButtonStyle.success, emoji="💾", row=4)
@@ -409,29 +396,37 @@ class GroupsSelectView(discord.ui.View):
             color=discord.Color.green(),
         )
 
-        # Return to the main settings view
-        view = ManageSusSettingsView(
-            self.cog.SettingsViewContext(
-                guild_id=interaction.guild.id if interaction.guild else None,
-                cog_instance=self.cog,
-                interaction=interaction,
-                is_bot_owner=await self.cog.bot.is_owner(interaction.user),
-            )
+        # Send confirmation message
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+        # Update the original message with main settings view
+        from thetower.bot.ui.context import SettingsViewContext
+
+        context = SettingsViewContext(
+            guild_id=interaction.guild.id if interaction.guild else None,
+            cog_instance=self.cog,
+            interaction=self.original_interaction,
+            is_bot_owner=await self.cog.bot.is_owner(interaction.user),
         )
-        await interaction.response.edit_message(embed=embed, view=view)
+        settings_view = ManageSusSettingsView(context)
+        main_embed = discord.Embed(
+            title="⚙️ Manage Sus Settings", description="Configure moderation record permissions and visibility", color=discord.Color.blue()
+        )
+        # Manually update display
+        await self.original_interaction.edit_original_response(embed=main_embed, view=settings_view)
+        await settings_view.update_display(self.original_interaction)
 
     @discord.ui.button(label="Cancel", style=discord.ButtonStyle.secondary, emoji="❌", row=4)
     async def cancel(self, interaction: discord.Interaction, button: discord.ui.Button):
         """Cancel and return to main settings."""
-        embed = discord.Embed(title="Cancelled", description="Group selection cancelled. No changes were made.", color=discord.Color.orange())
-
         # Return to the main settings view
-        view = ManageSusSettingsView(
-            self.cog.SettingsViewContext(
-                guild_id=interaction.guild.id if interaction.guild else None,
-                cog_instance=self.cog,
-                interaction=interaction,
-                is_bot_owner=await self.cog.bot.is_owner(interaction.user),
-            )
+        from thetower.bot.ui.context import SettingsViewContext
+
+        context = SettingsViewContext(
+            guild_id=interaction.guild.id if interaction.guild else None,
+            cog_instance=self.cog,
+            interaction=self.original_interaction,
+            is_bot_owner=await self.cog.bot.is_owner(interaction.user),
         )
-        await interaction.response.edit_message(embed=embed, view=view)
+        settings_view = ManageSusSettingsView(context)
+        await settings_view.update_display(interaction)
