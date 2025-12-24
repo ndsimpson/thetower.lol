@@ -7,7 +7,6 @@ import pandas as pd
 import plotly.express as px
 import streamlit as st
 
-from thetower.backend.tourney_results.constants import leagues as ALL_LEAGUES
 from thetower.backend.tourney_results.data import get_player_id_lookup
 from thetower.backend.tourney_results.formatting import BASE_URL, make_player_url
 from thetower.backend.tourney_results.shun_config import include_shun_enabled_for
@@ -21,7 +20,7 @@ from thetower.web.live.data_ops import (
     process_display_names,
     require_tournament_data,
 )
-from thetower.web.live.ui_components import get_league_for_player, setup_common_ui
+from thetower.web.live.ui_components import setup_common_ui
 
 
 @require_tournament_data
@@ -30,8 +29,8 @@ def live_bracket():
     logging.info("Starting live bracket")
     t2_start = perf_counter()
 
-    # Use common UI setup with league selector
-    options, league, is_mobile = setup_common_ui(show_league_selector=True)
+    # Use common UI setup, hide league selector for auto-detect
+    options, league, is_mobile = setup_common_ui(show_league_selector=False)
 
     # Get data refresh timestamp
     refresh_timestamp = get_data_refresh_timestamp(league)
@@ -70,7 +69,32 @@ def live_bracket():
     bracket_order, fullish_brackets = get_bracket_data(df)
     df = df[df.bracket.isin(fullish_brackets)].copy()  # no sniping
 
-    name_col, id_col = st.columns(2)
+    # Function to clear selection and search again
+    def search_for_new():
+        if f"selected_player_{league}" in st.session_state:
+            st.session_state.pop(f"selected_player_{league}")
+        if f"player_search_term_{league}" in st.session_state:
+            st.session_state.pop(f"player_search_term_{league}")
+
+    # Check if a player was selected from multiple matches
+    selected_from_session = st.session_state.get(f"selected_player_{league}")
+    search_term = st.session_state.get(f"player_search_term_{league}")
+
+    # Show "Search for another player" button if we have a player selected or from query params
+    if selected_from_session or options.current_player or options.current_player_id:
+        st.button("Search for another player?", on_click=search_for_new, key=f"search_new_{league}")
+
+    # Only show search inputs if no player is selected
+    if not (selected_from_session or options.current_player or options.current_player_id):
+        name_col, id_col = st.columns(2)
+        selected_real_name_input = name_col.text_input("Search by Player Name", value=search_term or "", key=f"player_name_input_{league}")
+        selected_player_id_input = id_col.text_input("Or by Player ID", value="", key=f"player_id_input_{league}")
+        # Optional bracket ID search
+        selected_bracket_input = st.text_input("Or search by Bracket ID", value="", key=f"bracket_id_input_{league}")
+    else:
+        selected_real_name_input = ""
+        selected_player_id_input = ""
+        selected_bracket_input = ""
 
     # Initialize bracket navigation
     bracket_idx = initialize_bracket_state(bracket_order, league)
@@ -79,22 +103,131 @@ def live_bracket():
     selected_bracket = None
 
     # Handle selection methods via text inputs
-    if options.current_player:
+    if selected_from_session:
+        # Check if we also have a league selection
+        selected_league = st.session_state.get(f"selected_league_{league}")
+        if selected_league:
+            league = selected_league
+            # Reload data for the selected league
+            include_shun = include_shun_enabled_for("live_bracket")
+            df = get_live_data(league, include_shun)
+            bracket_order, fullish_brackets = get_bracket_data(df)
+            df = df[df.bracket.isin(fullish_brackets)].copy()
+            st.session_state.pop(f"selected_league_{league}")
+        selected_real_name = selected_from_session
+    elif options.current_player:
         selected_real_name = options.current_player
     elif options.current_player_id:
         selected_player_id = options.current_player_id
     else:
-        selected_real_name_input = name_col.text_input("Search by Player Name", value="", key=f"player_name_input_{league}")
-        selected_player_id_input = id_col.text_input("Or by Player ID", value="", key=f"player_id_input_{league}")
-
-        # Optional bracket ID search
-        selected_bracket_input = st.text_input("Or search by Bracket ID", value="", key=f"bracket_id_input_{league}")
-
-        # Process inputs
+        # Process inputs with cross-league search
         if selected_player_id_input.strip():
-            selected_player_id = selected_player_id_input.strip().upper()
+            pid_search = selected_player_id_input.strip().upper()
+
+            # Search across all leagues for partial player ID matches
+            from thetower.backend.tourney_results.constants import leagues as ALL_LEAGUES
+
+            all_matches = []  # Store (player_name, player_id, league) tuples
+
+            for lg in ALL_LEAGUES:
+                try:
+                    include_shun = include_shun_enabled_for("live_bracket")
+                    df_tmp = get_live_data(lg, include_shun)
+                    order_tmp, full_tmp = get_bracket_data(df_tmp)
+                    df_tmp = df_tmp[df_tmp.bracket.isin(full_tmp)].copy()
+                    if not df_tmp.empty:
+                        # Partial match on player_id
+                        match_df = df_tmp[df_tmp["player_id"].str.contains(pid_search, na=False, regex=False)]
+                        # Add unique players from this league
+                        for _, row in match_df.drop_duplicates(subset=["player_id"]).iterrows():
+                            all_matches.append((row["real_name"], row["player_id"], lg))
+                except Exception:
+                    continue
+
+            if not all_matches:
+                st.error(f"No player IDs found matching '{pid_search}' in any active league.")
+                return
+            elif len(all_matches) > 1:
+                # Show multiple matches sorted by player ID
+                all_matches.sort(key=lambda x: x[1])
+                st.warning("Multiple player IDs match. Please select one:")
+                for player_name, player_id, player_league in all_matches:
+                    name_col, id_col, league_col, button_col = st.columns([3, 1, 1, 1])
+                    name_col.write(player_name)
+                    id_col.write(player_id)
+                    league_col.write(player_league)
+                    if button_col.button("Select", key=f"select_id_{player_id}_{player_league}"):
+                        # Store selection and league in session state
+                        st.session_state[f"selected_player_{league}"] = player_name
+                        st.session_state[f"selected_league_{league}"] = player_league
+                        st.rerun()
+                return
+            else:
+                # Single match found
+                selected_real_name = all_matches[0][0]
+                league = all_matches[0][2]
+                # Reload data for the correct league
+                include_shun = include_shun_enabled_for("live_bracket")
+                df = get_live_data(league, include_shun)
+                bracket_order, fullish_brackets = get_bracket_data(df)
+                df = df[df.bracket.isin(fullish_brackets)].copy()
         elif selected_real_name_input.strip():
-            selected_real_name = selected_real_name_input.strip()
+            # Search across all leagues for partial matches
+            from thetower.backend.tourney_results.constants import leagues as ALL_LEAGUES
+
+            search_name = selected_real_name_input.strip()
+            name_lower = search_name.lower()
+            all_matches = []  # Store (player_name, player_id, league) tuples
+
+            for lg in ALL_LEAGUES:
+                try:
+                    include_shun = include_shun_enabled_for("live_bracket")
+                    df_tmp = get_live_data(lg, include_shun)
+                    order_tmp, full_tmp = get_bracket_data(df_tmp)
+                    df_tmp = df_tmp[df_tmp.bracket.isin(full_tmp)].copy()
+                    if not df_tmp.empty:
+                        # Partial match on real_name and name
+                        match_df = df_tmp[(df_tmp["real_name"].str.lower().str.contains(name_lower, na=False, regex=False))]
+                        if "name" in df_tmp.columns:
+                            match_df_alt = df_tmp[(df_tmp["name"].str.lower().str.contains(name_lower, na=False, regex=False))]
+                            match_df = pd.concat([match_df, match_df_alt]).drop_duplicates()
+
+                        # Add unique players from this league
+                        for _, row in match_df.drop_duplicates(subset=["real_name"]).iterrows():
+                            all_matches.append((row["real_name"], row["player_id"], lg))
+                except Exception:
+                    continue
+
+            if not all_matches:
+                st.error(f"No players found matching '{search_name}' in any active league.")
+                return
+            elif len(all_matches) > 1:
+                # Show multiple matches sorted by name
+                all_matches.sort(key=lambda x: x[0].lower())
+                st.warning("Multiple players match. Please select one:")
+                for player_name, player_id, player_league in all_matches:
+                    name_col, id_col, league_col, button_col = st.columns([3, 1, 1, 1])
+                    name_col.write(player_name)
+                    id_col.write(player_id)
+                    league_col.write(player_league)
+                    if button_col.button("Select", key=f"select_{player_name}_{player_league}"):
+                        # Store selection and league in session state
+                        st.session_state[f"selected_player_{league}"] = player_name
+                        st.session_state[f"selected_league_{league}"] = player_league
+                        st.session_state[f"player_search_term_{league}"] = search_name
+                        st.rerun()
+                return
+            else:
+                # Single match found
+                selected_real_name = all_matches[0][0]
+                league = all_matches[0][2]
+                # Reload data for the correct league
+                include_shun = include_shun_enabled_for("live_bracket")
+                df = get_live_data(league, include_shun)
+                bracket_order, fullish_brackets = get_bracket_data(df)
+                df = df[df.bracket.isin(fullish_brackets)].copy()
+            # Store search term for later
+            st.session_state[f"player_search_term_{league}"] = search_name
         elif selected_bracket_input.strip():
             selected_bracket = selected_bracket_input.strip()
 
@@ -108,15 +241,96 @@ def live_bracket():
         )
         # Update session state for selected bracket index but do not render nav controls
         st.session_state[f"current_bracket_idx_{league}"] = bracket_idx
+        # Clear the session state selection flag
+        if f"selected_player_{league}" in st.session_state:
+            st.session_state.pop(f"selected_player_{league}")
     except ValueError as e:
-        if selected_player_id:
+        error_msg = str(e)
+        if "MULTIPLE_MATCHES:" in error_msg:
+            # Extract matches and show selection with buttons
+            # Handle both "MULTIPLE_MATCHES:..." and "Selection not found: MULTIPLE_MATCHES:..." formats
+            matches_part = error_msg.split("MULTIPLE_MATCHES:", 1)[1]
+            matches = matches_part.split(", ")
+            st.warning("Multiple players match. Please select one:")
+
+            # Display each match with name, ID, league, and button (like /player)
+            for player_name in matches:
+                # Get player ID for this name
+                player_data = df[df.real_name == player_name]
+                if not player_data.empty:
+                    player_id = player_data.iloc[0].player_id
+                    name_col, id_col, league_col, button_col = st.columns([3, 1, 1, 1])
+                    name_col.write(player_name)
+                    id_col.write(player_id)
+                    league_col.write(league)
+                    if button_col.button("Select", key=f"select_{player_name}_{league}"):
+                        # Store selection in session state and rerun
+                        st.session_state[f"selected_player_{league}"] = player_name
+                        st.rerun()
+            return
+        elif selected_player_id:
             # Get player's known name
             lookup = get_player_id_lookup()
             known_name = lookup.get(selected_player_id, selected_player_id)
             st.error(f"{known_name} (#{selected_player_id}) hasn't participated in this tournament.")
+            return
         else:
-            st.error(str(e))
+            st.error(error_msg)
+            return
+
+    # Check if a player was selected from multiple matches
+    if selected_from_session := st.session_state.get(f"selected_player_{league}"):
+        selected_real_name = selected_from_session
+        selected_player_id = None
+        selected_bracket = None
+        # Clear the session state
+        st.session_state.pop(f"selected_player_{league}")
+
+    if not any([selected_real_name, selected_player_id, selected_bracket]):
         return
+
+    try:
+        # Process bracket selection using data_ops utility
+        bracket_id, tdf, selected_real_name, bracket_idx = process_bracket_selection(
+            df, selected_real_name, selected_player_id, selected_bracket, bracket_order
+        )
+        # Update session state for selected bracket index but do not render nav controls
+        st.session_state[f"current_bracket_idx_{league}"] = bracket_idx
+    except ValueError as e:
+        error_msg = str(e)
+        if "MULTIPLE_MATCHES:" in error_msg:
+            # Extract matches and show selection with buttons
+            # Handle both "MULTIPLE_MATCHES:..." and "Selection not found: MULTIPLE_MATCHES:..." formats
+            matches_part = error_msg.split("MULTIPLE_MATCHES:", 1)[1]
+            matches = matches_part.split(", ")
+            st.warning(f"Multiple players match '{selected_real_name_input}'. Please select one:")
+
+            # Display each match with name, ID, league, and button (like /player)
+            for player_name in matches:
+                # Get player ID for this name
+                player_data = df[df.real_name == player_name]
+                if not player_data.empty:
+                    player_id = player_data.iloc[0].player_id
+                    name_col, id_col, league_col, button_col = st.columns([3, 1, 1, 1])
+                    name_col.write(player_name)
+                    id_col.write(player_id)
+                    league_col.write(league)
+                    if button_col.button("Select", key=f"select_{player_name}_{league}"):
+                        # Store selection in session state and rerun
+                        st.session_state[f"selected_player_{league}"] = player_name
+                        if search_term:
+                            st.session_state[f"player_search_term_{league}"] = search_term
+                        st.rerun()
+            return
+        elif selected_player_id:
+            # Get player's known name
+            lookup = get_player_id_lookup()
+            known_name = lookup.get(selected_player_id, selected_player_id)
+            st.error(f"{known_name} (#{selected_player_id}) hasn't participated in this tournament.")
+            return
+        else:
+            st.error(error_msg)
+            return
 
     # Create a copy of the DataFrame to avoid SettingWithCopyWarning
     tdf = tdf.copy()

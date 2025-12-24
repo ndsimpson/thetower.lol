@@ -361,6 +361,13 @@ def process_bracket_selection(df, selected_real_name, selected_player_id, select
                 sdf = pd.concat([sdf, sdf_alt]).drop_duplicates()
             if sdf.empty:
                 raise ValueError(f"Player '{selected_real_name}' not found")
+            # Check for multiple unique players
+            unique_players = sdf.real_name.unique()
+            if len(unique_players) > 1:
+                # Multiple matches found - create a special exception with the matches
+                # Note: This doesn't include league info since it's within a single league's data
+                matches_str = ", ".join(sorted(unique_players))
+                raise ValueError(f"MULTIPLE_MATCHES:{matches_str}")
             bracket_id = sdf.bracket.iloc[0]
             selected_real_name = sdf.real_name.iloc[0]
             tdf = df[df.bracket == bracket_id]
