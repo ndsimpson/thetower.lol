@@ -12,7 +12,7 @@ import discord
 from asgiref.sync import sync_to_async
 from discord import ui
 
-from thetower.bot.ui.context import SettingsViewContext
+from thetower.bot.ui.context import BaseSettingsView, SettingsViewContext
 
 from .core import TournamentRolesCore
 
@@ -386,13 +386,11 @@ class LogChannelModal(ui.Modal, title="Set Log Channel"):
         await self.original_interaction.edit_original_response(embed=embed, view=self.parent_view)
 
 
-class TournamentRolesSettingsView(ui.View):
+class TournamentRolesSettingsView(BaseSettingsView):
     """Settings view for tournament roles that integrates with global settings."""
 
     def __init__(self, context: SettingsViewContext):
-        super().__init__(timeout=900)
-        self.guild_id = context.guild_id
-        self.cog = context.cog_instance
+        super().__init__(context)
         self.core = TournamentRolesCore(self.cog)
 
     async def get_settings_embed(self) -> discord.Embed:

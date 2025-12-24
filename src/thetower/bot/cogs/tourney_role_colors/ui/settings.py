@@ -5,7 +5,7 @@ from typing import Dict, List, Optional
 import discord
 from discord import ui
 
-from thetower.bot.ui.context import SettingsViewContext
+from thetower.bot.ui.context import BaseSettingsView, SettingsViewContext
 
 
 def _sort_role_ids_by_name(cog, guild_id: int, role_ids: List[int]) -> List[int]:
@@ -29,14 +29,11 @@ def _sort_role_ids_by_name(cog, guild_id: int, role_ids: List[int]) -> List[int]
     return sorted(role_ids, key=_name)
 
 
-class TourneyRoleColorsSettingsView(ui.View):
+class TourneyRoleColorsSettingsView(BaseSettingsView):
     """Settings view for Tourney Role Colors cog."""
 
     def __init__(self, context: SettingsViewContext):
-        super().__init__(timeout=900)
-        self.cog = context.cog_instance
-        self.context = context
-        self.guild_id = context.guild_id
+        super().__init__(context)
 
         # Add main management buttons
         self.add_item(ManageCategoriesButton(self.cog, self.guild_id))

@@ -2,16 +2,14 @@
 import discord
 
 # Local
-from thetower.bot.ui.context import SettingsViewContext
+from thetower.bot.ui.context import BaseSettingsView, SettingsViewContext
 
 
-class RoleCacheSettingsView(discord.ui.View):
+class RoleCacheSettingsView(BaseSettingsView):
     """Settings view for role cache that integrates with global settings system."""
 
     def __init__(self, context: SettingsViewContext):
-        super().__init__(timeout=900)  # 5 minute timeout
-        self.cog = context.cog_instance
-        self.guild_id = context.guild_id
+        super().__init__(context)
 
     @discord.ui.button(label="View Settings", style=discord.ButtonStyle.primary, emoji="📊")
     async def view_settings(self, interaction: discord.Interaction, button: discord.ui.Button):

@@ -3,18 +3,14 @@
 import discord
 
 from thetower.bot.basecog import BaseCog
-from thetower.bot.ui.context import SettingsViewContext
+from thetower.bot.ui.context import BaseSettingsView, SettingsViewContext
 
 
-class ManageSusSettingsView(discord.ui.View):
+class ManageSusSettingsView(BaseSettingsView):
     """Settings view for Manage Sus cog that integrates with global settings."""
 
     def __init__(self, context: SettingsViewContext):
-        super().__init__(timeout=900)
-        self.cog = context.cog_instance
-        self.context = context
-        self.interaction = context.interaction
-        self.is_bot_owner = context.is_bot_owner
+        super().__init__(context)
         self.guild_id = str(context.guild_id) if context.guild_id else None
 
         # Get current global settings (stored in bot config under manage_sus)

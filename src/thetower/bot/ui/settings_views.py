@@ -218,16 +218,14 @@ class BotOwnerSettingsView(View):
         )
 
         async def channel_callback(select_interaction: discord.Interaction):
+            bot = select_interaction.client
             if channel_select.values:
                 channel = channel_select.values[0]
-                # Import here to avoid circular imports
-                bot = interaction.client
                 bot.config.config["error_log_channel"] = str(channel.id)
                 bot.config.save_config()
                 await select_interaction.response.send_message(f"✅ Error log channel set to {channel.mention}", ephemeral=True)
             else:
                 # Clear the channel
-                bot = interaction.client
                 if "error_log_channel" in bot.config.config:
                     del bot.config.config["error_log_channel"]
                 bot.config.save_config()
@@ -764,50 +762,8 @@ class CogSettingsView(View):
             # Create context object
             context = SettingsViewContext(guild_id=self.guild_id, cog_instance=cog_instance, interaction=interaction, is_bot_owner=is_bot_owner)
 
-            # Try the new unified constructor first
-            try:
-                view = settings_view_class(context)
-            except TypeError as e:
-                # Check if the error is about the context parameter specifically
-                # If so, don't try fallback signatures that could pass wrong types
-                import inspect
-
-                sig = inspect.signature(settings_view_class.__init__)
-                params = list(sig.parameters.keys())
-
-                # If the first param (after self) is named 'context', don't try fallbacks
-                if len(params) > 1 and params[1] == "context":
-                    raise TypeError(f"Settings view {settings_view_class.__name__} expects SettingsViewContext but failed: {e}")
-
-                # Fallback to old signature-guessing logic for backwards compatibility
-                # Try different constructor signatures in order of preference
-                view = None
-
-                # Try 1: (guild_id, cog_instance) - for views that need guild and cog context
-                try:
-                    view = settings_view_class(self.guild_id, cog_instance)
-                except TypeError:
-                    # Try 2: (cog_instance, interaction, is_bot_owner) - for views that need user context and owner status
-                    try:
-                        view = settings_view_class(cog_instance, interaction, is_bot_owner)
-                    except TypeError:
-                        # Try 3: (cog_instance, interaction) - for views that need user context
-                        try:
-                            view = settings_view_class(cog_instance, interaction)
-                        except TypeError:
-                            # Try 4: (cog_instance, guild_id) - for views that need guild context
-                            try:
-                                view = settings_view_class(cog_instance, self.guild_id)
-                            except TypeError:
-                                # Try 5: (guild_id) - for views that only need guild context
-                                try:
-                                    view = settings_view_class(self.guild_id)
-                                except TypeError:
-                                    # Try 6: (cog_instance) - for views that only need cog context
-                                    try:
-                                        view = settings_view_class(cog_instance)
-                                    except TypeError as e:
-                                        raise TypeError(f"Could not determine constructor signature for {settings_view_class.__name__}: {e}")
+            # All cogs now use the unified BaseSettingsView pattern
+            view = settings_view_class(context)
 
             # Call update_display if it exists
             if hasattr(view, "update_display"):

@@ -6,18 +6,14 @@ from typing import List
 import discord
 
 from thetower.bot.basecog import BaseCog
-from thetower.bot.ui.context import SettingsViewContext
+from thetower.bot.ui.context import BaseSettingsView, SettingsViewContext
 
 
-class PlayerLookupSettingsView(discord.ui.View):
+class PlayerLookupSettingsView(BaseSettingsView):
     """Settings view for Player Lookup cog that integrates with global settings."""
 
     def __init__(self, context: SettingsViewContext):
-        super().__init__(timeout=900)
-        self.cog = context.cog_instance
-        self.context = context
-        self.interaction = context.interaction
-        self.is_bot_owner = context.is_bot_owner
+        super().__init__(context)
         self.guild_id = str(context.guild_id) if context.guild_id else None
 
         # Get current global settings

@@ -2,20 +2,15 @@ import discord
 from discord import ui
 
 from thetower.bot.basecog import BaseCog
-from thetower.bot.ui.context import SettingsViewContext
+from thetower.bot.ui.context import BaseSettingsView, SettingsViewContext
 
 
-class ValidationSettingsView(discord.ui.View):
+class ValidationSettingsView(BaseSettingsView):
     """Settings view for the Validation cog."""
 
     def __init__(self, context: SettingsViewContext):
         """Initialize the settings view using the unified constructor pattern."""
-        super().__init__(timeout=900)
-        self.cog = context.cog_instance
-        self.context = context
-        self.interaction = context.interaction
-        self.is_bot_owner = context.is_bot_owner
-        self.guild_id = context.guild_id
+        super().__init__(context)
 
         # Add role select for verified role (per-guild)
         self.add_item(VerifiedRoleSelect(self.cog, self.guild_id))

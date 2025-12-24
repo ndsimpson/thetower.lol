@@ -1,15 +1,13 @@
 import discord
 
-from thetower.bot.ui.context import SettingsViewContext
+from thetower.bot.ui.context import BaseSettingsView, SettingsViewContext
 
 
-class TourneyStatsSettingsView(discord.ui.View):
+class TourneyStatsSettingsView(BaseSettingsView):
     """Settings view for TourneyStats cog - only accessible to bot owner."""
 
     def __init__(self, context: SettingsViewContext):
-        super().__init__(timeout=900)  # 5 minute timeout
-        self.cog = context.cog_instance
-        self.context = context
+        super().__init__(context)
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         """Check if the user is the bot owner."""

@@ -5,7 +5,7 @@ from typing import Optional
 import discord
 from discord.ui import Button, Modal, Select, TextInput, View
 
-from thetower.bot.ui.context import SettingsViewContext
+from thetower.bot.ui.context import BaseSettingsView, SettingsViewContext
 
 
 class AdTypeSelectionView(View):
@@ -454,13 +454,11 @@ class SettingsView(View):
         await interaction.response.edit_message(embed=embed, view=main_view)
 
 
-class UnifiedAdvertiseSettingsView(View):
+class UnifiedAdvertiseSettingsView(BaseSettingsView):
     """Main settings view for the unified advertise system."""
 
     def __init__(self, context: SettingsViewContext, guild_id: Optional[int] = None):
-        super().__init__(timeout=900)
-        self.cog = context.cog_instance
-        self.context = context
+        super().__init__(context)
         self.guild_id = guild_id or context.guild_id
 
     async def update_view(self, interaction: discord.Interaction):
