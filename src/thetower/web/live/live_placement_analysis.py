@@ -25,8 +25,8 @@ def live_score():
     logging.info("Starting live placement analysis")
     t2_start = perf_counter()
 
-    # Use common UI setup, but hide league selector (auto-detect via inputs)
-    options, league, is_mobile = setup_common_ui(show_league_selector=False)
+    # Use common UI setup with league selector
+    options, league, is_mobile = setup_common_ui(show_league_selector=True)
 
     # Show data refresh and shun status upfront so users see it even if cache isn't ready
     try:
@@ -127,69 +127,26 @@ def live_score():
 
     # Handle player_id input
     if player_id_input and not selected_player:
-        # Normalize to uppercase to align with stored player IDs, and auto-detect league
+        # Normalize to uppercase to align with stored player IDs
         pid_upper = player_id_input.strip().upper()
-        auto_league = get_league_for_player(pid_upper)
-        if auto_league and auto_league != league:
-            # Refresh data for detected league
-            df, latest_time, bracket_creation_times, tourney_start_date = get_placement_analysis_data(auto_league)
-            df = process_display_names(df)
-            league = auto_league
         matching_players = df[df["player_id"] == pid_upper]
         if not matching_players.empty:
             selected_player = matching_players.iloc[0]["display_name"]
         else:
-            # If not found in current df, try other leagues
-            from thetower.backend.tourney_results.constants import leagues as _leagues
-
-            found = False
-            for lg in _leagues:
-                if lg == league:
-                    continue
-                try:
-                    df_tmp, latest_time, bracket_creation_times, tourney_start_date = get_placement_analysis_data(lg)
-                    df_tmp = process_display_names(df_tmp)
-                    match_df = df_tmp[df_tmp["player_id"] == pid_upper]
-                    if not match_df.empty:
-                        df = df_tmp
-                        league = lg
-                        selected_player = match_df.iloc[0]["display_name"]
-                        found = True
-                        break
-                except Exception:
-                    continue
-            if not found:
-                st.error(f"Player ID '{player_id_input}' not found in current tournament data.")
-                return
+            st.error(f"Player ID '{player_id_input}' not found in selected league's tournament data.")
+            return
 
     if not selected_player:
-        # Try matching by entered name across leagues
-        if selected_player := (selected_player or "").strip():
-            name_lower = selected_player.lower()
-            # First try current league
-            match_df = df[(df["real_name"].str.lower() == name_lower) | (df["display_name"].str.lower() == name_lower)]
-            if match_df.empty:
-                from thetower.backend.tourney_results.constants import leagues as _leagues
-
-                for lg in _leagues:
-                    if lg == league:
-                        continue
-                    try:
-                        df_tmp, latest_time, bracket_creation_times, tourney_start_date = get_placement_analysis_data(lg)
-                        df_tmp = process_display_names(df_tmp)
-                        match_df = df_tmp[(df_tmp["real_name"].str.lower() == name_lower) | (df_tmp["display_name"].str.lower() == name_lower)]
-                        if not match_df.empty:
-                            df = df_tmp
-                            league = lg
-                            selected_player = match_df.iloc[0]["display_name"]
-                            break
-                    except Exception:
-                        continue
-            if not selected_player:
-                st.error("Player not found by name in any active league.")
-                return
-        else:
+        if not (selected_player or "").strip():
             st.info("Enter a player name or Player ID to analyze placement")
+            return
+        # Try matching by entered name in selected league
+        name_lower = selected_player.lower()
+        match_df = df[(df["real_name"].str.lower() == name_lower) | (df["display_name"].str.lower() == name_lower)]
+        if not match_df.empty:
+            selected_player = match_df.iloc[0]["display_name"]
+        else:
+            st.error("Player not found by name in selected league's tournament data.")
             return
 
     # Get the player's highest wave

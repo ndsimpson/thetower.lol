@@ -30,8 +30,8 @@ def live_bracket():
     logging.info("Starting live bracket")
     t2_start = perf_counter()
 
-    # Use common UI setup, but hide league selector
-    options, league, is_mobile = setup_common_ui(show_league_selector=False)
+    # Use common UI setup with league selector
+    options, league, is_mobile = setup_common_ui(show_league_selector=True)
 
     # Get data refresh timestamp
     refresh_timestamp = get_data_refresh_timestamp(league)
@@ -78,7 +78,7 @@ def live_bracket():
     selected_player_id = None
     selected_bracket = None
 
-    # Handle selection methods via text inputs with auto league detection
+    # Handle selection methods via text inputs
     if options.current_player:
         selected_real_name = options.current_player
     elif options.current_player_id:
@@ -90,69 +90,13 @@ def live_bracket():
         # Optional bracket ID search
         selected_bracket_input = st.text_input("Or search by Bracket ID", value="", key=f"bracket_id_input_{league}")
 
-        # Determine league and selection based on inputs
+        # Process inputs
         if selected_player_id_input.strip():
-            pid_upper = selected_player_id_input.strip().upper()
-            auto_league = get_league_for_player(pid_upper)
-            if auto_league:
-                league = auto_league
-                include_shun = include_shun_enabled_for("live_bracket")
-                df = get_live_data(league, include_shun)
-                bracket_order, fullish_brackets = get_bracket_data(df)
-                df = df[df.bracket.isin(fullish_brackets)].copy()
-                selected_player_id = pid_upper
-            else:
-                st.error("Could not determine league for the given Player ID.")
-                return
+            selected_player_id = selected_player_id_input.strip().upper()
         elif selected_real_name_input.strip():
-            name_lower = selected_real_name_input.strip().lower()
-            found = False
-            for lg in ALL_LEAGUES:
-                try:
-                    include_shun = include_shun_enabled_for("live_bracket")
-                    df_tmp = get_live_data(lg, include_shun)
-                    order_tmp, full_tmp = get_bracket_data(df_tmp)
-                    df_tmp = df_tmp[df_tmp.bracket.isin(full_tmp)].copy()
-                    if not df_tmp.empty:
-                        # Case-insensitive match on real/tourney name
-                        match_df = df_tmp[
-                            (df_tmp["real_name"].str.lower() == name_lower)
-                            | (df_tmp["name"].str.lower() == name_lower)
-                        ]
-                        if not match_df.empty:
-                            df = df_tmp
-                            bracket_order = order_tmp
-                            league = lg
-                            selected_real_name = match_df.iloc[0]["real_name"]
-                            found = True
-                            break
-                except Exception:
-                    continue
-            if not found:
-                st.error("Player name not found in any active league.")
-                return
+            selected_real_name = selected_real_name_input.strip()
         elif selected_bracket_input.strip():
-            # Try to locate bracket across leagues
-            br_id = selected_bracket_input.strip()
-            found = False
-            for lg in ALL_LEAGUES:
-                try:
-                    include_shun = include_shun_enabled_for("live_bracket")
-                    df_tmp = get_live_data(lg, include_shun)
-                    order_tmp, full_tmp = get_bracket_data(df_tmp)
-                    df_tmp = df_tmp[df_tmp.bracket.isin(full_tmp)].copy()
-                    if br_id in order_tmp:
-                        df = df_tmp
-                        bracket_order = order_tmp
-                        league = lg
-                        selected_bracket = br_id
-                        found = True
-                        break
-                except Exception:
-                    continue
-            if not found:
-                st.error("Bracket ID not found in any active league.")
-                return
+            selected_bracket = selected_bracket_input.strip()
 
     if not any([selected_real_name, selected_player_id, selected_bracket]):
         return
