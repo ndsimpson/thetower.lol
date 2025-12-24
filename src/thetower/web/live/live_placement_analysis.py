@@ -136,18 +136,19 @@ def live_score():
             st.error(f"Player ID '{player_id_input}' not found in selected league's tournament data.")
             return
 
-    if not selected_player:
-        if not (selected_player or "").strip():
-            st.info("Enter a player name or Player ID to analyze placement")
-            return
-        # Try matching by entered name in selected league
-        name_lower = selected_player.lower()
-        match_df = df[(df["real_name"].str.lower() == name_lower) | (df["display_name"].str.lower() == name_lower)]
-        if not match_df.empty:
-            selected_player = match_df.iloc[0]["display_name"]
-        else:
-            st.error("Player not found by name in selected league's tournament data.")
-            return
+    # Handle player name input
+    if not selected_player or not selected_player.strip():
+        st.info("Enter a player name or Player ID to analyze placement")
+        return
+
+    # Try matching by entered name in selected league
+    name_lower = selected_player.strip().lower()
+    match_df = df[(df["real_name"].str.lower() == name_lower) | (df["display_name"].str.lower() == name_lower)]
+    if not match_df.empty:
+        selected_player = match_df.iloc[0]["display_name"]
+    else:
+        st.error("Player not found by name in selected league's tournament data.")
+        return
 
     # Get the player's highest wave
     wave_to_analyze = df[df.display_name == selected_player].wave.max()
