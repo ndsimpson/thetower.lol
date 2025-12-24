@@ -147,13 +147,24 @@ class VerificationModal(ui.Modal, title="Player Verification"):
                 member = interaction.user
                 role = guild.get_role(verified_role_id)
                 if role and role not in member.roles:
-                    await member.add_roles(role)
-                    role_assigned = True
+                    # Track this as a bot action to prevent on_member_update from logging again
+                    self.cog._bot_role_changes.add((member.id, guild.id))
+                    try:
+                        await member.add_roles(role)
+                        role_assigned = True
 
-            # Log successful verification
-            await self._log_verification_attempt(
-                interaction, player_id, verification_time, timestamp_unix, image_filename, success=True, role_assigned=role_assigned
-            )
+                        # Log successful verification (inside try block so cleanup happens after logging)
+                        await self._log_verification_attempt(
+                            interaction, player_id, verification_time, timestamp_unix, image_filename, success=True, role_assigned=role_assigned
+                        )
+                    finally:
+                        # Cleanup after logging completes (matching tourney_role_colors pattern)
+                        self.cog._bot_role_changes.discard((member.id, guild.id))
+            else:
+                # No role to assign, but still log the verification
+                await self._log_verification_attempt(
+                    interaction, player_id, verification_time, timestamp_unix, image_filename, success=True, role_assigned=role_assigned
+                )
 
             # Create success message with role mention
             success_message = "✅ Verification successful!"
