@@ -240,3 +240,79 @@ class ViewWindowModal(discord.ui.Modal, title="Global BC View Window"):
                 await interaction.response.send_message(f"✅ BC view window set to **{days} day(s)** before tournament", ephemeral=True)
             except ValueError:
                 await interaction.response.send_message("❌ Invalid number. Please enter a valid number of days.", ephemeral=True)
+
+
+class DefaultScheduleTimingModal(discord.ui.Modal, title="Default Schedule Timing"):
+    """Modal for configuring default schedule timing settings."""
+
+    def __init__(self, cog: "BattleConditions", guild_id: int, current_hour: int, current_minute: int, current_days_before: int):
+        super().__init__()
+        self.cog = cog
+        self.guild_id = guild_id
+
+        self.days_before_input = discord.ui.TextInput(
+            label="Days before tournament (0-7)",
+            placeholder="Default days before tournament",
+            default=str(current_days_before),
+            required=True,
+            max_length=1,
+        )
+        self.add_item(self.days_before_input)
+
+        self.hour_input = discord.ui.TextInput(
+            label="Hour (0-23, UTC)",
+            placeholder="Default hour in UTC",
+            default=str(current_hour),
+            required=True,
+            max_length=2,
+        )
+        self.add_item(self.hour_input)
+
+        self.minute_input = discord.ui.TextInput(
+            label="Minute (0-59)",
+            placeholder="Default minute",
+            default=str(current_minute),
+            required=True,
+            max_length=2,
+        )
+        self.add_item(self.minute_input)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        try:
+            # Parse and validate inputs
+            days_before = int(self.days_before_input.value)
+            hour = int(self.hour_input.value)
+            minute = int(self.minute_input.value)
+
+            if not (0 <= days_before <= 7):
+                await interaction.response.send_message("❌ Days before must be 0-7", ephemeral=True)
+                return
+            if not (0 <= hour <= 23):
+                await interaction.response.send_message("❌ Hour must be 0-23", ephemeral=True)
+                return
+            if not (0 <= minute <= 59):
+                await interaction.response.send_message("❌ Minute must be 0-59", ephemeral=True)
+                return
+
+            # Check against view window constraint
+            view_window = self.cog.get_global_setting("bc_view_window_days")
+            if view_window is not None and days_before > view_window:
+                await interaction.response.send_message(
+                    f"❌ Days before ({days_before}) cannot exceed BC View Window ({view_window} days).\n"
+                    f"Either reduce days_before or increase the BC View Window setting.",
+                    ephemeral=True,
+                )
+                return
+
+            # Save settings
+            self.cog.set_setting("notification_hour", hour, guild_id=self.guild_id)
+            self.cog.set_setting("notification_minute", minute, guild_id=self.guild_id)
+            self.cog.set_setting("days_before_notification", days_before, guild_id=self.guild_id)
+
+            await interaction.response.send_message(
+                f"✅ Default schedule timing updated:\n" f"⏰ {hour:02d}:{minute:02d} UTC\n" f"📅 {days_before} day(s) before tournament",
+                ephemeral=True,
+            )
+
+        except ValueError:
+            await interaction.response.send_message("❌ Invalid input. Please enter valid numbers.", ephemeral=True)

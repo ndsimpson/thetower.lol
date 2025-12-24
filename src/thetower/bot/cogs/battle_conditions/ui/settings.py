@@ -17,14 +17,17 @@ class BattleConditionsSettingsView(BaseSettingsView):
         # Configure permissions button
         self.add_item(BattleConditionsConfigurePermissionsButton(self.cog))
 
+        # Configure default schedule timing button
+        self.add_item(BattleConditionsConfigureTimingButton(self.cog))
+
         # Manage schedules button
         self.add_item(BattleConditionsManageSchedulesButton(self.cog))
 
-        # Global settings (bot owner only)
+        # BC View Window (bot owner only)
         if context.is_bot_owner:
-            from .admin import GlobalSettingsButton
+            from .admin import ConfigureViewWindowButton
 
-            self.add_item(GlobalSettingsButton())
+            self.add_item(ConfigureViewWindowButton())
 
         # Back button
         self.add_back_button()
@@ -48,6 +51,14 @@ class BattleConditionsSettingsView(BaseSettingsView):
 
         embed.add_field(name="Enabled Leagues (Global)", value=", ".join(enabled_leagues) if enabled_leagues else "None configured", inline=False)
 
+        # Default schedule timing (guild settings)
+        notification_hour = self.cog.get_setting("notification_hour", guild_id=self.guild_id, default=0)
+        notification_minute = self.cog.get_setting("notification_minute", guild_id=self.guild_id, default=0)
+        days_before = self.cog.get_setting("days_before_notification", guild_id=self.guild_id, default=1)
+
+        timing_text = f"⏰ {notification_hour:02d}:{notification_minute:02d} UTC\n📅 {days_before} day(s) before tournament"
+        embed.add_field(name="Default Schedule Timing", value=timing_text, inline=False)
+
         # Current schedules
         schedules = self.cog.get_setting("destination_schedules", guild_id=self.guild_id) or []
         if schedules:
@@ -63,6 +74,34 @@ class BattleConditionsSettingsView(BaseSettingsView):
             embed.add_field(name=f"Schedules ({len(schedules)})", value="\n".join(schedule_info[:5]), inline=False)  # Limit to 5 for embed size
         else:
             embed.add_field(name="Schedules", value="No schedules configured", inline=False)
+
+        # Permissions
+        generate_perms = self.cog.get_setting("slash_permissions.generate", guild_id=self.guild_id) or {}
+        run_schedule_perms = self.cog.get_setting("slash_permissions.run_schedule", guild_id=self.guild_id) or {}
+        manage_schedules_perms = self.cog.get_setting("slash_permissions.manage_schedules", guild_id=self.guild_id) or {}
+
+        def format_perms(perms_dict):
+            """Format permission dictionary as mention string."""
+            role_ids = perms_dict.get("allowed_roles", [])
+            user_ids = perms_dict.get("allowed_users", [])
+
+            if not role_ids and not user_ids:
+                return "Owner only (default)"
+
+            mentions = []
+            for role_id in role_ids:
+                mentions.append(f"<@&{role_id}>")
+            for user_id in user_ids:
+                mentions.append(f"<@{user_id}>")
+
+            return ", ".join(mentions)
+
+        perms_text = (
+            f"**Generate:** {format_perms(generate_perms)}\n"
+            f"**Run Schedule:** {format_perms(run_schedule_perms)}\n"
+            f"**Manage Schedules:** {format_perms(manage_schedules_perms)}"
+        )
+        embed.add_field(name="Permissions", value=perms_text, inline=False)
 
         await interaction.response.edit_message(embed=embed, view=self)
 
@@ -121,11 +160,35 @@ class BattleConditionsConfigurePermissionsButton(discord.ui.Button):
 
     async def callback(self, interaction: discord.Interaction):
         # Show permission configuration view
-        perm_view = BattleConditionsPermissionsView(self.bc_cog)
+        perm_view = BattleConditionsPermissionsView(self.bc_cog, interaction)
 
-        await interaction.response.send_message(
-            "**Permission Configuration**\n\n" "Choose which action to configure permissions for:", view=perm_view, ephemeral=True
+        embed = discord.Embed(
+            title="🔒 Permission Configuration", description="Choose which action to configure permissions for:", color=discord.Color.blue()
         )
+
+        await interaction.response.edit_message(embed=embed, view=perm_view)
+
+
+class BattleConditionsConfigureTimingButton(discord.ui.Button):
+    """Button to configure default schedule timing."""
+
+    def __init__(self, bc_cog):
+        super().__init__(label="Default Schedule Timing", style=discord.ButtonStyle.secondary, emoji="⏰")
+        self.bc_cog = bc_cog
+
+    async def callback(self, interaction: discord.Interaction):
+        guild_id = interaction.guild.id
+
+        # Get current timing settings
+        current_hour = self.bc_cog.get_setting("notification_hour", guild_id=guild_id, default=0)
+        current_minute = self.bc_cog.get_setting("notification_minute", guild_id=guild_id, default=0)
+        current_days_before = self.bc_cog.get_setting("days_before_notification", guild_id=guild_id, default=1)
+
+        # Show modal for configuring timing
+        from .core import DefaultScheduleTimingModal
+
+        modal = DefaultScheduleTimingModal(self.bc_cog, guild_id, current_hour, current_minute, current_days_before)
+        await interaction.response.send_modal(modal)
 
 
 class BattleConditionsManageSchedulesButton(discord.ui.Button):
@@ -146,7 +209,10 @@ class BattleConditionsManageSchedulesButton(discord.ui.Button):
         schedules = self.bc_cog.get_setting("destination_schedules", guild_id=guild_id) or []
 
         # Show schedule management view
-        schedule_view = BattleConditionsScheduleManagementView(self.bc_cog, guild_id, schedules, can_manage or is_owner)
+        schedule_view = BattleConditionsScheduleManagementView(self.bc_cog, guild_id, schedules, can_manage or is_owner, interaction)
+
+        # Build embed
+        embed = discord.Embed(title="📅 Manage Schedules", color=discord.Color.blue())
 
         if schedules:
             schedule_list = []
@@ -158,27 +224,30 @@ class BattleConditionsManageSchedulesButton(discord.ui.Button):
                 paused = "⏸️ " if schedule.get("paused", False) else ""
                 schedule_list.append(f"{paused}**#{idx}**: {channel_name} - {leagues}")
 
-            schedule_text = (
-                f"**Current Schedules** ({len(schedules)})\n\n"
-                + "\n".join(schedule_list[:10])
-                + (f"\n\n...and {len(schedules) - 10} more" if len(schedules) > 10 else "")
-            )
-        else:
-            schedule_text = "**No schedules configured**\n\nClick 'Create Schedule' to add one."
+            schedule_text = "\n".join(schedule_list[:10])
+            if len(schedules) > 10:
+                schedule_text += f"\n\n...and {len(schedules) - 10} more"
 
-        await interaction.response.send_message(schedule_text, view=schedule_view, ephemeral=True)
+            embed.description = schedule_text
+            embed.set_footer(text=f"{len(schedules)} schedule(s) configured")
+        else:
+            embed.description = "No schedules configured\n\nClick 'Create Schedule' to add one."
+
+        await interaction.response.edit_message(embed=embed, view=schedule_view)
 
 
 class BattleConditionsPermissionsView(discord.ui.View):
     """View for configuring BC action permissions."""
 
-    def __init__(self, bc_cog):
+    def __init__(self, bc_cog, interaction: discord.Interaction):
         super().__init__(timeout=900)
         self.bc_cog = bc_cog
+        self.interaction = interaction
 
         self.add_item(BattleConditionsConfigureGeneratePermButton(self.bc_cog))
         self.add_item(BattleConditionsConfigureRunSchedulePermButton(self.bc_cog))
         self.add_item(BattleConditionsConfigureManageSchedulesPermButton(self.bc_cog))
+        self.add_item(BattleConditionsPermissionsBackButton(self.bc_cog, self.interaction))
 
 
 class BattleConditionsConfigureGeneratePermButton(discord.ui.Button):
@@ -299,6 +368,28 @@ class BattleConditionsConfigureManageSchedulesPermButton(discord.ui.Button):
         )
 
 
+class BattleConditionsPermissionsBackButton(discord.ui.Button):
+    """Back button to return to main Battle Conditions settings."""
+
+    def __init__(self, bc_cog, original_interaction: discord.Interaction):
+        super().__init__(label="Back to Battle Conditions", style=discord.ButtonStyle.secondary, emoji="⬅️")
+        self.bc_cog = bc_cog
+        self.original_interaction = original_interaction
+
+    async def callback(self, interaction: discord.Interaction):
+        # Recreate the main settings view
+        from thetower.bot.ui.context import SettingsViewContext
+
+        context = SettingsViewContext(
+            guild_id=interaction.guild.id,
+            cog_instance=self.bc_cog,
+            interaction=self.original_interaction,
+            is_bot_owner=await self.bc_cog.bot.is_owner(interaction.user),
+        )
+        settings_view = BattleConditionsSettingsView(context)
+        await settings_view.update_display(interaction)
+
+
 class BattleConditionsActionMentionableSelect(discord.ui.MentionableSelect):
     """Mentionable select for configuring action permissions."""
 
@@ -361,11 +452,12 @@ class BattleConditionsActionMentionableSelect(discord.ui.MentionableSelect):
 class BattleConditionsScheduleManagementView(discord.ui.View):
     """View for managing BC schedules."""
 
-    def __init__(self, bc_cog, guild_id: int, schedules: list, can_manage: bool = False):
+    def __init__(self, bc_cog, guild_id: int, schedules: list, can_manage: bool = False, original_interaction: discord.Interaction = None):
         super().__init__(timeout=900)
         self.bc_cog = bc_cog
         self.guild_id = guild_id
         self.schedules = schedules
+        self.original_interaction = original_interaction
 
         # Add management buttons only if user has permission
         if can_manage:
@@ -377,6 +469,32 @@ class BattleConditionsScheduleManagementView(discord.ui.View):
                 self.add_item(BattleConditionsEditScheduleButton())
                 self.add_item(BattleConditionsDeleteScheduleButton())
                 self.add_item(BattleConditionsTogglePauseScheduleButton())
+
+        # Add back button if we have the original interaction
+        if original_interaction:
+            self.add_item(BattleConditionsSchedulesBackButton(bc_cog, original_interaction))
+
+
+class BattleConditionsSchedulesBackButton(discord.ui.Button):
+    """Back button to return to main Battle Conditions settings."""
+
+    def __init__(self, bc_cog, original_interaction: discord.Interaction):
+        super().__init__(label="Back to Battle Conditions", style=discord.ButtonStyle.secondary, emoji="⬅️")
+        self.bc_cog = bc_cog
+        self.original_interaction = original_interaction
+
+    async def callback(self, interaction: discord.Interaction):
+        # Recreate the main settings view
+        from thetower.bot.ui.context import SettingsViewContext
+
+        context = SettingsViewContext(
+            guild_id=interaction.guild.id,
+            cog_instance=self.bc_cog,
+            interaction=self.original_interaction,
+            is_bot_owner=await self.bc_cog.bot.is_owner(interaction.user),
+        )
+        settings_view = BattleConditionsSettingsView(context)
+        await settings_view.update_display(interaction)
 
 
 class BattleConditionsCreateScheduleButton(discord.ui.Button):

@@ -19,9 +19,9 @@ class BCSettingsView(discord.ui.View):
         self.add_item(ConfigurePermissionsButton())
         self.add_item(ManageSchedulesButton())
 
-        # Add global settings button for bot owner only
+        # Add BC view window button for bot owner only
         if is_bot_owner:
-            self.add_item(GlobalSettingsButton())
+            self.add_item(ConfigureViewWindowButton())
 
 
 class ConfigureLeaguesButton(discord.ui.Button):
@@ -373,11 +373,11 @@ class TogglePauseSelect(discord.ui.Select):
         await interaction.response.send_message(f"✅ {action} schedule #{idx} for {channel_name}", ephemeral=True)
 
 
-class GlobalSettingsButton(discord.ui.Button):
-    """Button to configure global bot settings (bot owner only)."""
+class ConfigureViewWindowButton(discord.ui.Button):
+    """Button to configure BC view window (bot owner only)."""
 
     def __init__(self):
-        super().__init__(label="Global Settings", style=discord.ButtonStyle.danger, emoji="🌐")
+        super().__init__(label="BC View Window", style=discord.ButtonStyle.danger, emoji="🔭")
 
     async def callback(self, interaction: discord.Interaction):
         view: BCSettingsView = self.view
