@@ -38,6 +38,9 @@ class TourneyRoleColorsSettingsView(BaseSettingsView):
         # Add main management buttons
         self.add_item(ManageCategoriesButton(self.cog, self.guild_id))
 
+        # Add logging channel button
+        self.add_item(ConfigureLoggingChannelButton(self.cog, self.guild_id))
+
         # Add startup audit toggle button
         self.add_item(StartupAuditToggleButton(self.cog, self.guild_id))
 
@@ -141,14 +144,109 @@ class StartupAuditToggleButton(ui.Button):
         new_state = not self.audit_enabled
         self.cog.set_setting("enable_startup_audit", new_state, self.guild_id)
 
-        status = "enabled" if new_state else "disabled"
-        emoji = "✅" if new_state else "❌"
+        # Recreate the main settings view with updated value
+        from thetower.bot.ui.context import SettingsViewContext
 
-        await interaction.response.send_message(
-            f"{emoji} Startup audit has been **{status}**. "
-            f"{'Invalid color roles will be removed when the bot starts.' if new_state else 'No automatic cleanup on bot startup.'}",
-            ephemeral=True,
+        context = SettingsViewContext(
+            guild_id=interaction.guild.id, cog_instance=self.cog, interaction=interaction, is_bot_owner=await self.cog.bot.is_owner(interaction.user)
         )
+        settings_view = TourneyRoleColorsSettingsView(context)
+        await settings_view.update_display(interaction)
+
+
+class ConfigureLoggingChannelButton(ui.Button):
+    """Button to configure the logging channel."""
+
+    def __init__(self, cog, guild_id: int):
+        super().__init__(label="Configure Logging", style=discord.ButtonStyle.secondary, emoji="📝")
+        self.cog = cog
+        self.guild_id = guild_id
+
+    async def callback(self, interaction: discord.Interaction):
+        """Open logging channel configuration view."""
+        view = LoggingChannelConfigView(self.cog, self.guild_id, interaction)
+
+        # Get current channel
+        log_channel_id = self.cog.get_setting("role_color_log_channel_id", guild_id=self.guild_id)
+
+        embed = discord.Embed(
+            title="📝 Configure Logging Channel",
+            description="Select a channel to log role color changes, or clear to disable logging.",
+            color=discord.Color.blue(),
+        )
+
+        if log_channel_id:
+            guild = self.cog.bot.get_guild(self.guild_id)
+            if guild:
+                channel = guild.get_channel(log_channel_id)
+                if channel:
+                    embed.add_field(name="Current Channel", value=channel.mention, inline=False)
+                else:
+                    embed.add_field(name="Current Channel", value="⚠️ Channel not found", inline=False)
+        else:
+            embed.add_field(name="Current Channel", value="Not configured", inline=False)
+
+        await interaction.response.edit_message(embed=embed, view=view)
+
+
+class LoggingChannelConfigView(ui.View):
+    """View for configuring the logging channel."""
+
+    def __init__(self, cog, guild_id: int, original_interaction: discord.Interaction):
+        super().__init__(timeout=900)
+        self.cog = cog
+        self.guild_id = guild_id
+        self.original_interaction = original_interaction
+
+        # Add channel select
+        self.add_item(RoleColorLogChannelSelect(cog, guild_id))
+
+        # Add back button
+        self.add_item(LoggingChannelBackButton(cog, original_interaction))
+
+
+class LoggingChannelBackButton(ui.Button):
+    """Back button to return to main Tourney Role Colors settings."""
+
+    def __init__(self, cog, original_interaction: discord.Interaction):
+        super().__init__(label="Back to Settings", style=discord.ButtonStyle.secondary, emoji="⬅️")
+        self.cog = cog
+        self.original_interaction = original_interaction
+
+    async def callback(self, interaction: discord.Interaction):
+        # Recreate the main settings view
+        from thetower.bot.ui.context import SettingsViewContext
+
+        context = SettingsViewContext(
+            guild_id=interaction.guild.id,
+            cog_instance=self.cog,
+            interaction=self.original_interaction,
+            is_bot_owner=await self.cog.bot.is_owner(interaction.user),
+        )
+        settings_view = TourneyRoleColorsSettingsView(context)
+        await settings_view.update_display(interaction)
+
+
+class CategoryManagementBackButton(ui.Button):
+    """Back button to return to main Tourney Role Colors settings."""
+
+    def __init__(self, cog, original_interaction: discord.Interaction):
+        super().__init__(label="Back to Settings", style=discord.ButtonStyle.secondary, emoji="⬅️")
+        self.cog = cog
+        self.original_interaction = original_interaction
+
+    async def callback(self, interaction: discord.Interaction):
+        # Recreate the main settings view
+        from thetower.bot.ui.context import SettingsViewContext
+
+        context = SettingsViewContext(
+            guild_id=interaction.guild.id,
+            cog_instance=self.cog,
+            interaction=self.original_interaction,
+            is_bot_owner=await self.cog.bot.is_owner(interaction.user),
+        )
+        settings_view = TourneyRoleColorsSettingsView(context)
+        await settings_view.update_display(interaction)
 
 
 class AutoEnforceToggleButton(ui.Button):
@@ -259,7 +357,7 @@ class ManageCategoriesButton(ui.Button):
         sorted_categories = sorted(categories, key=lambda cat: (cat.get("name") or "").lower())
 
         # Show category management view
-        view = CategoryManagementView(self.cog, self.guild_id, categories)
+        view = CategoryManagementView(self.cog, self.guild_id, categories, interaction)
 
         if categories:
             category_list = "\n".join(
@@ -275,17 +373,22 @@ class ManageCategoriesButton(ui.Button):
 class CategoryManagementView(ui.View):
     """View for managing categories."""
 
-    def __init__(self, cog, guild_id: int, categories: List[Dict]):
+    def __init__(self, cog, guild_id: int, categories: List[Dict], original_interaction: discord.Interaction = None):
         super().__init__(timeout=900)
         self.cog = cog
         self.guild_id = guild_id
         self.categories = categories
+        self.original_interaction = original_interaction
 
         # Add buttons
         self.add_item(CreateCategoryButton(self.cog, self.guild_id))
         if categories:
             self.add_item(EditCategoryButton(self.cog, self.guild_id, categories))
             self.add_item(DeleteCategoryButton(self.cog, self.guild_id, categories))
+
+        # Add back button if we have the original interaction
+        if original_interaction:
+            self.add_item(CategoryManagementBackButton(cog, original_interaction))
 
 
 class CreateCategoryButton(ui.Button):
@@ -1191,10 +1294,28 @@ class RoleColorLogChannelSelect(ui.ChannelSelect):
         if not self.values:
             # Clear the setting
             self.cog.set_setting("role_color_log_channel_id", None, self.guild_id)
-            await interaction.response.send_message("✅ Role color logging channel cleared.", ephemeral=True)
-            return
+        else:
+            channel = self.values[0]
+            self.cog.set_setting("role_color_log_channel_id", channel.id, self.guild_id)
 
-        channel = self.values[0]
-        self.cog.set_setting("role_color_log_channel_id", channel.id, self.guild_id)
+        # Update the logging config view to show new channel
+        log_channel_id = self.cog.get_setting("role_color_log_channel_id", guild_id=self.guild_id)
 
-        await interaction.response.send_message(f"✅ Role color logging channel set to {channel.mention}.", ephemeral=True)
+        embed = discord.Embed(
+            title="📝 Configure Logging Channel",
+            description="Select a channel to log role color changes, or clear to disable logging.",
+            color=discord.Color.blue(),
+        )
+
+        if log_channel_id:
+            guild = self.cog.bot.get_guild(self.guild_id)
+            if guild:
+                channel = guild.get_channel(log_channel_id)
+                if channel:
+                    embed.add_field(name="Current Channel", value=channel.mention, inline=False)
+                else:
+                    embed.add_field(name="Current Channel", value="⚠️ Channel not found", inline=False)
+        else:
+            embed.add_field(name="Current Channel", value="Not configured", inline=False)
+
+        await interaction.response.edit_message(embed=embed)
