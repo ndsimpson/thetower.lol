@@ -56,19 +56,23 @@ def search_players_optimized(search_term, excluded_player_ids, page=20):
                 ~Q(player_id__in=excluded_player_ids),
                 position__lte=how_many_results_public_site,
             )
-            .values_list("player_id", "nickname")
+            .values_list("player_id", "nickname", "result__league")
             .order_by("player_id")
             .distinct()[: page * 3]  # Get more to account for grouping
         )
 
-        # Group by player_id and combine nicknames
+        # Group by player_id and combine nicknames/leagues, then sort by player_id
         grouped_results = []
         for player_id, group in groupby(sorted(results), lambda x: x[0]):
-            nicknames = list(set(nickname for _, nickname in group))
-            grouped_results.append((player_id, ", ".join(nicknames[:page])))
+            group_list = list(group)
+            nicknames = list(set(nickname for _, nickname, _ in group_list))
+            leagues = list(set(league for _, _, league in group_list if league))
+            grouped_results.append((player_id, ", ".join(nicknames[:page]), ", ".join(sorted(leagues))))
             if len(grouped_results) >= page:
                 break
 
+        # Sort final results by player_id
+        grouped_results.sort(key=lambda x: x[0])
         return grouped_results
 
     else:
@@ -87,13 +91,23 @@ def search_players_optimized(search_term, excluded_player_ids, page=20):
 
             priority1_results = list(
                 PlayerId.objects.filter(base_condition & Q(primary=True) & ~Q(id__in=excluded_player_ids))
+                .select_related("player")
                 .order_by("player_id")
                 .values_list("id", "player__name")[:page]
             )
-            all_results.extend(priority1_results)
+            # Add league info by querying TourneyRow for each player
+            priority1_with_league = []
+            for player_id, name in priority1_results:
+                leagues = list(
+                    TourneyRow.objects.filter(player_id=player_id, position__lte=how_many_results_public_site)
+                    .values_list("result__league", flat=True)
+                    .distinct()[:5]
+                )
+                priority1_with_league.append((player_id, name, ", ".join(sorted(set(leagues)))))
+            all_results.extend(priority1_with_league)
 
         # Priority 2: Nicknames starting with first fragment (if we need more results)
-        existing_player_ids = {player_id for player_id, _ in all_results}
+        existing_player_ids = {player_id for player_id, _, _ in all_results}
         if len(all_results) < page and primary_fragment:
             base_condition = Q(nickname__istartswith=primary_fragment)
             for fragment in additional_fragments:
@@ -108,10 +122,17 @@ def search_players_optimized(search_term, excluded_player_ids, page=20):
                 )
                 .distinct()
                 .order_by("player_id")
-                .values_list("player_id", "nickname")[: page - len(all_results)]
+                .values_list("player_id", "nickname", "result__league")[: page - len(all_results)]
             )
-            all_results.extend(priority2_results)
-            existing_player_ids.update(player_id for player_id, _ in priority2_results)
+            # Group by player_id to combine leagues
+            priority2_with_league = []
+            for player_id, group in groupby(priority2_results, lambda x: x[0]):
+                group_list = list(group)
+                nickname = group_list[0][1]
+                leagues = list(set(league for _, _, league in group_list if league))
+                priority2_with_league.append((player_id, nickname, ", ".join(sorted(leagues))))
+            all_results.extend(priority2_with_league)
+            existing_player_ids.update(player_id for player_id, _, _ in priority2_with_league)
 
         # Priority 3: Primary names containing all fragments (if we need more results)
         if len(all_results) < page and fragments:
@@ -121,11 +142,21 @@ def search_players_optimized(search_term, excluded_player_ids, page=20):
 
             priority3_results = list(
                 PlayerId.objects.filter(base_condition & Q(primary=True) & ~Q(id__in=existing_player_ids) & ~Q(id__in=excluded_player_ids))
+                .select_related("player")
                 .order_by("player_id")
                 .values_list("id", "player__name")[: page - len(all_results)]
             )
-            all_results.extend(priority3_results)
-            existing_player_ids.update(player_id for player_id, _ in priority3_results)
+            # Add league info
+            priority3_with_league = []
+            for player_id, name in priority3_results:
+                leagues = list(
+                    TourneyRow.objects.filter(player_id=player_id, position__lte=how_many_results_public_site)
+                    .values_list("result__league", flat=True)
+                    .distinct()[:5]
+                )
+                priority3_with_league.append((player_id, name, ", ".join(sorted(set(leagues)))))
+            all_results.extend(priority3_with_league)
+            existing_player_ids.update(player_id for player_id, _, _ in priority3_with_league)
 
         # Priority 4: Nicknames containing all fragments (if we need more results)
         if len(all_results) < page and fragments:
@@ -142,10 +173,19 @@ def search_players_optimized(search_term, excluded_player_ids, page=20):
                 )
                 .distinct()
                 .order_by("player_id")
-                .values_list("player_id", "nickname")[: page - len(all_results)]
+                .values_list("player_id", "nickname", "result__league")[: page - len(all_results)]
             )
-            all_results.extend(priority4_results)
+            # Group by player_id to combine leagues
+            priority4_with_league = []
+            for player_id, group in groupby(priority4_results, lambda x: x[0]):
+                group_list = list(group)
+                nickname = group_list[0][1]
+                leagues = list(set(league for _, _, league in group_list if league))
+                priority4_with_league.append((player_id, nickname, ", ".join(sorted(leagues))))
+            all_results.extend(priority4_with_league)
 
+        # Sort name search results by nickname (case-insensitive)
+        all_results.sort(key=lambda x: x[1].lower() if x[1] else "")
         return all_results[:page]
 
 
@@ -197,17 +237,25 @@ def compute_search(player=False, comparison=False):
 
     # Handle the optimized search results format
     if nickname_ids:
-        # nickname_ids is a list of (player_id, nickname) tuples
+        # nickname_ids is a list of (player_id, nickname, leagues) tuples
         # Group by player_id in case there are duplicates
         for player_id, group in groupby(nickname_ids, lambda x: x[0]):
-            nicknames_list = [nickname for _, nickname in group]
-            datum = {"player_id": player_id, "nicknames": ", ".join(set(nicknames_list)), "how_many_results": len(nicknames_list)}
+            group_list = list(group)
+            nicknames_list = [nickname for _, nickname, _ in group_list]
+            leagues_list = [leagues for _, _, leagues in group_list if leagues]
+            datum = {
+                "player_id": player_id,
+                "nicknames": ", ".join(set(nicknames_list)),
+                "leagues": ", ".join(set(leagues_list)) if leagues_list else "",
+                "how_many_results": len(nicknames_list),
+            }
             data_to_be_shown.append(datum)
 
     for datum in data_to_be_shown:
-        nickname_col, player_id_col, button_col = st.columns([1, 1, 1])
+        nickname_col, player_id_col, league_col, button_col = st.columns([2, 1, 1, 1])
         nickname_col.write(datum["nicknames"])
         player_id_col.write(datum["player_id"])
+        league_col.write(datum.get("leagues", ""))
 
         if player:
             button_col.button(
