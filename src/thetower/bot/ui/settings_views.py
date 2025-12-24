@@ -391,7 +391,7 @@ class GuildOwnerSettingsView(View):
         view.toggle_btn.disabled = not has_cogs
         view.configure_btn.disabled = True  # No selection yet
 
-        await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+        await interaction.response.edit_message(embed=embed, view=view)
 
     async def back_to_main(self, interaction: discord.Interaction):
         """Go back to main settings view."""
