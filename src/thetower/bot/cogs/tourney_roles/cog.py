@@ -1511,7 +1511,7 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
 
             # Get verified role ID from settings
             verified_role_id = self.get_setting("verified_role_id", guild_id=after.guild.id)
-            verified_role = after.guild.get_role(verified_role_id) if verified_role_id else None
+            verified_role = after.guild.get_role(int(verified_role_id)) if verified_role_id else None
 
             # Check if verified role changed
             if verified_role:
