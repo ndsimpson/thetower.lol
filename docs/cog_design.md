@@ -1,245 +1,541 @@
-# Unified Advertise Cog: Design Architecture
+# Discord Bot Cog Design Architecture
 
 ## Executive Summary
 
-The `unified_advertise` cog exemplifies a comprehensive architecture for complex Discord bot cogs that require rich user interfaces, multi-guild support, and sophisticated background processing. It serves as a reference implementation for building scalable, maintainable Discord bot features.
+This document describes the standardized architecture for Discord bot cogs in the thetower.lol project. All cogs extend `BaseCog` to inherit consistent functionality for settings management, data persistence, task tracking, and UI integration.
 
 **Key Design Principles:**
 
--   **Modular UI Architecture**: UI components separated by function and user role
--   **Dual Settings Access**: Settings accessible via cog-specific commands and global bot settings
--   **Multi-Guild Isolation**: Complete data and configuration isolation between Discord servers
--   **Task-Based Processing**: Robust background task management with proper lifecycle handling
+-   **BaseCog Foundation**: All cogs inherit from `BaseCog` for standardized functionality
+-   **Multi-Guild Isolation**: Complete data and configuration isolation per Discord server
+-   **Settings Integration**: Two-tier settings (guild-level + global bot owner) with automatic context detection
+-   **Modular UI Architecture**: UI components organized by function (core, user, admin, settings)
+-   **Task Management**: Background task lifecycle with tracking and error handling
 
 **When to Use This Pattern:**
 
--   Complex cogs requiring rich, multi-step user interactions
+-   All new cogs should follow this architecture
+-   Complex cogs requiring rich user interactions
 -   Features needing per-guild configuration and data isolation
 -   Systems requiring scheduled background processing
--   Cogs expected to grow in complexity over time
 
 ## Core Architecture
 
 ### BaseCog Integration
 
-The cog extends `BaseCog` to inherit standardized functionality:
+All cogs extend `BaseCog` (`src/thetower/bot/basecog.py`) to inherit standardized functionality:
 
 ```python
-class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
-    """Combined cog for both guild and member advertisements."""
+from thetower.bot.basecog import BaseCog
 
-    # Settings view class for the cog manager
-    settings_view_class = UnifiedAdvertiseSettingsView
+class MyCog(BaseCog, name="My Feature"):
+    """Description of your cog."""
+
+    # Settings view class for global /settings integration
+    settings_view_class = MySettingsView
+
+    def __init__(self, bot):
+        super().__init__(bot)
+        # Initialize guild-specific default settings
+        self.guild_settings = {
+            "enabled": True,
+            "notification_channel": None,
+            "timeout_seconds": 60
+        }
+        # Initialize global (bot owner) default settings
+        self.global_settings = {
+            "approved_admin_groups": ["Moderators", "Admins"]
+        }
 ```
 
 **Inherited Capabilities:**
 
--   Multi-guild settings management via `get_setting()`/`set_setting()`
--   Data persistence with `load_data()`/`save_data_if_modified()`
--   Task tracking with `task_tracker.task_context()`
--   Error handling and logging infrastructure
+-   **Settings Management**: `get_setting()`, `set_setting()`, `ensure_settings_initialized()`
+    -   Automatic guild context detection from `ctx` or `interaction`
+    -   Per-guild settings stored in `config.json` under `guilds/{guild_id}/{cog_name}/`
+    -   Global settings via `get_global_setting()`, `set_global_setting()`
+-   **Data Persistence**: `DataManager` for cog-specific data files
+    -   `self.load_data()`, `self.save_data_if_modified()`
+    -   Data directory: `{config_path}/cogs/{cog_name}/`
+-   **Task Tracking**: `task_tracker.task_context()` for monitoring background operations
+-   **Ready State**: `await self.ready.wait()` to ensure cog is initialized before operations
+-   **Logging**: `self.logger` pre-configured with cog name
+-   **Permission Checks**: `interaction_check()` and `cog_check()` with cog authorization
 
-### Dual Settings Access Pattern
+### Settings System Architecture
 
-The cog implements a **generic entry point** for settings that enables access through multiple pathways:
+The bot uses a two-tier settings system managed by `ConfigManager`:
 
-#### 1. Cog-Specific Access
+#### 1. Guild-Level Settings (Per-Server Configuration)
+
+Guild settings are unique to each Discord server and accessed via `BaseCog` methods:
 
 ```python
-@app_commands.command(name="advertise", description="Manage your advertisements")
-async def advertise_slash(self, interaction: discord.Interaction) -> None:
-    # Direct access to advertisement management
-    view = AdManagementView(self, user_id, guild_id)
-    await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+# In a command or interaction handler
+# BaseCog automatically detects guild_id from ctx or interaction
+@app_commands.command(name="configure")
+async def configure_slash(self, interaction: discord.Interaction) -> None:
+    # Automatic context detection - just pass interaction
+    timeout = self.get_setting("timeout_seconds", default=60, interaction=interaction)
+
+    # Or explicit guild_id
+    timeout = self.get_setting("timeout_seconds", default=60, guild_id=interaction.guild_id)
+
+    # Set a setting
+    self.set_setting("timeout_seconds", 120, interaction=interaction)
 ```
 
-#### 2. Global Settings Integration
+**Storage Structure in `config.json`:**
+
+```json
+{
+    "guilds": {
+        "123456789": {
+            "my_cog": {
+                "enabled": true,
+                "notification_channel": 987654321,
+                "timeout_seconds": 120
+            }
+        }
+    }
+}
+```
+
+#### 2. Global Settings (Bot Owner Configuration)
+
+Global settings apply bot-wide and are typically restricted to bot owner access:
 
 ```python
-settings_view_class = UnifiedAdvertiseSettingsView
+# In cog initialization
+def __init__(self, bot):
+    super().__init__(bot)
+    self.global_settings = {
+        "approved_admin_groups": ["Moderators", "Admins"],
+        "api_endpoint": "https://api.example.com"
+    }
+
+# In command handlers
+@app_commands.command(name="admin_config")
+async def admin_config(self, interaction: discord.Interaction) -> None:
+    # Global settings don't need guild context
+    admin_groups = self.get_global_setting("approved_admin_groups", default=[])
+    self.set_global_setting("approved_admin_groups", ["SuperAdmins"])
 ```
 
-This `settings_view_class` attribute allows the cog to integrate with the bot's primary `/settings` command, providing a unified settings experience across all cogs.
+**Storage Structure in `config.json`:**
+
+```json
+{
+    "bot_owner_settings": {
+        "my_cog": {
+            "approved_admin_groups": ["SuperAdmins"],
+            "api_endpoint": "https://api.example.com"
+        }
+    }
+}
+```
+
+### Settings UI Integration
+
+Cogs integrate with the global `/settings` command via `settings_view_class`:
+
+```python
+class MyCog(BaseCog, name="My Feature"):
+    settings_view_class = MySettingsView  # Registers with CogManager
+
+# Settings view receives SettingsViewContext
+class MySettingsView(discord.ui.View):
+    """Settings view for My Cog."""
+
+    def __init__(self, context: SettingsViewContext):
+        """Initialize using the unified constructor pattern."""
+        super().__init__(timeout=900)
+        self.cog = context.cog_instance
+        self.context = context
+        self.interaction = context.interaction
+        self.is_bot_owner = context.is_bot_owner
+        self.guild_id = context.guild_id
+
+        # Add UI components (buttons, selects, etc.)
+        self.add_item(MySettingButton(self.cog, self.guild_id))
+```
+
+**SettingsViewContext Properties:**
+
+-   `cog_instance`: Reference to the cog
+-   `interaction`: Discord interaction that opened settings
+-   `is_bot_owner`: Whether user is bot owner
+-   `guild_id`: Current guild ID (None for DMs)
 
 **Benefits:**
 
--   **Consistent UX**: Users can access settings through familiar global interface
--   **Discoverability**: Settings appear in centralized location alongside other cog configurations
--   **Maintenance**: Single implementation serves multiple access patterns
+-   **Consistent UX**: Settings accessible through global `/settings` command
+-   **Discoverability**: All cog settings in one place
+-   **Automatic Integration**: `CogManager` handles registration and display
 
 ### UI Modularization by Function/Role
 
-The UI is organized into logical modules based on **function and user role**:
+UI components are organized into logical modules based on **function and user role**:
 
 ```
-unified_advertise/
+my_cog/
+├── cog.py           # Main cog class with commands
 ├── ui/
-│   ├── __init__.py      # Clean API exports
-│   ├── core.py          # Core business logic (forms, constants)
-│   ├── user.py          # User-facing interaction flows
-│   ├── admin.py         # Administrative interfaces
-│   └── settings.py      # Settings management views
+│   ├── __init__.py  # Clean API exports
+│   ├── core.py      # Core business logic (forms, constants)
+│   ├── user.py      # User-facing interaction flows
+│   ├── admin.py     # Administrative interfaces (optional)
+│   └── settings.py  # Settings management views
+└── data/            # Cog-specific data files (optional)
 ```
 
 #### Core Module (`core.py`)
 
 -   **Purpose**: Business logic and shared components
 -   **Contents**: Form modals, constants, reusable view components
--   **Example**: `GuildAdvertisementForm`, `MemberAdvertisementForm`, `AdvertisementType`
+-   **Example**: Form classes, enums, validation logic
+
+```python
+# Example: Modal form for user input
+class ConfigurationForm(discord.ui.Modal, title="Configuration"):
+    timeout_input = discord.ui.TextInput(
+        label="Timeout (seconds)",
+        placeholder="60",
+        default="60",
+        required=True
+    )
+
+    async def on_submit(self, interaction: discord.Interaction):
+        # Validation and processing
+        timeout = int(self.timeout_input.value)
+        # Store via cog.set_setting()
+```
 
 #### User Module (`user.py`)
 
 -   **Purpose**: End-user interaction flows
 -   **Contents**: Views for regular users managing their own data
--   **Example**: `AdManagementView` - main interface for users to create/manage ads
+-   **Example**: Management views, selection interfaces
 
-#### Admin Module (`admin.py`)
+```python
+# Example: User management view
+class ManagementView(discord.ui.View):
+    def __init__(self, cog, user_id: int, guild_id: int):
+        super().__init__(timeout=300)
+        self.cog = cog
+        self.user_id = user_id
+        self.guild_id = guild_id
+
+        # Add user-facing buttons
+        self.add_item(CreateButton())
+        self.add_item(ViewButton())
+```
+
+#### Admin Module (`admin.py` - Optional)
 
 -   **Purpose**: Administrative oversight and moderation
 -   **Contents**: Interfaces for administrators and moderators
--   **Example**: `AdminAdManagementView` - admin tools for managing all advertisements
+-   **Example**: Bulk management, audit views, override controls
 
 #### Settings Module (`settings.py`)
 
 -   **Purpose**: Configuration and setup interfaces
--   **Contents**: Views for configuring cog behavior and preferences
--   **Example**: `UnifiedAdvertiseSettingsView` - integrates with global settings system
+-   **Contents**: Views for configuring cog behavior via `/settings`
+-   **Example**: Per-guild settings toggles, channel selects, role selects
+
+```python
+# Example: Settings view integrated with global /settings
+class MySettingsView(discord.ui.View):
+    def __init__(self, context: SettingsViewContext):
+        super().__init__(timeout=900)
+        self.cog = context.cog_instance
+        self.guild_id = context.guild_id
+
+        # Add setting-specific UI components
+        self.add_item(ChannelSelect(self.cog, self.guild_id))
+        self.add_item(EnabledToggleButton(self.cog, self.guild_id))
+```
 
 **Modular Benefits:**
 
 -   **Separation of Concerns**: Each module has clear, focused responsibilities
--   **Selective Implementation**: Not every cog needs all modules (e.g., simple cogs might only need `core` + `user`)
--   **Team Development**: Multiple developers can work on different UI aspects simultaneously
--   **Reusability**: Components can be imported independently for other cogs
+-   **Selective Implementation**: Simple cogs might only need `core` + `settings`
+-   **Team Development**: Multiple developers can work on different aspects
+-   **Reusability**: Components can be imported independently
 
 ## Component Breakdown
 
-### Data Layer
-
-**Multi-Guild Data Structures:**
+### Cog Initialization
 
 ```python
-# Guild-specific cooldown tracking
-self.cooldowns = {}  # {guild_id: {"users": {user_id: timestamp}, "guilds": {guild_id: timestamp}}}
+class MyCog(BaseCog, name="My Feature"):
+    settings_view_class = MySettingsView
 
-# Global pending deletions with guild context
-self.pending_deletions = []  # [(thread_id, deletion_time, author_id, notify, guild_id), ...]
+    def __init__(self, bot):
+        super().__init__(bot)
+
+        # Define default settings for guilds
+        self.guild_settings = {
+            "enabled": True,
+            "notification_channel": None,
+            "timeout_seconds": 60,
+            "max_items": 10
+        }
+
+        # Define default global settings (bot owner level)
+        self.global_settings = {
+            "api_key": None,
+            "approved_admin_groups": []
+        }
+
+        # Initialize cog-specific data structures
+        self.cache = {}  # Guild-specific caches
+
+    async def cog_load(self):
+        """Called when cog is loaded into bot."""
+        await super().cog_load()
+        # Perform any async setup here
+
+    async def cog_initialize(self):
+        """Called when bot is ready (after on_ready)."""
+        # Initialize guild settings for all guilds
+        for guild in self.bot.guilds:
+            self.ensure_settings_initialized(
+                guild_id=guild.id,
+                default_settings=self.guild_settings
+            )
+
+        # Start background tasks
+        if not self.background_task.is_running():
+            self.background_task.start()
+
+    async def cog_unload(self):
+        """Called when cog is unloaded."""
+        # Stop background tasks
+        if hasattr(self, 'background_task'):
+            self.background_task.cancel()
+
+        await super().cog_unload()
 ```
 
-**Settings-Based Persistence:**
+### Data Layer
 
--   Uses BaseCog's settings system for configuration
--   Guild-specific settings automatically isolated
--   Data persistence handled by BaseCog infrastructure
+**Guild-Specific Data Structures:**
+
+```python
+# Multi-guild data isolation
+self.cache = {}  # {guild_id: guild_specific_data}
+
+def _ensure_guild_initialized(self, guild_id: int) -> None:
+    """Ensure guild-specific data structures exist."""
+    # Initialize settings
+    self.ensure_settings_initialized(
+        guild_id=guild_id,
+        default_settings=self.guild_settings
+    )
+
+    # Initialize cache
+    if guild_id not in self.cache:
+        self.cache[guild_id] = {
+            "items": [],
+            "last_update": None
+        }
+```
+
+**Persistent Data with DataManager:**
+
+```python
+from thetower.bot.utils.data_management import DataManager
+
+def __init__(self, bot):
+    super().__init__(bot)
+    self.data_manager = DataManager()
+
+async def cog_initialize(self):
+    # Load persistent data from disk
+    data = await self.load_data()
+    if data:
+        self.cache = data.get("cache", {})
+        self.logger.info("Loaded cached data")
+
+async def save_cache(self):
+    """Save cache to disk."""
+    data = {"cache": self.cache}
+    await self.save_data_if_modified(data)
+```
 
 ### Task Layer
 
 **Background Processing Tasks:**
 
 ```python
+from discord.ext import tasks
+
 @tasks.loop(hours=1)
-async def orphaned_post_scan(self) -> None:
-    """Scan for orphaned advertisement posts."""
+async def periodic_cleanup(self) -> None:
+    """Clean up expired data every hour."""
+    if self.is_paused:
+        return
 
-@tasks.loop(hours=168)  # Weekly
-async def weekly_cleanup(self) -> None:
-    """Clean up expired cooldowns."""
+    async with self.task_tracker.task_context("cleanup"):
+        for guild_id in list(self.cache.keys()):
+            # Clean up guild data
+            await self._cleanup_guild_data(guild_id)
 
-@tasks.loop(minutes=1)
-async def check_deletions(self) -> None:
-    """Process pending thread deletions."""
+@periodic_cleanup.before_loop
+async def before_periodic_cleanup(self):
+    """Wait for cog to be ready before starting tasks."""
+    await self.bot.wait_until_ready()
+    await self.ready.wait()  # Wait for cog initialization
+
+@tasks.loop(minutes=5)
+async def sync_data(self) -> None:
+    """Sync data from external source."""
+    if self.is_paused:
+        return
+
+    async with self.task_tracker.task_context("sync"):
+        # Perform sync operation
+        await self._sync_external_data()
 ```
 
 **Task Lifecycle Management:**
 
--   Tasks started in `cog_initialize()`
--   Proper cleanup in `cog_unload()`
--   Error handling with `task_tracker.task_context()`
-
-### UI Layer
-
-**Modular Component Architecture:**
-
--   Each UI module focuses on specific user roles/functions
--   Clean imports through `__init__.py` with `__all__` declarations
--   Consistent patterns for views, buttons, modals, and selects
-
-**Interaction Patterns:**
-
--   Ephemeral responses for user privacy
--   Multi-step workflows (type selection → form → confirmation)
--   Permission-based button visibility
--   Timeout handling for abandoned interactions
+-   Start tasks in `cog_initialize()` after bot and cog are ready
+-   Use `@task.before_loop` to wait for `bot.wait_until_ready()` and `self.ready.wait()`
+-   Cancel tasks in `cog_unload()`
+-   Wrap task bodies in `task_tracker.task_context()` for monitoring
+-   Check `self.is_paused` at the start of task loops
 
 ### Command Layer
 
 **Slash Command Integration:**
 
 ```python
-@app_commands.command(name="advertise", description="Manage your advertisements")
+from discord import app_commands
+
+@app_commands.command(name="mycommand", description="Do something useful")
 @app_commands.guild_only()
-async def advertise_slash(self, interaction: discord.Interaction) -> None:
-    # Permission-based view selection
-    if is_admin or is_bot_owner:
-        view = AdminAdManagementView(self, guild_id)
-    else:
-        view = AdManagementView(self, user_id, guild_id)
+async def my_slash(self, interaction: discord.Interaction, option: str) -> None:
+    """Slash command handler with automatic permission checking."""
+    # BaseCog.interaction_check() automatically validates:
+    # 1. Cog is enabled for this guild
+    # 2. User has required permissions
+    # 3. Channel is authorized (if configured)
+
+    # Access guild settings with automatic context detection
+    enabled = self.get_setting("enabled", default=True, interaction=interaction)
+
+    if not enabled:
+        await interaction.response.send_message("Feature disabled", ephemeral=True)
+        return
+
+    # Process command
+    await interaction.response.send_message("Success!", ephemeral=True)
+
+@app_commands.command(name="admin")
+@app_commands.guild_only()
+async def admin_slash(self, interaction: discord.Interaction) -> None:
+    """Admin-only command with role check."""
+    # Check if user has admin role
+    is_bot_owner = await self.bot.is_owner(interaction.user)
+    is_admin = any(role.name == "Admin" for role in interaction.user.roles)
+
+    if not (is_bot_owner or is_admin):
+        await interaction.response.send_message("❌ Admin only", ephemeral=True)
+        return
+
+    # Admin functionality
+    await interaction.response.send_message("Admin panel", ephemeral=True)
 ```
 
 **Permission Integration:**
 
--   Role-based access control
--   Bot owner privileges
--   Guild-specific permissions
--   Action-level permission checking
+-   `BaseCog.interaction_check()` automatically validates cog authorization
+-   Override `_check_additional_interaction_permissions()` for custom checks
+-   Use `PermissionManager` for channel/user authorization
+-   Bot owner checks via `await self.bot.is_owner(user)`
+-   Django group checks via `KnownPlayer` model integration
 
 ## Key Design Patterns
 
-### Settings Integration Pattern
+### Automatic Guild Context Detection
 
-**Generic Settings Entry Point:**
+BaseCog methods automatically detect `guild_id` from context:
 
 ```python
-# In cog class
-settings_view_class = UnifiedAdvertiseSettingsView
+# Method 1: Pass interaction (preferred)
+@app_commands.command(name="config")
+async def config_slash(self, interaction: discord.Interaction) -> None:
+    # No need to extract guild_id manually
+    timeout = self.get_setting("timeout_seconds", default=60, interaction=interaction)
+    self.set_setting("timeout_seconds", 120, interaction=interaction)
 
-# Settings view integrates with global system
-class UnifiedAdvertiseSettingsView(discord.ui.View):
-    def __init__(self, guild_id: int):
-        # Global settings interface
+# Method 2: Pass ctx (for text commands, rarely used)
+async def config_text(self, ctx: commands.Context) -> None:
+    timeout = self.get_setting("timeout_seconds", default=60, ctx=ctx)
+
+# Method 3: Explicit guild_id (when no context available)
+def _process_guild_data(self, guild_id: int):
+    timeout = self.get_setting("timeout_seconds", default=60, guild_id=guild_id)
 ```
 
-**Benefits:**
+**How It Works:**
 
--   **Unified Experience**: Settings accessible via `/settings` command
--   **Consistency**: Same UI patterns across all cogs
--   **Discoverability**: Centralized settings management
+-   BaseCog's `_extract_guild_id()` inspects the call stack
+-   Looks for `ctx`, `interaction`, or `guild_id` in calling scope
+-   Automatically uses `ctx.guild.id` or `interaction.guild_id`
+-   Raises `ValueError` if guild context cannot be determined
+
+### Settings Initialization Pattern
+
+Initialize settings on cog load and when guilds join:
+
+```python
+async def cog_initialize(self):
+    """Initialize settings for all current guilds."""
+    for guild in self.bot.guilds:
+        self.ensure_settings_initialized(
+            guild_id=guild.id,
+            default_settings=self.guild_settings
+        )
+        self._ensure_guild_data(guild.id)
+
+@commands.Cog.listener()
+async def on_guild_join(self, guild: discord.Guild):
+    """Initialize settings when bot joins a new guild."""
+    self.ensure_settings_initialized(
+        guild_id=guild.id,
+        default_settings=self.guild_settings
+    )
+    self._ensure_guild_data(guild.id)
+```
 
 ### UI Organization Pattern
 
 **Function-Based Separation:**
 
 ```
-# Core: Business logic, forms, constants
+# core.py: Business logic, forms, constants
 # - Shared across user types
 # - Pure functionality, no permissions
 
-# User: End-user interactions
+# user.py: End-user interactions
 # - Personal data management
 # - Self-service workflows
 
-# Admin: Administrative functions
+# admin.py: Administrative functions (optional)
 # - Oversight and moderation
 # - Bulk operations
 
-# Settings: Configuration
+# settings.py: Configuration
 # - Cog behavior setup
-# - Global preferences
+# - Integrates with global /settings
 ```
 
 **Implementation Flexibility:**
 
--   **Simple Cogs**: May only need `core` + `user` modules
+-   **Simple Cogs**: May only need `core` + `settings` modules
 -   **Complex Cogs**: Can implement all modules as needed
 -   **Progressive Enhancement**: Start simple, add modules as complexity grows
 
@@ -248,12 +544,20 @@ class UnifiedAdvertiseSettingsView(discord.ui.View):
 **Guild Isolation:**
 
 ```python
-def _ensure_guild_initialized(self, guild_id: int) -> None:
+def _ensure_guild_data(self, guild_id: int) -> None:
     """Ensure guild-specific data structures exist."""
-    if guild_id:
-        self.ensure_settings_initialized(guild_id=guild_id, default_settings=self.guild_settings)
-        if guild_id not in self.cooldowns:
-            self.cooldowns[guild_id] = {"users": {}, "guilds": {}}
+    # Settings initialization
+    self.ensure_settings_initialized(
+        guild_id=guild_id,
+        default_settings=self.guild_settings
+    )
+
+    # Runtime data initialization
+    if guild_id not in self.cache:
+        self.cache[guild_id] = {
+            "items": [],
+            "timestamps": {}
+        }
 ```
 
 **Benefits:**
@@ -268,118 +572,396 @@ def _ensure_guild_initialized(self, guild_id: int) -> None:
 
 ```python
 async def cog_initialize(self) -> None:
-    # Start tasks
-    if not self.background_task.is_running():
-        self.background_task.start()
+    """Start background tasks after cog is ready."""
+    if not self.periodic_task.is_running():
+        self.periodic_task.start()
 
 async def cog_unload(self) -> None:
-    # Clean shutdown
-    if hasattr(self, "background_task"):
-        self.background_task.cancel()
+    """Clean up tasks before unloading."""
+    if hasattr(self, 'periodic_task'):
+        self.periodic_task.cancel()
+    await super().cog_unload()
+
+@tasks.loop(hours=1)
+async def periodic_task(self):
+    """Background task with proper error handling."""
+    if self.is_paused:
+        return
+
+    async with self.task_tracker.task_context("periodic_task"):
+        # Task logic here
+        pass
+
+@periodic_task.before_loop
+async def before_periodic_task(self):
+    """Wait for bot to be ready before starting."""
+    await self.bot.wait_until_ready()
+    await self.ready.wait()  # Wait for cog initialization
 ```
 
 **Benefits:**
 
 -   **Resource Management**: Prevents task leaks
 -   **Graceful Shutdown**: Proper cleanup on bot restart
--   **Error Resilience**: Tasks can be restarted independently
+-   **Error Tracking**: Task errors logged via `task_tracker`
+-   **Monitoring**: Task history and statistics available
 
 ## Implementation Guide
 
-### For New Cogs
+### Creating a New Cog
 
-**1. Start with Core Structure:**
+**1. Create Cog Structure:**
+
+```
+src/thetower/bot/cogs/my_cog/
+├── __init__.py
+├── cog.py
+└── ui/
+    ├── __init__.py
+    ├── core.py
+    └── settings.py
+```
+
+**2. Implement Base Cog (`cog.py`):**
 
 ```python
-class MyCog(BaseCog, name="My Cog"):
+from discord import app_commands
+from discord.ext import tasks
+from thetower.bot.basecog import BaseCog
+from .ui.settings import MySettingsView
+
+class MyCog(BaseCog, name="My Feature"):
+    """Description of what this cog does."""
+
     settings_view_class = MySettingsView
 
     def __init__(self, bot):
         super().__init__(bot)
+
+        # Define default settings
         self.guild_settings = {
-            "setting_name": "default_value"
+            "enabled": True,
+            "channel_id": None,
+            "timeout": 60
         }
+
+        self.global_settings = {
+            "admin_groups": []
+        }
+
+        # Initialize data structures
+        self.data = {}  # {guild_id: guild_data}
+
+    async def cog_initialize(self):
+        """Called when bot is ready."""
+        # Initialize all guilds
+        for guild in self.bot.guilds:
+            self.ensure_settings_initialized(
+                guild_id=guild.id,
+                default_settings=self.guild_settings
+            )
+
+        # Start background tasks
+        if not self.background_task.is_running():
+            self.background_task.start()
+
+    @app_commands.command(name="mycommand")
+    @app_commands.guild_only()
+    async def my_command(self, interaction: discord.Interaction):
+        """Your command description."""
+        # Automatic guild context detection
+        enabled = self.get_setting("enabled", interaction=interaction)
+
+        if not enabled:
+            await interaction.response.send_message(
+                "Feature disabled", ephemeral=True
+            )
+            return
+
+        # Command logic here
+        await interaction.response.send_message("Success!")
+
+    @tasks.loop(hours=1)
+    async def background_task(self):
+        """Periodic background task."""
+        if self.is_paused:
+            return
+
+        async with self.task_tracker.task_context("background_task"):
+            # Task logic here
+            pass
+
+    @background_task.before_loop
+    async def before_background_task(self):
+        await self.bot.wait_until_ready()
+        await self.ready.wait()
+
+    async def cog_unload(self):
+        """Cleanup when cog is unloaded."""
+        if hasattr(self, 'background_task'):
+            self.background_task.cancel()
+        await super().cog_unload()
+
+# Setup function required for cog loading
+async def setup(bot):
+    await bot.add_cog(MyCog(bot))
 ```
 
-**2. Add UI Modules as Needed:**
+**3. Implement Settings View (`ui/settings.py`):**
 
+```python
+import discord
+from thetower.bot.ui.context import SettingsViewContext
+
+class MySettingsView(discord.ui.View):
+    """Settings view for My Cog."""
+
+    def __init__(self, context: SettingsViewContext):
+        super().__init__(timeout=900)
+        self.cog = context.cog_instance
+        self.guild_id = context.guild_id
+        self.is_bot_owner = context.is_bot_owner
+
+        # Add UI components
+        self.add_item(EnabledToggle(self.cog, self.guild_id))
+        self.add_item(ChannelSelect(self.cog, self.guild_id))
+
+class EnabledToggle(discord.ui.Button):
+    """Toggle button for enabled setting."""
+
+    def __init__(self, cog, guild_id: int):
+        enabled = cog.get_setting("enabled", guild_id=guild_id)
+        label = "Enabled" if enabled else "Disabled"
+        style = discord.ButtonStyle.success if enabled else discord.ButtonStyle.danger
+
+        super().__init__(label=label, style=style)
+        self.cog = cog
+        self.guild_id = guild_id
+
+    async def callback(self, interaction: discord.Interaction):
+        # Toggle the setting
+        current = self.cog.get_setting("enabled", guild_id=self.guild_id)
+        self.cog.set_setting("enabled", not current, guild_id=self.guild_id)
+
+        # Update UI
+        await interaction.response.edit_message(
+            content="Setting updated",
+            view=self.view
+        )
+
+class ChannelSelect(discord.ui.ChannelSelect):
+    """Channel select for channel_id setting."""
+
+    def __init__(self, cog, guild_id: int):
+        super().__init__(
+            placeholder="Select notification channel",
+            channel_types=[discord.ChannelType.text]
+        )
+        self.cog = cog
+        self.guild_id = guild_id
+
+    async def callback(self, interaction: discord.Interaction):
+        channel_id = self.values[0].id
+        self.cog.set_setting("channel_id", channel_id, guild_id=self.guild_id)
+
+        await interaction.response.send_message(
+            f"Channel set to {self.values[0].mention}",
+            ephemeral=True
+        )
 ```
-my_cog/
-├── ui/
-│   ├── __init__.py
-│   ├── core.py      # Forms, constants
-│   └── user.py      # User interactions
-└── cog.py
+
+**4. Register in `__init__.py`:**
+
+```python
+from .cog import MyCog
+
+__all__ = ['MyCog']
 ```
 
-**3. Implement Essential Methods:**
+### Enabling the Cog
 
--   `cog_initialize()`: Start tasks, load data
--   `cog_unload()`: Clean up resources
--   `interaction_check()`: Permission validation
+**1. Bot Owner Enables Cog:**
 
-### Extensibility Points
+Use `/bot owner` command to enable the cog globally:
 
-**Adding New UI Components:**
+-   Set `enabled: true` in bot owner settings
+-   Set `public: true` if all guilds can use it (or authorize specific guilds)
 
--   Create new modules in `ui/` directory
--   Add exports to `__init__.py`
--   Import in main cog file
+**2. Guild Owners Enable Cog:**
 
-**Adding New Settings:**
+Once bot owner enables and authorizes, guild owners can enable via `/settings`:
 
--   Add to `guild_settings` dict
--   Create getter methods: `def _get_setting_name(self, guild_id: int)`
--   Update settings view if needed
+-   Navigate to "Manage Cogs"
+-   Enable the cog for their server
 
-**Adding Background Tasks:**
+## Best Practices
 
--   Define with `@tasks.loop()` decorator
--   Start in `cog_initialize()`
--   Cancel in `cog_unload()`
+### Settings Management
 
-### Best Practices
+**DO:**
 
-**UI Design:**
+-   Use `interaction=interaction` or `ctx=ctx` for automatic guild detection
+-   Initialize settings in `cog_initialize()` and `on_guild_join()`
+-   Define defaults in `self.guild_settings` and `self.global_settings`
+-   Use descriptive setting names (`notification_channel` not `channel`)
 
--   Use consistent naming patterns
--   Implement timeout handling
--   Provide clear user feedback
--   Handle errors gracefully
+**DON'T:**
 
-**Data Management:**
+-   Manually extract `guild_id` unless no context available
+-   Forget to initialize settings for new guilds
+-   Store guild-specific settings globally
 
--   Always use guild isolation
--   Leverage BaseCog's settings system
--   Implement proper data validation
+### UI Design
 
-**Task Management:**
+**DO:**
 
--   Use `task_tracker.task_context()` for operations
+-   Use ephemeral responses for user privacy (`ephemeral=True`)
+-   Implement timeout handling (default 300-900 seconds)
+-   Provide clear user feedback for all actions
+-   Use consistent button/select styles across cogs
+
+**DON'T:**
+
+-   Mix business logic with UI components
+-   Forget to handle interaction timeouts
+-   Make all responses public (consider privacy)
+
+### Data Management
+
+**DO:**
+
+-   Always isolate data by `guild_id`
+-   Use `DataManager` for persistent data
+-   Validate data before storing
+-   Clean up stale data periodically
+
+**DON'T:**
+
+-   Share data between guilds without guild context
+-   Store sensitive data without encryption
+-   Let data structures grow unbounded
+
+### Task Management
+
+**DO:**
+
+-   Use `task_tracker.task_context()` for all operations
+-   Check `self.is_paused` at task start
+-   Wait for `bot.wait_until_ready()` and `self.ready.wait()` before loops
 -   Handle exceptions within tasks
--   Avoid blocking operations
+-   Cancel tasks in `cog_unload()`
 
-**Code Organization:**
+**DON'T:**
 
--   Keep business logic in core modules
--   Separate UI from data operations
--   Use clear, descriptive names
+-   Start tasks before bot/cog is ready
+-   Forget to cancel tasks on unload
+-   Block with synchronous operations (use async alternatives)
+
+### Code Organization
+
+**DO:**
+
+-   Separate UI from business logic
+-   Use descriptive function/variable names
+-   Add docstrings to public methods
+-   Group related functionality in modules
+
+**DON'T:**
+
+-   Create monolithic files (split into modules)
+-   Use cryptic abbreviations
+-   Skip documentation for complex logic
 
 ## Common Pitfalls
 
-**Avoid:**
+### Guild Context Errors
 
--   Mixing UI and business logic
--   Global data without guild isolation
--   Tasks without proper lifecycle management
--   Inconsistent error handling
+**Problem:** `ValueError: guild_id is required but could not be determined`
 
-**Remember:**
+**Solutions:**
 
--   Always check `is_paused` in background tasks
--   Use ephemeral responses for sensitive interactions
--   Implement proper permission checking
--   Test with multiple guilds
+```python
+# ❌ Wrong - no context
+timeout = self.get_setting("timeout")
 
-This architecture provides a solid foundation for building sophisticated Discord bot features while maintaining code organization and scalability.</content>
-<parameter name="filePath">c:\Users\nicho\gitroot\thetower.lol\docs\unified_advertise_design.md
+# ✅ Correct - pass interaction
+timeout = self.get_setting("timeout", interaction=interaction)
+
+# ✅ Correct - explicit guild_id
+timeout = self.get_setting("timeout", guild_id=guild_id)
+```
+
+### Settings Not Persisting
+
+**Problem:** Settings reset on bot restart
+
+**Solution:** Ensure `ConfigManager.save_config()` is called (automatic in `set_setting()`)
+
+### Task Not Starting
+
+**Problem:** Background task doesn't run
+
+**Solutions:**
+
+```python
+# ✅ Add before_loop to wait for ready
+@my_task.before_loop
+async def before_my_task(self):
+    await self.bot.wait_until_ready()
+    await self.ready.wait()
+
+# ✅ Start in cog_initialize
+async def cog_initialize(self):
+    if not self.my_task.is_running():
+        self.my_task.start()
+```
+
+### Interaction Timeout
+
+**Problem:** "This interaction failed" after 3 seconds
+
+**Solutions:**
+
+```python
+# ❌ Wrong - long operation blocks interaction
+async def callback(self, interaction: discord.Interaction):
+    result = await long_operation()  # Takes 5 seconds
+    await interaction.response.send_message(result)
+
+# ✅ Correct - defer then process
+async def callback(self, interaction: discord.Interaction):
+    await interaction.response.defer(ephemeral=True)
+    result = await long_operation()
+    await interaction.followup.send(result)
+```
+
+### Memory Leaks
+
+**Problem:** Bot memory usage grows over time
+
+**Solutions:**
+
+-   Clean up guild data in `on_guild_remove` listener
+-   Implement periodic cleanup tasks for stale data
+-   Use weak references for temporary caches
+-   Profile memory usage periodically
+
+## Reference
+
+### Key Files
+
+-   `src/thetower/bot/basecog.py`: Base class for all cogs (1000+ lines)
+-   `src/thetower/bot/utils/configmanager.py`: Settings management
+-   `src/thetower/bot/utils/cogmanager.py`: Cog loading and authorization
+-   `src/thetower/bot/utils/task_tracker.py`: Background task monitoring
+-   `src/thetower/bot/utils/data_management.py`: Data persistence
+-   `src/thetower/bot/ui/context.py`: SettingsViewContext definition
+
+### Example Cogs
+
+-   `validation`: Simple cog with user verification
+-   `tourney_roles`: Complex cog with background tasks and Django integration
+-   `unified_advertise`: Full-featured cog with admin/user UIs
+-   `battle_conditions`: Cog with external API integration
+
+This architecture provides a solid foundation for building sophisticated Discord bot features while maintaining code organization, scalability, and consistency across the codebase.
