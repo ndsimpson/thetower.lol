@@ -1,80 +1,208 @@
 # GitHub Copilot Instructions for thetower.lol
 
-## Python Coding Standards
+## Project Overview
 
-### PEP 8 Compliance
+A multi-service platform for "The Tower" game tournament results and community management:
 
--   Follow PEP 8 style guidelines strictly
--   Use 4 spaces for indentation (never tabs)
--   Keep line length to 79 characters maximum for code, 72 for comments
--   Use lowercase with underscores for function and variable names (`my_function`)
--   Use CamelCase for class names (`MyClass`)
--   Use UPPER_CASE for constants (`MAX_SIZE`)
--   Organize imports: standard library first, third-party second, local imports last
+-   **Django Backend** (`src/thetower/backend/`): SQLite database with tourney results, player management, and REST API
+-   **Discord Bot** (`src/thetower/bot/`): Multi-guild bot with cog-based architecture for verification, roles, stats
+-   **Streamlit Web** (`src/thetower/web/`): Public/admin web interfaces for visualizing tournament data
+-   **Background Services**: Automated result fetching, data imports, recalculation workers
 
-### DRY Principles (Don't Repeat Yourself)
+## Architecture & Structure
 
--   Extract common functionality into reusable functions or classes
--   Avoid code duplication by creating shared utilities
--   Use configuration files or constants for repeated values
--   Refactor similar code patterns into generic solutions
+### Modern src/ Layout (Aug 2025 Restructure)
 
-### SOLID Principles
+The codebase was reorganized from flat structure to modern `src/` layout:
 
--   **Single Responsibility**: Each class/function should have one reason to change
--   **Open/Closed**: Open for extension, closed for modification
--   **Liskov Substitution**: Derived classes must be substitutable for base classes
--   **Interface Segregation**: Many specific interfaces are better than one general-purpose interface
--   **Dependency Inversion**: Depend on abstractions, not concretions
+```
+src/thetower/
+├── backend/          # Django project
+│   ├── towerdb/     # Django settings (DJANGO_SETTINGS_MODULE="thetower.backend.towerdb.settings")
+│   ├── tourney_results/  # Main app: models, views, import scripts
+│   └── sus/         # Player management/ban system
+├── bot/             # Discord bot
+│   ├── bot.py       # Main bot entry point
+│   ├── basecog.py   # Base class for all cogs with shared functionality
+│   ├── cogs/        # Feature modules (validation, roles, stats, etc.)
+│   └── utils/       # ConfigManager, PermissionManager, TaskTracker
+└── web/             # Streamlit interfaces
+    ├── pages.py     # Main entry point
+    ├── admin/       # Admin interface pages
+    ├── live/        # Live tournament tracking
+    └── historical/  # Historical data visualization
+```
 
-### Virtual Environments
+### Django + Shared Database Pattern
 
--   Always use virtual environments for dependency isolation
--   Document virtual environment setup in README.md
--   Keep requirements.txt updated with exact versions
--   Use `.venv` directory name for consistency
+-   Bot and web components both import Django: `environ.setdefault("DJANGO_SETTINGS_MODULE", "thetower.backend.towerdb.settings"); django.setup()`
+-   Database at `/data/tower.sqlite3` (Linux prod) or `c:\data\tower.sqlite3` (Windows dev) - same path structure for consistency
+-   Models in `tourney_results/models.py`: `TourneyResult`, `Role`, `PatchNew`, `TourneyRow`, etc.
+-   Always use Django ORM for database access, never raw SQL
 
-### Version Control Best Practices
+### Discord Bot Cog Architecture
 
--   Make small, focused commits with clear messages
--   Use conventional commit format when possible
--   Keep commits atomic (one logical change per commit)
--   Write descriptive commit messages explaining the "why" not just the "what"
--   Use feature branches for new development
--   Ensure code is tested before committing
+All bot features extend `BaseCog` (`src/thetower/bot/basecog.py`):
 
-## Project-Specific Guidelines
+-   **Per-guild settings**: `self.get_setting(guild_id, key)`, `self.set_setting(guild_id, key, value)`
+-   **Data persistence**: `self.load_data()`, `self.save_data_if_modified()` with `DataManager`
+-   **Task tracking**: `async with self.task_tracker.task_context("task_name"):` for background tasks
+-   **Ready state**: Wait for `await self.ready.wait()` before accessing guild data
+-   **Settings UI**: Each cog defines `settings_view_class` for `CogManager` to integrate into global `/settings` command
 
-### Code Structure
+Example cog structure (see `docs/cog_design.md` for detailed architecture):
 
--   Follow the existing project structure in `components/` directory
--   Keep related functionality grouped together
--   Use descriptive module and file names
--   Maintain consistency with existing code patterns
+```python
+class MyCog(BaseCog, name="My Feature"):
+    settings_view_class = MySettingsView  # For global settings access
 
-### Error Handling
+    async def cog_load(self):
+        await super().cog_load()
+        # Load cog-specific data
 
--   Use specific exception types rather than generic `Exception`
--   Include proper logging for debugging
--   Handle edge cases gracefully
--   Provide meaningful error messages
+    @app_commands.command(name="mycommand")
+    async def my_slash(self, interaction: discord.Interaction):
+        # Slash command implementation
+```
 
-### Documentation
+## Development Workflows
 
--   Write docstrings for all public functions and classes
--   Include type hints for function parameters and return values
--   Keep README.md updated with setup and usage instructions
--   Document any configuration requirements
+### Setup & Installation
+
+```powershell
+# Windows PowerShell - activate venv
+.\.venv\Scripts\Activate.ps1
+
+# Install project with all dependencies
+pip install -e .
+
+# Optional dependency groups
+pip install -e ".[dev]"   # pytest, black, isort, flake8
+pip install -e ".[bot]"   # Discord bot only
+pip install -e ".[web]"   # Streamlit only
+
+# Install battle conditions predictor
+python src\thetower\scripts\install_towerbcs.py --auto
+
+# Centralized bytecode caching (recommended)
+python scripts\manage_bytecode.py setup
+```
+
+### Running Components Locally
+
+```powershell
+# Streamlit web interface
+streamlit run src\thetower\web\pages.py
+
+# Django admin (for database management)
+cd src\thetower\backend
+$env:DEBUG="true"; python manage.py runserver
+python manage.py collectstatic  # Collect static files first
+
+# Discord bot (requires env vars)
+$env:DISCORD_TOKEN="..."; python -m thetower.bot.bot
+```
+
+### Production Deployment
+
+Services run via systemd on Linux (see `c:\data\Services\UPDATE_CHECKLIST.md`):
+
+-   `tower-public_site.service`, `tower-admin_site.service`, `tower-hidden_site.service`
+-   `discord_bot.service` (unified bot, replaces old fish_bot/validation_bot)
+-   `import_results.service`, `get_results.service`, `get_live_results.service`
+-   Database: `/data/tower.sqlite3`, uploads: `/data/uploads/`
+
+**Critical**: Always stop ALL services before deploying code changes.
 
 ### Testing
 
--   Write unit tests for new functionality
--   Follow existing test patterns in the project
--   Ensure tests are isolated and repeatable
--   Include both positive and negative test cases
+```powershell
+# Run tests with pytest (requires [dev] dependencies)
+pytest src\thetower\backend\tourney_results\tests\
+pytest --tb=short  # Shorter traceback format
+```
 
-## Development Environment
+## Project-Specific Conventions
 
--   Development is conducted on Windows using PowerShell as the terminal
--   When generating terminal commands, format them appropriately for PowerShell
--   Use the `;` character to join multiple commands on a single line if needed
+### Python Standards
+
+-   PEP 8 compliance: 79 char lines, 4-space indents, snake_case functions, CamelCase classes
+-   Import order: standard library → third-party → local (`from thetower.backend...`)
+-   Type hints on public functions/methods
+-   Docstrings with clear descriptions of parameters and return values
+
+### Package Management
+
+-   **Use `pyproject.toml` exclusively** - no `requirements.txt`
+-   Dependencies declared in `[project.dependencies]` and `[project.optional-dependencies]`
+-   Pin exact versions for reproducibility (e.g., `Django==5.2.4`)
+-   Update `pyproject.toml` when adding dependencies, then `pip install -e .`
+
+### Django Conventions
+
+-   **Models**: Use ForeignKey relationships, ColorField for colors, `simple_history` for tracking
+-   **Settings**: Centralized in `towerdb/settings.py`, read SECRET_KEY from file, use `/data/` for production paths
+-   **Migrations**: Always generate migrations: `python manage.py makemigrations`
+-   **Admin**: Customize admin in `admin.py` for each app
+
+### Discord Bot Patterns
+
+-   **Slash commands only**: Use `@app_commands.command()`, no text commands
+-   **Permission checks**: Bot has `PermissionManager` and custom `UserUnauthorized`/`ChannelUnauthorized` exceptions
+-   **Guild isolation**: All cog data keyed by `guild_id`, settings per-guild via `BaseCog.get_setting()`
+-   **UI components**: Use `discord.ui.View` subclasses in `cogs/*/ui/` directories
+-   **Background tasks**: Wrap in `task_tracker.task_context()` for monitoring/error handling
+
+### Logging
+
+-   Use module-level `logger = logging.getLogger(__name__)` consistently
+-   Bot components: `from thetower.bot import logger` or `self.logger` in cogs
+-   Format: `"%(asctime)s UTC [%(name)s] %(levelname)s: %(message)s"`
+-   Control via `LOG_LEVEL` environment variable
+
+### Data Files & Paths
+
+-   Production data: `/data/` (Linux) - database, uploads, static files
+-   Dev data: `c:\data\` (Windows) - uses same path structure as prod for consistency
+-   Database: `/data/tower.sqlite3` (prod) or `c:\data\tower.sqlite3` (dev)
+-   Centralized bytecode: `.cache/python/` (via `scripts/manage_bytecode.py setup`)
+-   Keep `__pycache__` out of git
+
+## Critical Integration Points
+
+### Django ↔ Discord Bot
+
+-   Bot imports Django models directly after `django.setup()`
+-   Example: `from thetower.backend.sus.models import KnownPlayer`
+-   Access tourney results, roles, player data via Django ORM
+-   Bot modifies database (e.g., verification, role assignments)
+
+### Streamlit ↔ Django
+
+-   Streamlit pages import Django: same `django.setup()` pattern
+-   Query models for visualization: `TourneyResult.objects.filter(...)`
+-   No direct database writes from Streamlit in production
+
+### Background Services ↔ Django
+
+-   Services like `import_results.py` run as modules: `python -m thetower.backend.tourney_results.import.import_results`
+-   Schedule-based polling (via `schedule` library)
+-   Import CSV data from `/data/uploads/` into Django models
+
+## Key Files Reference
+
+-   `src/thetower/bot/basecog.py`: Base class for all bot cogs (600+ lines of shared functionality)
+-   `src/thetower/bot/utils/`: ConfigManager, PermissionManager, TaskTracker, DataManager
+-   `src/thetower/backend/tourney_results/models.py`: Core database schema
+-   `src/thetower/backend/towerdb/settings.py`: Django configuration
+-   `docs/cog_design.md`: Detailed cog architecture guide (read for complex bot features)
+-   `scripts/manage_bytecode.py`: Bytecode cache management (run `setup` first)
+-   `c:\data\Services\UPDATE_CHECKLIST.md`: Production deployment procedures
+
+## Windows PowerShell Environment
+
+-   Primary development OS is Windows with PowerShell
+-   Command chaining: Use `;` (NOT `&&`)
+-   Path separators: `\` in PowerShell, `/` for Python Path objects
+-   Environment variables: `$env:VAR_NAME="value"` (temporary) or `[System.Environment]::SetEnvironmentVariable()`
+-   Virtual env activation: `.\.venv\Scripts\Activate.ps1`
