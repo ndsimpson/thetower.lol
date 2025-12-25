@@ -346,10 +346,12 @@ class TourneyRoleColors(BaseCog, name="Tourney Role Colors"):
             descendant_role_id = descendant_config.get("role_id")
 
             # Check if user qualifies for this descendant
-            all_prereqs = self._resolve_prerequisites(descendant_config, all_roles_in_category)
+            # For demotion, only check the descendant's DIRECT prerequisites,
+            # not inherited ones (since we already know they don't meet parent prereqs)
+            direct_prereqs = descendant_config.get("prerequisite_roles", [])
 
-            # User qualifies if they have at least one prerequisite (OR logic)
-            if not all_prereqs or any(prereq in user_role_ids for prereq in all_prereqs):
+            # User qualifies if they have no direct prerequisites or at least one direct prerequisite (OR logic)
+            if not direct_prereqs or any(prereq in user_role_ids for prereq in direct_prereqs):
                 # Get the actual Discord role object
                 descendant_role = member.guild.get_role(descendant_role_id)
                 if descendant_role:
