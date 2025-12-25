@@ -262,7 +262,9 @@ class TourneyStats(BaseCog, name="Tourney Stats"):
         if refresh or not self.league_dfs:
             task_name = "Tournament Data Load"
             async with self.task_tracker.task_context(task_name, "Loading tournament data..."):
-                # Get patch info
+                # Get patch info - clear cache if refreshing to detect new patches
+                if refresh:
+                    self.latest_patch = None
                 patch = await self.get_latest_patch()
                 self.logger.info(f"Using patch: {patch}")
 
