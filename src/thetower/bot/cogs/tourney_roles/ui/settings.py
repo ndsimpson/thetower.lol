@@ -138,6 +138,8 @@ class AuthorizedRefreshGroupsSelectView(discord.ui.View):
 
     async def add_group_callback(self, interaction: discord.Interaction):
         """Handle adding a new group."""
+        await interaction.response.defer()
+
         # Query Django for available groups
         try:
             from django.contrib.auth.models import Group
@@ -153,12 +155,9 @@ class AuthorizedRefreshGroupsSelectView(discord.ui.View):
         available_options = [g for g in available_groups if g not in self.selected_groups]
 
         if not available_options:
-            embed = discord.Embed(
-                title="No Groups Available",
-                description="All available Django groups are already selected, or no groups are configured in Django.",
-                color=discord.Color.orange(),
-            )
-            await interaction.response.send_message(embed=embed, ephemeral=True)
+            embed = self.create_selection_embed()
+            embed.set_footer(text="⚠️ All available Django groups are already selected")
+            await interaction.followup.edit_message(interaction.message.id, embed=embed, view=self)
             return
 
         # Create select dropdown
@@ -172,20 +171,30 @@ class AuthorizedRefreshGroupsSelectView(discord.ui.View):
             custom_id="add_group_select",
         )
 
-        # Create a temporary view with just the select
-        temp_view = discord.ui.View(timeout=300)
-        temp_view.add_item(select)
-
         async def select_callback(select_interaction: discord.Interaction):
             selected_groups = select_interaction.data["values"]
             for group in selected_groups:
                 self.selected_groups.add(group)
 
-            # Update the view
+            # Update the view back to normal state
             embed = self.create_selection_embed()
             await select_interaction.response.edit_message(embed=embed, view=self)
 
         select.callback = select_callback
+
+        # Create a temporary view with the select and a cancel button
+        temp_view = discord.ui.View(timeout=300)
+        temp_view.add_item(select)
+
+        # Add cancel button to go back
+        cancel_button = discord.ui.Button(label="Cancel", style=discord.ButtonStyle.secondary, emoji="❌")
+
+        async def cancel_callback(cancel_interaction: discord.Interaction):
+            embed = self.create_selection_embed()
+            await cancel_interaction.response.edit_message(embed=embed, view=self)
+
+        cancel_button.callback = cancel_callback
+        temp_view.add_item(cancel_button)
 
         embed = discord.Embed(
             title="Add Django Groups",
@@ -193,17 +202,16 @@ class AuthorizedRefreshGroupsSelectView(discord.ui.View):
             color=discord.Color.blue(),
         )
 
-        await interaction.response.send_message(embed=embed, view=temp_view, ephemeral=True)
+        await interaction.followup.edit_message(interaction.message.id, embed=embed, view=temp_view)
 
     async def remove_groups_callback(self, interaction: discord.Interaction):
         """Handle removing multiple groups via dropdown."""
+        await interaction.response.defer()
+
         if not self.selected_groups:
-            embed = discord.Embed(
-                title="No Groups to Remove",
-                description="There are no groups currently selected to remove.",
-                color=discord.Color.orange(),
-            )
-            await interaction.response.send_message(embed=embed, ephemeral=True)
+            embed = self.create_selection_embed()
+            embed.set_footer(text="⚠️ There are no groups currently selected to remove")
+            await interaction.followup.edit_message(interaction.message.id, embed=embed, view=self)
             return
 
         # Create select dropdown of currently selected groups
@@ -217,20 +225,30 @@ class AuthorizedRefreshGroupsSelectView(discord.ui.View):
             custom_id="remove_groups_select",
         )
 
-        # Create a temporary view with just the select
-        temp_view = discord.ui.View(timeout=300)
-        temp_view.add_item(select)
-
         async def select_callback(select_interaction: discord.Interaction):
             groups_to_remove = select_interaction.data["values"]
             for group in groups_to_remove:
                 self.selected_groups.discard(group)
 
-            # Update the view
+            # Update the view back to normal state
             embed = self.create_selection_embed()
             await select_interaction.response.edit_message(embed=embed, view=self)
 
         select.callback = select_callback
+
+        # Create a temporary view with the select and a cancel button
+        temp_view = discord.ui.View(timeout=300)
+        temp_view.add_item(select)
+
+        # Add cancel button to go back
+        cancel_button = discord.ui.Button(label="Cancel", style=discord.ButtonStyle.secondary, emoji="❌")
+
+        async def cancel_callback(cancel_interaction: discord.Interaction):
+            embed = self.create_selection_embed()
+            await cancel_interaction.response.edit_message(embed=embed, view=self)
+
+        cancel_button.callback = cancel_callback
+        temp_view.add_item(cancel_button)
 
         embed = discord.Embed(
             title="Remove Django Groups",
@@ -238,7 +256,7 @@ class AuthorizedRefreshGroupsSelectView(discord.ui.View):
             color=discord.Color.red(),
         )
 
-        await interaction.response.send_message(embed=embed, view=temp_view, ephemeral=True)
+        await interaction.followup.edit_message(interaction.message.id, embed=embed, view=temp_view)
 
     def create_selection_embed(self) -> discord.Embed:
         """Create embed showing current group selection."""
@@ -264,42 +282,32 @@ class AuthorizedRefreshGroupsSelectView(discord.ui.View):
     @discord.ui.button(label="Save Changes", style=discord.ButtonStyle.success, emoji="💾", row=4)
     async def save_changes(self, interaction: discord.Interaction, button: discord.ui.Button):
         """Save the selected groups."""
+        await interaction.response.defer()
+
         # Convert groups to list
         groups_list = list(self.selected_groups)
 
         # Save to settings
         self.cog.set_setting("authorized_refresh_groups", groups_list, guild_id=self.guild_id)
 
-        # Create confirmation embed
-        embed = discord.Embed(
-            title="✅ Settings Saved",
-            description=f"Authorized refresh groups updated to {len(groups_list)} group(s).",
-            color=discord.Color.green(),
-        )
-
-        await interaction.response.send_message(embed=embed, ephemeral=True)
-
-        # Go back to core settings
+        # Go back to core settings with success message
         if self.context:
             view = CoreSettingsView(self.context)
             embed = await view.get_embed()
-            await self.original_interaction.edit_original_response(embed=embed, view=view)
+            embed.set_footer(text=f"✅ Authorized refresh groups updated to {len(groups_list)} group(s)")
+            await interaction.followup.edit_message(interaction.message.id, embed=embed, view=view)
 
     @discord.ui.button(label="Cancel", style=discord.ButtonStyle.secondary, emoji="❌", row=4)
     async def cancel(self, interaction: discord.Interaction, button: discord.ui.Button):
         """Cancel and go back."""
-        embed = discord.Embed(
-            title="❌ Cancelled",
-            description="No changes were saved.",
-            color=discord.Color.red(),
-        )
-        await interaction.response.send_message(embed=embed, ephemeral=True)
+        await interaction.response.defer()
 
-        # Go back to core settings
+        # Go back to core settings without saving
         if self.context:
             view = CoreSettingsView(self.context)
             embed = await view.get_embed()
-            await self.original_interaction.edit_original_response(embed=embed, view=view)
+            embed.set_footer(text="❌ Cancelled - no changes were saved")
+            await interaction.followup.edit_message(interaction.message.id, embed=embed, view=view)
 
 
 class LogChannelModal(ui.Modal, title="Set Log Channel"):
