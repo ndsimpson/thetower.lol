@@ -75,6 +75,8 @@ class TourneyRoleColors(BaseCog, name="Tourney Role Colors"):
         # }
         self.guild_settings = {
             "categories": [],
+            "auto_enforce_prerequisites": True,  # Auto-demote when prereqs lost
+            "notify_on_demotion": False,  # DM users when auto-demoted
         }
 
     async def cog_initialize(self) -> None:
@@ -269,6 +271,117 @@ class TourneyRoleColors(BaseCog, name="Tourney Role Colors"):
 
         return list(prereqs)
 
+    def _find_descendant_roles(self, role_id: int, all_roles_in_category: List[Dict]) -> List[Dict]:
+        """Find all roles that inherit from the given role (directly or indirectly).
+
+        Returns roles in order from immediate children to deeper descendants.
+
+        Args:
+            role_id: The parent role ID to find descendants for
+            all_roles_in_category: All role configs in the same category
+
+        Returns:
+            List of role configs that inherit from this role, ordered by distance
+        """
+        descendants = []
+
+        # Find direct children
+        direct_children = [role for role in all_roles_in_category if role.get("inherits_from") == role_id]
+
+        # Add direct children first
+        descendants.extend(direct_children)
+
+        # Recursively find descendants of each child
+        for child in direct_children:
+            child_descendants = self._find_descendant_roles(child.get("role_id"), all_roles_in_category)
+            descendants.extend(child_descendants)
+
+        return descendants
+
+    async def _find_demotion_role(
+        self, member: discord.Member, current_role: discord.Role, guild_id: int, user_role_ids: List[int]
+    ) -> Optional[discord.Role]:
+        """Find the first descendant role the user qualifies for.
+
+        Args:
+            member: The member being checked
+            current_role: The current role they no longer qualify for
+            guild_id: The guild ID
+            user_role_ids: List of role IDs the user currently has
+
+        Returns:
+            Discord role object if a qualifying descendant is found, None otherwise
+        """
+        # Find which category the current role belongs to
+        categories = self.get_setting("categories", [], guild_id=guild_id)
+        current_category = None
+        current_role_config = None
+
+        for category in categories:
+            for role_config in category.get("roles", []):
+                if role_config.get("role_id") == current_role.id:
+                    current_category = category
+                    current_role_config = role_config
+                    break
+            if current_category:
+                break
+
+        if not current_category or not current_role_config:
+            return None
+
+        # Find all descendants of the current role
+        all_roles_in_category = current_category.get("roles", [])
+        descendants = self._find_descendant_roles(current_role.id, all_roles_in_category)
+
+        if not descendants:
+            return None
+
+        # Check each descendant in order (immediate children first)
+        for descendant_config in descendants:
+            descendant_role_id = descendant_config.get("role_id")
+
+            # Check if user qualifies for this descendant
+            all_prereqs = self._resolve_prerequisites(descendant_config, all_roles_in_category)
+
+            # User qualifies if they have at least one prerequisite (OR logic)
+            if not all_prereqs or any(prereq in user_role_ids for prereq in all_prereqs):
+                # Get the actual Discord role object
+                descendant_role = member.guild.get_role(descendant_role_id)
+                if descendant_role:
+                    return descendant_role
+
+        return None
+
+    async def _send_demotion_dm(self, member: discord.Member, old_role: discord.Role, new_role: discord.Role) -> None:
+        """Send a DM to a user notifying them of their role demotion.
+
+        Args:
+            member: The member who was demoted
+            old_role: The role they lost
+            new_role: The role they were demoted to
+        """
+        try:
+            embed = discord.Embed(
+                title="🔄 Color Role Changed",
+                description=(
+                    f"Your **{old_role.name}** color role in **{member.guild.name}** has been "
+                    f"changed to **{new_role.name}** because you no longer have the required "
+                    f"tournament placement roles.\\n\\n"
+                    f"You can select a different color from the available options using "
+                    f"the role selection button on your profile."
+                ),
+                color=discord.Color.blue(),
+                timestamp=discord.utils.utcnow(),
+            )
+            embed.set_footer(text=member.guild.name, icon_url=member.guild.icon.url if member.guild.icon else None)
+
+            await member.send(embed=embed)
+            self.logger.debug(f"Sent demotion DM to {member.display_name}")
+        except discord.Forbidden:
+            self.logger.debug(f"Could not DM {member.display_name} - DMs disabled")
+        except discord.HTTPException as e:
+            self.logger.error(f"Error sending demotion DM to {member.display_name}: {e}")
+
     async def assign_role_to_user(self, guild: discord.Guild, member: discord.Member, role_id: int) -> tuple[bool, str]:
         """Assign a role to a user, removing all other managed roles.
 
@@ -396,7 +509,42 @@ class TourneyRoleColors(BaseCog, name="Tourney Role Colors"):
         eligible_role_ids = [r["role_id"] for r in eligible_roles]
 
         if role_to_keep.id not in eligible_role_ids:
-            # User no longer meets prerequisites, remove the role
+            # User no longer meets prerequisites
+            # Check if auto-enforcement is enabled
+            auto_enforce = self.get_setting("auto_enforce_prerequisites", True, guild_id=guild_id)
+
+            if auto_enforce:
+                # Try to find a descendant role they qualify for (demotion)
+                demotion_role = await self._find_demotion_role(member, role_to_keep, guild_id, user_role_ids)
+
+                if demotion_role:
+                    # Demote to descendant role
+                    try:
+                        self.updating_members.add(member_key)
+                        await member.remove_roles(role_to_keep, reason="Auto-demoted: prerequisites no longer met")
+                        await member.add_roles(demotion_role, reason="Auto-demoted to qualifying descendant role")
+
+                        self.logger.info(f"Auto-demoted {member.display_name} in {member.guild.name}: " f"{role_to_keep.name} → {demotion_role.name}")
+
+                        # Log the change
+                        await self.log_role_change(member.guild, member, role_to_keep, "removed", f"Auto-demoted to {demotion_role.name}")
+                        await self.log_role_change(member.guild, member, demotion_role, "added", f"Auto-demoted from {role_to_keep.name}")
+
+                        # Send DM notification if enabled
+                        if self.get_setting("notify_on_demotion", False, guild_id=guild_id):
+                            await self._send_demotion_dm(member, role_to_keep, demotion_role)
+
+                        return True
+                    except discord.Forbidden:
+                        self.logger.error(f"Missing permissions to demote {member.display_name}")
+                    except discord.HTTPException as e:
+                        self.logger.error(f"Error demoting {member.display_name}: {e}")
+                    finally:
+                        self.updating_members.discard(member_key)
+
+                    return False
+
+            # No demotion possible or auto-enforcement disabled - remove the role
             roles_to_remove.append(role_to_keep)
 
         # Remove any roles that need to be removed
