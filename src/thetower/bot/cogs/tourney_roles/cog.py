@@ -719,7 +719,12 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
                             self.logger.error(f"Error removing roles from {member.name}: {e}")
                             stats["errors"] += 1
                         finally:
-                            self.updating_members.discard(member_key)
+                            # Delay removal to allow Discord's on_member_update event to fire and be ignored
+                            async def delayed_removal():
+                                await asyncio.sleep(0.5)
+                                self.updating_members.discard(member_key)
+
+                            asyncio.create_task(delayed_removal())
 
                     stats["skipped_not_verified"] += 1
                     stats["processed"] += 1
@@ -785,7 +790,13 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
                     self.logger.error(f"Error updating roles for {member.name}: {e}")
                     stats["errors"] += 1
                 finally:
-                    self.updating_members.discard(member_key)
+                    # Delay removal to allow Discord's on_member_update event to fire and be ignored
+                    # Discord's gateway can take a moment to process the role change and trigger the event
+                    async def delayed_removal():
+                        await asyncio.sleep(0.5)  # 500ms delay
+                        self.updating_members.discard(member_key)
+
+                    asyncio.create_task(delayed_removal())
 
             stats["processed"] += 1
 
@@ -1593,8 +1604,12 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
                                 # Log using unified function with immediate flush
                                 await self.log_role_change(after.guild.id, after.name, [f"+{role.name}"], immediate=True)
                             finally:
-                                # Always remove from updating set
-                                self.updating_members.discard(member_key)
+                                # Delay removal to allow Discord's on_member_update event to fire and be ignored
+                                async def delayed_removal():
+                                    await asyncio.sleep(0.5)
+                                    self.updating_members.discard(member_key)
+
+                                asyncio.create_task(delayed_removal())
                     elif len(after_tourney_roles) > 1:
                         # User has multiple tournament roles, remove extras
                         needs_correction = True
@@ -1622,8 +1637,12 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
                                 changes = [f"-{name}" for name in removed_names]
                                 await self.log_role_change(after.guild.id, after.name, changes, immediate=True)
                             finally:
-                                # Always remove from updating set
-                                self.updating_members.discard(member_key)
+                                # Delay removal to allow Discord's on_member_update event to fire and be ignored
+                                async def delayed_removal():
+                                    await asyncio.sleep(0.5)
+                                    self.updating_members.discard(member_key)
+
+                                asyncio.create_task(delayed_removal())
 
                 # Only log if we actually made a correction
                 if needs_correction:
@@ -2116,7 +2135,12 @@ class TourneySelfRefreshButton(discord.ui.Button):
                     else:
                         await interaction.edit_original_response(content="✅ Your roles are already up to date!")
                 finally:
-                    self.cog.updating_members.discard(member_key)
+                    # Delay removal to allow Discord's on_member_update event to fire and be ignored
+                    async def delayed_removal():
+                        await asyncio.sleep(0.5)
+                        self.cog.updating_members.discard(member_key)
+
+                    asyncio.create_task(delayed_removal())
             else:
                 # Slow path: No cache, need to recalculate
                 loading_embed = discord.Embed(
@@ -2133,7 +2157,12 @@ class TourneySelfRefreshButton(discord.ui.Button):
                     success_embed = discord.Embed(title="✅ Roles Updated", description=result, color=discord.Color.green())
                     await interaction.edit_original_response(embed=success_embed)
                 finally:
-                    self.cog.updating_members.discard(member_key)
+                    # Delay removal to allow Discord's on_member_update event to fire and be ignored
+                    async def delayed_removal():
+                        await asyncio.sleep(0.5)
+                        self.cog.updating_members.discard(member_key)
+
+                    asyncio.create_task(delayed_removal())
 
         except Exception as e:
             self.cog.logger.error(f"Error refreshing tournament roles for user {self.user_id}: {e}")
