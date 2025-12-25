@@ -39,6 +39,11 @@ class TourneyRoleColors(BaseCog, name="Tourney Role Colors"):
         # Key: (guild_id, user_id), Value: asyncio.Task
         self.pending_prereq_checks: Dict[Tuple[int, int], asyncio.Task] = {}
 
+        # Global settings (bot owner only)
+        self.global_settings = {
+            "debounce_seconds": 15,  # Wait time before enforcing prerequisite changes
+        }
+
         # Guild-specific settings structure:
         # {
         #     "categories": [
@@ -669,7 +674,7 @@ class TourneyRoleColors(BaseCog, name="Tourney Role Colors"):
     async def on_member_update(self, before: discord.Member, after: discord.Member) -> None:
         """Monitor role changes and enforce prerequisite requirements.
 
-        When a prerequisite role is removed, start a 15-second debounce timer.
+        When a prerequisite role is removed, start a debounce timer.
         If another qualified prerequisite is added within that time, cancel the timer.
         Otherwise, audit and potentially remove the color role.
         """
@@ -717,10 +722,11 @@ class TourneyRoleColors(BaseCog, name="Tourney Role Colors"):
             # Start new debounce timer
             task = asyncio.create_task(self._debounced_prerequisite_check(after.guild, after.id))
             self.pending_prereq_checks[member_key] = task
-            self.logger.debug(f"Started 15s prerequisite check for {after.display_name} after role removal")
+            debounce = self.get_global_setting("debounce_seconds", 15)
+            self.logger.debug(f"Started {debounce}s prerequisite check for {after.display_name} after role removal")
 
     async def _debounced_prerequisite_check(self, guild: discord.Guild, user_id: int) -> None:
-        """Wait 15 seconds then audit the user's color role.
+        """Wait for configured debounce period then audit the user's color role.
 
         Args:
             guild: The guild
@@ -729,8 +735,9 @@ class TourneyRoleColors(BaseCog, name="Tourney Role Colors"):
         member_key = (guild.id, user_id)
 
         try:
-            # Wait 15 seconds for role changes to settle
-            await asyncio.sleep(15)
+            # Wait for configured debounce time for role changes to settle
+            debounce_seconds = self.get_global_setting("debounce_seconds", 15)
+            await asyncio.sleep(debounce_seconds)
 
             # Fetch fresh member data
             member = await guild.fetch_member(user_id)

@@ -44,6 +44,16 @@ class TourneyRoleColorsSettingsView(ui.View):
         # Add startup audit toggle button
         self.add_item(StartupAuditToggleButton(self.cog, self.guild_id))
 
+        # Add auto-enforcement toggle button
+        self.add_item(AutoEnforceToggleButton(self.cog, self.guild_id))
+
+        # Add demotion notification toggle button
+        self.add_item(DemotionNotifyToggleButton(self.cog, self.guild_id))
+
+        # Add debounce configuration button (bot owner only)
+        if context.is_bot_owner:
+            self.add_item(ConfigureDebounceButton(self.cog))
+
         # Add logging channel select
         self.add_item(RoleColorLogChannelSelect(self.cog, self.guild_id))
 
@@ -91,6 +101,20 @@ class TourneyRoleColorsSettingsView(ui.View):
         audit_status = "✅ Enabled" if startup_audit_enabled else "❌ Disabled"
         embed.add_field(name="Startup Audit", value=audit_status, inline=False)
 
+        # Show auto-enforcement status
+        auto_enforce = self.cog.get_setting("auto_enforce_prerequisites", True, guild_id=self.guild_id)
+        enforce_status = "✅ Enabled" if auto_enforce else "❌ Disabled"
+        embed.add_field(name="Auto-Demotion", value=enforce_status, inline=True)
+
+        # Show demotion notification status
+        notify_demotion = self.cog.get_setting("notify_on_demotion", False, guild_id=self.guild_id)
+        notify_status = "✅ Enabled" if notify_demotion else "❌ Disabled"
+        embed.add_field(name="DM Notifications", value=notify_status, inline=True)
+
+        # Show debounce setting (global)
+        debounce = self.cog.get_global_setting("debounce_seconds", 15)
+        embed.add_field(name="Debounce Delay", value=f"{debounce}s (Bot Owner Only)", inline=True)
+
         embed.set_footer(text="Categories are mutually exclusive - users can only have one role at a time")
 
         await interaction.response.edit_message(embed=embed, view=self)
@@ -137,6 +161,98 @@ class StartupAuditToggleButton(ui.Button):
             f"{'Invalid color roles will be removed when the bot starts.' if new_state else 'No automatic cleanup on bot startup.'}",
             ephemeral=True,
         )
+
+
+class AutoEnforceToggleButton(ui.Button):
+    """Button to toggle auto-enforcement of prerequisites."""
+
+    def __init__(self, cog, guild_id: int):
+        # Default to True if not set
+        auto_enforce = cog.get_setting("auto_enforce_prerequisites", True, guild_id=guild_id)
+
+        if auto_enforce:
+            label = "Auto-Demotion: Enabled"
+            style = discord.ButtonStyle.success
+            emoji = "✅"
+        else:
+            label = "Auto-Demotion: Disabled"
+            style = discord.ButtonStyle.danger
+            emoji = "❌"
+
+        super().__init__(label=label, style=style, emoji=emoji)
+        self.cog = cog
+        self.guild_id = guild_id
+        self.auto_enforce = auto_enforce
+
+    async def callback(self, interaction: discord.Interaction):
+        """Toggle auto-enforcement enabled/disabled."""
+        new_state = not self.auto_enforce
+        self.cog.set_setting("auto_enforce_prerequisites", new_state, self.guild_id)
+
+        status = "enabled" if new_state else "disabled"
+        emoji = "✅" if new_state else "❌"
+
+        await interaction.response.send_message(
+            f"{emoji} Auto-demotion has been **{status}**. "
+            f"{'Users will be automatically demoted to qualifying roles when prerequisites are lost.' if new_state else 'Users will keep their roles even if prerequisites are lost.'}",
+            ephemeral=True,
+        )
+
+
+class DemotionNotifyToggleButton(ui.Button):
+    """Button to toggle DM notifications for demotions."""
+
+    def __init__(self, cog, guild_id: int):
+        # Default to False if not set
+        notify_enabled = cog.get_setting("notify_on_demotion", False, guild_id=guild_id)
+
+        if notify_enabled:
+            label = "DM Notifications: Enabled"
+            style = discord.ButtonStyle.success
+            emoji = "✅"
+        else:
+            label = "DM Notifications: Disabled"
+            style = discord.ButtonStyle.danger
+            emoji = "❌"
+
+        super().__init__(label=label, style=style, emoji=emoji)
+        self.cog = cog
+        self.guild_id = guild_id
+        self.notify_enabled = notify_enabled
+
+    async def callback(self, interaction: discord.Interaction):
+        """Toggle DM notifications enabled/disabled."""
+        new_state = not self.notify_enabled
+        self.cog.set_setting("notify_on_demotion", new_state, self.guild_id)
+
+        status = "enabled" if new_state else "disabled"
+        emoji = "✅" if new_state else "❌"
+
+        await interaction.response.send_message(
+            f"{emoji} DM notifications have been **{status}**. "
+            f"{'Users will receive a DM when their color role is auto-demoted.' if new_state else 'Users will not be notified of auto-demotions.'}",
+            ephemeral=True,
+        )
+
+
+class ConfigureDebounceButton(ui.Button):
+    """Button to configure debounce delay (bot owner only)."""
+
+    def __init__(self, cog):
+        current_value = cog.get_global_setting("debounce_seconds", 15)
+        super().__init__(label=f"Set Debounce: {current_value}s", style=discord.ButtonStyle.secondary, emoji="⏱️")
+        self.cog = cog
+
+    async def callback(self, interaction: discord.Interaction):
+        """Open modal to configure debounce."""
+        # Double-check bot owner (should already be enforced by /settings)
+        is_bot_owner = await self.cog.bot.is_owner(interaction.user)
+        if not is_bot_owner:
+            await interaction.response.send_message("❌ Only the bot owner can change this setting.", ephemeral=True)
+            return
+
+        modal = ConfigureDebounceModal(self.cog)
+        await interaction.response.send_modal(modal)
 
 
 class ManageCategoriesButton(ui.Button):
@@ -233,6 +349,46 @@ class CreateCategoryModal(ui.Modal, title="Create New Category"):
         message = f"✅ Created category: **{self.category_name.value}**\n\n**Current Categories:**\n\n{category_list}\n\nSelect an action below:"
 
         await interaction.response.edit_message(content=message, view=view)
+
+
+class ConfigureDebounceModal(ui.Modal, title="Configure Debounce Delay"):
+    """Modal for configuring the debounce delay."""
+
+    debounce_input = ui.TextInput(
+        label="Debounce Delay (seconds)",
+        placeholder="Enter a value between 1 and 30",
+        required=True,
+        min_length=1,
+        max_length=2,
+    )
+
+    def __init__(self, cog):
+        super().__init__()
+        self.cog = cog
+        # Set current value as default
+        current_value = cog.get_global_setting("debounce_seconds", 15)
+        self.debounce_input.default = str(current_value)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        try:
+            value = int(self.debounce_input.value)
+
+            # Validate range
+            if value < 1 or value > 30:
+                await interaction.response.send_message("❌ Debounce delay must be between 1 and 30 seconds.", ephemeral=True)
+                return
+
+            # Save the setting
+            self.cog.set_global_setting("debounce_seconds", value)
+
+            await interaction.response.send_message(
+                f"✅ Debounce delay set to **{value} seconds**. "
+                f"This controls how long the bot waits after a prerequisite role change before enforcing color role prerequisites.",
+                ephemeral=True,
+            )
+
+        except ValueError:
+            await interaction.response.send_message("❌ Invalid input. Please enter a number between 1 and 30.", ephemeral=True)
 
 
 class EditCategoryButton(ui.Button):
