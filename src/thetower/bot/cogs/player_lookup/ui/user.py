@@ -4,6 +4,8 @@ import re
 import discord
 
 # Local
+from thetower.backend.tourney_results.formatting import BASE_URL
+
 from .core import PlayerView, get_player_details
 
 
@@ -181,6 +183,18 @@ class UserInteractions:
                         value="\n".join(additional_ids),
                         inline=False,
                     )
+
+        # Add player links field (always shown)
+        bracket_url = f"https://{BASE_URL}/livebracketview?player_id={primary_id}"
+        comparison_url = f"https://{BASE_URL}/comparison?bracket_player={primary_id}"
+        placement_url = f"https://{BASE_URL}/liveplacement?player_id={primary_id}"
+        player_history_url = f"https://{BASE_URL}/player?player={primary_id}"
+
+        links_value = (
+            f"[Player History]({player_history_url})\n"
+            f"[Bracket View]({bracket_url}) • [Comparison]({comparison_url}) • [Live Placement Analysis]({placement_url})"
+        )
+        embed.add_field(name="Player Links", value=links_value, inline=False)
 
         # Add info extensions from other cogs
         if requesting_user:

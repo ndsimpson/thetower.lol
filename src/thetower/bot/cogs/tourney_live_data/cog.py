@@ -6,7 +6,6 @@ import discord
 from asgiref.sync import sync_to_async
 
 from thetower.backend.tourney_results.constants import leagues
-from thetower.backend.tourney_results.formatting import BASE_URL
 from thetower.backend.tourney_results.shun_config import include_shun_enabled_for
 from thetower.backend.tourney_results.tourney_utils import check_all_live_entry, get_full_brackets, get_live_df
 
@@ -121,14 +120,7 @@ class TourneyLiveData(BaseCog, name="Tourney Live Data", description="Commands f
 
                 if live_stats and active_player_id:
                     league, global_position, bracket_position, wave, bracket_name, last_refresh = live_stats
-                    # Construct URLs for live tournament pages
-                    bracket_url = f"https://{BASE_URL}/livebracketview?player_id={active_player_id}"
-                    comparison_url = f"https://{BASE_URL}/comparison?bracket_player={active_player_id}"
-                    placement_url = f"https://{BASE_URL}/liveplacement?player_id={active_player_id}"
-                    # Historical player page expects the query parameter name `player`
-                    player_history_url = f"https://{BASE_URL}/player?player={active_player_id}"
-
-                    field_value = f"✅ Joined ({league})\n**Global:** #{global_position} • **Bracket:** #{bracket_position} • **Wave:** {wave}\n[Player History]({player_history_url})\n[Bracket View]({bracket_url}) • [Comparison]({comparison_url}) • [Live Placement Analysis]({placement_url})\n*Last updated: {last_refresh}*"
+                    field_value = f"✅ Joined ({league})\n**Global:** #{global_position} • **Bracket:** #{bracket_position} • **Wave:** {wave}\n*Last updated: {last_refresh}*"
                 else:
                     # Fallback if we can't get detailed stats
                     field_value = "✅ Joined"
