@@ -276,7 +276,7 @@ def get_live_df(league: str, shun: bool = False) -> pd.DataFrame:
     home = Path(os.getenv("HOME"))
     live_path = home / "tourney" / "results_cache" / f"{league}_live"
 
-    all_files = sorted(live_path.glob("*.csv"), key=get_time)
+    all_files = sorted(live_path.glob("*.csv.gz"), key=get_time)
 
     # Filter out empty files
     non_empty_files = [f for f in all_files if f.stat().st_size > 0]
@@ -369,7 +369,7 @@ def get_latest_live_df(league: str, shun: bool = False) -> pd.DataFrame:
     home = Path(os.getenv("HOME"))
     live_path = home / "tourney" / "results_cache" / f"{league}_live"
 
-    all_files = sorted(live_path.glob("*.csv"), key=get_time)
+    all_files = sorted(live_path.glob("*.csv.gz"), key=get_time)
     non_empty_files = [f for f in all_files if f.stat().st_size > 0]
 
     if not non_empty_files:

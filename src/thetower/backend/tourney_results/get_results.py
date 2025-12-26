@@ -51,7 +51,7 @@ def get_last_date():
 
 
 def get_file_name():
-    return f"{get_last_date()}.csv"
+    return f"{get_last_date()}.csv.gz"
 
 
 def get_file_path(file_name, league):
@@ -92,7 +92,7 @@ def execute(league):
         logging.error(f"Error in make_request: {e}")
         return
 
-    df.to_csv(file_path, index=False)
+    df.to_csv(file_path, index=False, compression="gzip")
     logging.info(f"Successfully stored file {file_path}")
 
     return True

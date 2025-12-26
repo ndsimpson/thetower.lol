@@ -178,7 +178,7 @@ def get_placement_analysis_data(league: str):
         live_path = home / "tourney" / "results_cache" / f"{league}_live"
         logging.info(f"get_placement_analysis_data: live_path={live_path}")
 
-        all_files = sorted([p for p in live_path.glob("*.csv") if p.stat().st_size > 0], key=get_time)
+        all_files = sorted([p for p in live_path.glob("*.csv.gz") if p.stat().st_size > 0], key=get_time)
         logging.info(f"get_placement_analysis_data: found {len(all_files)} non-empty CSV snapshots in {live_path}")
 
         if all_files:
@@ -421,7 +421,7 @@ def get_quantile_analysis_data(league: str):
         live_path = home / "tourney" / "results_cache" / f"{league}_live"
         logging.info(f"get_quantile_analysis_data: live_path={live_path}")
 
-        all_files = sorted([p for p in live_path.glob("*.csv") if p.stat().st_size > 0], key=get_time)
+        all_files = sorted([p for p in live_path.glob("*.csv.gz") if p.stat().st_size > 0], key=get_time)
         logging.info(f"get_quantile_analysis_data: found {len(all_files)} non-empty CSV snapshots in {live_path}")
 
         if all_files:
@@ -595,7 +595,7 @@ def get_data_refresh_timestamp(league: str) -> datetime.datetime | None:
         home = Path(os.getenv("HOME"))
         live_path = home / "tourney" / "results_cache" / f"{league}_live"
 
-        all_files = list(live_path.glob("*.csv"))
+        all_files = list(live_path.glob("*.csv.gz"))
 
         # Filter out empty files
         non_empty_files = [f for f in all_files if f.stat().st_size > 0]

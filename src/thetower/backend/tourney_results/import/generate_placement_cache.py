@@ -76,7 +76,7 @@ def list_live_snapshots(league: str):
     if not live_dir.exists():
         logging.debug(f"Live dir missing for league {league}: {live_dir}")
         return []
-    files = [p for p in live_dir.glob("*.csv") if p.stat().st_size > 0]
+    files = [p for p in live_dir.glob("*.csv.gz") if p.stat().st_size > 0]
     files_sorted = sorted(files, key=get_time)
     if not files_sorted:
         logging.debug(f"No non-empty CSV snapshots found for league {league} in {live_dir}")
@@ -270,9 +270,7 @@ def process_tourney_group(league: str, group: list[Path], include_shun: bool = F
             except Exception:
                 existing_schema = 1
             if existing_schema < SCHEMA_VERSION:
-                logging.info(
-                    f"Outdated cache schema (v{existing_schema} < v{SCHEMA_VERSION}) for {league} {tourney_date}; forcing full regen"
-                )
+                logging.info(f"Outdated cache schema (v{existing_schema} < v{SCHEMA_VERSION}) for {league} {tourney_date}; forcing full regen")
                 last_processed_iso = None
                 bracket_times = {}
                 player_index = {}
