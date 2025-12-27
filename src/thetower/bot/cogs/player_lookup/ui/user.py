@@ -344,7 +344,11 @@ class UserInteractions:
                             manage_groups = self.cog.bot.manage_sus.config.get_global_cog_setting(
                                 "manage_sus", "manage_groups", self.cog.bot.manage_sus.global_settings["manage_groups"]
                             )
-                            user_groups = await sync_to_async(list)(known_player.django_user.groups.values_list("name", flat=True))
+
+                            def get_user_groups():
+                                return list(known_player.django_user.groups.values_list("name", flat=True))
+
+                            user_groups = await sync_to_async(get_user_groups)()
                             self.cog.logger.info(f"User {known_player.name} groups: {user_groups}, required: {manage_groups}")
                             return any(group in manage_groups for group in user_groups)
                         else:
