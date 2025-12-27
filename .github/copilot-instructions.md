@@ -2,59 +2,71 @@
 
 ## Project Overview
 
-A multi-service platform for "The Tower" game tournament results and community management:
+Multi-service platform for "The Tower" game tournament results and community management:
 
--   **Django Backend** (`src/thetower/backend/`): SQLite database with tourney results, player management, and REST API
--   **Discord Bot** (`src/thetower/bot/`): Multi-guild bot with cog-based architecture for verification, roles, stats
--   **Streamlit Web** (`src/thetower/web/`): Public/admin web interfaces for visualizing tournament data
--   **Background Services**: Automated result fetching, data imports, recalculation workers
+-   **Django Backend** (`src/thetower/backend/`): SQLite database with tourney results, player moderation, REST API
+-   **Discord Bot** (`src/thetower/bot/`): Multi-guild bot with cog-based architecture for validation, roles, stats, live data
+-   **Streamlit Web** (`src/thetower/web/`): Public/admin interfaces for visualizing tournament data and statistics
+-   **Background Services**: Automated result fetching, data imports, recalculation workers, live bracket generation
 
 ## Architecture & Structure
 
 ### Modern src/ Layout (Aug 2025 Restructure)
 
-The codebase was reorganized from flat structure to modern `src/` layout:
+Reorganized from flat structure to modern `src/` layout with entry points in `pyproject.toml`:
 
 ```
 src/thetower/
 ├── backend/          # Django project
 │   ├── towerdb/     # Django settings (DJANGO_SETTINGS_MODULE="thetower.backend.towerdb.settings")
-│   ├── tourney_results/  # Main app: models, views, import scripts
-│   └── sus/         # Player management/ban system
+│   ├── tourney_results/  # Main app: models, views, import/export, background services
+│   │   ├── import/  # CSV import logic
+│   │   └── management/  # Django management commands
+│   └── sus/         # Player moderation/ban system
 ├── bot/             # Discord bot
 │   ├── bot.py       # Main bot entry point
-│   ├── basecog.py   # Base class for all cogs with shared functionality
-│   ├── cogs/        # Feature modules (validation, roles, stats, etc.)
-│   └── utils/       # ConfigManager, PermissionManager, TaskTracker
+│   ├── basecog.py   # Base class for all cogs (~1000 lines of shared functionality)
+│   ├── cogs/        # Feature modules (11 cogs: validation, roles, stats, etc.)
+│   │   └── */ui/    # UI components organized by function (core, user, admin, settings)
+│   ├── utils/       # ConfigManager, PermissionManager, TaskTracker, DataManager
+│   └── exceptions.py  # Custom exceptions (UserUnauthorized, ChannelUnauthorized)
 └── web/             # Streamlit interfaces
-    ├── pages.py     # Main entry point
-    ├── admin/       # Admin interface pages
-    ├── live/        # Live tournament tracking
-    └── historical/  # Historical data visualization
+    ├── pages.py     # Main entry point with page routing
+    ├── admin/       # Admin interface (service status, migrations, codebase analysis)
+    ├── live/        # Live tournament tracking and bracket visualization
+    └── historical/  # Historical data analysis and player stats
 ```
 
 ### Django + Shared Database Pattern
 
--   Bot and web components both import Django: `environ.setdefault("DJANGO_SETTINGS_MODULE", "thetower.backend.towerdb.settings"); django.setup()`
--   Database at `/data/tower.sqlite3` (Linux prod) or `c:\data\tower.sqlite3` (Windows dev) - same path structure for consistency
--   Models in `tourney_results/models.py`: `TourneyResult`, `Role`, `PatchNew`, `TourneyRow`, etc.
--   Always use Django ORM for database access, never raw SQL
+-   All components import Django: `os.environ.setdefault("DJANGO_SETTINGS_MODULE", "thetower.backend.towerdb.settings"); django.setup()`
+-   Database: `/data/tower.sqlite3` (Linux prod) or `c:\data\tower.sqlite3` (Windows dev) - same path structure
+-   Core models in `tourney_results/models.py`: `TourneyResult`, `TourneyRow`, `Role`, `PatchNew`, `BattleCondition`, `Avatar`, `Relic`
+-   Moderation in `sus/models.py`: `KnownPlayer`, `PlayerId`, `ModerationRecord`
+-   Always use Django ORM - never raw SQL
+-   SQLite timeout set to 60s in settings to handle concurrent access
 
 ### Discord Bot Cog Architecture
 
-All bot features extend `BaseCog` (`src/thetower/bot/basecog.py`):
+All bot features extend `BaseCog` (`src/thetower/bot/basecog.py` - 1000+ lines):
 
 -   **Per-guild settings**: `self.get_setting(guild_id, key)`, `self.set_setting(guild_id, key, value)`
 -   **Data persistence**: `self.load_data()`, `self.save_data_if_modified()` with `DataManager`
 -   **Task tracking**: `async with self.task_tracker.task_context("task_name"):` for background tasks
 -   **Ready state**: Wait for `await self.ready.wait()` before accessing guild data
 -   **Settings UI**: Each cog defines `settings_view_class` for `CogManager` to integrate into global `/settings` command
+-   **Permission context**: `PermissionContext` dataclass with `.has_any_group()`, `.has_all_groups()`, `.has_discord_role()`
 
-Example cog structure (see `docs/cog_design.md` for detailed architecture):
+Example cog structure (see [docs/cog_design.md](docs/cog_design.md) for detailed 968-line architecture guide):
 
 ```python
 class MyCog(BaseCog, name="My Feature"):
-    settings_view_class = MySettingsView  # For global settings access
+    settings_view_class = MySettingsView  # For global settings integration
+
+    def __init__(self, bot):
+        super().__init__(bot)
+        self.guild_settings = {"enabled": True, "channel_id": None}
+        self.global_settings = {"admin_groups": ["Moderators"]}
 
     async def cog_load(self):
         await super().cog_load()
@@ -62,8 +74,21 @@ class MyCog(BaseCog, name="My Feature"):
 
     @app_commands.command(name="mycommand")
     async def my_slash(self, interaction: discord.Interaction):
-        # Slash command implementation
+        # Slash command implementation - await self.ready.wait() if needed
 ```
+
+**Current cogs** (11 total):
+- `battle_conditions`: Battle condition predictor (towerbcs integration)
+- `django_admin`: Web admin interface access via Discord
+- `manage_sus`: Player moderation and ban management
+- `player_lookup`: Player stats and history lookup
+- `role_cache`: Guild role caching and management
+- `tourney_live_data`: Live tournament data fetching and display
+- `tourney_roles`: Tournament role assignment automation
+- `tourney_role_colors`: Role color management
+- `tourney_stats`: Tournament statistics and analysis
+- `unified_advertise`: Cross-guild advertisement system
+- `validation`: Player verification system
 
 ## Development Workflows
 
@@ -81,11 +106,13 @@ pip install -e ".[dev]"   # pytest, black, isort, flake8
 pip install -e ".[bot]"   # Discord bot only
 pip install -e ".[web]"   # Streamlit only
 
-# Install battle conditions predictor
+# Install battle conditions predictor (requires repo access)
 python src\thetower\scripts\install_towerbcs.py --auto
 
-# Centralized bytecode caching (recommended)
+# Centralized bytecode caching (recommended - keeps __pycache__ out of git)
 python scripts\manage_bytecode.py setup
+python scripts\manage_bytecode.py status    # Check configuration
+python scripts\manage_bytecode.py cleanup   # Clean existing __pycache__
 ```
 
 ### Running Components Locally
@@ -96,77 +123,98 @@ streamlit run src\thetower\web\pages.py
 
 # Django admin (for database management)
 cd src\thetower\backend
-$env:DEBUG="true"; python manage.py runserver
 python manage.py collectstatic  # Collect static files first
+$env:DEBUG="true"; python manage.py runserver
 
-# Discord bot (requires env vars)
-$env:DISCORD_TOKEN="..."; python -m thetower.bot.bot
+# Discord bot (requires environment variables)
+$env:DISCORD_TOKEN="..."; $env:DISCORD_APPLICATION_ID="..."; python -m thetower.bot.bot
+
+# Background services (run as modules)
+python -m thetower.backend.tourney_results.import.import_results
+python -m thetower.backend.tourney_results.get_results
+python -m thetower.backend.tourney_results.get_live_results
 ```
 
 ### Production Deployment
 
-Services run via systemd on Linux (see `c:\data\Services\UPDATE_CHECKLIST.md`):
+Services run via systemd on Linux (see [c:\data\Services\UPDATE_CHECKLIST.md](c:\data\Services\UPDATE_CHECKLIST.md) - 575 lines):
 
--   `tower-public_site.service`, `tower-admin_site.service`, `tower-hidden_site.service`
--   `discord_bot.service` (unified bot, replaces old fish_bot/validation_bot)
--   `import_results.service`, `get_results.service`, `get_live_results.service`
--   Database: `/data/tower.sqlite3`, uploads: `/data/uploads/`
+**Service files**:
+-   Web: `tower-public_site.service`, `tower-admin_site.service`, `tower-hidden_site.service`
+-   Bot: `discord_bot.service` (unified bot, replaces old fish_bot/validation_bot)
+-   Data: `import_results.service`, `get_results.service`, `get_live_results.service`
+-   Workers: `tower-recalc_worker.service`, `generate_live_bracket_cache.service`
 
-**Critical**: Always stop ALL services before deploying code changes.
+**Environment variables** in service files:
+-   `DJANGO_SETTINGS_MODULE=thetower.backend.towerdb.settings`
+-   `DISCORD_TOKEN`, `DISCORD_APPLICATION_ID`, `DISCORD_BOT_CONFIG=/data`
+-   `HIDDEN_FEATURES=true` (enables admin features)
+-   `BASE_URL=hidden.thetower.lol` (for bot URL generation)
+-   `ANTHROPIC_API_KEY` (for AI features)
+-   `TOWERBCS_REPO_URL` (for battle conditions predictor updates)
 
-### Testing
+**Paths**:
+-   Database: `/data/tower.sqlite3`
+-   Uploads: `/data/uploads/`
+-   Static files: `/data/static/`
+-   Bot config: `/data/` (guild configs, data persistence)
+-   Working directory: `/tourney` (most services) or `/tourney/src` (Django module execution)
 
-```powershell
-# Run tests with pytest (requires [dev] dependencies)
-pytest src\thetower\backend\tourney_results\tests\
-pytest --tb=short  # Shorter traceback format
-```
+**Deployment**: Code deployments are automated through the web admin interface - git pull and service restarts are handled programmatically (see [src/thetower/web/admin/](src/thetower/web/admin/) for deployment tools).
 
 ## Project-Specific Conventions
 
 ### Python Standards
 
--   PEP 8 compliance: 79 char lines, 4-space indents, snake_case functions, CamelCase classes
+-   **Line length**: 150 characters (NOT 79) - configured in black/flake8/isort
+-   PEP 8 naming: 4-space indents, snake_case functions, CamelCase classes
 -   Import order: standard library → third-party → local (`from thetower.backend...`)
 -   Type hints on public functions/methods
--   Docstrings with clear descriptions of parameters and return values
+-   Docstrings with clear parameter and return descriptions
 
 ### Package Management
 
 -   **Use `pyproject.toml` exclusively** - no `requirements.txt`
--   Dependencies declared in `[project.dependencies]` and `[project.optional-dependencies]`
+-   Dependencies: `[project.dependencies]` for core, `[project.optional-dependencies]` for dev/bot/web
 -   Pin exact versions for reproducibility (e.g., `Django==5.2.4`)
--   Update `pyproject.toml` when adding dependencies, then `pip install -e .`
+-   Entry points: `[project.scripts]` defines `thetower-web` and `thetower-bot` commands
+-   Update dependencies: Edit `pyproject.toml`, then `pip install -e .`
 
 ### Django Conventions
 
--   **Models**: Use ForeignKey relationships, ColorField for colors, `simple_history` for tracking
--   **Settings**: Centralized in `towerdb/settings.py`, read SECRET_KEY from file, use `/data/` for production paths
--   **Migrations**: Always generate migrations: `python manage.py makemigrations`
--   **Admin**: Customize admin in `admin.py` for each app
+-   **Models**: Use ForeignKey relationships, ColorField for colors, `simple_history` for audit trails
+-   **Settings**: Centralized in `towerdb/settings.py`, SECRET_KEY read from file, `/data/` for production
+-   **Migrations**: Always generate: `python manage.py makemigrations`
+-   **Admin**: Customize in `admin.py` for each app, register models with sensible list_display
+-   **Database**: SQLite with 60s timeout, shared across all services via `/data/tower.sqlite3`
 
 ### Discord Bot Patterns
 
--   **Slash commands only**: Use `@app_commands.command()`, no text commands
--   **Permission checks**: Bot has `PermissionManager` and custom `UserUnauthorized`/`ChannelUnauthorized` exceptions
+-   **Slash commands only**: Use `@app_commands.command()`, no text commands (`command_prefix=[]` in bot init)
+-   **Permission checks**: Use `PermissionManager.check_command_permissions()`, raise `UserUnauthorized`/`ChannelUnauthorized`
 -   **Guild isolation**: All cog data keyed by `guild_id`, settings per-guild via `BaseCog.get_setting()`
--   **UI components**: Use `discord.ui.View` subclasses in `cogs/*/ui/` directories
--   **Background tasks**: Wrap in `task_tracker.task_context()` for monitoring/error handling
+-   **UI organization**: Discord UI components in `cogs/*/ui/` directories (core, user, admin, settings subdirs)
+-   **Background tasks**: Wrap in `async with self.task_tracker.task_context("name"):` for monitoring
+-   **Ready state**: Always `await self.ready.wait()` before accessing guild data in cog methods
+-   **Exception handling**: Cogs raise custom exceptions, bot's global error handler formats user-friendly messages
 
 ### Logging
 
--   Use module-level `logger = logging.getLogger(__name__)` consistently
--   Bot components: `from thetower.bot import logger` or `self.logger` in cogs
--   Format: `"%(asctime)s UTC [%(name)s] %(levelname)s: %(message)s"`
--   Control via `LOG_LEVEL` environment variable
+-   Module-level: `logger = logging.getLogger(__name__)` consistently
+-   Bot cogs: Use `self.logger` (inherited from BaseCog) or `self._logger` internally
+-   Format: `"%(asctime)s UTC [%(name)s] %(levelname)s: %(message)s"` with UTC timestamps
+-   Control: `LOG_LEVEL` environment variable (INFO/DEBUG/WARNING)
+-   Discord logging: Separate logger with `propagate=False` to avoid duplicates
 
 ### Data Files & Paths
 
--   Production data: `/data/` (Linux) - database, uploads, static files
--   Dev data: `c:\data\` (Windows) - uses same path structure as prod for consistency
--   Database: `/data/tower.sqlite3` (prod) or `c:\data\tower.sqlite3` (dev)
--   Centralized bytecode: `.cache/python/` (via `scripts/manage_bytecode.py setup`)
--   Keep `__pycache__` out of git
+-   **Production**: `/data/` (Linux) - database, uploads, static, bot configs
+-   **Development**: `c:\data\` (Windows) - mirrors prod structure for consistency
+-   **Database**: `/data/tower.sqlite3` or `c:\data\tower.sqlite3`
+-   **Uploads**: `/data/uploads/` (CSV files for import)
+-   **Static**: `/data/static/` (Django collectstatic output)
+-   **Bot config**: `/data/` (DataManager saves guild-specific JSON files)
+-   **Bytecode cache**: `.cache/python/` (via `scripts/manage_bytecode.py setup`) - keeps `__pycache__` out of git
 
 ## Critical Integration Points
 
@@ -191,18 +239,20 @@ pytest --tb=short  # Shorter traceback format
 
 ## Key Files Reference
 
--   `src/thetower/bot/basecog.py`: Base class for all bot cogs (600+ lines of shared functionality)
+-   `src/thetower/bot/basecog.py`: Base class for all bot cogs (~1000 lines of shared functionality)
 -   `src/thetower/bot/utils/`: ConfigManager, PermissionManager, TaskTracker, DataManager
 -   `src/thetower/backend/tourney_results/models.py`: Core database schema
 -   `src/thetower/backend/towerdb/settings.py`: Django configuration
--   `docs/cog_design.md`: Detailed cog architecture guide (read for complex bot features)
--   `scripts/manage_bytecode.py`: Bytecode cache management (run `setup` first)
--   `c:\data\Services\UPDATE_CHECKLIST.md`: Production deployment procedures
+-   `docs/cog_design.md`: Detailed 968-line cog architecture guide (read for complex bot features)
+-   `scripts/manage_bytecode.py`: Centralized bytecode cache management (run `setup` first)
+-   `c:\data\Services\UPDATE_CHECKLIST.md`: Production deployment procedures (575 lines)
+-   `pyproject.toml`: All dependencies, build config, and tool settings (black, pytest, isort, flake8)
 
 ## Windows PowerShell Environment
 
 -   Primary development OS is Windows with PowerShell
 -   Command chaining: Use `;` (NOT `&&`)
--   Path separators: `\` in PowerShell, `/` for Python Path objects
--   Environment variables: `$env:VAR_NAME="value"` (temporary) or `[System.Environment]::SetEnvironmentVariable()`
+-   Path separators: `\` in PowerShell commands, `/` for Python Path objects
+-   Environment variables: `$env:VAR_NAME="value"` (temporary) or `[System.Environment]::SetEnvironmentVariable()` (persistent)
 -   Virtual env activation: `.\.venv\Scripts\Activate.ps1`
+-   Common gotchas: PowerShell doesn't support `&&` chaining, use `;` instead for sequential commands
