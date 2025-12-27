@@ -70,7 +70,7 @@ def atomic_write(path: Path, data: dict):
 
 
 def list_live_snapshots(league: str):
-    """List non-empty live snapshot CSVs for a league, sorted chronologically."""
+    """List non-empty live snapshots for a league, sorted chronologically."""
     live_dir = LIVE_BASE / f"{league}_live"
     logging.debug(f"Checking live dir for league {league}: {live_dir}")
     if not live_dir.exists():
@@ -79,7 +79,7 @@ def list_live_snapshots(league: str):
     files = [p for p in live_dir.glob("*.csv.gz") if p.stat().st_size > 0]
     files_sorted = sorted(files, key=get_time)
     if not files_sorted:
-        logging.debug(f"No non-empty CSV snapshots found for league {league} in {live_dir}")
+        logging.debug(f"No non-empty snapshots found for league {league} in {live_dir}")
     return files_sorted
 
 
@@ -248,7 +248,7 @@ def process_tourney_group(league: str, group: list[Path], include_shun: bool = F
     first = group[0]
     tourney_date = get_time(first).date().isoformat()  # YYYY-MM-DD
     # Place cache files alongside snapshots under the league_live folder so
-    # operators find them next to the CSVs (matching get_live_results.py layout)
+    # operators find them next to the snapshots (matching get_live_results.py layout)
     cache_file = LIVE_BASE / f"{league}_live" / f"{tourney_date}_placement_cache.json"
 
     # Load existing cache if present
@@ -364,7 +364,7 @@ def process_tourney_group(league: str, group: list[Path], include_shun: bool = F
             logging.warning(f"No valid latest snapshot found for {league} {tourney_date}; keeping existing player_index")
         else:
             # Normalize and enrich the latest dataframe so build_player_index_from_df
-            # has the columns it expects. Incoming live CSVs commonly have a
+            # has the columns it expects. Incoming live snapshots commonly have a
             # `name` column (tourney display name) rather than `real_name`.
             # Map player_id -> real_name using the same lookup used elsewhere
             # in the codebase to keep caches consistent with live views.
@@ -373,7 +373,7 @@ def process_tourney_group(league: str, group: list[Path], include_shun: bool = F
             except Exception:
                 lookup = {}
 
-            # populate real_name from lookup (fall back to CSV name if present)
+            # populate real_name from lookup (fall back to snapshot name if present)
             if "name" in df_latest.columns:
                 df_latest["real_name"] = [lookup.get(pid, name) for pid, name in zip(df_latest.player_id, df_latest.name)]
             else:
