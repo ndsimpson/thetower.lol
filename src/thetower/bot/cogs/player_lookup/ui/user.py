@@ -334,8 +334,17 @@ class UserInteractions:
 
                 async def check_moderation_permission():
                     try:
-                        known_player = await sync_to_async(KnownPlayer.objects.filter(discord_id=discord_id).first)()
-                        if not known_player or not known_player.django_user:
+
+                        def get_player_and_groups():
+                            known_player = KnownPlayer.objects.filter(discord_id=discord_id).first()
+                            if not known_player or not known_player.django_user:
+                                return None, None, None
+                            user_groups = list(known_player.django_user.groups.values_list("name", flat=True))
+                            return known_player.name, user_groups, True
+
+                        player_name, user_groups, has_user = await sync_to_async(get_player_and_groups)()
+
+                        if not has_user:
                             self.cog.logger.info(f"User {discord_id} not found or has no linked Django user")
                             return False
 
@@ -344,12 +353,7 @@ class UserInteractions:
                             manage_groups = self.cog.bot.manage_sus.config.get_global_cog_setting(
                                 "manage_sus", "manage_groups", self.cog.bot.manage_sus.global_settings["manage_groups"]
                             )
-
-                            def get_user_groups():
-                                return list(known_player.django_user.groups.values_list("name", flat=True))
-
-                            user_groups = await sync_to_async(get_user_groups)()
-                            self.cog.logger.info(f"User {known_player.name} groups: {user_groups}, required: {manage_groups}")
+                            self.cog.logger.info(f"User {player_name} groups: {user_groups}, required: {manage_groups}")
                             return any(group in manage_groups for group in user_groups)
                         else:
                             self.cog.logger.info("manage_sus cog not loaded")
