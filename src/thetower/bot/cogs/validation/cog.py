@@ -219,7 +219,7 @@ class Validation(BaseCog, name="Validation"):
 
         lines = []
         for member_id, (member, record) in members.items():
-            latest = record["latest_tourney_date"].date().isoformat() if record["latest_tourney_date"] else "N/A"
+            latest = record["latest_tourney_date"].isoformat() if record["latest_tourney_date"] else "N/A"
             lines.append(
                 f"{member.mention} ({member})\n"
                 f"• Player ID: `{record['player_id']}`\n"
