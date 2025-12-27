@@ -113,7 +113,7 @@ def live_bracket():
             df = get_live_data(league, include_shun)
             bracket_order, fullish_brackets = get_bracket_data(df)
             df = df[df.bracket.isin(fullish_brackets)].copy()
-            st.session_state.pop(f"selected_league_{league}")
+            st.session_state.pop(f"selected_league_{league}", None)
         selected_real_name = selected_from_session
     elif options.current_player:
         selected_real_name = options.current_player
