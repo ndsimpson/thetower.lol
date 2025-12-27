@@ -157,6 +157,18 @@ class GenerateBCButton(discord.ui.Button):
             await interaction.response.send_message("⚠️ Battle conditions package not available.", ephemeral=True)
             return
 
+        # Check view window
+        is_allowed, days_until, view_window_days, tourney_date = cog.check_view_window(interaction.user)
+        is_bot_owner = await cog.bot.is_owner(interaction.user)
+        if not is_allowed and not is_bot_owner:
+            await interaction.response.send_message(
+                f"⏰ Battle conditions are not yet available for generation.\n"
+                f"You can generate them {view_window_days} day(s) before the tournament.\n"
+                f"Next tournament: {tourney_date} ({days_until} days away)",
+                ephemeral=True,
+            )
+            return
+
         # Get enabled leagues (global setting)
         enabled_leagues = cog.get_global_setting("enabled_leagues") or []
 
@@ -261,6 +273,18 @@ class RunAllSchedulesButton(discord.ui.Button):
             await interaction.response.send_message("⚠️ Battle conditions package not available.", ephemeral=True)
             return
 
+        # Check view window before running
+        is_allowed, days_until, view_window_days, tourney_date = cog.check_view_window(interaction.user)
+        is_bot_owner = await cog.bot.is_owner(interaction.user)
+        if not is_allowed and not is_bot_owner:
+            await interaction.response.send_message(
+                f"⏰ Battle conditions are not yet available.\n"
+                f"Schedules can run {view_window_days} day(s) before the tournament.\n"
+                f"Next tournament: {tourney_date} ({days_until} days away)",
+                ephemeral=True,
+            )
+            return
+
         # Get all schedules for this guild
         destination_schedules = cog.get_setting("destination_schedules", guild_id=guild_id)
         if not destination_schedules:
@@ -361,6 +385,18 @@ class ScheduleSelect(discord.ui.Select):
     async def callback(self, interaction: discord.Interaction):
         selected_idx = int(self.values[0])
         schedule = self.schedules[selected_idx]
+
+        # Check view window before running
+        is_allowed, days_until, view_window_days, tourney_date = self.cog.check_view_window(interaction.user)
+        is_bot_owner = await self.cog.bot.is_owner(interaction.user)
+        if not is_allowed and not is_bot_owner:
+            await interaction.response.send_message(
+                f"⏰ Battle conditions are not yet available.\n"
+                f"Schedules can run {view_window_days} day(s) before the tournament.\n"
+                f"Next tournament: {tourney_date} ({days_until} days away)",
+                ephemeral=True,
+            )
+            return
 
         # Defer as this might take a moment
         await interaction.response.defer(ephemeral=True)

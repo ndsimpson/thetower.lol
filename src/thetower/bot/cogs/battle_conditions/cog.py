@@ -136,6 +136,38 @@ class BattleConditions(BaseCog, name="Battle Conditions"):
         """
         return await BattleConditionsCore.get_battle_conditions(league)
 
+    def check_view_window(self, user: discord.User) -> tuple[bool, int, int | None, str]:
+        """Check if we're within the BC view window.
+
+        Args:
+            user: The user attempting the action (to check if bot owner)
+
+        Returns:
+            Tuple of (is_allowed, days_until, view_window_days, tourney_date)
+            is_allowed is True if within window OR user is bot owner
+        """
+        # Get tournament info
+        tourney_id, tourney_date, days_until = BattleConditionsCore.get_tournament_info()
+
+        # Get view window setting
+        view_window_days = self.get_global_setting("bc_view_window_days")
+        if view_window_days is None:
+            view_window_days = self.guild_settings.get("bc_view_window_days")
+
+        # Check if outside window
+        outside_window = view_window_days is not None and days_until > view_window_days
+
+        # Bot owner can always proceed
+        from asyncio import iscoroutinefunction
+
+        if iscoroutinefunction(self.bot.is_owner):
+            # Can't call async here, caller must check separately
+            is_allowed = not outside_window
+        else:
+            is_allowed = not outside_window
+
+        return (is_allowed, days_until, view_window_days, tourney_date)
+
     async def send_battle_conditions_embed(self, channel, league, tourney_date, battleconditions) -> bool:
         """Helper method to create and send battle conditions embeds
 
@@ -181,6 +213,12 @@ class BattleConditions(BaseCog, name="Battle Conditions"):
                 enabled_leagues = self.get_global_setting("enabled_leagues")
                 if not enabled_leagues:
                     return  # Skip if no leagues are configured
+
+                # Check view window - scheduled tasks should respect the window
+                view_window_days = self.get_global_setting("bc_view_window_days")
+                if view_window_days is not None and days_until > view_window_days:
+                    self.logger.debug(f"Outside BC view window ({days_until} days until tourney, window is {view_window_days} days)")
+                    return  # Skip scheduled sends when outside the window
 
                 for guild in self.bot.guilds:
                     guild_id = guild.id
