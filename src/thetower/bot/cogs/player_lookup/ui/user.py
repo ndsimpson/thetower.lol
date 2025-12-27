@@ -323,6 +323,54 @@ class UserInteractions:
         results = await self.cog.search_player(identifier)
 
         if not results:
+            # Check if this looks like a player ID format (hexadecimal 0-9A-F, 12-14 chars)
+            # and if the user has moderation permissions, offer to create an unverified entry
+            clean_id = identifier.replace(" ", "").upper()
+            is_player_id_format = all(c in "0123456789ABCDEF" for c in clean_id) and 12 <= len(clean_id) <= 14
+
+            if is_player_id_format:
+                # Check if user has moderation permissions
+                discord_id = str(interaction.user.id)
+
+                async def check_moderation_permission():
+                    try:
+                        known_player = await sync_to_async(KnownPlayer.objects.filter(discord_id=discord_id).first)()
+                        if not known_player or not known_player.user:
+                            return False
+
+                        # Get moderation permission groups from manage_sus cog
+                        if hasattr(self.cog.bot, "manage_sus"):
+                            manage_groups = self.cog.bot.manage_sus.config.get_global_cog_setting(
+                                "manage_sus", "manage_groups", self.cog.bot.manage_sus.global_settings["manage_groups"]
+                            )
+                            user_groups = await sync_to_async(list)(known_player.user.groups.values_list("name", flat=True))
+                            return any(group in manage_groups for group in user_groups)
+                    except Exception:
+                        return False
+                    return False
+
+                has_mod_permission = await check_moderation_permission()
+
+                if has_mod_permission:
+                    # Create an UnverifiedPlayer entry for this ID so moderation buttons work
+                    player = self.cog.UnverifiedPlayer(identifier.upper())
+                    details = self._build_standardized_details(player, None)
+                    embed = await self.create_lookup_embed(player, details, interaction.user)
+
+                    # Add a note that this is a new player ID
+                    embed.set_footer(text="⚠️ New player ID - not found in existing records.  Double-check the id before moderation actions.")
+
+                    view = await PlayerView.create(
+                        self.cog,
+                        requesting_user=interaction.user,
+                        player=player,
+                        details=details,
+                        embed_title="Player Details",
+                        guild_id=interaction.guild.id,
+                    )
+                    await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+                    return
+
             search_display = f"'{identifier}'"
             await interaction.followup.send(f"No players found matching {search_display}", ephemeral=True)
             return
@@ -403,5 +451,9 @@ class UserInteractions:
 
     async def handle_profile_command(self, interaction: discord.Interaction, identifier: str) -> None:
         """Handle the /profile slash command by routing to lookup with user's Discord ID."""
+        # Profile is just a lookup of the user's own Discord ID
+        # Profile is just a lookup of the user's own Discord ID
+        await self.handle_lookup_command(interaction, str(interaction.user.id))
+        await self.handle_lookup_command(interaction, str(interaction.user.id))
         # Profile is just a lookup of the user's own Discord ID
         await self.handle_lookup_command(interaction, str(interaction.user.id))
