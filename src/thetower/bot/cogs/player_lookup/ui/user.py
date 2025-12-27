@@ -462,8 +462,4 @@ class UserInteractions:
     async def handle_profile_command(self, interaction: discord.Interaction, identifier: str) -> None:
         """Handle the /profile slash command by routing to lookup with user's Discord ID."""
         # Profile is just a lookup of the user's own Discord ID
-        # Profile is just a lookup of the user's own Discord ID
-        await self.handle_lookup_command(interaction, str(interaction.user.id))
-        await self.handle_lookup_command(interaction, str(interaction.user.id))
-        # Profile is just a lookup of the user's own Discord ID
         await self.handle_lookup_command(interaction, str(interaction.user.id))
