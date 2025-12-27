@@ -345,7 +345,6 @@ class UserInteractions:
                         player_name, user_groups, has_user = await sync_to_async(get_player_and_groups)()
 
                         if not has_user:
-                            self.cog.logger.info(f"User {discord_id} not found or has no linked Django user")
                             return False
 
                         # Get moderation permission groups from manage_sus cog
@@ -353,10 +352,8 @@ class UserInteractions:
                             manage_groups = self.cog.bot.manage_sus.config.get_global_cog_setting(
                                 "manage_sus", "manage_groups", self.cog.bot.manage_sus.global_settings["manage_groups"]
                             )
-                            self.cog.logger.info(f"User {player_name} groups: {user_groups}, required: {manage_groups}")
                             return any(group in manage_groups for group in user_groups)
                         else:
-                            self.cog.logger.info("manage_sus cog not loaded")
                             return False
                     except Exception as e:
                         self.cog.logger.error(f"Error checking moderation permission: {e}")
