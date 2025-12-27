@@ -256,7 +256,11 @@ def get_time(file_path: Path) -> datetime.datetime:
     Returns:
         Parsed datetime object
     """
-    return datetime.datetime.strptime(str(file_path.stem), "%Y-%m-%d__%H_%M")
+    stem = str(file_path.stem)
+    # Handle both .csv and .csv.gz files
+    if stem.endswith(".csv"):
+        stem = stem[:-4]  # Remove .csv extension
+    return datetime.datetime.strptime(stem, "%Y-%m-%d__%H_%M")
 
 
 def get_live_df(league: str, shun: bool = False) -> pd.DataFrame:
