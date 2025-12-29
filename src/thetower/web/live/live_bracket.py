@@ -21,6 +21,7 @@ from thetower.web.live.data_ops import (
     require_tournament_data,
 )
 from thetower.web.live.ui_components import setup_common_ui
+from thetower.web.util import add_player_id
 
 
 @require_tournament_data
@@ -71,21 +72,21 @@ def live_bracket():
 
     # Function to clear selection and search again
     def search_for_new():
-        if f"selected_player_{league}" in st.session_state:
-            st.session_state.pop(f"selected_player_{league}")
-        if f"player_search_term_{league}" in st.session_state:
-            st.session_state.pop(f"player_search_term_{league}")
+        if "player_id" in st.session_state:
+            st.session_state.pop("player_id")
+        if "player_search_term" in st.session_state:
+            st.session_state.pop("player_search_term")
 
     # Check if a player was selected from multiple matches
-    selected_from_session = st.session_state.get(f"selected_player_{league}")
-    search_term = st.session_state.get(f"player_search_term_{league}")
+    selected_id_from_session = st.session_state.get("player_id")
+    search_term = st.session_state.get("player_search_term")
 
     # Show "Search for another player" button if we have a player selected or from query params
-    if selected_from_session or options.current_player or options.current_player_id:
+    if selected_id_from_session or options.current_player or options.current_player_id:
         st.button("Search for another player?", on_click=search_for_new, key=f"search_new_{league}")
 
     # Only show search inputs if no player is selected
-    if not (selected_from_session or options.current_player or options.current_player_id):
+    if not (selected_id_from_session or options.current_player or options.current_player_id):
         name_col, id_col = st.columns(2)
         selected_real_name_input = name_col.text_input("Search by Player Name", value=search_term or "", key=f"player_name_input_{league}")
         selected_player_id_input = id_col.text_input("Or by Player ID", value="", key=f"player_id_input_{league}")
@@ -103,18 +104,9 @@ def live_bracket():
     selected_bracket = None
 
     # Handle selection methods via text inputs
-    if selected_from_session:
-        # Check if we also have a league selection
-        selected_league = st.session_state.get(f"selected_league_{league}")
-        if selected_league:
-            league = selected_league
-            # Reload data for the selected league
-            include_shun = include_shun_enabled_for("live_bracket")
-            df = get_live_data(league, include_shun)
-            bracket_order, fullish_brackets = get_bracket_data(df)
-            df = df[df.bracket.isin(fullish_brackets)].copy()
-            st.session_state.pop(f"selected_league_{league}", None)
-        selected_real_name = selected_from_session
+    if selected_id_from_session:
+        # Player ID selected from multi-match list - use it for cross-league search
+        selected_player_id = selected_id_from_session
     elif options.current_player:
         selected_real_name = options.current_player
     elif options.current_player_id:
@@ -156,11 +148,8 @@ def live_bracket():
                     name_col.write(player_name)
                     id_col.write(player_id)
                     league_col.write(player_league)
-                    if button_col.button("Select", key=f"select_id_{player_id}_{player_league}"):
-                        # Store selection and league in session state
-                        st.session_state[f"selected_player_{league}"] = player_name
-                        st.session_state[f"selected_league_{league}"] = player_league
-                        st.rerun()
+                    if button_col.button("Select", key=f"select_id_{player_id}_{player_league}", on_click=add_player_id, args=(player_id,)):
+                        pass
                 return
             else:
                 # Single match found
@@ -210,12 +199,8 @@ def live_bracket():
                     name_col.write(player_name)
                     id_col.write(player_id)
                     league_col.write(player_league)
-                    if button_col.button("Select", key=f"select_{player_name}_{player_league}"):
-                        # Store selection and league in session state
-                        st.session_state[f"selected_player_{league}"] = player_name
-                        st.session_state[f"selected_league_{league}"] = player_league
-                        st.session_state[f"player_search_term_{league}"] = search_name
-                        st.rerun()
+                    if button_col.button("Select", key=f"select_{player_name}_{player_league}", on_click=add_player_id, args=(player_id,)):
+                        pass
                 return
             else:
                 # Single match found
@@ -227,7 +212,7 @@ def live_bracket():
                 bracket_order, fullish_brackets = get_bracket_data(df)
                 df = df[df.bracket.isin(fullish_brackets)].copy()
             # Store search term for later
-            st.session_state[f"player_search_term_{league}"] = search_name
+            st.session_state.player_search_term = search_name
         elif selected_bracket_input.strip():
             selected_bracket = selected_bracket_input.strip()
 
@@ -242,8 +227,8 @@ def live_bracket():
         # Update session state for selected bracket index but do not render nav controls
         st.session_state[f"current_bracket_idx_{league}"] = bracket_idx
         # Clear the session state selection flag
-        if f"selected_player_{league}" in st.session_state:
-            st.session_state.pop(f"selected_player_{league}")
+        if "player_id" in st.session_state:
+            st.session_state.pop("player_id")
     except ValueError as e:
         error_msg = str(e)
         if "MULTIPLE_MATCHES:" in error_msg:
@@ -263,10 +248,8 @@ def live_bracket():
                     name_col.write(player_name)
                     id_col.write(player_id)
                     league_col.write(league)
-                    if button_col.button("Select", key=f"select_{player_name}_{league}"):
-                        # Store selection in session state and rerun
-                        st.session_state[f"selected_player_{league}"] = player_name
-                        st.rerun()
+                    if button_col.button("Select", key=f"select_{player_name}_{league}", on_click=add_player_id, args=(player_id,)):
+                        pass
             return
         elif selected_player_id:
             # Get player's known name
@@ -277,14 +260,6 @@ def live_bracket():
         else:
             st.error(error_msg)
             return
-
-    # Check if a player was selected from multiple matches
-    if selected_from_session := st.session_state.get(f"selected_player_{league}"):
-        selected_real_name = selected_from_session
-        selected_player_id = None
-        selected_bracket = None
-        # Clear the session state
-        st.session_state.pop(f"selected_player_{league}")
 
     if not any([selected_real_name, selected_player_id, selected_bracket]):
         return
@@ -315,12 +290,8 @@ def live_bracket():
                     name_col.write(player_name)
                     id_col.write(player_id)
                     league_col.write(league)
-                    if button_col.button("Select", key=f"select_{player_name}_{league}"):
-                        # Store selection in session state and rerun
-                        st.session_state[f"selected_player_{league}"] = player_name
-                        if search_term:
-                            st.session_state[f"player_search_term_{league}"] = search_term
-                        st.rerun()
+                    if button_col.button("Select", key=f"select_{player_name}_{league}", on_click=add_player_id, args=(player_id,)):
+                        pass
             return
         elif selected_player_id:
             # Get player's known name
