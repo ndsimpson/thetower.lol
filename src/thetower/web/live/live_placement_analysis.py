@@ -226,72 +226,75 @@ def live_score():
                 df = process_display_names(df)
                 league = found_league
             selected_player = found_player
+            # Skip name-based search since we already have the exact player
         else:
             st.error(f"Player ID {selected_id_from_session} not found in any active tournament.")
             return
     elif initial_player:
-        # Use query param player
+        # Use query param player - skip name-based search since we already have the exact player
         selected_player = initial_player
     elif not selected_player or not selected_player.strip():
         st.info("Enter a player name or Player ID to analyze placement")
         return
-    else:
+
+    # Only do name-based search if player wasn't found via session state or query params
+    if not (selected_id_from_session or initial_player):
         # Store search term for later
         st.session_state.player_search_term = selected_player
 
-    # Try matching by entered name across all leagues (supports partial matches)
-    name_lower = selected_player.strip().lower()
+        # Try matching by entered name across all leagues (supports partial matches)
+        name_lower = selected_player.strip().lower()
 
-    # Search across all leagues
-    from thetower.backend.tourney_results.constants import leagues as ALL_LEAGUES
+        # Search across all leagues
+        from thetower.backend.tourney_results.constants import leagues as ALL_LEAGUES
 
-    all_matches = []  # Store (player_name, player_id, league) tuples
+        all_matches = []  # Store (player_name, player_id, league) tuples
 
-    for lg in ALL_LEAGUES:
-        try:
-            df_tmp, _, _, _ = get_placement_analysis_data(lg)
-            df_tmp = process_display_names(df_tmp)
-            match_df = df_tmp[
-                (df_tmp["real_name"].str.lower().str.contains(name_lower, na=False, regex=False))
-                | (df_tmp["display_name"].str.lower().str.contains(name_lower, na=False, regex=False))
-            ]
-            # Add unique players from this league
-            for _, row in match_df.drop_duplicates(subset=["real_name"]).iterrows():
-                all_matches.append((row["real_name"], row["player_id"], lg))
-        except Exception:
-            continue
+        for lg in ALL_LEAGUES:
+            try:
+                df_tmp, _, _, _ = get_placement_analysis_data(lg)
+                df_tmp = process_display_names(df_tmp)
+                match_df = df_tmp[
+                    (df_tmp["real_name"].str.lower().str.contains(name_lower, na=False, regex=False))
+                    | (df_tmp["display_name"].str.lower().str.contains(name_lower, na=False, regex=False))
+                ]
+                # Add unique players from this league
+                for _, row in match_df.drop_duplicates(subset=["real_name"]).iterrows():
+                    all_matches.append((row["real_name"], row["player_id"], lg))
+            except Exception:
+                continue
 
-    if not all_matches:
-        st.error("Player not found by name in any active league's tournament data.")
-        return
-    elif len(all_matches) > 1:
-        st.warning("Multiple players match. Please select one:")
-
-        # Display each match with name, ID, league, and button
-        for player_name, player_id, player_league in all_matches:
-            name_col, id_col, league_col, button_col = st.columns([3, 1, 1, 1])
-            name_col.write(player_name)
-            id_col.write(player_id)
-            league_col.write(player_league)
-            if button_col.button("Select", key=f"select_{player_name}_{player_league}", on_click=add_player_id, args=(player_id,)):
-                pass
-        return
-    else:
-        # Single match found
-        selected_player_name = all_matches[0][0]
-        target_league = all_matches[0][2]
-        if target_league != league:
-            # Reload data for the correct league
-            df, latest_time, bracket_creation_times, tourney_start_date = get_placement_analysis_data(target_league)
-            df = process_display_names(df)
-            league = target_league
-        # Get display name
-        match_df = df[df["real_name"] == selected_player_name]
-        if not match_df.empty:
-            selected_player = match_df.iloc[0]["display_name"]
-        else:
-            st.error("Error loading player data.")
+        if not all_matches:
+            st.error("Player not found by name in any active league's tournament data.")
             return
+        elif len(all_matches) > 1:
+            st.warning("Multiple players match. Please select one:")
+
+            # Display each match with name, ID, league, and button
+            for player_name, player_id, player_league in all_matches:
+                name_col, id_col, league_col, button_col = st.columns([3, 1, 1, 1])
+                name_col.write(player_name)
+                id_col.write(player_id)
+                league_col.write(player_league)
+                if button_col.button("Select", key=f"select_{player_name}_{player_league}", on_click=add_player_id, args=(player_id,)):
+                    pass
+            return
+        else:
+            # Single match found
+            selected_player_name = all_matches[0][0]
+            target_league = all_matches[0][2]
+            if target_league != league:
+                # Reload data for the correct league
+                df, latest_time, bracket_creation_times, tourney_start_date = get_placement_analysis_data(target_league)
+                df = process_display_names(df)
+                league = target_league
+            # Get display name
+            match_df = df[df["real_name"] == selected_player_name]
+            if not match_df.empty:
+                selected_player = match_df.iloc[0]["display_name"]
+            else:
+                st.error("Error loading player data.")
+                return
 
     # Get the player's highest wave
     wave_to_analyze = df[df.display_name == selected_player].wave.max()
