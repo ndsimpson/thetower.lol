@@ -17,6 +17,7 @@ from thetower.web.live.data_ops import (
     require_tournament_data,
 )
 from thetower.web.live.ui_components import setup_common_ui
+from thetower.web.util import add_player_id
 
 
 @require_tournament_data
@@ -89,14 +90,14 @@ def live_score():
 
     # Function to clear selection and search again
     def search_for_new():
-        if f"selected_player_{league}" in st.session_state:
-            st.session_state.pop(f"selected_player_{league}")
-        if f"player_search_term_{league}" in st.session_state:
-            st.session_state.pop(f"player_search_term_{league}")
+        if "player_id" in st.session_state:
+            st.session_state.pop("player_id")
+        if "player_search_term" in st.session_state:
+            st.session_state.pop("player_search_term")
 
     # Check if a player was selected from multiple matches
-    selected_from_session = st.session_state.get(f"selected_player_{league}")
-    search_term = st.session_state.get(f"player_search_term_{league}")
+    selected_id_from_session = st.session_state.get("player_id")
+    search_term = st.session_state.get("player_search_term")
 
     # Initialize selected_player from query params or session state
     initial_player = None
@@ -115,14 +116,14 @@ def live_score():
             initial_player = matching_players.iloc[0]["display_name"]
 
     # Show "Search for another player" button if we have a player selected or from query params
-    if selected_from_session or initial_player:
+    if selected_id_from_session or initial_player:
         st.button("Search for another player?", on_click=search_for_new, key=f"search_new_{league}")
 
     # Player selection via text inputs (no dropdown required)
     st.markdown("### Enter Player")
 
     # Only show search inputs if no player is selected
-    if not (selected_from_session or initial_player):
+    if not (selected_id_from_session or initial_player):
         if is_mobile:
             # In mobile view, stack inputs vertically
             name_col = st.container()
@@ -178,11 +179,8 @@ def live_score():
                 name_col.write(player_name)
                 id_col.write(player_id)
                 league_col.write(player_league)
-                if button_col.button("Select", key=f"select_id_{player_id}_{player_league}"):
-                    # Store selection and league in session state
-                    st.session_state[f"selected_player_{league}"] = player_name
-                    st.session_state[f"selected_league_{league}"] = player_league
-                    st.rerun()
+                if button_col.button("Select", key=f"select_id_{player_id}_{player_league}", on_click=add_player_id, args=(player_id,)):
+                    pass
             return
         else:
             # Single match found
@@ -201,18 +199,36 @@ def live_score():
                 st.error("Error loading player data.")
                 return
 
-    # Check if a player was selected from multiple matches
-    if selected_from_session:
-        # Check if we also have a league selection
-        selected_league = st.session_state.get(f"selected_league_{league}")
-        if selected_league:
-            league = selected_league
-            # Reload data for the selected league
-            df, latest_time, bracket_creation_times, tourney_start_date = get_placement_analysis_data(league)
-            df = process_display_names(df)
-            st.session_state.pop(f"selected_league_{league}")
-        # Use the selected player from session
-        selected_player = selected_from_session
+    # Check if a player ID was selected from multiple matches
+    if selected_id_from_session:
+        # Search across all leagues to find which league this player is in
+        from thetower.backend.tourney_results.constants import leagues as ALL_LEAGUES
+
+        found_player = None
+        found_league = None
+
+        for lg in ALL_LEAGUES:
+            try:
+                df_tmp, _, _, _ = get_placement_analysis_data(lg)
+                df_tmp = process_display_names(df_tmp)
+                match_df = df_tmp[df_tmp["player_id"] == selected_id_from_session]
+                if not match_df.empty:
+                    found_player = match_df.iloc[0]["display_name"]
+                    found_league = lg
+                    break
+            except Exception:
+                continue
+
+        if found_player and found_league:
+            if found_league != league:
+                # Reload data for the correct league
+                df, latest_time, bracket_creation_times, tourney_start_date = get_placement_analysis_data(found_league)
+                df = process_display_names(df)
+                league = found_league
+            selected_player = found_player
+        else:
+            st.error(f"Player ID {selected_id_from_session} not found in any active tournament.")
+            return
     elif initial_player:
         # Use query param player
         selected_player = initial_player
@@ -221,7 +237,7 @@ def live_score():
         return
     else:
         # Store search term for later
-        st.session_state[f"player_search_term_{league}"] = selected_player
+        st.session_state.player_search_term = selected_player
 
     # Try matching by entered name across all leagues (supports partial matches)
     name_lower = selected_player.strip().lower()
@@ -257,11 +273,8 @@ def live_score():
             name_col.write(player_name)
             id_col.write(player_id)
             league_col.write(player_league)
-            if button_col.button("Select", key=f"select_{player_name}_{player_league}"):
-                # Store selection and league in session state
-                st.session_state[f"selected_player_{league}"] = player_name
-                st.session_state[f"selected_league_{league}"] = player_league
-                st.rerun()
+            if button_col.button("Select", key=f"select_{player_name}_{player_league}", on_click=add_player_id, args=(player_id,)):
+                pass
         return
     else:
         # Single match found
@@ -279,10 +292,6 @@ def live_score():
         else:
             st.error("Error loading player data.")
             return
-
-    # Clear the selection flag if we got here
-    if f"selected_player_{league}" in st.session_state:
-        st.session_state.pop(f"selected_player_{league}")
 
     # Get the player's highest wave
     wave_to_analyze = df[df.display_name == selected_player].wave.max()
