@@ -1,4 +1,5 @@
 import asyncio
+import importlib.metadata
 import logging
 import sys
 from pathlib import Path
@@ -31,13 +32,71 @@ class CogManager:
         # Registry for info extensions (additional info that cogs can add to profile views)
         self.info_extension_registry = {}  # target_cog_name -> [(source_cog_name, provider_func), ...]
 
+        # Discover all cog sources (built-in and external packages)
+        self._cog_sources = self._discover_cog_sources()  # List of (module_prefix, path) tuples
+
+    def _discover_cog_sources(self) -> list[tuple[str, Path]]:
+        """Discover all cog sources from built-in cogs and registered entry points.
+
+        Returns:
+            List of (module_prefix, cog_directory_path) tuples
+        """
+        sources = [
+            # Built-in public cogs from this package
+            ("thetower.bot.cogs", Path(__file__).parent.parent.resolve() / "cogs")
+        ]
+
+        # Discover external cog packages via entry points
+        try:
+            entry_points = importlib.metadata.entry_points()
+            # Python 3.10+ uses select(), older versions use dictionary access
+            if hasattr(entry_points, "select"):
+                cog_entries = entry_points.select(group="thetower.bot.cogs")
+            else:
+                cog_entries = entry_points.get("thetower.bot.cogs", [])
+
+            for entry_point in cog_entries:
+                try:
+                    module_path = entry_point.value  # e.g., "thetower_private.cogs"
+                    module = __import__(module_path, fromlist=[""])
+                    cog_path = Path(module.__file__).parent
+                    sources.append((module_path, cog_path))
+                    logger.info(f"Discovered external cog source: {entry_point.name} -> {module_path}")
+                except Exception as e:
+                    logger.warning(f"Failed to load cog source {entry_point.name}: {e}")
+        except Exception as e:
+            logger.warning(f"Failed to discover entry points: {e}")
+
+        return sources
+
+    def refresh_cog_sources(self) -> dict[str, list[str]]:
+        """Re-discover cog sources to pick up newly installed packages.
+
+        This allows bot owners to install new external cog packages without restarting the bot.
+
+        Returns:
+            Dictionary with 'added' and 'removed' lists of module prefixes
+        """
+        old_sources = {module_prefix for module_prefix, _ in self._cog_sources}
+        self._cog_sources = self._discover_cog_sources()
+        new_sources = {module_prefix for module_prefix, _ in self._cog_sources}
+
+        added = list(new_sources - old_sources)
+        removed = list(old_sources - new_sources)
+
+        if added:
+            logger.info(f"Discovered new cog sources: {', '.join(added)}")
+        if removed:
+            logger.info(f"Removed cog sources: {', '.join(removed)}")
+
+        return {"added": added, "removed": removed}
+
     async def load_cogs(self) -> None:
         """
         Load cogs based on bot owner settings.
-        Loads all cogs that are enabled by the bot owner.
+        Loads all cogs that are enabled by the bot owner from all discovered sources.
         """
-        cogs_path = Path(__file__).parent.parent.resolve() / "cogs"
-        logger.debug(f"Starting cog loading from {cogs_path}")
+        logger.debug(f"Starting cog loading from {len(self._cog_sources)} source(s)")
 
         # Get all bot owner cog configurations
         bot_owner_cogs = self.config.get_all_bot_owner_cogs()
@@ -45,71 +104,85 @@ class CogManager:
         # Track cogs we've attempted to load to prevent duplicates
         attempted_loads = set()
 
-        for item in cogs_path.iterdir():
-            extension = None
+        # Iterate over all cog sources
+        for module_prefix, cogs_path in self._cog_sources:
+            logger.debug(f"Scanning cog source: {module_prefix} ({cogs_path})")
 
-            # Handle both single files and folders
-            if item.is_file() and item.suffix == ".py" and not item.stem.startswith("_"):
-                extension = item.stem
-            elif item.is_dir() and not item.stem.startswith("_"):
-                # Check for __init__.py in folder
-                if (item / "__init__.py").exists():
+            if not cogs_path.exists():
+                logger.warning(f"Cog source path does not exist: {cogs_path}")
+                continue
+
+            for item in cogs_path.iterdir():
+                extension = None
+
+                # Handle both single files and folders
+                if item.is_file() and item.suffix == ".py" and not item.stem.startswith("_"):
                     extension = item.stem
+                elif item.is_dir() and not item.stem.startswith("_"):
+                    # Check for __init__.py in folder
+                    if (item / "__init__.py").exists():
+                        extension = item.stem
 
-            if extension:
-                # Skip if we've already attempted this cog
-                if extension in attempted_loads:
-                    logger.debug(f"Skipping duplicate load attempt for '{extension}'")
-                    continue
+                if extension:
+                    # Skip if we've already attempted this cog (prevents duplicate cog names across sources)
+                    if extension in attempted_loads:
+                        logger.debug(f"Skipping duplicate cog name '{extension}' from {module_prefix}")
+                        continue
 
-                attempted_loads.add(extension)
+                    attempted_loads.add(extension)
 
-                # Check if bot owner has enabled this cog
-                cog_config = bot_owner_cogs.get(extension, {})
-                if not cog_config.get("enabled", False):
-                    logger.debug(f"Skipping cog '{extension}' - not enabled by bot owner")
-                    if extension not in self.unloaded_cogs:
-                        self.unloaded_cogs.append(extension)
-                    continue
+                    # Check if bot owner has enabled this cog
+                    cog_config = bot_owner_cogs.get(extension, {})
+                    if not cog_config.get("enabled", False):
+                        logger.debug(f"Skipping cog '{extension}' - not enabled by bot owner")
+                        if extension not in self.unloaded_cogs:
+                            self.unloaded_cogs.append(extension)
+                        continue
 
-                # Only attempt to load if not already loaded
-                if extension in self.loaded_cogs:
-                    logger.debug(f"Skipping already loaded extension '{extension}'")
-                    continue
+                    # Only attempt to load if not already loaded
+                    if extension in self.loaded_cogs:
+                        logger.debug(f"Skipping already loaded extension '{extension}'")
+                        continue
 
-                try:
-                    await self.bot.load_extension(f"thetower.bot.cogs.{extension}")
-                    if extension not in self.loaded_cogs:
-                        self.loaded_cogs.append(extension)
-                        logger.info(f"Loaded extension '{extension}'")
-                except Exception as e:
-                    exception = f"{type(e).__name__}: {e}"
-                    logger.error(f"Failed to load extension {extension}\n{exception}")
-                    if extension not in self.unloaded_cogs:
-                        self.unloaded_cogs.append(extension)
+                    try:
+                        # Use the module prefix for this source
+                        extension_path = f"{module_prefix}.{extension}"
+                        await self.bot.load_extension(extension_path)
+                        if extension not in self.loaded_cogs:
+                            self.loaded_cogs.append(extension)
+                            logger.info(f"Loaded extension '{extension}' from {module_prefix}")
+                    except Exception as e:
+                        exception = f"{type(e).__name__}: {e}"
+                        logger.error(f"Failed to load extension {extension} from {module_prefix}\n{exception}")
+                        if extension not in self.unloaded_cogs:
+                            self.unloaded_cogs.append(extension)
 
     def get_available_cogs(self) -> list[str]:
-        """Get list of all available cogs from the filesystem.
+        """Get list of all available cogs from all discovered sources.
 
         Returns:
-            List of cog names found in the cogs directory
+            List of cog names found across all cog sources
         """
-        cogs_path = Path(__file__).parent.parent.resolve() / "cogs"
         available_cogs = []
 
-        for item in cogs_path.iterdir():
-            extension = None
+        # Scan all cog sources
+        for module_prefix, cogs_path in self._cog_sources:
+            if not cogs_path.exists():
+                continue
 
-            # Handle both single files and folders
-            if item.is_file() and item.suffix == ".py" and not item.stem.startswith("_"):
-                extension = item.stem
-            elif item.is_dir() and not item.stem.startswith("_"):
-                # Check for __init__.py in folder
-                if (item / "__init__.py").exists():
+            for item in cogs_path.iterdir():
+                extension = None
+
+                # Handle both single files and folders
+                if item.is_file() and item.suffix == ".py" and not item.stem.startswith("_"):
                     extension = item.stem
+                elif item.is_dir() and not item.stem.startswith("_"):
+                    # Check for __init__.py in folder
+                    if (item / "__init__.py").exists():
+                        extension = item.stem
 
-            if extension and extension not in available_cogs:
-                available_cogs.append(extension)
+                if extension and extension not in available_cogs:
+                    available_cogs.append(extension)
 
         return sorted(available_cogs)
 
@@ -283,6 +356,7 @@ class CogManager:
             # Check if the cog's module matches the filename
             if hasattr(cog, "__module__"):
                 module_parts = cog.__module__.split(".")
+                # Check if the last part matches (works for any module prefix)
                 if module_parts and module_parts[-1] == filename:
                     return cog
 
@@ -296,8 +370,14 @@ class CogManager:
                 logger.warning(f"Cannot reload '{cog_name}' - not currently loaded")
                 return False
 
-            await self.bot.reload_extension(f"thetower.bot.cogs.{cog_name}")
-            logger.info(f"Reloaded cog '{cog_name}'")
+            # Find which module prefix this cog is from
+            extension_path = self._find_cog_extension_path(cog_name)
+            if not extension_path:
+                logger.error(f"Cannot find cog '{cog_name}' in any cog source")
+                return False
+
+            await self.bot.reload_extension(extension_path)
+            logger.info(f"Reloaded cog '{cog_name}' from {extension_path}")
             return True
         except Exception as e:
             logger.error(f"Failed to reload cog '{cog_name}': {str(e)}")
@@ -311,19 +391,24 @@ class CogManager:
     async def unload_cog(self, cog_name: str) -> bool:
         """Unload a specific cog"""
         try:
-            await self.bot.unload_extension(f"thetower.bot.cogs.{cog_name}")
+            # Find which module prefix this cog is from
+            extension_path = self._find_cog_extension_path(cog_name)
+            if not extension_path:
+                logger.error(f"Cannot find cog '{cog_name}' in any cog source")
+                return False
+
+            await self.bot.unload_extension(extension_path)
             if cog_name in self.loaded_cogs:
                 self.loaded_cogs.remove(cog_name)
                 self.unloaded_cogs.append(cog_name)
 
             # Clear the module from Python's import cache to ensure fresh imports
-            module_name = f"thetower.bot.cogs.{cog_name}"
-            if module_name in sys.modules:
-                del sys.modules[module_name]
-                logger.debug(f"Cleared module '{module_name}' from import cache")
+            if extension_path in sys.modules:
+                del sys.modules[extension_path]
+                logger.debug(f"Cleared module '{extension_path}' from import cache")
 
             # Also clear any submodules that might be part of this cog
-            modules_to_remove = [k for k in sys.modules.keys() if k.startswith(f"{module_name}.")]
+            modules_to_remove = [k for k in sys.modules.keys() if k.startswith(f"{extension_path}.")]
             for mod in modules_to_remove:
                 del sys.modules[mod]
                 logger.debug(f"Cleared submodule '{mod}' from import cache")
@@ -334,6 +419,28 @@ class CogManager:
             logger.error(f"Failed to unload cog '{cog_name}': {str(e)}")
             return False
 
+    def _find_cog_extension_path(self, cog_name: str) -> str | None:
+        """Find the full extension path for a cog by searching all sources.
+
+        Args:
+            cog_name: The cog name to find
+
+        Returns:
+            The full extension path (e.g., 'thetower.bot.cogs.validation') or None
+        """
+        for module_prefix, cogs_path in self._cog_sources:
+            if not cogs_path.exists():
+                continue
+
+            # Check if this cog exists in this source
+            cog_file = cogs_path / f"{cog_name}.py"
+            cog_dir = cogs_path / cog_name
+
+            if cog_file.exists() or (cog_dir.exists() and (cog_dir / "__init__.py").exists()):
+                return f"{module_prefix}.{cog_name}"
+
+        return None
+
     async def load_cog(self, cog_name: str) -> bool:
         """Load a specific cog if enabled by bot owner"""
         # Check if bot owner has enabled this cog
@@ -342,8 +449,13 @@ class CogManager:
             logger.warning(f"Cannot load cog '{cog_name}' - not enabled by bot owner")
             return False
 
+        # Find the extension path for this cog
+        extension_name = self._find_cog_extension_path(cog_name)
+        if not extension_name:
+            logger.error(f"Cannot find cog '{cog_name}' in any cog source")
+            return False
+
         # Check if already loaded
-        extension_name = f"thetower.bot.cogs.{cog_name}"
         if extension_name in self.bot.extensions:
             # Already loaded, just update tracking lists
             if cog_name in self.unloaded_cogs:
@@ -360,7 +472,7 @@ class CogManager:
                 self.unloaded_cogs.remove(cog_name)
             if cog_name not in self.loaded_cogs:
                 self.loaded_cogs.append(cog_name)
-            logger.info(f"Loaded cog '{cog_name}'")
+            logger.info(f"Loaded cog '{cog_name}' from {extension_name}")
             return True
         except Exception as e:
             logger.error(f"Failed to load cog '{cog_name}': {str(e)}")
@@ -373,12 +485,15 @@ class CogManager:
         by checking what extensions are actually loaded in Discord.py and updating
         the internal lists accordingly.
         """
-        # Get all cog extensions that are currently loaded
+        # Get all cog extensions that are currently loaded from any source
         loaded_extensions = set()
         for extension_name in self.bot.extensions.keys():
-            if extension_name.startswith("thetower.bot.cogs."):
-                cog_name = extension_name.replace("thetower.bot.cogs.", "")
-                loaded_extensions.add(cog_name)
+            # Check if this extension matches any of our cog source prefixes
+            for module_prefix, _ in self._cog_sources:
+                if extension_name.startswith(f"{module_prefix}."):
+                    cog_name = extension_name.replace(f"{module_prefix}.", "")
+                    loaded_extensions.add(cog_name)
+                    break
 
         # Update loaded_cogs list
         self.loaded_cogs = list(loaded_extensions)
@@ -506,17 +621,8 @@ class CogManager:
         enabled_cogs = self.config.get_guild_enabled_cogs(guild_id)
         guild_auth = self.config.get_guild_cog_authorizations(guild_id)
 
-        # Get cog files and directories
-        cogs_path = Path(__file__).parent.parent.resolve() / "cogs"
-        available_cogs = []
-
-        for item in cogs_path.iterdir():
-            if item.is_file() and item.suffix == ".py" and not item.stem.startswith("_"):
-                # Direct .py files
-                available_cogs.append(item.stem)
-            elif item.is_dir() and (item / "__init__.py").exists():
-                # Package directories with __init__.py
-                available_cogs.append(item.name)
+        # Get cog files and directories from all sources
+        available_cogs = self.get_available_cogs()
 
         cog_status = []
         for cog in sorted(available_cogs):
