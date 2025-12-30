@@ -90,6 +90,54 @@ class MyCog(BaseCog, name="My Feature"):
 - `unified_advertise`: Cross-guild advertisement system
 - `validation`: Player verification system
 
+### External Cog Plugin System
+
+**CogManager** (`src/thetower/bot/utils/cogmanager.py`) supports loading cogs from multiple sources via Python entry points:
+
+-   **Built-in cogs**: `src/thetower/bot/cogs/` (always available)
+-   **External cog packages**: Auto-discovered via `importlib.metadata.entry_points()` group `"thetower.bot.cogs"`
+-   **Discovery**: Happens at bot startup, can be refreshed via `/settings` → Bot Settings → Cog Management → "Refresh Cog Sources"
+-   **No hardcoding needed**: External packages self-register by declaring entry points in their `pyproject.toml`
+
+**Creating external cog packages**:
+
+1. Create separate repository with structure:
+   ```
+   my-external-cogs/
+   ├── pyproject.toml
+   └── src/
+       └── my_package/
+           └── cogs/
+               ├── __init__.py
+               └── my_cog.py
+   ```
+
+2. Declare entry point in `pyproject.toml`:
+   ```toml
+   [project]
+   name = "my-external-cogs"
+   dependencies = ["thetower @ git+https://github.com/ndsimpson/thetower.lol.git"]
+   
+   [project.entry-points."thetower.bot.cogs"]
+   my_external_cogs = "my_package.cogs"
+   ```
+
+3. External cogs inherit `BaseCog` normally:
+   ```python
+   from thetower.bot.basecog import BaseCog
+   
+   class MyExternalCog(BaseCog, name="External Feature"):
+       # Full BaseCog functionality available
+   ```
+
+4. Install and discover:
+   ```powershell
+   pip install git+https://github.com/yourname/my-external-cogs.git
+   # In Discord: /settings → Bot Settings → Cog Management → Click "Refresh Cog Sources"
+   ```
+
+**Benefits**: Separate repositories for sensitive/proprietary cogs, optional features, or experimental code without cluttering main repo.
+
 ## Development Workflows
 
 ### Setup & Installation
