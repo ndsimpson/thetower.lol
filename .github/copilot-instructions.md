@@ -57,7 +57,7 @@ All bot features extend `BaseCog` (`src/thetower/bot/basecog.py` - 1000+ lines):
 -   **Settings UI**: Each cog defines `settings_view_class` for `CogManager` to integrate into global `/settings` command
 -   **Permission context**: `PermissionContext` dataclass with `.has_any_group()`, `.has_all_groups()`, `.has_discord_role()`
 
-Example cog structure (see [docs/cog_design.md](docs/cog_design.md) for detailed 968-line architecture guide):
+Example cog structure (see [docs/cog_design.md](../docs/cog_design.md) for detailed 968-line architecture guide):
 
 ```python
 class MyCog(BaseCog, name="My Feature"):
@@ -78,17 +78,18 @@ class MyCog(BaseCog, name="My Feature"):
 ```
 
 **Current cogs** (11 total):
-- `battle_conditions`: Battle condition predictor (towerbcs integration)
-- `django_admin`: Web admin interface access via Discord
-- `manage_sus`: Player moderation and ban management
-- `player_lookup`: Player stats and history lookup
-- `role_cache`: Guild role caching and management
-- `tourney_live_data`: Live tournament data fetching and display
-- `tourney_roles`: Tournament role assignment automation
-- `tourney_role_colors`: Role color management
-- `tourney_stats`: Tournament statistics and analysis
-- `unified_advertise`: Cross-guild advertisement system
-- `validation`: Player verification system
+
+-   `battle_conditions`: Battle condition predictor (towerbcs integration)
+-   `django_admin`: Web admin interface access via Discord
+-   `manage_sus`: Player moderation and ban management
+-   `player_lookup`: Player stats and history lookup
+-   `role_cache`: Guild role caching and management
+-   `tourney_live_data`: Live tournament data fetching and display
+-   `tourney_roles`: Tournament role assignment automation
+-   `tourney_role_colors`: Role color management
+-   `tourney_stats`: Tournament statistics and analysis
+-   `unified_advertise`: Cross-guild advertisement system
+-   `validation`: Player verification system
 
 ### External Cog Plugin System
 
@@ -102,39 +103,42 @@ class MyCog(BaseCog, name="My Feature"):
 **Creating external cog packages**:
 
 1. Create separate repository with structure:
-   ```
-   my-external-cogs/
-   ├── pyproject.toml
-   └── src/
-       └── my_package/
-           └── cogs/
-               ├── __init__.py
-               └── my_cog.py
-   ```
+
+    ```
+    my-external-cogs/
+    ├── pyproject.toml
+    └── src/
+        └── my_package/
+            └── cogs/
+                ├── __init__.py
+                └── my_cog.py
+    ```
 
 2. Declare entry point in `pyproject.toml`:
-   ```toml
-   [project]
-   name = "my-external-cogs"
-   dependencies = ["thetower @ git+https://github.com/ndsimpson/thetower.lol.git"]
-   
-   [project.entry-points."thetower.bot.cogs"]
-   my_external_cogs = "my_package.cogs"
-   ```
+
+    ```toml
+    [project]
+    name = "my-external-cogs"
+    dependencies = ["thetower @ git+https://github.com/ndsimpson/thetower.lol.git"]
+
+    [project.entry-points."thetower.bot.cogs"]
+    my_external_cogs = "my_package.cogs"
+    ```
 
 3. External cogs inherit `BaseCog` normally:
-   ```python
-   from thetower.bot.basecog import BaseCog
-   
-   class MyExternalCog(BaseCog, name="External Feature"):
-       # Full BaseCog functionality available
-   ```
+
+    ```python
+    from thetower.bot.basecog import BaseCog
+
+    class MyExternalCog(BaseCog, name="External Feature"):
+        # Full BaseCog functionality available
+    ```
 
 4. Install and discover:
-   ```powershell
-   pip install git+https://github.com/yourname/my-external-cogs.git
-   # In Discord: /settings → Bot Settings → Cog Management → Click "Refresh Cog Sources"
-   ```
+    ```powershell
+    pip install git+https://github.com/yourname/my-external-cogs.git
+    # In Discord: /settings → Bot Settings → Cog Management → Click "Refresh Cog Sources"
+    ```
 
 **Benefits**: Separate repositories for sensitive/proprietary cogs, optional features, or experimental code without cluttering main repo.
 
@@ -185,15 +189,17 @@ python -m thetower.backend.tourney_results.get_live_results
 
 ### Production Deployment
 
-Services run via systemd on Linux (see [c:\data\Services\UPDATE_CHECKLIST.md](c:\data\Services\UPDATE_CHECKLIST.md) - 575 lines):
+Services run via systemd on Linux:
 
 **Service files**:
+
 -   Web: `tower-public_site.service`, `tower-admin_site.service`, `tower-hidden_site.service`
 -   Bot: `discord_bot.service` (unified bot, replaces old fish_bot/validation_bot)
 -   Data: `import_results.service`, `get_results.service`, `get_live_results.service`
 -   Workers: `tower-recalc_worker.service`, `generate_live_bracket_cache.service`
 
 **Environment variables** in service files:
+
 -   `DJANGO_SETTINGS_MODULE=thetower.backend.towerdb.settings`
 -   `DISCORD_TOKEN`, `DISCORD_APPLICATION_ID`, `DISCORD_BOT_CONFIG=/data`
 -   `HIDDEN_FEATURES=true` (enables admin features)
@@ -202,13 +208,14 @@ Services run via systemd on Linux (see [c:\data\Services\UPDATE_CHECKLIST.md](c:
 -   `TOWERBCS_REPO_URL` (for battle conditions predictor updates)
 
 **Paths**:
+
 -   Database: `/data/tower.sqlite3`
 -   Uploads: `/data/uploads/`
 -   Static files: `/data/static/`
 -   Bot config: `/data/` (guild configs, data persistence)
 -   Working directory: `/tourney` (most services) or `/tourney/src` (Django module execution)
 
-**Deployment**: Code deployments are automated through the web admin interface - git pull and service restarts are handled programmatically (see [src/thetower/web/admin/](src/thetower/web/admin/) for deployment tools).
+**Deployment**: Code deployments are automated through the web admin interface - git pull and service restarts are handled programmatically (see [src/thetower/web/admin/](../src/thetower/web/admin/) for deployment tools).
 
 ## Project-Specific Conventions
 
