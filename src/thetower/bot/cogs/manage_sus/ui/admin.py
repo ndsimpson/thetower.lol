@@ -26,6 +26,22 @@ class AdminSusManagementView(discord.ui.View):
         self.add_item(SearchButton())
         self.add_item(BulkActionsButton())
 
+    async def _get_creator_display(self, record) -> str:
+        """Get a human-readable display of who created this record."""
+        if record.created_by:
+            return f"Admin: {record.created_by.username}"
+        elif record.created_by_discord_id:
+            # Try to fetch Discord user to get their username
+            try:
+                user = await self.cog.bot.fetch_user(int(record.created_by_discord_id))
+                return f"@{user.name}"
+            except:
+                # Fallback to ID if user fetch fails
+                return f"Discord ID: {record.created_by_discord_id}"
+        elif record.created_by_api_key:
+            return f"API: {record.created_by_api_key.user.username}"
+        return "System"
+
     async def update_view(self, interaction: discord.Interaction) -> discord.Embed:
         """Update the view and return the embed to display."""
         # If we have a preselected player, auto-search for their records
@@ -56,11 +72,12 @@ class AdminSusManagementView(discord.ui.View):
                     # Show first few records
                     for i, record in enumerate(self.records[:3]):
                         status_emoji = "🔴" if record.is_active else "✅"
+                        created_by = await self._get_creator_display(record)
                         embed.add_field(
                             name=f"{status_emoji} Record #{record.id}",
                             value=(
                                 f"**Type:** {record.get_moderation_type_display()}\n"
-                                f"**Source:** {record.get_source_display()}\n"
+                                f"**Created By:** {created_by}\n"
                                 f"**Created:** {record.created_at.strftime('%Y-%m-%d')}"
                             ),
                             inline=True,

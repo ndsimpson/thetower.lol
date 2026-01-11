@@ -25,6 +25,22 @@ class PlayerModerationView(discord.ui.View):
         # Load initial records
         # We'll load them when update_view is called
 
+    async def _get_creator_display(self, record) -> str:
+        """Get a human-readable display of who created this record."""
+        if record.created_by:
+            return f"Admin: {record.created_by.username}"
+        elif record.created_by_discord_id:
+            # Try to fetch Discord user to get their username
+            try:
+                user = await self.cog.bot.fetch_user(int(record.created_by_discord_id))
+                return f"@{user.name}"
+            except:
+                # Fallback to ID if user fetch fails
+                return f"Discord ID: {record.created_by_discord_id}"
+        elif record.created_by_api_key:
+            return f"API: {record.created_by_api_key.user.username}"
+        return "System"
+
     async def update_view(self, interaction: discord.Interaction) -> discord.Embed:
         """Update the view and return the embed to display."""
         try:
@@ -73,11 +89,14 @@ class PlayerModerationView(discord.ui.View):
                     status_emoji = "🔴" if record.is_active else "✅"
                     status_text = "Active" if record.is_active else "Resolved"
 
+                    # Get creator display with Discord username if available
+                    created_by = await self._get_creator_display(record)
+
                     record_info = (
                         f"**Type:** {record.get_moderation_type_display()}\n"
                         f"**Status:** {status_text}\n"
                         f"**Created:** {record.created_at.strftime('%Y-%m-%d')}\n"
-                        f"**Source:** {record.get_source_display()}"
+                        f"**Created By:** {created_by}"
                     )
 
                     if record.reason:
