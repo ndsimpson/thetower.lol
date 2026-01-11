@@ -323,10 +323,10 @@ class UserInteractions:
         results = await self.cog.search_player(identifier)
 
         if not results:
-            # Check if this looks like a player ID format (hexadecimal 0-9A-F, 12-14 chars)
+            # Check if this looks like a player ID format (hexadecimal 0-9A-F, 12-16 chars)
             # and if the user has moderation permissions, offer to create an unverified entry
             clean_id = identifier.replace(" ", "").upper()
-            is_player_id_format = all(c in "0123456789ABCDEF" for c in clean_id) and 12 <= len(clean_id) <= 14
+            is_player_id_format = all(c in "0123456789ABCDEF" for c in clean_id) and 12 <= len(clean_id) <= 16
 
             if is_player_id_format:
                 # Check if user has moderation permissions
