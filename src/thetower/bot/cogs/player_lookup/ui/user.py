@@ -337,9 +337,14 @@ class UserInteractions:
 
                         def get_player_and_groups():
                             known_player = KnownPlayer.objects.filter(discord_id=discord_id).first()
-                            if not known_player or not known_player.django_user:
+                            if not known_player:
+                                self.cog.logger.debug(f"No KnownPlayer found for discord_id={discord_id}")
+                                return None, None, None
+                            if not known_player.django_user:
+                                self.cog.logger.debug(f"KnownPlayer {known_player.name} has no django_user linked")
                                 return None, None, None
                             user_groups = list(known_player.django_user.groups.values_list("name", flat=True))
+                            self.cog.logger.debug(f"User {known_player.name} has groups: {user_groups}")
                             return known_player.name, user_groups, True
 
                         player_name, user_groups, has_user = await sync_to_async(get_player_and_groups)()
@@ -352,11 +357,15 @@ class UserInteractions:
                             manage_groups = self.cog.bot.manage_sus.config.get_global_cog_setting(
                                 "manage_sus", "manage_groups", self.cog.bot.manage_sus.global_settings["manage_groups"]
                             )
-                            return any(group in manage_groups for group in user_groups)
+                            self.cog.logger.debug(f"Manage groups configured: {manage_groups}")
+                            has_permission = any(group in manage_groups for group in user_groups)
+                            self.cog.logger.debug(f"User has moderation permission: {has_permission}")
+                            return has_permission
                         else:
+                            self.cog.logger.debug("manage_sus cog not found")
                             return False
                     except Exception as e:
-                        self.cog.logger.error(f"Error checking moderation permission: {e}")
+                        self.cog.logger.error(f"Error checking moderation permission: {e}", exc_info=True)
                         return False
 
                 has_mod_permission = await check_moderation_permission()
