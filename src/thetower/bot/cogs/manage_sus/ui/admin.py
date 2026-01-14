@@ -35,7 +35,7 @@ class AdminSusManagementView(discord.ui.View):
             try:
                 user = await self.cog.bot.fetch_user(int(record.created_by_discord_id))
                 return f"@{user.name}"
-            except:
+            except Exception:
                 # Fallback to ID if user fetch fails
                 return f"Discord ID: {record.created_by_discord_id}"
         elif record.created_by_api_key:
