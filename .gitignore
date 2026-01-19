@@ -32,6 +32,9 @@ __pycache__/
 # Custom bytecode cache location
 .cache/
 
+# Generated version file
+src/thetower/_version.py
+
 # Virtual Environment
 .venv/
 env/

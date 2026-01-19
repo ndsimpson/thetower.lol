@@ -1,19 +1,19 @@
 [build-system]
-requires = ["setuptools>=61.0", "wheel"]
+requires = ["setuptools>=61.0", "wheel", "setuptools-scm"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "thetower"
-version = "1.0.0"
+dynamic = ["version"]
 description = "The Tower tournament results and Discord bot system"
 readme = "README.md"
 requires-python = ">=3.12"
 authors = [
-    {name = "thetower.lol team"}
+    {name = "TheDisasterFish"}
 ]
 classifiers = [
-    "Development Status :: 4 - Beta",
-    "Intended Audience :: End Users/Desktop",
+    "Private :: thetower-project",
+    "Private :: thetower.main",
     "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.13",
@@ -60,9 +60,10 @@ dev = [
     "pytest==8.4.1",
     "pytest-django==4.11.1",
     "pytest-sugar==1.0.0",
-    "black==24.4.0",
-    "isort==5.14.0",
-    "flake8==6.1.0",
+    "black==26.1.0",
+    "isort==7.0.0",
+    "flake8==7.3.0",
+    "autoflake==2.3.1",
 ]
 
 
@@ -160,3 +161,6 @@ exclude = [
     "src/thetower/backend/tourney_results/import/get_results.py",
     "src/thetower/backend/tourney_results/import/get_limited_results.py"
 ]
+
+[tool.setuptools_scm]
+write_to = "src/thetower/_version.py"
