@@ -8,171 +8,12 @@ Gracefully handles Windows development environments.
 import os
 import platform
 import subprocess
-import sys
 from datetime import datetime, timezone
-from importlib.metadata import PackageNotFoundError, version
 from typing import Dict, List, Tuple
 
 import streamlit as st
 
-
-def get_external_package_status(package_name: str) -> Dict[str, any]:
-    """
-    Get status information for an external Python package.
-
-    Args:
-        package_name: Name of the package to check
-
-    Returns:
-        dict: Package status information
-    """
-    status_info = {"name": package_name, "installed": False, "version": "unknown", "location": "unknown", "error": None}
-
-    try:
-        # Check if package is installed and get version
-        pkg_version = version(package_name)
-        status_info["installed"] = True
-        status_info["version"] = pkg_version
-
-        # Try to get package location
-        try:
-            import importlib.util
-
-            spec = importlib.util.find_spec(package_name)
-            if spec and spec.origin:
-                status_info["location"] = os.path.dirname(spec.origin)
-        except Exception:
-            pass
-
-    except PackageNotFoundError:
-        status_info["error"] = "Package not installed"
-    except Exception as e:
-        status_info["error"] = f"Error checking package: {str(e)}"
-
-    return status_info
-
-
-def check_towerbcs_updates() -> Tuple[bool, str, str]:
-    """
-    Check for towerbcs updates using direct import of the fast functions.
-
-    Returns:
-        tuple: (success, current_version, latest_version)
-    """
-    try:
-        # Import the fast functions directly from update_towerbcs
-        from thetower.scripts.install_towerbcs import get_installed_version, get_latest_version
-
-        # Get versions quickly
-        current_version = get_installed_version("towerbcs")
-        latest_version = get_latest_version()  # Uses default repo URL
-
-        return True, current_version, latest_version
-
-    except ImportError:
-        # Fallback to subprocess if import fails
-        try:
-            # Get current environment and ensure TOWERBCS_REPO_URL is available
-            env = os.environ.copy()
-            if "TOWERBCS_REPO_URL" not in env:
-                env["TOWERBCS_REPO_URL"] = "https://github.com/ndsimpson/thetower.lol-bc-generator.git"
-
-            result = subprocess.run(
-                [sys.executable, "src/thetower/scripts/install_towerbcs.py", "--version-only"],
-                capture_output=True,
-                text=True,
-                timeout=10,
-                cwd=os.getcwd(),
-                env=env,
-            )
-
-            if result.returncode == 0:
-                output = result.stdout.strip()
-                lines = output.split("\n")
-
-                current_version = None
-                latest_version = None
-
-                for line in lines:
-                    if line.startswith("current:"):
-                        current_version = line.split("current:", 1)[1]
-                        if current_version == "not_installed":
-                            current_version = None
-                    elif line.startswith("latest:"):
-                        latest_version = line.split("latest:", 1)[1]
-                        if latest_version == "unknown":
-                            latest_version = None
-
-                return True, current_version, latest_version
-            else:
-                return False, "check_failed", None
-        except Exception:
-            return False, "subprocess_failed", None
-
-    except Exception:
-        return False, "import_failed", None
-
-
-def update_towerbcs_package() -> Tuple[bool, str]:
-    """
-    Update towerbcs package using the install_towerbcs.py script.
-
-    Returns:
-        tuple: (success, message)
-    """
-    try:
-        # Get current environment and ensure TOWERBCS_REPO_URL is available
-        env = os.environ.copy()
-        if "TOWERBCS_REPO_URL" not in env:
-            env["TOWERBCS_REPO_URL"] = "https://github.com/ndsimpson/thetower.lol-bc-generator.git"
-
-        result = subprocess.run(
-            [sys.executable, "src/thetower/scripts/install_towerbcs.py", "--auto"],
-            capture_output=True,
-            text=True,
-            timeout=120,
-            cwd=os.getcwd(),
-            env=env,
-        )
-
-        if result.returncode == 0:
-            return True, result.stdout.strip()
-        else:
-            return False, result.stderr.strip() or result.stdout.strip()
-
-    except Exception as e:
-        return False, str(e)
-
-
-def force_install_towerbcs_package() -> Tuple[bool, str]:
-    """
-    Force install towerbcs package using the install_towerbcs.py script with --force flag.
-
-    Returns:
-        tuple: (success, message)
-    """
-    try:
-        # Get current environment and ensure TOWERBCS_REPO_URL is available
-        env = os.environ.copy()
-        if "TOWERBCS_REPO_URL" not in env:
-            env["TOWERBCS_REPO_URL"] = "https://github.com/ndsimpson/thetower.lol-bc-generator.git"
-
-        result = subprocess.run(
-            [sys.executable, "src/thetower/scripts/install_towerbcs.py", "--force"],
-            capture_output=True,
-            text=True,
-            timeout=120,
-            cwd=os.getcwd(),
-            env=env,
-        )
-
-        if result.returncode == 0:
-            return True, result.stdout.strip()
-        else:
-            return False, result.stderr.strip() or result.stdout.strip()
-
-    except Exception as e:
-        return False, str(e)
+from thetower.web.admin.package_updates import check_package_updates_sync, get_thetower_packages, update_package_sync
 
 
 def is_windows() -> bool:
@@ -443,9 +284,6 @@ def codebase_status_page():
     main_repo = get_git_status(repo_root)
     submodules = get_submodules_info(repo_root)
 
-    # Get external package status
-    towerbcs_info = get_external_package_status("towerbcs")
-
     # Main Repository Section
     st.markdown("## 🏠 Main Repository")
 
@@ -674,105 +512,108 @@ def codebase_status_page():
     # External Packages Section
     st.markdown("## 📦 External Packages")
 
-    with st.container():
-        col1, col2 = st.columns([1, 1])
+    # Scan for all thetower-project packages
+    thetower_packages = get_thetower_packages()
 
-        with col1:
-            # Package Info Card
+    if not thetower_packages:
+        st.info("No external thetower-project packages found.")
+    else:
+        for idx, pkg in enumerate(thetower_packages):
+            # Skip the main thetower package itself
+            if pkg["name"] == "thetower":
+                continue
+
             with st.container():
-                st.markdown("**Package Info**")
+                col1, col2 = st.columns([1, 1])
 
-                if towerbcs_info["installed"]:
-                    st.markdown("**✅ towerbcs**")
-                else:
-                    st.markdown("**❌ towerbcs**")
+                with col1:
+                    # Package Info Card
+                    with st.container():
+                        st.markdown("**Package Info**")
 
-                st.caption("Battle Conditions Predictor")
+                        # Package type emoji
+                        type_emoji = {"cog": "🔌", "module": "📦", "main": "🏠", "unknown": "❓"}.get(pkg["type"], "❓")
 
-                if towerbcs_info["installed"]:
-                    st.caption("📦 Python Package")
-                else:
-                    st.caption("Not installed")
+                        # Install type badge
+                        install_badge = "📝 Editable" if pkg.get("install_type") == "editable" else "📦 Regular"
 
-        with col2:
-            # Status & Actions Card
-            with st.container():
-                st.markdown("**Status & Actions**")
+                        st.markdown(f"**{type_emoji} {pkg['name']}**")
+                        st.caption(f"Type: {pkg['type']} | Install: {install_badge}")
+                        st.caption(f"Current: v{pkg['version']}")
 
-                if towerbcs_info["installed"]:
-                    # Check for updates
-                    success, current_ver, latest_ver = check_towerbcs_updates()
+                        if pkg["repository_url"]:
+                            # Shorten SSH URLs for display
+                            repo_display = pkg["repository_url"]
+                            if "git@" in repo_display:
+                                repo_display = repo_display.split("/")[-1].replace(".git", "")
+                            st.caption(f"Repo: {repo_display}")
 
-                    st.caption(f"Current: v{towerbcs_info['version']}")
+                with col2:
+                    # Status & Actions Card
+                    with st.container():
+                        st.markdown("**Status & Actions**")
 
-                    if success and current_ver and latest_ver:
-                        if current_ver == latest_ver:
-                            st.success("Status: ✅ Up to date")
-                        else:
-                            st.warning(f"Status: 🔄 Update available (v{latest_ver})")
-                    elif success and not current_ver:
-                        st.error("Status: ❌ Not installed")
-                    else:
-                        st.info("Status: ℹ️ Update check failed")
+                        if pkg["repository_url"]:
+                            # Check for updates
+                            update_info = check_package_updates_sync(pkg["name"], pkg["repository_url"])
 
-                else:
-                    st.error(f"Error: {towerbcs_info['error']}")
-
-                st.markdown("")  # Add spacing
-
-                # Action buttons
-                col_a, col_b, col_c = st.columns(3)
-
-                with col_a:
-                    if towerbcs_info["installed"]:
-                        if st.button("🔄 Update", key="update_towerbcs", help="Update towerbcs package"):
-                            with st.spinner("Updating towerbcs..."):
-                                success, message = update_towerbcs_package()
-                                if success:
-                                    st.success("✅ towerbcs updated")
-                                    with st.expander("📋 Update Output", expanded=False):
-                                        st.code(message, language="bash")
-                                    import time
-
-                                    time.sleep(1)
-                                    st.rerun()
-                                else:
-                                    st.error("❌ Failed to update towerbcs")
-                                    with st.expander("📋 Error Output", expanded=True):
-                                        st.code(message, language="bash")
-                    else:
-                        if st.button("📥 Install", key="install_towerbcs", help="Install towerbcs package"):
-                            with st.spinner("Installing towerbcs..."):
-                                success, message = update_towerbcs_package()
-                                if success:
-                                    st.success("✅ towerbcs installed")
-                                    with st.expander("📋 Install Output", expanded=False):
-                                        st.code(message, language="bash")
-                                    import time
-
-                                    time.sleep(1)
-                                    st.rerun()
-                                else:
-                                    st.error("❌ Failed to install towerbcs")
-                                    with st.expander("📋 Error Output", expanded=True):
-                                        st.code(message, language="bash")
-
-                with col_b:
-                    if st.button("⚡ Force", key="force_towerbcs", help="Force reinstall towerbcs package (ignores version checks)"):
-                        with st.spinner("Force installing towerbcs..."):
-                            success, message = force_install_towerbcs_package()
-                            if success:
-                                st.success("✅ towerbcs force installed")
-                                with st.expander("📋 Force Install Output", expanded=False):
-                                    st.code(message, language="bash")
-                                import time
-
-                                time.sleep(1)
-                                st.rerun()
+                            if update_info.get("error"):
+                                st.warning(f"Status: ⚠️ {update_info['error'][:40]}...")
+                            elif update_info["update_available"]:
+                                st.warning(f"Status: 🔄 Update available ({update_info['latest_version']})")
                             else:
-                                st.error("❌ Failed to force install towerbcs")
-                                with st.expander("📋 Error Output", expanded=True):
-                                    st.code(message, language="bash")
+                                st.success("Status: ✅ Up to date")
+                        else:
+                            st.info("Status: ℹ️ No repository URL")
+
+                        # Show info for cogs
+                        if pkg["type"] == "cog":
+                            st.info("🤖 Managed by Discord bot")
+
+                        st.markdown("")  # Add spacing
+
+                        # Action buttons (only for non-cog packages - bot manages cogs)
+                        if pkg["repository_url"] and pkg["type"] != "cog":
+                            col_a, col_b = st.columns(2)
+
+                            with col_a:
+                                update_key = f"update_{idx}_{pkg['name'].replace('-', '_')}"
+                                if st.button("🔄 Update", key=update_key, help=f"Update {pkg['name']} to latest version"):
+                                    with st.spinner(f"Updating {pkg['name']}..."):
+                                        result = update_package_sync(pkg["name"], repo_url=pkg["repository_url"])
+                                        if result["success"]:
+                                            st.success(f"✅ {pkg['name']} updated to {result['new_version']}")
+                                            with st.expander("📋 Update Output", expanded=False):
+                                                st.code(result["message"], language="bash")
+                                            import time
+
+                                            time.sleep(1)
+                                            st.rerun()
+                                        else:
+                                            st.error(f"❌ Failed to update {pkg['name']}")
+                                            with st.expander("📋 Error Output", expanded=True):
+                                                st.code(result["message"], language="bash")
+
+                            with col_b:
+                                force_key = f"force_{idx}_{pkg['name'].replace('-', '_')}"
+                                if st.button("⚡ Force", key=force_key, help=f"Force reinstall {pkg['name']} (HEAD)"):
+                                    with st.spinner(f"Force installing {pkg['name']}..."):
+                                        # Force install uses HEAD instead of a tag
+                                        result = update_package_sync(pkg["name"], target_version="HEAD", repo_url=pkg["repository_url"])
+                                        if result["success"]:
+                                            st.success(f"✅ {pkg['name']} force installed")
+                                            with st.expander("📋 Force Install Output", expanded=False):
+                                                st.code(result["message"], language="bash")
+                                            import time
+
+                                            time.sleep(1)
+                                            st.rerun()
+                                        else:
+                                            st.error(f"❌ Failed to force install {pkg['name']}")
+                                            with st.expander("📋 Error Output", expanded=True):
+                                                st.code(result["message"], language="bash")
+
+                st.markdown("---")
 
     # Instructions
     with st.expander("ℹ️ About Codebase Status"):
@@ -814,26 +655,30 @@ def codebase_status_page():
         - Each submodule can be updated individually or as part of bulk operations
 
         **External Packages:**
-        - Shows status of external Python packages (like towerbcs)
-        - Version checking and updates are handled via dedicated update scripts
-        - Package installation status is monitored independently from git repositories
-        - Uses `install_towerbcs.py` script for towerbcs management
+        - Shows status of all installed packages with `Private::thetower-project` classifier
+        - Automatically detects package type (cog/module/main) from classifiers
+        - Version checking and updates handled via git repository tags
+        - Works with SSH deploy keys via git+ssh:// URLs
+
+        **Package Types:**
+        - 🔌 **Cog**: External Discord bot cog (`Private::thetower.cog`)
+        - 📦 **Module**: External Python module (`Private::thetower.module`)
+        - 🏠 **Main**: Main thetower application (`Private::thetower.main`)
 
         **Package Update Options:**
-        - 🔄 **Update**: Normal update (checks versions, installs if newer available)
-        - 📥 **Install**: Install package if not currently installed
-        - ⚡ **Force**: Force reinstall package (ignores version checks, uses --force-reinstall and --no-cache-dir)
+        - 🔄 **Update**: Update to latest tagged version
+        - ⚡ **Force**: Force reinstall from HEAD (latest commit, bypasses tags)
 
-        **Force Install Details:**
-        - The force option bypasses version checking and forces a fresh installation
-        - Uses pip's `--force-reinstall` and `--no-cache-dir` flags for clean install
-        - Useful when package installation is corrupted or you want to ensure latest code
-        - Always installs from the latest version available in the repository
+        **Update Process:**
+        - Uses git ls-remote to check for new tags without cloning
+        - Updates via pip install git+<url>@<tag>
+        - Works with SSH URLs via configured deploy keys in ~/.ssh/config
+        - Preserves existing dependencies (uses --no-deps)
 
         **Safety Notes:**
         - Console output helps diagnose issues
         - Always review changes before pulling in production environments
-        - External package updates may require additional dependencies
+        - External package updates may require bot/service restart to take effect
         """
         )
 
