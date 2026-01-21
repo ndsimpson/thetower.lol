@@ -36,7 +36,8 @@ def compute_various(df, options):
 
         pod = {"date": date}
         pod |= {
-            numeral: f"<img src='./app/static/Tower_Skins/{spot}.{get_extension(spot)}' width='{width}'> -- {count}%"
+            # numeral: f"<img src='./app/static/Tower_Skins/{spot}.{get_extension(spot)}' width='{width}'> -- {count}%"
+            numeral: f"{count}%"
             for spot, count, numeral in zip(podium, counts, numerals)
         }
 

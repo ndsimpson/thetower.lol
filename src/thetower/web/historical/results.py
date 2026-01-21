@@ -114,13 +114,15 @@ class Results:
             else:
                 extension = "png"
 
-            return f"<img src='./app/static/Tower_Skins/{avatar_id}.{extension}' style='width:32px; height:32px; object-fit:contain'>"
+            # return f"<img src='./app/static/Tower_Skins/{avatar_id}.{extension}' style='width:32px; height:32px; object-fit:contain'>"
+            return ""
 
         def make_relic(relic_id):
             if relic_id == -1 or relic_id not in all_relics:
                 return ""
 
-            return f"<img src='./app/static/Tower_Relics/{all_relics[relic_id][1]}' width='32' title='{all_relics[relic_id][0]}, {all_relics[relic_id][2]} {all_relics[relic_id][3]}'>"
+            # return f"<img src='./app/static/Tower_Relics/{all_relics[relic_id][1]}' width='32' title='{all_relics[relic_id][0]}, {all_relics[relic_id][2]} {all_relics[relic_id][3]}'"
+            return ""
 
         to_be_displayed["real_name"] = [
             sus_person if id_ in self.sus_ids else name for id_, name in zip(to_be_displayed.id, to_be_displayed.real_name)

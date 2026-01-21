@@ -300,12 +300,14 @@ def draw_info_tab(info_tab, user, player_id, player_df, hidden_features):
     else:
         extension = "png"
 
-    avatar_string = f"<img src='./app/static/Tower_Skins/{avatar}.{extension}' width=100>" if avatar > 0 else ""
+    # avatar_string = f"<img src='./app/static/Tower_Skins/{avatar}.{extension}' width=100>" if avatar > 0 else ""
+    avatar_string = ""
 
     # Check if the relic exists in all_relics dictionary to avoid KeyError
     if relic in all_relics:
         title = f"title='{all_relics[relic][0]}, {all_relics[relic][2]} {all_relics[relic][3]}'"
-        relic_url = f"<img src='./app/static/Tower_Relics/{all_relics[relic][1]}' width=100, {title}>" if relic >= 0 else ""
+        # relic_url = f"<img src='./app/static/Tower_Relics/{all_relics[relic][1]}' width=100, {title}>" if relic >= 0 else ""
+        relic_url = ""
     else:
         # Handle missing relic gracefully
         relic_url = ""
