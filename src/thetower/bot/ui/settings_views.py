@@ -937,6 +937,11 @@ class CogVisibilityView(View):
             option = discord.SelectOption(label=f"{guild.name} ({guild.id})", value=str(guild.id), description=status)
             self.guild_select.options.append(option)
 
+        # Discord requires at least one option in a Select component
+        if not self.guild_select.options:
+            self.guild_select.options = [discord.SelectOption(label="No servers available", value="none", description="Bot is not in any servers")]
+            self.guild_select.disabled = True
+
         # Update embed
         embed = discord.Embed(
             title=f"👁️ Visibility: {self.cog_name}", description="Manage who can use this cog across servers", color=discord.Color.blue()
