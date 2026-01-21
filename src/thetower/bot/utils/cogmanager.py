@@ -48,12 +48,17 @@ class CogManager:
 
         # Discover external cog packages via entry points
         try:
-            entry_points = importlib.metadata.entry_points()
-            # Python 3.10+ uses select(), older versions use dictionary access
-            if hasattr(entry_points, "select"):
-                cog_entries = entry_points.select(group="thetower.bot.cogs")
-            else:
-                cog_entries = entry_points.get("thetower.bot.cogs", [])
+            # Python 3.10+ can pass group directly to avoid scanning all packages
+            # This is much faster and avoids hangs on first run in Python 3.13
+            try:
+                cog_entries = importlib.metadata.entry_points(group="thetower.bot.cogs")
+            except TypeError:
+                # Fallback for older Python versions
+                entry_points = importlib.metadata.entry_points()
+                if hasattr(entry_points, "select"):
+                    cog_entries = entry_points.select(group="thetower.bot.cogs")
+                else:
+                    cog_entries = entry_points.get("thetower.bot.cogs", [])
 
             for entry_point in cog_entries:
                 try:
