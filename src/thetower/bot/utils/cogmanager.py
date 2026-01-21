@@ -229,13 +229,15 @@ class CogManager:
         Args:
             cog_name: The name of the cog
             guild_id: The guild ID
-            is_bot_owner: Whether the user is the bot owner (bypasses all checks)
+            is_bot_owner: Whether the user is the bot owner (bypasses all checks if BOT_OWNER_OVERRIDE=true)
 
         Returns:
             True if the guild can use the cog, False otherwise
         """
-        # Bot owner bypasses all checks
-        if is_bot_owner:
+        # Bot owner bypasses all checks if BOT_OWNER_OVERRIDE is enabled
+        from os import getenv
+
+        if is_bot_owner and getenv("BOT_OWNER_OVERRIDE", "true").lower() == "true":
             return True
 
         # Check bot owner level authorization (steps 1 & 2)

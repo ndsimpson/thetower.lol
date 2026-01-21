@@ -111,8 +111,10 @@ class PermissionManager:
         # Resolve to primary command name
         primary_name = self._get_primary_command_name(ctx, command_name)
 
-        # Always allow DMs from bot owner
-        if ctx.guild is None and await ctx.bot.is_owner(ctx.author):
+        # Allow bot owner if BOT_OWNER_OVERRIDE is enabled (default: true)
+        from os import getenv
+
+        if await ctx.bot.is_owner(ctx.author) and getenv("BOT_OWNER_OVERRIDE", "true").lower() == "true":
             return True
 
         # Check for wildcard command permission
