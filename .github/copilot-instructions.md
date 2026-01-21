@@ -1,5 +1,7 @@
 # GitHub Copilot Instructions for thetower.lol
 
+> **Note**: These instructions apply automatically when Copilot is asked to write or modify code. For general questions or explanations, normal responses apply.
+
 ## Project Overview
 
 Multi-service platform for "The Tower" game tournament results and community management:
@@ -8,6 +10,24 @@ Multi-service platform for "The Tower" game tournament results and community man
 - **Discord Bot** (`src/thetower/bot/`): Multi-guild bot with cog-based architecture for validation, roles, stats, live data
 - **Streamlit Web** (`src/thetower/web/`): Public/admin interfaces for visualizing tournament data and statistics
 - **Background Services**: Automated result fetching, data imports, recalculation workers, live bracket generation
+
+## Copilot Coding Workflow
+
+When writing or modifying code, follow these steps automatically:
+
+1. **Write/modify** the code as requested
+2. **Check Problems panel** for any errors or warnings in the affected files
+3. **Fix all issues**:
+   - Remove unused imports
+   - Resolve unresolved imports
+   - Remove trailing whitespace from all lines
+   - Ensure no blank lines contain whitespace
+   - Fix any linting errors shown in Problems panel
+4. **Verify** the code adheres to project standards (150-char line length, type hints, etc.)
+5. **Stage and commit** changes with a descriptive message
+6. **Never push** to remote repository
+
+Apply this workflow for all code writing/modification requests unless explicitly told otherwise.
 
 ## Architecture & Structure
 
@@ -25,7 +45,7 @@ src/thetower/
 │   └── sus/         # Player moderation/ban system
 ├── bot/             # Discord bot
 │   ├── bot.py       # Main bot entry point
-│   ├── basecog.py   # Base class for all cogs (~1000 lines of shared functionality)
+│   ├── basecog.py   # Base class for all cogs
 │   ├── cogs/        # Feature modules (11 cogs: validation, roles, stats, etc.)
 │   │   └── */ui/    # UI components organized by function (core, user, admin, settings)
 │   ├── utils/       # ConfigManager, PermissionManager, TaskTracker, DataManager
@@ -40,7 +60,7 @@ src/thetower/
 ### Django + Shared Database Pattern
 
 - All components import Django: `os.environ.setdefault("DJANGO_SETTINGS_MODULE", "thetower.backend.towerdb.settings"); django.setup()`
-- Database: `/data/tower.sqlite3` (Linux prod) or `c:\data\tower.sqlite3` (Windows dev) - same path structure
+- Database: `/data/tower.sqlite3`
 - Core models in `tourney_results/models.py`: `TourneyResult`, `TourneyRow`, `Role`, `PatchNew`, `BattleCondition`, `Avatar`, `Relic`
 - Moderation in `sus/models.py`: `KnownPlayer`, `PlayerId`, `ModerationRecord`
 - Always use Django ORM - never raw SQL
@@ -57,7 +77,7 @@ All bot features extend `BaseCog` (`src/thetower/bot/basecog.py` - 1000+ lines):
 - **Settings UI**: Each cog defines `settings_view_class` for `CogManager` to integrate into global `/settings` command
 - **Permission context**: `PermissionContext` dataclass with `.has_any_group()`, `.has_all_groups()`, `.has_discord_role()`
 
-Example cog structure (see [../docs/cog_design.md](../docs/cog_design.md) for detailed 968-line architecture guide):
+Example cog structure (see [../docs/cog_design.md](../docs/cog_design.md) for detailed architecture guide):
 
 ```python
 class MyCog(BaseCog, name="My Feature"):
@@ -222,6 +242,9 @@ Services run via systemd on Linux:
 ### Python Standards
 
 - **Line length**: 150 characters (NOT 79) - configured in black/flake8/isort
+- **Formatting**: Run black/isort automatically, fix all flake8 issues
+- **Imports**: Remove unused imports, resolve all import errors, organize per isort config
+- **Whitespace**: No trailing whitespace, no whitespace on blank lines
 - PEP 8 naming: 4-space indents, snake_case functions, CamelCase classes
 - Import order: standard library → third-party → local (`from thetower.backend...`)
 - Type hints on public functions/methods
@@ -253,6 +276,13 @@ Services run via systemd on Linux:
 - **Ready state**: Always `await self.ready.wait()` before accessing guild data in cog methods
 - **Exception handling**: Cogs raise custom exceptions, bot's global error handler formats user-friendly messages
 
+### Git Commit Standards
+
+- **Format**: `<type>: <description>` (e.g., "feat: add player lookup cog", "fix: resolve import error in basecog")
+- **Types**: feat, fix, refactor, docs, test, chore
+- **Auto-commit**: After writing/modifying code, stage and commit automatically
+- **No push**: Never push to remote unless explicitly requested
+
 ### Logging
 
 - Module-level: `logger = logging.getLogger(__name__)` consistently
@@ -263,9 +293,8 @@ Services run via systemd on Linux:
 
 ### Data Files & Paths
 
-- **Production**: `/data/` (Linux) - database, uploads, static, bot configs
-- **Development**: `c:\data\` (Windows) - mirrors prod structure for consistency
-- **Database**: `/data/tower.sqlite3` or `c:\data\tower.sqlite3`
+- **Data directory**: `/data/` - database, uploads, static, bot configs
+- **Database**: `/data/tower.sqlite3`
 - **Uploads**: `/data/uploads/` (CSV files for import)
 - **Static**: `/data/static/` (Django collectstatic output)
 - **Bot config**: `/data/` (DataManager saves guild-specific JSON files)
@@ -294,13 +323,13 @@ Services run via systemd on Linux:
 
 ## Key Files Reference
 
-- `src/thetower/bot/basecog.py`: Base class for all bot cogs (~1000 lines of shared functionality)
+- `src/thetower/bot/basecog.py`: Base class for all bot cogs
 - `src/thetower/bot/utils/`: ConfigManager, PermissionManager, TaskTracker, DataManager
 - `src/thetower/backend/tourney_results/models.py`: Core database schema
 - `src/thetower/backend/towerdb/settings.py`: Django configuration
-- `../docs/cog_design.md`: Detailed 968-line cog architecture guide (read for complex bot features)
+- `../docs/cog_design.md`: Detailed cog architecture guide (read for complex bot features)
 - `scripts/manage_bytecode.py`: Centralized bytecode cache management (run `setup` first)
-- `c:\data\Services\UPDATE_CHECKLIST.md`: Production deployment procedures (575 lines)
+- `/data/Services/UPDATE_CHECKLIST.md`: Production deployment procedures
 - `pyproject.toml`: All dependencies, build config, and tool settings (black, pytest, isort, flake8)
 
 ## Windows PowerShell Environment
