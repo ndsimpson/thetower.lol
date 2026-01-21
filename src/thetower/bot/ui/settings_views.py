@@ -45,8 +45,13 @@ class SettingsMainView(View):
         embed = discord.Embed(title="🤖 Bot Settings", description="Global bot configuration", color=discord.Color.blue())
 
         # Basic bot info
+        guild_count = len(bot.guilds)
+        # Debug info: check if guilds intent is enabled
+        has_guilds_intent = bot.intents.guilds
+        debug_info = f" (Intent: {'✓' if has_guilds_intent else '✗'})" if guild_count == 0 else ""
+
         embed.add_field(
-            name="Bot Information", value=f"**Name:** {bot.user.name}\n**ID:** {bot.user.id}\n**Servers:** {len(bot.guilds)}", inline=False
+            name="Bot Information", value=f"**Name:** {bot.user.name}\n**ID:** {bot.user.id}\n**Servers:** {guild_count}{debug_info}", inline=False
         )
 
         # Configuration settings
