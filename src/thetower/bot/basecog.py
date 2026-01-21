@@ -346,20 +346,30 @@ class BaseCog(commands.Cog):
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         """Check permissions for slash commands - always includes cog authorization."""
-        # Step 1: Always check cog authorization first
-        if not await self._check_cog_authorization(interaction):
-            return False
+        try:
+            # Step 1: Always check cog authorization first
+            if not await self._check_cog_authorization(interaction):
+                return False
 
-        # Step 2: Allow cogs to add additional checks
-        return await self._check_additional_interaction_permissions(interaction)
+            # Step 2: Allow cogs to add additional checks
+            return await self._check_additional_interaction_permissions(interaction)
+        except Exception as e:
+            # Re-raise custom exceptions as CheckFailure so discord.py handles them properly
+            from thetower.bot.exceptions import CogNotEnabled
+
+            if isinstance(e, CogNotEnabled):
+                raise discord.app_commands.CheckFailure(str(e)) from e
+            raise
 
     async def _check_cog_authorization(self, interaction: discord.Interaction) -> bool:
         """Check if this cog is authorized for the guild (not overridable)."""
         if interaction.guild:
             is_bot_owner = await self.bot.is_owner(interaction.user)
             if not self.bot.cog_manager.can_guild_use_cog(self.cog_name, interaction.guild.id, is_bot_owner):
-                # Silently fail - command won't respond if cog not authorized
-                return False
+                # Import here to avoid circular imports
+                from thetower.bot.exceptions import CogNotEnabled
+
+                raise CogNotEnabled(self.cog_name, interaction.guild.id)
         return True
 
     async def _check_additional_interaction_permissions(self, interaction: discord.Interaction) -> bool:
@@ -384,9 +394,16 @@ class BaseCog(commands.Cog):
         except (UserUnauthorized, ChannelUnauthorized) as e:
             # Send error message as ephemeral response
             if isinstance(e, UserUnauthorized):
-                await interaction.response.send_message("❌ You don't have permission to use this command.", ephemeral=True)
+                await interaction.response.send_message(
+                    "❌ You don't have permission to use this command.\n" "💡 Contact your server administrator if you believe this is incorrect.",
+                    ephemeral=True,
+                )
             elif isinstance(e, ChannelUnauthorized):
-                await interaction.response.send_message("❌ This command cannot be used in this channel.", ephemeral=True)
+                await interaction.response.send_message(
+                    "❌ This command cannot be used in this channel.\n"
+                    "💡 Please use this command in an authorized channel, or contact your server administrator to configure channel permissions via `/settings`.",
+                    ephemeral=True,
+                )
             return False
 
     # Cog settings methods

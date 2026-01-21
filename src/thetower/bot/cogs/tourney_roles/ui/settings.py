@@ -934,7 +934,9 @@ class ModeSettingsView(ui.View):
             name="Dry Run Mode", value="Enabled - No actual changes will be made" if dry_run else "Disabled - Changes will be applied", inline=False
         )
         embed.add_field(
-            name="Updates Paused (This Server)", value="Yes - Automatic updates are disabled" if pause else "No - Automatic updates are active", inline=False
+            name="Updates Paused (This Server)",
+            value="Yes - Automatic updates are disabled" if pause else "No - Automatic updates are active",
+            inline=False,
         )
 
         # Show global pause status (bot owner only can change)
@@ -942,15 +944,11 @@ class ModeSettingsView(ui.View):
             embed.add_field(
                 name="🔴 Global Pause (All Servers)",
                 value="Yes - All role updates are globally paused" if global_pause else "No - Global updates active",
-                inline=False
+                inline=False,
             )
         elif global_pause:
-            embed.add_field(
-                name="⚠️ Global Pause Active",
-                value="Bot owner has paused all role updates globally",
-                inline=False
-            )
-        
+            embed.add_field(name="⚠️ Global Pause Active", value="Bot owner has paused all role updates globally", inline=False)
+
         embed.add_field(
             name="Debug Logging", value="Enabled - Detailed logging active" if debug_logging else "Disabled - Normal logging", inline=False
         )
@@ -986,10 +984,7 @@ class ModeSettingsView(ui.View):
         """Toggle global pause (bot owner only)."""
         # Check if user is bot owner
         if not self.is_bot_owner:
-            await interaction.response.send_message(
-                "❌ Only the bot owner can control global pause",
-                ephemeral=True
-            )
+            await interaction.response.send_message("❌ Only the bot owner can control global pause", ephemeral=True)
             return
 
         current = self.cog.get_global_setting("pause", False)
@@ -997,10 +992,7 @@ class ModeSettingsView(ui.View):
 
         status = "paused globally" if not current else "resumed globally"
         impact = "All role updates across ALL servers are now paused" if not current else "Role updates are now active across all servers"
-        await interaction.response.send_message(
-            f"✅ Automatic updates {status}\n⚠️ {impact}",
-            ephemeral=True
-        )
+        await interaction.response.send_message(f"✅ Automatic updates {status}\n⚠️ {impact}", ephemeral=True)
 
         embed = await self.get_embed()
         await interaction.edit_original_response(embed=embed, view=self)

@@ -255,6 +255,57 @@ bot = DiscordBot()
 
 
 # ============================================================================
+# Global Error Handler
+# ============================================================================
+
+
+@bot.tree.error
+async def on_app_command_error(interaction: discord.Interaction, error: discord.app_commands.AppCommandError):
+    """Global error handler for application commands."""
+    from thetower.bot.exceptions import CogNotEnabled
+
+    # Handle CheckFailure from permission checks
+    if isinstance(error, discord.app_commands.CheckFailure):
+        # Check if interaction was already responded to (e.g., by basecog checks)
+        if interaction.response.is_done():
+            return
+
+        # Check if the original exception was CogNotEnabled
+        original = getattr(error, "__cause__", None) or getattr(error, "__context__", None)
+        if isinstance(original, CogNotEnabled):
+            await interaction.response.send_message(
+                f"❌ **{original.cog_name}** is not enabled for this server.\n\n"
+                f"This feature must be enabled by your server owner before it can be used.\n"
+                f"💡 **To enable:** Ask your server administrator to run `/settings`, "
+                f"navigate to **Manage Cogs**, and enable **{original.cog_name}**.",
+                ephemeral=True,
+            )
+            return
+
+        # Check if this is a channel authorization failure
+        error_str = str(error)
+        if "unauthorized channel" in error_str.lower() or "channel authorization" in error_str.lower():
+            await interaction.response.send_message(
+                "❌ This command cannot be used in this channel. Please use an authorized channel or contact an administrator.", ephemeral=True
+            )
+        else:
+            await interaction.response.send_message("❌ You don't have permission to use this command.", ephemeral=True)
+        return
+
+    # Log other errors
+    logger.error(f"Error in command '{interaction.command.name if interaction.command else 'unknown'}': {error}", exc_info=error)
+
+    # Try to send error message to user
+    try:
+        if not interaction.response.is_done():
+            await interaction.response.send_message(f"❌ An error occurred: {error}", ephemeral=True)
+        else:
+            await interaction.followup.send(f"❌ An error occurred: {error}", ephemeral=True)
+    except Exception:
+        pass  # Interaction may have expired
+
+
+# ============================================================================
 # Slash Commands
 # ============================================================================
 

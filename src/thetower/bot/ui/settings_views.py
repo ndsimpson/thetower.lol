@@ -130,7 +130,7 @@ class BotOwnerSettingsView(View):
             for cog_name in sorted(all_cogs.keys()):
                 config = all_cogs[cog_name]
                 enabled = config.get("enabled", False)
-                loaded = f"thetower.bot.cogs.{cog_name}" in bot.extensions
+                loaded = cog_name in bot.cog_manager.loaded_cogs
                 public = config.get("public", False)
 
                 # Create description showing status
@@ -172,7 +172,7 @@ class BotOwnerSettingsView(View):
             for cog_name in sorted(all_cogs.keys()):
                 config = all_cogs[cog_name]
                 enabled = config.get("enabled", False)
-                loaded = f"thetower.bot.cogs.{cog_name}" in bot.extensions
+                loaded = cog_name in bot.cog_manager.loaded_cogs
                 public = config.get("public", False)
 
                 # Create status indicators
@@ -1351,7 +1351,7 @@ class GuildCogVisibilityView(View):
                     cog_status_lines = []
                     for cog_name in sorted(enabled_cogs.keys()):
                         config = enabled_cogs[cog_name]
-                        loaded = f"thetower.bot.cogs.{cog_name}" in bot.extensions
+                        loaded = cog_name in bot.cog_manager.loaded_cogs
                         public = config.get("public", False)
                         auth_status = guild_auths[cog_name]
 
@@ -1701,7 +1701,7 @@ class CogManagementView(View):
             for cog_name in sorted(all_cogs.keys()):
                 config = all_cogs[cog_name]
                 enabled = config.get("enabled", False)
-                loaded = f"thetower.bot.cogs.{cog_name}" in bot.extensions
+                loaded = cog_name in bot.cog_manager.loaded_cogs
                 public = config.get("public", False)
 
                 # Create description showing status
@@ -1748,7 +1748,7 @@ class CogManagementView(View):
             for cog_name in sorted(all_cogs.keys()):
                 config = all_cogs[cog_name]
                 enabled = config.get("enabled", False)
-                loaded = f"thetower.bot.cogs.{cog_name}" in bot.extensions
+                loaded = cog_name in bot.cog_manager.loaded_cogs
                 public = config.get("public", False)
 
                 # Create status indicators
@@ -1782,7 +1782,7 @@ class CogManagementView(View):
             if self.selected_cog and self.selected_cog in all_cogs:
                 config = all_cogs[self.selected_cog]
                 enabled = config.get("enabled", False)
-                loaded = f"thetower.bot.cogs.{self.selected_cog}" in bot.extensions
+                loaded = self.selected_cog in bot.cog_manager.loaded_cogs
                 public = config.get("public", False)
 
                 embed.add_field(
@@ -1866,7 +1866,7 @@ class CogManagementView(View):
             for cog_name in sorted(all_cogs.keys()):
                 config = all_cogs[cog_name]
                 enabled = config.get("enabled", False)
-                loaded = f"thetower.bot.cogs.{cog_name}" in bot.extensions
+                loaded = cog_name in bot.cog_manager.loaded_cogs
                 public = config.get("public", False)
 
                 # Create description showing status
@@ -1897,7 +1897,7 @@ class CogManagementView(View):
             for cog_name in sorted(all_cogs.keys()):
                 config = all_cogs[cog_name]
                 enabled = config.get("enabled", False)
-                loaded = f"thetower.bot.cogs.{cog_name}" in bot.extensions
+                loaded = cog_name in bot.cog_manager.loaded_cogs
                 public = config.get("public", False)
 
                 # Create status indicators
@@ -1931,7 +1931,7 @@ class CogManagementView(View):
             if self.selected_cog and self.selected_cog in all_cogs:
                 config = all_cogs[self.selected_cog]
                 enabled = config.get("enabled", False)
-                loaded = f"thetower.bot.cogs.{self.selected_cog}" in bot.extensions
+                loaded = self.selected_cog in bot.cog_manager.loaded_cogs
                 public = config.get("public", False)
 
                 embed.add_field(
@@ -2018,7 +2018,7 @@ class CogManagementView(View):
                 for cog_name in sorted(all_cogs.keys()):
                     config = all_cogs[cog_name]
                     enabled = config.get("enabled", False)
-                    loaded = f"thetower.bot.cogs.{cog_name}" in bot.extensions
+                    loaded = cog_name in bot.cog_manager.loaded_cogs
                     public = config.get("public", False)
 
                     # Create description showing status
@@ -2049,7 +2049,7 @@ class CogManagementView(View):
                 for cog_name in sorted(all_cogs.keys()):
                     config = all_cogs[cog_name]
                     enabled = config.get("enabled", False)
-                    loaded = f"thetower.bot.cogs.{cog_name}" in bot.extensions
+                    loaded = cog_name in bot.cog_manager.loaded_cogs
                     public = config.get("public", False)
 
                     # Create status indicators
@@ -2083,7 +2083,7 @@ class CogManagementView(View):
                 if self.selected_cog and self.selected_cog in all_cogs:
                     config = all_cogs[self.selected_cog]
                     enabled = config.get("enabled", False)
-                    loaded = f"thetower.bot.cogs.{self.selected_cog}" in bot.extensions
+                    loaded = self.selected_cog in bot.cog_manager.loaded_cogs
                     public = config.get("public", False)
 
                     embed.add_field(
@@ -2140,7 +2140,7 @@ class CogManagementView(View):
             for cog_name in sorted(all_cogs.keys()):
                 config = all_cogs[cog_name]
                 enabled = config.get("enabled", False)
-                loaded = f"thetower.bot.cogs.{cog_name}" in bot.extensions
+                loaded = cog_name in bot.cog_manager.loaded_cogs
                 public = config.get("public", False)
 
                 # Create description showing status
@@ -2171,7 +2171,7 @@ class CogManagementView(View):
             for cog_name in sorted(all_cogs.keys()):
                 config = all_cogs[cog_name]
                 enabled = config.get("enabled", False)
-                loaded = f"thetower.bot.cogs.{cog_name}" in bot.extensions
+                loaded = cog_name in bot.cog_manager.loaded_cogs
                 public = config.get("public", False)
 
                 # Create status indicators
@@ -2205,7 +2205,7 @@ class CogManagementView(View):
             if self.selected_cog and self.selected_cog in all_cogs:
                 config = all_cogs[self.selected_cog]
                 enabled = config.get("enabled", False)
-                loaded = f"thetower.bot.cogs.{self.selected_cog}" in bot.extensions
+                loaded = self.selected_cog in bot.cog_manager.loaded_cogs
                 public = config.get("public", False)
 
                 embed.add_field(
@@ -2256,7 +2256,7 @@ class CogManagementView(View):
             for cog_name in sorted(all_cogs.keys()):
                 config = all_cogs[cog_name]
                 enabled = config.get("enabled", False)
-                loaded = f"thetower.bot.cogs.{cog_name}" in bot.extensions
+                loaded = cog_name in bot.cog_manager.loaded_cogs
                 public = config.get("public", False)
 
                 # Create description showing status
@@ -2287,7 +2287,7 @@ class CogManagementView(View):
             for cog_name in sorted(all_cogs.keys()):
                 config = all_cogs[cog_name]
                 enabled = config.get("enabled", False)
-                loaded = f"thetower.bot.cogs.{cog_name}" in bot.extensions
+                loaded = cog_name in bot.cog_manager.loaded_cogs
                 public = config.get("public", False)
 
                 # Create status indicators
@@ -2321,7 +2321,7 @@ class CogManagementView(View):
             if self.selected_cog and self.selected_cog in all_cogs:
                 config = all_cogs[self.selected_cog]
                 enabled = config.get("enabled", False)
-                loaded = f"thetower.bot.cogs.{self.selected_cog}" in bot.extensions
+                loaded = self.selected_cog in bot.cog_manager.loaded_cogs
                 public = config.get("public", False)
 
                 embed.add_field(
@@ -2377,7 +2377,7 @@ class CogManagementView(View):
             for cog_name in sorted(all_cogs.keys()):
                 config = all_cogs[cog_name]
                 enabled = config.get("enabled", False)
-                loaded = f"thetower.bot.cogs.{cog_name}" in bot.extensions
+                loaded = cog_name in bot.cog_manager.loaded_cogs
                 public = config.get("public", False)
 
                 # Create description showing status
@@ -2423,7 +2423,7 @@ class CogManagementView(View):
             for cog_name in sorted(all_cogs.keys()):
                 config = all_cogs[cog_name]
                 enabled = config.get("enabled", False)
-                loaded = f"thetower.bot.cogs.{cog_name}" in bot.extensions
+                loaded = cog_name in bot.cog_manager.loaded_cogs
                 public = config.get("public", False)
 
                 # Create status indicators
@@ -2457,7 +2457,7 @@ class CogManagementView(View):
             if self.selected_cog and self.selected_cog in all_cogs:
                 config = all_cogs[self.selected_cog]
                 enabled = config.get("enabled", False)
-                loaded = f"thetower.bot.cogs.{self.selected_cog}" in bot.extensions
+                loaded = self.selected_cog in bot.cog_manager.loaded_cogs
                 public = config.get("public", False)
 
                 embed.add_field(
@@ -2492,7 +2492,7 @@ class CogManagementView(View):
             for cog_name in sorted(all_cogs.keys()):
                 config = all_cogs[cog_name]
                 enabled = config.get("enabled", False)
-                loaded = f"thetower.bot.cogs.{cog_name}" in bot.extensions
+                loaded = cog_name in bot.cog_manager.loaded_cogs
                 public = config.get("public", False)
 
                 # Create description showing status
@@ -2538,7 +2538,7 @@ class CogManagementView(View):
             for cog_name in sorted(all_cogs.keys()):
                 config = all_cogs[cog_name]
                 enabled = config.get("enabled", False)
-                loaded = f"thetower.bot.cogs.{cog_name}" in bot.extensions
+                loaded = cog_name in bot.cog_manager.loaded_cogs
                 public = config.get("public", False)
 
                 # Create status indicators
@@ -2572,7 +2572,7 @@ class CogManagementView(View):
             if self.selected_cog and self.selected_cog in all_cogs:
                 config = all_cogs[self.selected_cog]
                 enabled = config.get("enabled", False)
-                loaded = f"thetower.bot.cogs.{self.selected_cog}" in bot.extensions
+                loaded = self.selected_cog in bot.cog_manager.loaded_cogs
                 public = config.get("public", False)
 
                 embed.add_field(

@@ -42,3 +42,23 @@ class UserUnauthorized(commands.CommandError):
 
     def __str__(self) -> str:
         return self.message
+
+
+class CogNotEnabled(commands.CommandError):
+    """
+    Exception raised when a cog is not enabled for a guild.
+
+    Attributes:
+        cog_name: The name of the disabled cog
+        guild_id: The guild ID where the cog is not enabled
+        message: Optional custom error message
+    """
+
+    def __init__(self, cog_name: str, guild_id: int, message: Optional[str] = None) -> None:
+        self.cog_name = cog_name
+        self.guild_id = guild_id
+        self.message = message or f"The '{cog_name}' feature is not enabled for this server"
+        super().__init__(self.message)
+
+    def __str__(self) -> str:
+        return self.message
