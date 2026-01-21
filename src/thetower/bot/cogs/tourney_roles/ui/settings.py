@@ -554,7 +554,8 @@ class TournamentRolesSettingsView(BaseSettingsView):
     async def mode_settings(self, interaction: discord.Interaction, button: ui.Button):
         """Open mode settings menu."""
         await interaction.response.defer()
-        context = SettingsViewContext(guild_id=self.guild_id, cog_instance=self.cog, interaction=interaction, is_bot_owner=False)
+        is_bot_owner = await self.cog.bot.is_owner(interaction.user)
+        context = SettingsViewContext(guild_id=self.guild_id, cog_instance=self.cog, interaction=interaction, is_bot_owner=is_bot_owner)
         view = ModeSettingsView(context)
         embed = await view.get_embed()
         await interaction.followup.edit_message(interaction.message.id, embed=embed, view=view)
@@ -918,6 +919,7 @@ class ModeSettingsView(ui.View):
         self.guild_id = context.guild_id
         self.cog = context.cog_instance
         self.core = TournamentRolesCore(self.cog)
+        self.is_bot_owner = context.is_bot_owner
 
     async def get_embed(self) -> discord.Embed:
         """Create the mode settings embed."""
@@ -926,13 +928,29 @@ class ModeSettingsView(ui.View):
         dry_run = self.core.is_dry_run_enabled(self.guild_id)
         pause = self.cog.get_setting("pause", False, guild_id=self.guild_id)
         debug_logging = self.cog.get_setting("debug_logging", False, guild_id=self.guild_id)
+        global_pause = self.cog.get_global_setting("pause", False)
 
         embed.add_field(
             name="Dry Run Mode", value="Enabled - No actual changes will be made" if dry_run else "Disabled - Changes will be applied", inline=False
         )
         embed.add_field(
-            name="Updates Paused", value="Yes - Automatic updates are disabled" if pause else "No - Automatic updates are active", inline=False
+            name="Updates Paused (This Server)", value="Yes - Automatic updates are disabled" if pause else "No - Automatic updates are active", inline=False
         )
+
+        # Show global pause status (bot owner only can change)
+        if self.is_bot_owner:
+            embed.add_field(
+                name="🔴 Global Pause (All Servers)",
+                value="Yes - All role updates are globally paused" if global_pause else "No - Global updates active",
+                inline=False
+            )
+        elif global_pause:
+            embed.add_field(
+                name="⚠️ Global Pause Active",
+                value="Bot owner has paused all role updates globally",
+                inline=False
+            )
+        
         embed.add_field(
             name="Debug Logging", value="Enabled - Detailed logging active" if debug_logging else "Disabled - Normal logging", inline=False
         )
@@ -951,19 +969,43 @@ class ModeSettingsView(ui.View):
         embed = await self.get_embed()
         await interaction.edit_original_response(embed=embed, view=self)
 
-    @ui.button(label="Toggle Pause", style=discord.ButtonStyle.secondary, emoji="⏸️")
+    @ui.button(label="Toggle Server Pause", style=discord.ButtonStyle.secondary, emoji="⏸️", row=0)
     async def toggle_pause(self, interaction: discord.Interaction, button: ui.Button):
-        """Toggle update pause."""
+        """Toggle update pause for this server."""
         current = self.cog.get_setting("pause", False, guild_id=self.guild_id)
         self.cog.set_setting("pause", not current, guild_id=self.guild_id)
 
         status = "paused" if not current else "resumed"
-        await interaction.response.send_message(f"✅ Automatic updates {status}", ephemeral=True)
+        await interaction.response.send_message(f"✅ Automatic updates {status} for this server", ephemeral=True)
 
         embed = await self.get_embed()
         await interaction.edit_original_response(embed=embed, view=self)
 
-    @ui.button(label="Toggle Debug Logging", style=discord.ButtonStyle.secondary, emoji="🔍")
+    @ui.button(label="Toggle Global Pause", style=discord.ButtonStyle.danger, emoji="🔴", row=1)
+    async def toggle_global_pause(self, interaction: discord.Interaction, button: ui.Button):
+        """Toggle global pause (bot owner only)."""
+        # Check if user is bot owner
+        if not self.is_bot_owner:
+            await interaction.response.send_message(
+                "❌ Only the bot owner can control global pause",
+                ephemeral=True
+            )
+            return
+
+        current = self.cog.get_global_setting("pause", False)
+        self.cog.set_global_setting("pause", not current)
+
+        status = "paused globally" if not current else "resumed globally"
+        impact = "All role updates across ALL servers are now paused" if not current else "Role updates are now active across all servers"
+        await interaction.response.send_message(
+            f"✅ Automatic updates {status}\n⚠️ {impact}",
+            ephemeral=True
+        )
+
+        embed = await self.get_embed()
+        await interaction.edit_original_response(embed=embed, view=self)
+
+    @ui.button(label="Toggle Debug Logging", style=discord.ButtonStyle.secondary, emoji="🔍", row=2)
     async def toggle_debug_logging(self, interaction: discord.Interaction, button: ui.Button):
         """Toggle debug logging."""
         current = self.cog.get_setting("debug_logging", False, guild_id=self.guild_id)
@@ -975,10 +1017,11 @@ class ModeSettingsView(ui.View):
         embed = await self.get_embed()
         await interaction.edit_original_response(embed=embed, view=self)
 
-    @ui.button(label="Back", style=discord.ButtonStyle.gray, emoji="⬅️")
+    @ui.button(label="Back", style=discord.ButtonStyle.gray, emoji="⬅️", row=3)
     async def back(self, interaction: discord.Interaction, button: ui.Button):
         """Go back to main settings."""
-        context = SettingsViewContext(guild_id=self.guild_id, cog_instance=self.cog, interaction=interaction, is_bot_owner=False)
+        is_bot_owner = await self.cog.bot.is_owner(interaction.user)
+        context = SettingsViewContext(guild_id=self.guild_id, cog_instance=self.cog, interaction=interaction, is_bot_owner=is_bot_owner)
         main_view = TournamentRolesSettingsView(context)
         embed = await main_view.get_settings_embed()
         await interaction.response.edit_message(embed=embed, view=main_view)

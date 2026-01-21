@@ -93,6 +93,7 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
             "process_delay": 5,
             "error_retry_delay": 300,
             "league_hierarchy": ["Legend", "Champion", "Platinum", "Gold", "Silver", "Copper"],
+            "pause": False,  # Global pause - bot owner can pause all role updates
         }
 
         # Guild-specific settings
@@ -319,16 +320,17 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
                 self.cache_timestamp = None
 
                 # Trigger recalculation (calculation phase only)
-                if not self.get_setting("pause", guild_id=self.bot.guilds[0].id if self.bot.guilds else None):
-                    calc_success = await self.calculate_all_roles()
-                    if calc_success:
-                        self.logger.info("Startup role recalculation completed successfully")
-                        self.mark_data_modified()
-                        await self.save_data()
-                    else:
-                        self.logger.warning("Startup role recalculation failed")
+                # Check global pause setting first
+                if self.get_global_setting("pause", False):
+                    self.logger.info("Role updates are globally paused, skipping startup recalculation")
                 else:
-                    self.logger.info("Role updates are paused, skipping startup recalculation")
+                    calc_success = await self.calculate_all_roles()
+                if calc_success:
+                    self.logger.info("Startup role recalculation completed successfully")
+                    self.mark_data_modified()
+                    await self.save_data()
+                else:
+                    self.logger.warning("Startup role recalculation failed")
             else:
                 self.logger.info(f"Cache is current (latest: {self.cache_latest_tourney_date})")
 
@@ -611,6 +613,19 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
             self.logger.error(f"Guild {guild_id} not found")
             return {"error": "Guild not found"}
 
+        # Check if this guild has paused role updates
+        if self.get_setting("pause", default=False, guild_id=guild_id):
+            self.logger.info(f"Role updates are paused for guild {guild.name}, skipping")
+            return {
+                "processed": 0,
+                "roles_added": 0,
+                "roles_removed": 0,
+                "errors": 0,
+                "skipped_no_cache": 0,
+                "skipped_not_verified": 0,
+                "not_in_guild": 0,
+            }
+
         roles_config = self.core.get_roles_config(guild_id)
         all_managed_role_ids = set(config.id for config in roles_config.values())
         verified_role_id = self.core.get_verified_role_id(guild_id)
@@ -837,9 +852,9 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
             self.logger.warning("Role update already in progress, skipping")
             return
 
-        # Check if updates are paused
-        if self.get_setting("pause", guild_id=self.bot.guilds[0].id if self.bot.guilds else None):
-            self.logger.info("Role updates are currently paused. Skipping update.")
+        # Check global pause setting (bot owner control)
+        if self.get_global_setting("pause", False):
+            self.logger.info("Role updates are globally paused. Skipping update.")
             return
 
         async with self.task_tracker.task_context("Role Update", "Updating tournament roles"):
@@ -913,16 +928,6 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
             try:
                 self.currently_calculating = True
                 self.logger.info("Starting role calculation phase")
-
-                # Send notification to log channel
-                log_channel_id = self.get_setting("log_channel_id", guild_id=self.bot.guilds[0].id if self.bot.guilds else None)
-                if log_channel_id:
-                    try:
-                        channel = self.bot.get_channel(int(log_channel_id))
-                        if channel:
-                            calculation_message = await channel.send("🔄 Starting tournament role calculation...")
-                    except Exception as e:
-                        self.logger.error(f"Error sending calculation start message: {e}")
 
                 # Get enabled guilds for this cog
                 enabled_guilds = []
@@ -1693,13 +1698,14 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
             if not self.currently_updating:
                 self.logger.info("Triggering full role update for new tournament data")
 
-                # Check if updates are paused
-                if self.get_setting("pause", guild_id=self.bot.guilds[0].id if self.bot.guilds else None):
-                    self.logger.info("Role updates are paused, skipping automatic update")
+                # Check global pause setting first
+                if self.get_global_setting("pause", False):
+                    self.logger.info("Role updates are globally paused, skipping automatic update")
                     return
 
                 # Trigger full update (calculation + application)
                 # When new tournament data is detected, we want to apply role changes immediately
+                # Note: Guild-level pause setting is also checked per-guild during role application
                 await self.update_all_roles()
             else:
                 self.logger.info("Role update already in progress, skipping event-triggered update")
