@@ -43,9 +43,12 @@ class Validation(BaseCog, name="Validation"):
 
     def _create_or_update_player(self, discord_id, author_name, player_id):
         try:
+            # Ensure discord_id is a string for consistent comparison (KnownPlayer.discord_id is CharField)
+            discord_id_str = str(discord_id)
+
             # Check if this player_id is already linked to a different Discord account
             existing_player_id = PlayerId.objects.filter(id=player_id).select_related("player").first()
-            if existing_player_id and existing_player_id.player.discord_id != discord_id:
+            if existing_player_id and existing_player_id.player.discord_id != discord_id_str:
                 # Player ID is already linked to a different Discord account
                 return {
                     "error": "already_linked",
@@ -53,7 +56,7 @@ class Validation(BaseCog, name="Validation"):
                     "existing_player_name": existing_player_id.player.name,
                 }
 
-            player, created = KnownPlayer.objects.get_or_create(discord_id=discord_id, defaults=dict(approved=True, name=author_name))
+            player, created = KnownPlayer.objects.get_or_create(discord_id=discord_id_str, defaults=dict(approved=True, name=author_name))
 
             # If player already exists but was unapproved, re-approve them
             if not created and not player.approved:
@@ -838,6 +841,9 @@ class Validation(BaseCog, name="Validation"):
             dict: Result with success status and message
         """
         try:
+            # Ensure discord_id is a string for consistent comparison (KnownPlayer.discord_id is CharField)
+            discord_id_str = str(discord_id)
+
             # Check if requesting user is in approved groups
             approved_groups = self.config.get_global_cog_setting(
                 "validation", "approved_unverify_groups", self.global_settings["approved_unverify_groups"]
@@ -849,9 +855,9 @@ class Validation(BaseCog, name="Validation"):
 
             # Get the player
             try:
-                player = KnownPlayer.objects.get(discord_id=discord_id)
+                player = KnownPlayer.objects.get(discord_id=discord_id_str)
             except KnownPlayer.DoesNotExist:
-                return {"success": False, "message": f"No verified player found with Discord ID {discord_id}."}
+                return {"success": False, "message": f"No verified player found with Discord ID {discord_id_str}."}
 
             # Mark the player as unapproved
             player.approved = False
@@ -859,14 +865,14 @@ class Validation(BaseCog, name="Validation"):
 
             return {
                 "success": True,
-                "message": f"Successfully un-verified player {player.name} (Discord ID: {discord_id}). Player marked as unapproved.",
+                "message": f"Successfully un-verified player {player.name} (Discord ID: {discord_id_str}). Player marked as unapproved.",
                 "player_id": player.id,
                 "player_name": player.name,
-                "discord_id": discord_id,
+                "discord_id": discord_id_str,
             }
 
         except Exception as exc:
-            logger.error(f"Error un-verifying player {discord_id}: {exc}")
+            logger.error(f"Error un-verifying player {discord_id_str}: {exc}")
             return {"success": False, "message": f"Error un-verifying player: {exc}"}
 
     async def remove_verified_role_from_user(self, discord_id: int, guild_id: int) -> bool:
