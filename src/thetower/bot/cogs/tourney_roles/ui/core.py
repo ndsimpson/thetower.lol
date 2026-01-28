@@ -104,44 +104,69 @@ class TournamentRolesCore:
             "immediate_logging": self.cog.get_setting("immediate_logging", True, guild_id=guild_id),
         }
 
-    async def build_batch_player_stats(self, tourney_stats_cog, discord_to_player: dict) -> dict:
+    async def build_batch_player_stats(self, tourney_stats_cog, discord_to_player: dict) -> tuple:
         """
-        Build a lookup dictionary of player tournament stats for all Discord users.
+        Build a lookup dictionary of player tournament stats for all game instances.
 
         This processes tournament data once for all players instead of making
         individual queries, providing a 10-50x speedup.
 
         Args:
             tourney_stats_cog: The TourneyStats cog instance
-            discord_to_player: Mapping of Discord IDs to player data
+            discord_to_player: Mapping of Discord IDs to player data with game_instances
 
         Returns:
-            Dictionary mapping Discord ID to TournamentStats object
+            Tuple of:
+            - Dictionary mapping primary_player_id to TournamentStats object
+            - Dictionary mapping discord_id to primary_player_id (for role lookup)
         """
-        # Collect all unique player IDs across all Discord users
+        # Collect all unique player IDs and build mappings
         all_player_ids = set()
-        for player_data in discord_to_player.values():
-            if "all_ids" in player_data and player_data["all_ids"]:
-                all_player_ids.update(player_data["all_ids"])
+        primary_to_player_ids = {}  # Map primary_player_id to all its player IDs
+        discord_to_primary = {}  # Map discord_id to their primary_player_id
 
-        self.logger.info(f"Building batch stats for {len(all_player_ids)} unique player IDs across {len(discord_to_player)} Discord users")
+        for player_data in discord_to_player.values():
+            game_instances = player_data.get("game_instances", [])
+
+            # For each game instance, check which Discord accounts receive roles from it
+            for instance in game_instances:
+                primary_player_id = instance.get("primary_player_id")
+                if not primary_player_id:
+                    continue
+
+                discord_accounts = instance.get("discord_accounts_receiving_roles", [])
+                instance_player_ids = instance.get("all_player_ids", [])
+
+                # Track all player IDs for this game instance
+                if primary_player_id not in primary_to_player_ids:
+                    primary_to_player_ids[primary_player_id] = instance_player_ids
+                    all_player_ids.update(instance_player_ids)
+
+                # Map each Discord account to this game instance's primary player ID
+                for discord_id in discord_accounts:
+                    discord_id_str = str(discord_id)
+                    discord_to_primary[discord_id_str] = primary_player_id
+
+        self.logger.info(f"Building batch stats for {len(all_player_ids)} unique player IDs across {len(primary_to_player_ids)} game instances")
 
         # Get stats for all players in one batch operation
         batch_stats = await tourney_stats_cog.get_batch_player_stats(all_player_ids)
 
-        # Build lookup dictionary: discord_id -> TournamentStats
-        discord_stats_lookup = {}
+        # Build lookup dictionary: primary_player_id -> TournamentStats
+        primary_stats_lookup = {}
 
-        for discord_id, player_data in discord_to_player.items():
-            if "all_ids" not in player_data or not player_data["all_ids"]:
+        for primary_player_id, player_ids in primary_to_player_ids.items():
+            if not player_ids:
                 continue
 
-            # Aggregate stats across all player IDs for this Discord user
-            stats = await self._aggregate_player_stats(player_data["all_ids"], batch_stats)
-            discord_stats_lookup[discord_id] = stats
+            # Calculate stats based on all player IDs for this game instance
+            stats = await self._aggregate_player_stats(player_ids, batch_stats)
+            primary_stats_lookup[primary_player_id] = stats
 
-        self.logger.info(f"Built batch stats lookup for {len(discord_stats_lookup)} Discord users")
-        return discord_stats_lookup
+        self.logger.info(
+            f"Built batch stats lookup for {len(primary_stats_lookup)} game instances, covering {len(discord_to_primary)} Discord accounts"
+        )
+        return primary_stats_lookup, discord_to_primary
 
     async def _aggregate_player_stats(self, player_ids: List[str], batch_stats: dict) -> TournamentStats:
         """

@@ -220,7 +220,6 @@ class DiscordBot(commands.Bot):
             raise error
 
     async def on_ready(self):
-        self.logger.debug("Bot on_ready event triggered")
         self.logger.info("Bot is ready!")
 
         # Load cogs after bot is ready
@@ -228,6 +227,11 @@ class DiscordBot(commands.Bot):
             self.logger.debug("Loading cogs...")
             await self.cog_manager.load_cogs()
             self.logger.debug(f"Loaded cogs: {self.cog_manager.loaded_cogs}")
+
+            # Debug: Log commands per cog
+            for cog_name, cog in self.cogs.items():
+                cog_commands = [cmd.name for cmd in cog.get_app_commands()]
+                self.logger.debug(f"Cog '{cog_name}' has commands: {cog_commands}")
 
             # Sync all commands globally after cogs are loaded
             self.logger.info("Syncing all slash commands globally...")

@@ -1,7 +1,8 @@
-import streamlit as st
-import pandas as pd
-from urllib.parse import urlencode
 import time
+from urllib.parse import urlencode
+
+import pandas as pd
+import streamlit as st
 
 from thetower.backend.tourney_results.constants import leagues
 from thetower.backend.tourney_results.formatting import BASE_URL
@@ -11,10 +12,12 @@ from thetower.backend.tourney_results.models import TourneyRow
 def main():
     st.title("League Progression Analysis — Admin")
 
-    st.markdown("""
+    st.markdown(
+        """
     This page shows player IDs that have no participation in the league preceding the selected league.
     Useful for identifying players who reached a league without participating in the previous tier.
-    """)
+    """
+    )
 
     # League selector and controls in one row
     col1, col2, col3 = st.columns([2, 1, 1])
@@ -24,7 +27,7 @@ def main():
             options=leagues,
             index=leagues.index("Legend"),  # Default to Legend
             help="Choose the league to analyze progression for",
-            label_visibility="collapsed"
+            label_visibility="collapsed",
         )
     with col2:
         page_size = st.selectbox(
@@ -32,17 +35,10 @@ def main():
             options=[50, 100, 250, 500],
             index=2,  # Default to 250
             help="Number of players to show per page",
-            label_visibility="collapsed"
+            label_visibility="collapsed",
         )
     with col3:
-        page = st.number_input(
-            "Page",
-            min_value=1,
-            value=1,
-            step=1,
-            help="Page number to display",
-            label_visibility="collapsed"
-        )
+        page = st.number_input("Page", min_value=1, value=1, step=1, help="Page number to display", label_visibility="collapsed")
 
     # Define league hierarchy (from lowest to highest)
     league_hierarchy = ["Copper", "Silver", "Gold", "Platinum", "Champion", "Legend"]
@@ -84,7 +80,8 @@ def main():
             banned_player_ids = set()
             try:
                 from thetower.backend.sus.models import ModerationRecord
-                banned_player_ids = ModerationRecord.get_active_moderation_ids('ban')
+
+                banned_player_ids = ModerationRecord.get_active_moderation_ids("ban")
                 print(f"[{time.strftime('%H:%M:%S')}] Found {len(banned_player_ids)} banned players to exclude")
             except Exception as e:
                 print(f"[{time.strftime('%H:%M:%S')}] Error getting banned players: {e}")
@@ -92,7 +89,7 @@ def main():
             # Get sus player IDs to indicate
             sus_player_ids = set()
             try:
-                sus_player_ids = ModerationRecord.get_active_moderation_ids('sus')
+                sus_player_ids = ModerationRecord.get_active_moderation_ids("sus")
                 print(f"[{time.strftime('%H:%M:%S')}] Found {len(sus_player_ids)} sus players to indicate")
             except Exception as e:
                 print(f"[{time.strftime('%H:%M:%S')}] Error getting sus players: {e}")
@@ -100,7 +97,7 @@ def main():
             # Build exclusion clause for banned players
             banned_exclusion = ""
             if banned_player_ids:
-                banned_ids_str = ','.join(f"'{pid}'" for pid in banned_player_ids)
+                banned_ids_str = ",".join(f"'{pid}'" for pid in banned_player_ids)
                 banned_exclusion = f"AND tr.player_id NOT IN ({banned_ids_str})"
 
             with connection.cursor() as cursor:
@@ -108,7 +105,8 @@ def main():
                 offset = (page - 1) * page_size
 
                 # Get players who have participated in selected league but NOT in preceding league
-                cursor.execute(f"""
+                cursor.execute(
+                    f"""
                     SELECT DISTINCT tr.player_id
                     FROM tourney_results_tourneyrow tr
                     JOIN tourney_results_tourneyresult res ON tr.result_id = res.id
@@ -122,13 +120,16 @@ def main():
                     )
                     ORDER BY tr.player_id
                     LIMIT %s OFFSET %s
-                """, [selected_league, preceding_league, page_size, offset])
+                """,
+                    [selected_league, preceding_league, page_size, offset],
+                )
 
                 players_missing_preceding = [row[0] for row in cursor.fetchall()]
                 print(f"[{time.strftime('%H:%M:%S')}] Got {len(players_missing_preceding)} player IDs from page {page} (limit {page_size})")
 
                 # Get total count
-                cursor.execute(f"""
+                cursor.execute(
+                    f"""
                     SELECT COUNT(DISTINCT tr.player_id)
                     FROM tourney_results_tourneyrow tr
                     JOIN tourney_results_tourneyresult res ON tr.result_id = res.id
@@ -140,7 +141,9 @@ def main():
                         JOIN tourney_results_tourneyresult res2 ON tr2.result_id = res2.id
                         WHERE res2.league = %s
                     )
-                """, [selected_league, preceding_league])
+                """,
+                    [selected_league, preceding_league],
+                )
 
                 total_missing = cursor.fetchone()[0]
                 print(f"[{time.strftime('%H:%M:%S')}] Got total count: {total_missing}")
@@ -160,7 +163,7 @@ def main():
             detail_start = time.time()
             print(f"[{time.strftime('%H:%M:%S')}] Starting detail query for {len(players_missing_preceding)} players using simple SQL")
 
-            player_ids_str = ','.join(f"'{pid}'" for pid in players_missing_preceding)
+            player_ids_str = ",".join(f"'{pid}'" for pid in players_missing_preceding)
 
             # Get basic stats (latest date and tourney count) - this is fast
             stats_query = f"""
@@ -208,7 +211,7 @@ def main():
             # Combine results
             detail_results = []
             for player_id, latest_date, tourney_count in stats_results:
-                nickname = nickname_dict.get(player_id, 'Unknown')
+                nickname = nickname_dict.get(player_id, "Unknown")
                 detail_results.append((player_id, latest_date, nickname, tourney_count))
 
             print(f"[{time.strftime('%H:%M:%S')}] Combined {len(detail_results)} detail rows")
@@ -216,20 +219,12 @@ def main():
             # Convert to dictionary for easy lookup
             player_details = {}
             for row in detail_results:
-                player_details[row[0]] = {
-                    'latest_nickname': row[2] or 'Unknown',
-                    'latest_date': row[1],
-                    'tourney_count': row[3]
-                }
+                player_details[row[0]] = {"latest_nickname": row[2] or "Unknown", "latest_date": row[1], "tourney_count": row[3]}
 
             # Ensure all players have entries
             for pid in players_missing_preceding:
                 if pid not in player_details:
-                    player_details[pid] = {
-                        'latest_nickname': 'Unknown',
-                        'latest_date': None,
-                        'tourney_count': 0
-                    }
+                    player_details[pid] = {"latest_nickname": "Unknown", "latest_date": None, "tourney_count": 0}
 
             detail_time = time.time() - detail_start
             print(f"[{time.strftime('%H:%M:%S')}] Detail query completed in {detail_time:.2f} seconds")
@@ -239,6 +234,7 @@ def main():
             lookup_start = time.time()
             print(f"[{time.strftime('%H:%M:%S')}] Starting player lookup")
             from thetower.backend.tourney_results.data import get_player_id_lookup
+
             full_player_lookup = get_player_id_lookup()
             player_lookup = {pid: full_player_lookup.get(pid, f"Player {pid}") for pid in players_missing_preceding}
             lookup_time = time.time() - lookup_start
@@ -255,34 +251,37 @@ def main():
                 player_url = f"https://{BASE_URL}/player?" + urlencode({"player": player_id}, doseq=True)
                 is_sus = player_id in sus_player_ids
 
-                display_data.append({
-                    'Player ID': player_id,  # Keep player ID for display
-                    'Real Name': real_name,
-                    'Tourney Nick': details.get('latest_nickname', 'Unknown'),
-                    'Latest Tourney': details.get('latest_date', 'Unknown'),
-                    'Total Tourneys': details.get('tourney_count', 0),
-                    'Status': '🚨 SUS' if is_sus else f"<a href='https://admin.thetower.lol/admin/sus/moderationrecord/add/?tower_id={player_id}&moderation_type=sus' target='_blank'>🔗 sus me</a>",
-                    'Player Link': player_url
-                })
+                display_data.append(
+                    {
+                        "Player ID": player_id,  # Keep player ID for display
+                        "Real Name": real_name,
+                        "Tourney Nick": details.get("latest_nickname", "Unknown"),
+                        "Latest Tourney": details.get("latest_date", "Unknown"),
+                        "Total Tourneys": details.get("tourney_count", 0),
+                        "Status": (
+                            "🚨 SUS"
+                            if is_sus
+                            else f"<a href='https://admin.thetower.lol/admin/sus/moderationrecord/add/?tower_id={player_id}&moderation_type=sus' target='_blank'>🔗 sus me</a>"
+                        ),
+                        "Player Link": player_url,
+                    }
+                )
 
             # Display results as a table
             display_df = pd.DataFrame(display_data)
 
             # Format the date column
-            if 'Latest Tourney' in display_df.columns:
-                display_df['Latest Tourney'] = pd.to_datetime(display_df['Latest Tourney']).dt.strftime('%Y-%m-%d')
+            if "Latest Tourney" in display_df.columns:
+                display_df["Latest Tourney"] = pd.to_datetime(display_df["Latest Tourney"]).dt.strftime("%Y-%m-%d")
 
             # Create clickable player links
             def make_clickable(url, name):
                 return f'<a href="{url}" target="_blank">{name}</a>'
 
-            display_df['Player ID Link'] = display_df.apply(
-                lambda row: make_clickable(row['Player Link'], row['Player ID']),
-                axis=1
-            )
+            display_df["Player ID Link"] = display_df.apply(lambda row: make_clickable(row["Player Link"], row["Player ID"]), axis=1)
 
             # Reorder columns for display
-            final_display_df = display_df[['Player ID Link', 'Real Name', 'Tourney Nick', 'Latest Tourney', 'Total Tourneys', 'Status']]
+            final_display_df = display_df[["Player ID Link", "Real Name", "Tourney Nick", "Latest Tourney", "Total Tourneys", "Status"]]
 
             process_time = time.time() - process_start
             print(f"[{time.strftime('%H:%M:%S')}] Data processing completed in {process_time:.2f} seconds")
@@ -305,13 +304,9 @@ def main():
             summary_start = time.time()
             print(f"[{time.strftime('%H:%M:%S')}] Starting summary statistics calculation")
             # Get total counts using database queries
-            total_selected_players = TourneyRow.objects.filter(
-                result__league=selected_league
-            ).values('player_id').distinct().count()
+            total_selected_players = TourneyRow.objects.filter(result__league=selected_league).values("player_id").distinct().count()
 
-            total_preceding_players = TourneyRow.objects.filter(
-                result__league=preceding_league
-            ).values('player_id').distinct().count()
+            total_preceding_players = TourneyRow.objects.filter(result__league=preceding_league).values("player_id").distinct().count()
 
             summary_time = time.time() - summary_start
             print(f"[{time.strftime('%H:%M:%S')}] Summary statistics completed in {summary_time:.2f} seconds")

@@ -33,6 +33,11 @@ class ValidationSettingsView(BaseSettingsView):
                     value="approved_unverify_groups",
                     description="Django groups that can un-verify players",
                 ),
+                discord.SelectOption(
+                    label="Approved Manage Alt Links Groups",
+                    value="approved_manage_alt_links_groups",
+                    description="Django groups that can manage alt links for users",
+                ),
             ]
 
             self.setting_select = discord.ui.Select(
@@ -47,9 +52,9 @@ class ValidationSettingsView(BaseSettingsView):
         setting_name = self.setting_select.values[0]
 
         # Special handling for group settings
-        if setting_name == "approved_unverify_groups":
+        if setting_name in ("approved_unverify_groups", "approved_manage_alt_links_groups"):
             current_groups = self.cog.config.get_global_cog_setting("validation", setting_name, self.cog.global_settings.get(setting_name, []))
-            view = ValidationGroupsSelectView(self.cog, interaction, current_groups, setting_key=setting_name, context=self.context)
+            view = ValidationGroupsSelectView(self.cog, interaction, current_groups, setting_key=setting_name, context=self.ctx)
             embed = view.create_selection_embed()
             await interaction.response.edit_message(embed=embed, view=view)
             return
@@ -99,8 +104,6 @@ class VerificationAuditButton(ui.Button):
         """Run verification audit."""
         from asgiref.sync import sync_to_async
 
-        from thetower.backend.sus.models import KnownPlayer
-
         # Check if user is bot owner or server owner
         is_guild_owner = interaction.user.id == interaction.guild.owner_id
 
@@ -142,21 +145,25 @@ class VerificationAuditButton(ui.Button):
                 for member in members_with_role:
                     discord_id_str = str(member.id)
                     try:
-                        # Use filter instead of get to handle multiple entries
-                        players = KnownPlayer.objects.filter(discord_id=discord_id_str, approved=True)
-                        player_count = players.count()
+                        from thetower.backend.sus.models import LinkedAccount
 
-                        if player_count == 0:
+                        # Use filter to get all LinkedAccounts for this Discord ID
+                        linked_accounts = LinkedAccount.objects.filter(
+                            platform=LinkedAccount.Platform.DISCORD, account_id=discord_id_str, player__approved=True
+                        ).select_related("player")
+                        account_count = linked_accounts.count()
+
+                        if account_count == 0:
                             users_without_player.append({"id": member.id, "name": member.display_name, "username": str(member)})
-                        elif player_count > 1:
-                            # Track users with duplicate KnownPlayer entries
-                            player_names = [p.name for p in players]
+                        elif account_count > 1:
+                            # Track users with multiple KnownPlayer entries (should not happen with unique constraint)
+                            player_names = [la.player.name for la in linked_accounts]
                             users_with_multiple_players.append(
                                 {
                                     "id": member.id,
                                     "name": member.display_name,
                                     "username": str(member),
-                                    "player_count": player_count,
+                                    "player_count": account_count,
                                     "player_names": player_names,
                                 }
                             )
@@ -171,12 +178,16 @@ class VerificationAuditButton(ui.Button):
                 """Check for KnownPlayers in this guild without verified role."""
                 players_without_role = []
 
-                # Get all KnownPlayers with discord_id
-                known_players = KnownPlayer.objects.filter(discord_id__isnull=False).exclude(discord_id="").filter(approved=True)
+                from thetower.backend.sus.models import LinkedAccount
 
-                for player in known_players:
+                # Get all verified Discord LinkedAccounts
+                linked_accounts = LinkedAccount.objects.filter(
+                    platform=LinkedAccount.Platform.DISCORD, verified=True, player__approved=True
+                ).select_related("player")
+
+                for linked_account in linked_accounts:
                     try:
-                        discord_id = int(player.discord_id)
+                        discord_id = int(linked_account.account_id)
                         member = guild.get_member(discord_id)
 
                         if member and verified_role not in member.roles:
@@ -185,12 +196,12 @@ class VerificationAuditButton(ui.Button):
                                     "id": discord_id,
                                     "name": member.display_name,
                                     "username": str(member),
-                                    "player_name": player.name,
-                                    "player_id": player.id,
+                                    "player_name": linked_account.player.name,
+                                    "player_id": linked_account.player.id,
                                 }
                             )
                     except (ValueError, TypeError):
-                        # Invalid discord_id format
+                        # Invalid account_id format
                         continue
 
                 return players_without_role
@@ -418,9 +429,20 @@ class ValidationGroupsSelectView(discord.ui.View):
             custom_id="add_group_select",
         )
 
-        # Create a temporary view with just the select
+        # Create a temporary view with the select and a cancel button
         temp_view = discord.ui.View(timeout=300)
         temp_view.add_item(select)
+
+        # Add cancel button
+        cancel_button = discord.ui.Button(label="Cancel", style=discord.ButtonStyle.secondary, emoji="❌")
+
+        async def cancel_callback(cancel_interaction: discord.Interaction):
+            # Return to the main group selection view
+            embed = self.create_selection_embed()
+            await cancel_interaction.response.edit_message(embed=embed, view=self)
+
+        cancel_button.callback = cancel_callback
+        temp_view.add_item(cancel_button)
 
         async def select_callback(select_interaction: discord.Interaction):
             selected_groups = select_interaction.data["values"]
@@ -463,9 +485,20 @@ class ValidationGroupsSelectView(discord.ui.View):
             custom_id="remove_groups_select",
         )
 
-        # Create a temporary view with just the select
+        # Create a temporary view with the select and a cancel button
         temp_view = discord.ui.View(timeout=300)
         temp_view.add_item(select)
+
+        # Add cancel button
+        cancel_button = discord.ui.Button(label="Cancel", style=discord.ButtonStyle.secondary, emoji="❌")
+
+        async def cancel_callback(cancel_interaction: discord.Interaction):
+            # Return to the main group selection view
+            embed = self.create_selection_embed()
+            await cancel_interaction.response.edit_message(embed=embed, view=self)
+
+        cancel_button.callback = cancel_callback
+        temp_view.add_item(cancel_button)
 
         async def select_callback(select_interaction: discord.Interaction):
             groups_to_remove = select_interaction.data["values"]
@@ -488,9 +521,19 @@ class ValidationGroupsSelectView(discord.ui.View):
 
     def create_selection_embed(self) -> discord.Embed:
         """Create embed showing current group selection."""
-        title = "🔐 Approved Groups for Un-verify"
-        description = "Configure which Django groups can un-verify players.\n\n**Current Groups:**"
-        no_groups_message = "*No groups selected - no one can un-verify players*"
+        # Set title and description based on setting key
+        if self.setting_key == "approved_unverify_groups":
+            title = "🔐 Approved Groups for Un-verify"
+            description = "Configure which Django groups can un-verify players.\n\n**Current Groups:**"
+            no_groups_message = "*No groups selected - no one can un-verify players*"
+        elif self.setting_key == "approved_manage_alt_links_groups":
+            title = "🔗 Approved Groups for Managing Alt Links"
+            description = "Configure which Django groups can manage alt account links for any user.\n\n**Current Groups:**"
+            no_groups_message = "*No groups selected - only users can manage their own alt links*"
+        else:
+            title = "🔐 Approved Groups"
+            description = "Configure group permissions.\n\n**Current Groups:**"
+            no_groups_message = "*No groups selected*"
 
         embed = discord.Embed(
             title=title,
@@ -515,14 +558,24 @@ class ValidationGroupsSelectView(discord.ui.View):
         # Save the setting globally in bot config (following manage_sus pattern)
         self.cog.config.set_global_cog_setting("validation", self.setting_key, new_groups)
 
-        description = f"**Approved Un-verify Groups:** {len(new_groups)} groups configured\n"
+        # Set title and description based on setting key
+        if self.setting_key == "approved_unverify_groups":
+            title = "Approved Un-verify Groups Updated"
+            description = f"**Approved Un-verify Groups:** {len(new_groups)} groups configured\n"
+        elif self.setting_key == "approved_manage_alt_links_groups":
+            title = "Approved Manage Alt Links Groups Updated"
+            description = f"**Approved Manage Alt Links Groups:** {len(new_groups)} groups configured\n"
+        else:
+            title = "Groups Updated"
+            description = f"**Groups:** {len(new_groups)} groups configured\n"
+
         if new_groups:
             description += f"**Groups:** {', '.join(new_groups)}"
         else:
             description += "**No groups configured**"
 
         embed = discord.Embed(
-            title="Approved Un-verify Groups Updated",
+            title=title,
             description=description,
             color=discord.Color.green(),
         )

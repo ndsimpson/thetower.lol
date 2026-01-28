@@ -5,6 +5,59 @@ import discord
 from .core import ModerationRecordSearch
 
 
+class GameInstanceSelectionView(discord.ui.View):
+    """View for selecting which game instance to manage when a player has multiple."""
+
+    def __init__(self, cog, details: dict, requesting_user: discord.User, guild_id: int, game_instances: list):
+        super().__init__(timeout=300)
+        self.cog = cog
+        self.details = details
+        self.requesting_user = requesting_user
+        self.guild_id = guild_id
+        self.game_instances = game_instances
+
+        # Add a select dropdown with game instances
+        self.add_item(GameInstanceSelect(cog, details, requesting_user, guild_id, game_instances))
+
+
+class GameInstanceSelect(discord.ui.Select):
+    """Dropdown to select which game instance to manage."""
+
+    def __init__(self, cog, details: dict, requesting_user: discord.User, guild_id: int, game_instances: list):
+        self.cog = cog
+        self.details = details
+        self.requesting_user = requesting_user
+        self.guild_id = guild_id
+        self.game_instances = game_instances
+
+        # Build options from game instances
+        options = []
+        for instance in game_instances:
+            instance_name = instance["account_name"]
+            primary_id = instance["primary_player_id"]
+            is_primary = instance["primary"]
+
+            # Add star emoji for primary instance
+            label = f"{instance_name} ⭐" if is_primary else instance_name
+            description = f"ID: {primary_id}"
+
+            options.append(discord.SelectOption(label=label, description=description, value=primary_id))  # Use player ID as value
+
+        super().__init__(placeholder="Select a game account...", options=options, min_values=1, max_values=1)
+
+    async def callback(self, interaction: discord.Interaction):
+        """Handle selection of a game instance."""
+        selected_player_id = self.values[0]
+
+        # Create a new details dict with the selected player ID
+        moderation_details = {**self.details, "primary_id": selected_player_id}
+
+        # Open the moderation view for this player ID
+        view = PlayerModerationView(self.cog, moderation_details, self.requesting_user, self.guild_id)
+        embed = await view.update_view(interaction)
+        await interaction.response.edit_message(embed=embed, view=view)
+
+
 class PlayerModerationView(discord.ui.View):
     """View for managing a specific player's moderation records."""
 
@@ -27,9 +80,15 @@ class PlayerModerationView(discord.ui.View):
 
     async def _get_creator_display(self, record) -> str:
         """Get a human-readable display of who created this record."""
-        if record.created_by:
-            return f"Admin: {record.created_by.username}"
-        elif record.created_by_discord_id:
+        from asgiref.sync import sync_to_async
+
+        # Access Django relationships asynchronously
+        created_by = await sync_to_async(lambda: record.created_by)()
+        if created_by:
+            username = await sync_to_async(lambda: created_by.username)()
+            return f"Admin: {username}"
+
+        if record.created_by_discord_id:
             # Try to fetch Discord user to get their username
             try:
                 user = await self.cog.bot.fetch_user(int(record.created_by_discord_id))
@@ -37,8 +96,13 @@ class PlayerModerationView(discord.ui.View):
             except Exception:
                 # Fallback to ID if user fetch fails
                 return f"Discord ID: {record.created_by_discord_id}"
-        elif record.created_by_api_key:
-            return f"API: {record.created_by_api_key.user.username}"
+
+        created_by_api_key = await sync_to_async(lambda: record.created_by_api_key)()
+        if created_by_api_key:
+            user = await sync_to_async(lambda: created_by_api_key.user)()
+            username = await sync_to_async(lambda: user.username)()
+            return f"API: {username}"
+
         return "System"
 
     async def update_view(self, interaction: discord.Interaction) -> discord.Embed:
@@ -60,7 +124,7 @@ class PlayerModerationView(discord.ui.View):
 
             # Create embed
             embed = discord.Embed(
-                title=f"⚖️ Moderation Records for {self.details['name']}",
+                title="⚖️ Moderation Records",
                 description=f"Player ID: `{primary_id}`",
                 color=discord.Color.blue(),
             )

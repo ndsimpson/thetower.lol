@@ -1,5 +1,6 @@
 import os
 
+import nested_admin
 from django import forms
 
 # Admin for ApiKey
@@ -12,7 +13,7 @@ from django.utils.safestring import mark_safe
 from django.utils.translation import gettext_lazy as _
 from simple_history.admin import SimpleHistoryAdmin
 
-from ..sus.models import KnownPlayer, ModerationRecord, PlayerId, SusPerson
+from ..sus.models import GameInstance, KnownPlayer, LinkedAccount, ModerationRecord, PlayerId, SusPerson
 
 # Import custom User admin
 from . import user_admin  # noqa: F401 - This registers the custom User admin
@@ -193,8 +194,19 @@ class SusPersonAdmin(SimpleHistoryAdmin):
 
 
 def queue_recalculation_for_player(player_id):
-    """Mark all tournaments involving this player for recalculation"""
+    """Mark all tournaments involving this player for recalculation.
+
+    With GameInstance-level moderation, we need to mark tournaments for ALL
+    tower_ids in the same GameInstance, not just the one in the moderation record.
+
+    Args:
+        player_id: Tower ID (player_id) that triggered the recalc
+
+    Returns:
+        int: Number of tournaments marked for recalc, or None on error
+    """
     from ..tourney_results.models import TourneyResult
+    from .models import PlayerId
 
     # Testing switch: set FORCE_QUEUE_FAIL=1 in the environment to simulate a failure
     # (useful to exercise admin warning UI without breaking production logic)
@@ -202,8 +214,28 @@ def queue_recalculation_for_player(player_id):
         return None
 
     try:
+        # Get all tower_ids in the same GameInstance (if linked)
+        try:
+            player_id_obj = PlayerId.objects.select_related("game_instance").get(id=player_id)
+            if player_id_obj.game_instance:
+                # Get all tower_ids in this GameInstance
+                tower_ids = list(player_id_obj.game_instance.player_ids.values_list("id", flat=True))
+            else:
+                # No GameInstance - just use the single tower_id
+                tower_ids = [player_id]
+        except PlayerId.DoesNotExist:
+            # Tower ID doesn't exist yet - just use it directly
+            tower_ids = [player_id]
+
         # Mark affected tournaments as needing recalculation - FAST operation
-        affected_count = TourneyResult.objects.filter(rows__player_id=player_id).update(needs_recalc=True, recalc_retry_count=0)  # Reset retry count
+        # Use Q objects to OR together all tower_ids
+        from django.db.models import Q
+
+        q_filter = Q()
+        for tid in tower_ids:
+            q_filter |= Q(rows__player_id=tid)
+
+        affected_count = TourneyResult.objects.filter(q_filter).distinct().update(needs_recalc=True, recalc_retry_count=0)  # Reset retry count
         return affected_count
     except Exception:
         # Swallow exceptions - recalculation queuing should not block admin save
@@ -232,31 +264,102 @@ def queue_recalculation_for_selected(modeladmin, request, queryset):
 queue_recalculation_for_selected.short_description = "Queue recalculation for selected players"
 
 
-class IdInline(admin.TabularInline):
+class LinkedAccountInline(nested_admin.NestedTabularInline):
+    model = LinkedAccount
+    verbose_name = "Linked Social Account"
+    verbose_name_plural = "Linked Social Accounts"
+    extra = 0
+    fields = ("platform", "account_id", "display_name", "verified", "verified_at", "primary", "role_source_instance")
+    readonly_fields = ("verified_at",)
+
+    def formfield_for_foreignkey(self, db_field, request, **kwargs):
+        """Optimize role_source_instance dropdown to only show GameInstances for this player."""
+        if db_field.name == "role_source_instance":
+            # Get the KnownPlayer being edited
+            if request.resolver_match and hasattr(request.resolver_match, "kwargs"):
+                player_id = request.resolver_match.kwargs.get("object_id")
+                if player_id:
+                    # Limit choices to GameInstances belonging to this KnownPlayer
+                    kwargs["queryset"] = GameInstance.objects.filter(player_id=player_id).select_related("player")
+        return super().formfield_for_foreignkey(db_field, request, **kwargs)
+
+
+class PlayerIdInline(nested_admin.NestedTabularInline):
     model = PlayerId
-    verbose_name = "The Tower Player ID"
-    verbose_name_plural = "The Tower Player IDs"
+    verbose_name = "Tower Player ID"
+    verbose_name_plural = "Tower Player IDs"
+    fk_name = "game_instance"
+    extra = 1
+    fields = ("id", "primary", "notes")
+
+
+@admin.register(GameInstance)
+class GameInstanceAdmin(SimpleHistoryAdmin, nested_admin.NestedModelAdmin):
+    list_display = ("__str__", "player", "primary", "created_at")
+    list_filter = ("primary", "created_at")
+    search_fields = ("name", "player__name", "player_ids__id")
+    readonly_fields = ("created_at",)
+    inlines = (PlayerIdInline,)
+
+    def get_queryset(self, request):
+        """Optimize queryset to reduce queries."""
+        qs = super().get_queryset(request)
+        return qs.select_related("player").prefetch_related("player_ids")
+
+
+class GameInstanceInline(nested_admin.NestedStackedInline):
+    model = GameInstance
+    verbose_name = "Game Instance"
+    verbose_name_plural = "Game Instances"
+    extra = 0
+    fields = ("name", "primary", "created_at")
+    readonly_fields = ("created_at",)
+    inlines = [PlayerIdInline]
 
 
 @admin.register(KnownPlayer)
-class KnownPlayerAdmin(SimpleHistoryAdmin):
+class KnownPlayerAdmin(SimpleHistoryAdmin, nested_admin.NestedModelAdmin):
     def _ids(self, obj):
-        id_data = obj.ids.all().values_list("id", "primary")
+        # Show IDs from primary game instance
+        primary_instance = obj.game_instances.filter(primary=True).first()
+        if primary_instance:
+            id_data = primary_instance.player_ids.all().values_list("id", "primary")
+            info = ""
+            for id_, primary in id_data:
+                primary_string = " (PRIMARY)" if primary else ""
+                info += f"{id_}{primary_string}<br>"
+            return mark_safe(info) if info else "No IDs"
+        return "No game instance"
 
-        info = ""
+    _ids.short_description = "Primary Instance IDs"
 
-        for id_, primary in id_data:
-            primary_string = " primary" if primary else ""
-            info += f"{id_}{primary_string}<br>"
+    def _discord_accounts(self, obj):
+        accounts = obj.linked_accounts.filter(platform="discord").values_list("account_id", flat=True)
+        return ", ".join(accounts) if accounts else "None"
 
-        return mark_safe(info)
+    _discord_accounts.short_description = "Discord IDs"
 
-    _ids.short_description = "Ids"
+    def _game_instance_count(self, obj):
+        return obj.game_instances.count()
 
-    list_display = ("name", "approved", "discord_id", "creator_code", "django_user", "_ids")
+    _game_instance_count.short_description = "# Instances"
+
+    def get_queryset(self, request):
+        """Optimize queryset to reduce N+1 queries from inlines."""
+        qs = super().get_queryset(request)
+        # Only apply prefetching on detail view, not list view
+        if request.resolver_match.url_name.endswith("_change"):
+            qs = qs.select_related("django_user").prefetch_related(
+                "game_instances__player_ids",
+                "linked_accounts__role_source_instance",
+            )
+        return qs
+
+    list_display = ("name", "approved", "_discord_accounts", "creator_code", "django_user", "_game_instance_count", "_ids")
     list_editable = ("approved", "creator_code")
-    search_fields = ("name", "discord_id", "creator_code", "ids__id", "django_user__username")
-    inlines = (IdInline,)
+    search_fields = ("name", "creator_code", "game_instances__player_ids__id", "django_user__username", "linked_accounts__account_id")
+    readonly_fields = ()
+    inlines = (LinkedAccountInline, GameInstanceInline)
 
 
 @admin.register(ModerationRecord)
@@ -285,11 +388,11 @@ class ModerationRecordAdmin(SimpleHistoryAdmin):
         return redirect("..")
 
     def _known_player_display(self, obj):
-        if obj.known_player:
-            return f"{obj.known_player.name} (ID: {obj.known_player.id})"
+        if obj.game_instance:
+            return f"{obj.game_instance.player.name} - {obj.game_instance.name} (ID: {obj.game_instance.player.id})"
         return "Unverified Player"
 
-    _known_player_display.short_description = "Known Player"
+    _known_player_display.short_description = "Known Player / Instance"
 
     def _created_by_display(self, obj):
         return obj.created_by_display
@@ -357,14 +460,13 @@ class ModerationRecordAdmin(SimpleHistoryAdmin):
 
     search_fields = (
         "tower_id",
-        "known_player__name",
-        "known_player__discord_id",
+        "game_instance__player__name",
         "reason",
     )
 
     readonly_fields = (
         "created_at",
-        "known_player",  # Auto-linked, not directly editable
+        "game_instance",  # Auto-linked, not directly editable
         "_created_by_display",  # Read-only combo field
         "_resolved_by_display",  # Read-only combo field
         "created_by_discord_id",  # Only set by bot
@@ -380,7 +482,7 @@ class ModerationRecordAdmin(SimpleHistoryAdmin):
             {
                 "fields": (
                     "tower_id",
-                    "known_player",
+                    "game_instance",
                     "moderation_type",
                     "source",
                     "created_at",
@@ -389,7 +491,7 @@ class ModerationRecordAdmin(SimpleHistoryAdmin):
                     "_resolved_by_display",
                     "reason",
                 ),
-                "description": "Enter the Tower ID. If this player is verified (has a Discord account), they will be auto-linked.",
+                "description": "Enter the Tower ID. If this player is verified (has a game instance), they will be auto-linked.",
             },
         ),
         (
@@ -417,7 +519,7 @@ class ModerationRecordAdmin(SimpleHistoryAdmin):
     )
 
     def get_queryset(self, request):
-        return super().get_queryset(request).select_related("known_player", "created_by", "resolved_by")
+        return super().get_queryset(request).select_related("game_instance__player", "created_by", "resolved_by")
 
     def get_readonly_fields(self, request, obj=None):
         # Base readonly fields that are always readonly
@@ -536,15 +638,15 @@ class ModerationRecordAdmin(SimpleHistoryAdmin):
                     else:
                         obj.reason = sus_notes_section
 
-            # Auto-link to KnownPlayer if one exists for this tower_id
+            # Auto-link to GameInstance if one exists for this tower_id
             if obj.tower_id:
                 try:
-                    # Look for a KnownPlayer who has this tower_id
-                    player_id_obj = PlayerId.objects.select_related("player").get(id=obj.tower_id)
-                    obj.known_player = player_id_obj.player
+                    # Look for a GameInstance that has this tower_id
+                    player_id_obj = PlayerId.objects.select_related("game_instance").get(id=obj.tower_id)
+                    obj.game_instance = player_id_obj.game_instance
                 except PlayerId.DoesNotExist:
-                    # No KnownPlayer has this tower_id - leave as unverified
-                    obj.known_player = None
+                    # No GameInstance has this tower_id - leave as unverified
+                    obj.game_instance = None
 
         super().save_model(request, obj, form, change)
 

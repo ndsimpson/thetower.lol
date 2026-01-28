@@ -91,7 +91,7 @@ class TourneyLiveData(BaseCog, name="Tourney Live Data", description="Commands f
         """Provide tourney join status info for player lookup embeds.
 
         Args:
-            details: Standardized player details dictionary with all_ids, primary_id, etc.
+            details: Per-instance player details dictionary with primary_id, game_instance, etc.
             requesting_user: The Discord user requesting the info
             permission_context: Permission context for the requesting user
 
@@ -99,9 +99,9 @@ class TourneyLiveData(BaseCog, name="Tourney Live Data", description="Commands f
             List of embed field dictionaries to add to the player embed
         """
         try:
-            # Get all player IDs to check, with primary ID first
+            # Get all player IDs to check for this instance, with primary ID first
             primary_id = details["primary_id"]
-            all_player_ids = [primary_id] + [pid["id"] for pid in details["all_ids"] if pid["id"] != primary_id]
+            all_player_ids = [primary_id] + [pid["id"] for pid in details["game_instance"]["player_ids"] if pid["id"] != primary_id]
 
             # Check if any of the player's IDs have joined the current live tournament
             join_checks = [await sync_to_async(check_all_live_entry)(player_id) for player_id in all_player_ids]
@@ -127,12 +127,12 @@ class TourneyLiveData(BaseCog, name="Tourney Live Data", description="Commands f
             else:
                 field_value = "⛔ Not Joined"
 
-            return [{"name": "Current Tournament", "value": field_value, "inline": False}]
+            result = [{"name": "Current Tournament", "value": field_value, "inline": False}]
+            return result
 
         except Exception as e:
             player_name = details.get("name", "Unknown")
             self.logger.error(f"Error getting tourney join status for player {player_name}: {e}")
-            return []
 
     async def cog_initialize(self) -> None:
         """Initialize the Tourney Live Data cog."""
@@ -151,6 +151,7 @@ class TourneyLiveData(BaseCog, name="Tourney Live Data", description="Commands f
                 self.bot.cog_manager.register_info_extension(
                     target_cog="player_lookup", source_cog="tourney_live_data", provider_func=self.provide_player_lookup_info
                 )
+                self.logger.info("TourneyLiveData: Info extension registered successfully")
 
                 # Mark as ready and complete initialization
                 self.set_ready(True)

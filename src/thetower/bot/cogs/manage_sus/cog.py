@@ -106,10 +106,21 @@ class ManageSus(BaseCog, name="Manage Sus"):
         This method is called by the player_lookup cog to extend /lookup functionality.
         Returns a button that opens the moderation management interface for the player,
         or None if the user doesn't have permission or is viewing their own profile.
+
+        Handles three scenarios:
+        1. Unverified player: Use primary_id directly (no game instances)
+        2. Single game instance: Use primary ID from that instance
+        3. Multiple game instances: Button will show dropdown to select which instance
         """
         # Don't show button if user is viewing their own profile
-        if details.get("discord_id") and str(details["discord_id"]) == str(requesting_user.id):
-            return None
+        # TEMPORARILY DISABLED FOR TESTING
+        # game_instances = details.get("game_instances", [])
+        # if game_instances:
+        #     # Check if any Discord account in any instance matches requesting user
+        #     for instance in game_instances:
+        #         discord_accounts = instance.get("discord_accounts_receiving_roles", [])
+        #         if str(requesting_user.id) in [str(did) for did in discord_accounts]:
+        #             return None  # User viewing own profile
 
         # Check if user has permission to view/manage moderation records using the permission context
         # Get allowed groups from settings
@@ -126,7 +137,7 @@ class ManageSus(BaseCog, name="Manage Sus"):
         """Provide moderation status info for player lookup embeds.
 
         Args:
-            details: Standardized player details dictionary with all_ids, primary_id, etc.
+            details: Standardized player details dictionary with game_instances or all_ids
             requesting_user: The Discord user requesting the info
             permission_context: Permission context for the requesting user
 
@@ -135,9 +146,10 @@ class ManageSus(BaseCog, name="Manage Sus"):
         """
         try:
             # IMPORTANT: Users should NEVER see their own moderation records for privacy
-            is_own_profile = str(requesting_user.id) == details.get("discord_id")
-            if is_own_profile:
-                return []
+            # TEMPORARILY DISABLED FOR TESTING
+            # is_own_profile = str(requesting_user.id) == details.get("discord_id")
+            # if is_own_profile:
+            #     return []
 
             # Check if user has permission to view moderation records
             view_groups = self.config.get_global_cog_setting("manage_sus", "view_groups", self.global_settings["view_groups"])
@@ -149,8 +161,25 @@ class ManageSus(BaseCog, name="Manage Sus"):
             if not permission_context.has_any_group(allowed_groups):
                 return []
 
-            # Get all player IDs to check for moderation records
-            all_player_ids = [pid["id"] for pid in details["all_ids"]]
+            # Extract player IDs from details
+            all_player_ids = []
+            if "game_instances" in details:
+                # New GameInstance structure - extract player IDs from all instances
+                for instance in details["game_instances"]:
+                    all_player_ids.extend([pid["id"] for pid in instance.get("player_ids", [])])
+            elif "game_instance" in details:
+                # Single game instance (per-instance extension call)
+                instance = details["game_instance"]
+                all_player_ids.extend([pid["id"] for pid in instance.get("player_ids", [])])
+            elif "player_ids" in details:
+                # Unverified player or simplified structure
+                all_player_ids = [pid["id"] for pid in details["player_ids"]]
+            elif "primary_id" in details:
+                # Minimal structure - just primary ID
+                all_player_ids = [details["primary_id"]]
+
+            if not all_player_ids:
+                return []
 
             # Query all moderation records for all player IDs (both active and resolved)
             from asgiref.sync import sync_to_async
@@ -233,16 +262,21 @@ class ManageSus(BaseCog, name="Manage Sus"):
         try:
             from asgiref.sync import sync_to_async
 
-            from thetower.backend.sus.models import KnownPlayer
+            from thetower.backend.sus.models import LinkedAccount
 
             def _check_permissions_sync():
-                # Get the KnownPlayer linked to this Discord user by Discord ID
-                known_player = KnownPlayer.objects.filter(discord_id=str(user.id)).select_related("django_user").first()
-                if not known_player:
-                    return False, "No KnownPlayer found"
+                # Get the LinkedAccount for this Discord user
+                linked_account = (
+                    LinkedAccount.objects.filter(platform=LinkedAccount.Platform.DISCORD, account_id=str(user.id))
+                    .select_related("player__django_user")
+                    .first()
+                )
+                if not linked_account:
+                    return False, "No LinkedAccount found"
 
-                # Check if the KnownPlayer has a django_user linked
-                django_user = known_player.django_user
+                # Check if the player has a django_user linked
+                player = linked_account.player
+                django_user = player.django_user if player else None
                 if not django_user:
                     return False, "No django_user linked"
 
@@ -280,16 +314,21 @@ class ManageSus(BaseCog, name="Manage Sus"):
         try:
             from asgiref.sync import sync_to_async
 
-            from thetower.backend.sus.models import KnownPlayer
+            from thetower.backend.sus.models import LinkedAccount
 
             def _check_permissions_sync():
-                # Get the KnownPlayer linked to this Discord user by Discord ID
-                known_player = KnownPlayer.objects.filter(discord_id=str(user.id)).select_related("django_user").first()
-                if not known_player:
-                    return False, "No KnownPlayer found"
+                # Get the LinkedAccount for this Discord user
+                linked_account = (
+                    LinkedAccount.objects.filter(platform=LinkedAccount.Platform.DISCORD, account_id=str(user.id))
+                    .select_related("player__django_user")
+                    .first()
+                )
+                if not linked_account:
+                    return False, "No LinkedAccount found"
 
-                # Check if the KnownPlayer has a django_user linked
-                django_user = known_player.django_user
+                # Check if the player has a django_user linked
+                player = linked_account.player
+                django_user = player.django_user if player else None
                 if not django_user:
                     return False, "No django_user linked"
 
@@ -327,16 +366,21 @@ class ManageSus(BaseCog, name="Manage Sus"):
         try:
             from asgiref.sync import sync_to_async
 
-            from thetower.backend.sus.models import KnownPlayer
+            from thetower.backend.sus.models import LinkedAccount
 
             def _check_permissions_sync():
-                # Get the KnownPlayer linked to this Discord user by Discord ID
-                known_player = KnownPlayer.objects.filter(discord_id=str(user.id)).select_related("django_user").first()
-                if not known_player:
-                    return False, "No KnownPlayer found"
+                # Get the LinkedAccount for this Discord user
+                linked_account = (
+                    LinkedAccount.objects.filter(platform=LinkedAccount.Platform.DISCORD, account_id=str(user.id))
+                    .select_related("player__django_user")
+                    .first()
+                )
+                if not linked_account:
+                    return False, "No LinkedAccount found"
 
-                # Check if the KnownPlayer has a django_user linked
-                django_user = known_player.django_user
+                # Check if the player has a django_user linked
+                player = linked_account.player
+                django_user = player.django_user if player else None
                 if not django_user:
                     return False, "No django_user linked"
 
@@ -374,16 +418,21 @@ class ManageSus(BaseCog, name="Manage Sus"):
         try:
             from asgiref.sync import sync_to_async
 
-            from thetower.backend.sus.models import KnownPlayer
+            from thetower.backend.sus.models import LinkedAccount
 
             def _check_permissions_sync():
-                # Get the KnownPlayer linked to this Discord user by Discord ID
-                known_player = KnownPlayer.objects.filter(discord_id=str(user.id)).select_related("django_user").first()
-                if not known_player:
-                    return False, "No KnownPlayer found"
+                # Get the LinkedAccount for this Discord user
+                linked_account = (
+                    LinkedAccount.objects.filter(platform=LinkedAccount.Platform.DISCORD, account_id=str(user.id))
+                    .select_related("player__django_user")
+                    .first()
+                )
+                if not linked_account:
+                    return False, "No LinkedAccount found"
 
-                # Check if the KnownPlayer has a django_user linked
-                django_user = known_player.django_user
+                # Check if the player has a django_user linked
+                player = linked_account.player
+                django_user = player.django_user if player else None
                 if not django_user:
                     return False, "No django_user linked"
 
@@ -438,11 +487,24 @@ class ManageSus(BaseCog, name="Manage Sus"):
 
 
 class ManageSusButton(discord.ui.Button):
-    """Button to manage moderation records for a specific player."""
+    """Button to manage moderation records for a specific player.
+
+    Handles three scenarios:
+    1. Unverified player: Use primary_id directly (no game instances)
+    2. Single game instance: Use primary ID from that instance
+    3. Multiple game instances: Show dropdown to select which instance
+    """
 
     def __init__(self, cog, details: dict, requesting_user: discord.User, guild_id: int):
+        # Determine label based on whether dropdown is needed
+        game_instances = details.get("game_instances", [])
+        if len(game_instances) > 1:
+            label = "Manage shun/sus/ban (select ID)"
+        else:
+            label = "Manage shun/sus/ban"
+
         player_id = details.get("primary_id", "unknown")
-        super().__init__(label="Manage shun/sus/ban", style=discord.ButtonStyle.danger, emoji="⚖️", custom_id=f"manage_sus_{player_id}", row=1)
+        super().__init__(label=label, style=discord.ButtonStyle.danger, emoji="⚖️", custom_id=f"manage_sus_{player_id}", row=1)
         self.cog = cog
         self.details = details
         self.requesting_user = requesting_user
@@ -458,13 +520,57 @@ class ManageSusButton(discord.ui.Button):
             await interaction.response.send_message("❌ You don't have permission to view or manage moderation records.", ephemeral=True)
             return
 
-        # Show the player moderation view
         try:
-            from .ui.user import PlayerModerationView
+            game_instances = self.details.get("game_instances", [])
 
-            view = PlayerModerationView(self.cog, self.details, self.requesting_user, self.guild_id)
-            embed = await view.update_view(interaction)
-            await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+            # Scenario 1: Unverified player (no game instances) - use primary_id directly
+            if not game_instances:
+                player_id = self.details.get("primary_id")
+                if not player_id:
+                    await interaction.response.send_message("❌ No player ID found.", ephemeral=True)
+                    return
+
+                from .ui.user import PlayerModerationView
+
+                view = PlayerModerationView(self.cog, self.details, self.requesting_user, self.guild_id)
+                embed = await view.update_view(interaction)
+                await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+                return
+
+            # Scenario 2: Single game instance - use primary ID from that instance
+            if len(game_instances) == 1:
+                player_id = game_instances[0]["primary_player_id"]
+
+                # Update details with the player ID for the moderation view
+                moderation_details = {**self.details, "primary_id": player_id}
+
+                from .ui.user import PlayerModerationView
+
+                view = PlayerModerationView(self.cog, moderation_details, self.requesting_user, self.guild_id)
+                embed = await view.update_view(interaction)
+                await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+                return
+
+            # Scenario 3: Multiple game instances - show dropdown to select
+            from .ui.user import GameInstanceSelectionView
+
+            selection_view = GameInstanceSelectionView(self.cog, self.details, self.requesting_user, self.guild_id, game_instances)
+
+            embed = discord.Embed(
+                title="Select Game Account",
+                description="This player has multiple game accounts. Select which one to manage:",
+                color=discord.Color.blue(),
+            )
+
+            # List the game instances
+            for idx, instance in enumerate(game_instances, 1):
+                instance_name = instance["account_name"]
+                primary_id = instance["primary_player_id"]
+                is_primary = instance["primary"]
+                marker = " ⭐" if is_primary else ""
+                embed.add_field(name=f"{idx}. {instance_name}{marker}", value=f"`{primary_id}`", inline=False)
+
+            await interaction.response.send_message(embed=embed, view=selection_view, ephemeral=True)
 
         except Exception as e:
             player_id = self.details.get("primary_id", "unknown")

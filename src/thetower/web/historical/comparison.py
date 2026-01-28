@@ -8,7 +8,7 @@ import pandas as pd
 import plotly.express as px
 import streamlit as st
 
-from thetower.backend.sus.models import KnownPlayer, PlayerId
+from thetower.backend.sus.models import PlayerId
 from thetower.backend.tourney_results.constants import (
     Graph,
     champ,
@@ -99,10 +99,14 @@ def compute_comparison(player_id=None, canvas=st):
 
         canvas.code(f"https://{BASE_URL}/comparison?" + urlencode({"compare": users}, doseq=True))
 
-    player_ids = PlayerId.objects.filter(id__in=users)
+    player_ids = PlayerId.objects.filter(id__in=users).select_related("game_instance__player")
     player_ids = player_ids.exclude(id__in=sus_ids)
-    known_players = KnownPlayer.objects.filter(ids__in=player_ids)
-    all_player_ids = set(PlayerId.objects.filter(player__in=known_players).values_list("id", flat=True)) | set(users)
+    # Get all game instances from the player_ids
+    game_instances = [pid.game_instance for pid in player_ids if pid.game_instance]
+    # Get all known players from these game instances
+    known_players = {gi.player for gi in game_instances if gi.player}
+    # Get all PlayerIds across all game instances for these players
+    all_player_ids = set(PlayerId.objects.filter(game_instance__player__in=known_players).values_list("id", flat=True)) | set(users)
 
     hidden_query = {} if hidden_features else {"result__public": True, "position__lt": how_many_results_public_site}
     rows = TourneyRow.objects.filter(player_id__in=all_player_ids, **hidden_query)
@@ -122,9 +126,7 @@ def compute_comparison(player_id=None, canvas=st):
         patch = patch_col.selectbox("Limit results to a patch? (see side bar to change default)", graph_options)
         # Get all available battle conditions from the database, not just those in current results
         all_battle_conditions = sorted(BattleCondition.objects.all(), key=lambda bc: bc.shortcut)
-        filter_bcs = bc_col.multiselect(
-            "Filter by battle conditions?", all_battle_conditions, format_func=lambda bc: f"{bc.name} ({bc.shortcut})"
-        )
+        filter_bcs = bc_col.multiselect("Filter by battle conditions?", all_battle_conditions, format_func=lambda bc: f"{bc.name} ({bc.shortcut})")
 
     datas = [(sdf, player_id) for player_id, sdf in player_df.groupby("id") if len(sdf) >= 2]
     datas = filter_plot_datas(datas, patch, filter_bcs)

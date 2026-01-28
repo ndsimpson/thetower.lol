@@ -172,7 +172,8 @@ class PlayerView(discord.ui.View):
 
             can_see_moderation = self.permission_context.has_any_group(privileged_groups)
             # Don't show moderation records for own profile (privacy protection)
-            is_own_profile = str(self.player.discord_id) == str(self.requesting_user.id) if self.player.discord_id else False
+            player_discord_id = self.details.get("discord_id") if self.details else None
+            is_own_profile = str(player_discord_id) == str(self.requesting_user.id) if player_discord_id else False
             if can_see_moderation and not is_own_profile:
                 self.add_item(
                     PostPubliclyButton(self.cog, self.player, self.details, self.embed_title, self.requesting_user, include_moderation=True)
@@ -351,57 +352,78 @@ class PostPubliclyButton(discord.ui.Button):
                 self.cog.logger.error(f"Followup error response failed: {e2}")
 
 
-class ProfileView(discord.ui.View):
-    """Legacy view - redirects to PlayerView for backward compatibility."""
-
-    def __init__(self, cog, current_code: str = None, player=None, details: dict = None):
-        # Redirect to unified PlayerView
-        raise DeprecationWarning("ProfileView is deprecated. Use PlayerView instead.")
-
-
-class LookupView(discord.ui.View):
-    """Legacy view - redirects to PlayerView for backward compatibility."""
-
-    def __init__(self, cog, player=None, details: dict = None):
-        # Redirect to unified PlayerView
-        raise DeprecationWarning("LookupView is deprecated. Use PlayerView instead.")
-
-
 # Business Logic Functions
 
 
 async def get_player_details(player: KnownPlayer) -> Dict[str, Any]:
-    """Get detailed information about a player"""
-    # Fetch player IDs
-    player_ids = await _get_player_ids_async(player)
+    """Get detailed information about a player with GameInstance structure."""
+    from asgiref.sync import sync_to_async
 
-    # Find primary ID
-    primary_id = next((pid.id for pid in player_ids if pid.primary), None)
+    from thetower.backend.sus.models import GameInstance, LinkedAccount
 
-    # Return formatted details
+    # Fetch all game instances for this player
+    game_instances = await sync_to_async(list)(
+        GameInstance.objects.filter(player=player).prefetch_related("player_ids", "linked_accounts_receiving_roles").order_by("-primary", "id")
+    )
+
+    # Build game instances data
+    game_instances_data = []
+    for instance in game_instances:
+        # Get player IDs for this instance
+        player_ids = await sync_to_async(list)(instance.player_ids.all())
+        primary_player_id = next((pid.id for pid in player_ids if pid.primary), None)
+
+        # Get Discord accounts receiving roles from this instance
+        discord_accounts_receiving_roles = await sync_to_async(list)(
+            LinkedAccount.objects.filter(role_source_instance=instance, platform=LinkedAccount.Platform.DISCORD).values_list("account_id", flat=True)
+        )
+
+        game_instances_data.append(
+            {
+                "id": instance.id,
+                "name": instance.name,
+                "primary": instance.primary,
+                "discord_accounts_receiving_roles": list(discord_accounts_receiving_roles),
+                "primary_player_id": primary_player_id,
+                "player_ids": [{"id": pid.id, "primary": pid.primary} for pid in player_ids],
+            }
+        )
+
+    # Get Discord accounts not receiving roles from anywhere
+    unassigned_discord_accounts = await sync_to_async(list)(
+        LinkedAccount.objects.filter(player=player, platform=LinkedAccount.Platform.DISCORD, role_source_instance__isnull=True).values_list(
+            "account_id", flat=True
+        )
+    )
+
     return {
-        "name": player.name,
-        "discord_id": player.discord_id,
+        "account_name": player.name,
         "creator_code": player.creator_code,
         "approved": player.approved,
-        "primary_id": primary_id,
-        "all_ids": [{"id": pid.id, "primary": pid.primary} for pid in player_ids],
-        "ids_count": len(player_ids),
+        "game_instances": game_instances_data,
+        "unassigned_discord_accounts": list(unassigned_discord_accounts),
     }
 
 
 async def _get_player_ids_async(player: KnownPlayer) -> List:
-    """Async wrapper for getting player IDs"""
+    """Async wrapper for getting player IDs (deprecated - use get_player_details instead)."""
     from asgiref.sync import sync_to_async
 
-    return await sync_to_async(list)(player.ids.all())
+    from thetower.backend.sus.models import PlayerId
+
+    return await sync_to_async(list)(PlayerId.objects.filter(game_instance__player=player))
 
 
 async def _get_player_by_discord_id_async(discord_id: str) -> Optional[KnownPlayer]:
     """Async wrapper for finding player by Discord ID"""
     from asgiref.sync import sync_to_async
 
-    return await sync_to_async(lambda: KnownPlayer.objects.filter(discord_id=discord_id).first())()
+    from thetower.backend.sus.models import LinkedAccount
+
+    linked_account = await sync_to_async(
+        LinkedAccount.objects.filter(platform=LinkedAccount.Platform.DISCORD, account_id=discord_id).select_related("player").first
+    )()
+    return linked_account.player if linked_account else None
 
 
 async def _save_player_async(player: KnownPlayer) -> None:

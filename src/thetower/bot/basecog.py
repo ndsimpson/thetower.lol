@@ -868,15 +868,21 @@ class BaseCog(commands.Cog):
         @sync_to_async
         def get_django_user_groups():
             try:
-                from thetower.backend.sus.models import KnownPlayer
+                from thetower.backend.sus.models import LinkedAccount
 
-                # Get the KnownPlayer linked to this Discord user by Discord ID
-                known_player = KnownPlayer.objects.filter(discord_id=str(user.id)).select_related("django_user").first()
-                if not known_player:
+                # Get the LinkedAccount for this Discord user
+                linked_account = (
+                    LinkedAccount.objects.filter(platform=LinkedAccount.Platform.DISCORD, account_id=str(user.id))
+                    .select_related("player__django_user")
+                    .first()
+                )
+
+                if not linked_account:
                     return []
 
-                # Check if the KnownPlayer has a django_user linked
-                django_user = known_player.django_user
+                # Check if the player has a django_user linked
+                player = linked_account.player
+                django_user = player.django_user if player else None
                 if not django_user:
                     return []
 

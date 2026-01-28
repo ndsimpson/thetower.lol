@@ -124,15 +124,15 @@ def load_data(folder):  # Potentially unused
 
 
 def get_player_id_lookup():
-    return dict(PlayerId.objects.filter(player__approved=True).values_list("id", "player__name"))
+    return dict(PlayerId.objects.filter(game_instance__player__approved=True).values_list("id", "game_instance__player__name"))
 
 
 def get_player_id_approved_lookup():
-    return dict(PlayerId.objects.filter(player__approved=True).values_list("id", "player__approved"))
+    return dict(PlayerId.objects.filter(game_instance__player__approved=True).values_list("id", "game_instance__player__approved"))
 
 
 def get_id_lookup():
-    id_objs = PlayerId.objects.filter(player__approved=True).values_list("id", "player__name", "primary")
+    id_objs = PlayerId.objects.filter(game_instance__player__approved=True).values_list("id", "game_instance__player__name", "primary")
     player_primary_id = {name: id_ for id_, name, primary in id_objs if primary}
     return {id_: player_primary_id[name] for id_, name, _ in id_objs if name in player_primary_id}
 
@@ -347,12 +347,14 @@ def get_sus_data():
         # Build detailed data with moderation info
         data = []
         for tower_id in sus_tower_ids:
-            # Get name from any linked KnownPlayer record for this tower_id
+            # Get name from any linked GameInstance record for this tower_id
             name = tower_id  # Default fallback
             try:
-                record_with_known_player = ModerationRecord.objects.filter(tower_id=tower_id, known_player__isnull=False).first()
-                if record_with_known_player and record_with_known_player.known_player:
-                    name = record_with_known_player.known_player.name
+                record_with_game_instance = (
+                    ModerationRecord.objects.filter(tower_id=tower_id, game_instance__isnull=False).select_related("game_instance__player").first()
+                )
+                if record_with_game_instance and record_with_game_instance.game_instance:
+                    name = record_with_game_instance.game_instance.player.name
             except Exception:
                 pass
 
@@ -388,12 +390,14 @@ def get_sus_data():
         # Simple name/player_id data
         data = []
         for tower_id in sus_tower_ids:
-            # Get name from any linked KnownPlayer record for this tower_id
+            # Get name from any linked GameInstance record for this tower_id
             name = tower_id  # Default fallback
             try:
-                record_with_known_player = ModerationRecord.objects.filter(tower_id=tower_id, known_player__isnull=False).first()
-                if record_with_known_player and record_with_known_player.known_player:
-                    name = record_with_known_player.known_player.name
+                record_with_game_instance = (
+                    ModerationRecord.objects.filter(tower_id=tower_id, game_instance__isnull=False).select_related("game_instance__player").first()
+                )
+                if record_with_game_instance and record_with_game_instance.game_instance:
+                    name = record_with_game_instance.game_instance.player.name
             except Exception:
                 pass
 
@@ -419,43 +423,213 @@ def is_support_flagged(player_id: str):
 
 
 def is_shun(player_id: str):
+    """
+    Check if a tower_id is shunned.
+    Checks the GameInstance directly - simpler and more efficient.
+    """
+    from thetower.backend.sus.models import PlayerId
+
+    # Try to find the GameInstance for this tower_id
+    try:
+        player_id_obj = PlayerId.objects.select_related("game_instance").get(id=player_id)
+        if player_id_obj.game_instance:
+            # Direct check: is this GameInstance shunned?
+            return ModerationRecord.objects.filter(
+                game_instance=player_id_obj.game_instance,
+                moderation_type=ModerationRecord.ModerationType.SHUN,
+                resolved_at__isnull=True,  # Active = not resolved
+            ).exists()
+    except PlayerId.DoesNotExist:
+        pass
+
+    # Fallback: check by tower_id (for unverified/unmigrated IDs)
     return ModerationRecord.objects.filter(
-        tower_id=player_id, moderation_type=ModerationRecord.ModerationType.SHUN, resolved_at__isnull=True  # Active = not resolved
+        tower_id=player_id, moderation_type=ModerationRecord.ModerationType.SHUN, resolved_at__isnull=True
     ).exists()
 
 
 def is_sus(player_id: str):
-    return ModerationRecord.objects.filter(
-        tower_id=player_id, moderation_type=ModerationRecord.ModerationType.SUS, resolved_at__isnull=True  # Active = not resolved
-    ).exists()
+    """
+    Check if a tower_id is sus.
+    Checks the GameInstance directly - simpler and more efficient.
+    """
+    from thetower.backend.sus.models import PlayerId
+
+    # Try to find the GameInstance for this tower_id
+    try:
+        player_id_obj = PlayerId.objects.select_related("game_instance").get(id=player_id)
+        if player_id_obj.game_instance:
+            # Direct check: is this GameInstance sus?
+            return ModerationRecord.objects.filter(
+                game_instance=player_id_obj.game_instance,
+                moderation_type=ModerationRecord.ModerationType.SUS,
+                resolved_at__isnull=True,  # Active = not resolved
+            ).exists()
+    except PlayerId.DoesNotExist:
+        pass
+
+    # Fallback: check by tower_id (for unverified/unmigrated IDs)
+    return ModerationRecord.objects.filter(tower_id=player_id, moderation_type=ModerationRecord.ModerationType.SUS, resolved_at__isnull=True).exists()
 
 
 def is_soft_banned(player_id: str):
+    """
+    Check if a tower_id is soft banned.
+    Checks the GameInstance directly - simpler and more efficient.
+    """
+    from thetower.backend.sus.models import PlayerId
+
+    # Try to find the GameInstance for this tower_id
+    try:
+        player_id_obj = PlayerId.objects.select_related("game_instance").get(id=player_id)
+        if player_id_obj.game_instance:
+            # Direct check: is this GameInstance soft banned?
+            return ModerationRecord.objects.filter(
+                game_instance=player_id_obj.game_instance,
+                moderation_type=ModerationRecord.ModerationType.SOFT_BAN,
+                resolved_at__isnull=True,  # Active = not resolved
+            ).exists()
+    except PlayerId.DoesNotExist:
+        pass
+
+    # Fallback: check by tower_id (for unverified/unmigrated IDs)
     return ModerationRecord.objects.filter(
-        tower_id=player_id, moderation_type=ModerationRecord.ModerationType.SOFT_BAN, resolved_at__isnull=True  # Active = not resolved
+        tower_id=player_id, moderation_type=ModerationRecord.ModerationType.SOFT_BAN, resolved_at__isnull=True
     ).exists()
 
 
 def is_banned(player_id: str):
-    return ModerationRecord.objects.filter(
-        tower_id=player_id, moderation_type=ModerationRecord.ModerationType.BAN, resolved_at__isnull=True  # Active = not resolved
-    ).exists()
+    """
+    Check if a tower_id is banned.
+    Checks the GameInstance directly - simpler and more efficient.
+    """
+    from thetower.backend.sus.models import PlayerId
+
+    # Try to find the GameInstance for this tower_id
+    try:
+        player_id_obj = PlayerId.objects.select_related("game_instance").get(id=player_id)
+        if player_id_obj.game_instance:
+            # Direct check: is this GameInstance banned?
+            return ModerationRecord.objects.filter(
+                game_instance=player_id_obj.game_instance,
+                moderation_type=ModerationRecord.ModerationType.BAN,
+                resolved_at__isnull=True,  # Active = not resolved
+            ).exists()
+    except PlayerId.DoesNotExist:
+        pass
+
+    # Fallback: check by tower_id (for unverified/unmigrated IDs)
+    return ModerationRecord.objects.filter(tower_id=player_id, moderation_type=ModerationRecord.ModerationType.BAN, resolved_at__isnull=True).exists()
 
 
 def get_shun_ids():
-    return ModerationRecord.get_active_moderation_ids(ModerationRecord.ModerationType.SHUN)
+    """
+    Get all tower_ids that should be filtered as shunned.
+    Returns all tower_ids in shunned GameInstances, plus standalone shunned tower_ids.
+    """
+    from thetower.backend.sus.models import PlayerId
+
+    # Get tower_ids directly shunned (no game_instance link yet)
+    standalone_shunned = set(
+        ModerationRecord.objects.filter(
+            moderation_type=ModerationRecord.ModerationType.SHUN, resolved_at__isnull=True, game_instance__isnull=True
+        ).values_list("tower_id", flat=True)
+    )
+
+    # Get shunned GameInstances
+    shunned_instances = (
+        ModerationRecord.objects.filter(moderation_type=ModerationRecord.ModerationType.SHUN, resolved_at__isnull=True, game_instance__isnull=False)
+        .values_list("game_instance_id", flat=True)
+        .distinct()
+    )
+
+    # Get ALL tower_ids in those GameInstances
+    instance_ids = set(PlayerId.objects.filter(game_instance_id__in=shunned_instances).values_list("id", flat=True))
+
+    return standalone_shunned | instance_ids
 
 
 def get_sus_ids():
-    return ModerationRecord.get_active_moderation_ids(ModerationRecord.ModerationType.SUS)
+    """
+    Get all tower_ids that should be filtered as sus.
+    Returns all tower_ids in sus GameInstances, plus standalone sus tower_ids.
+    """
+    from thetower.backend.sus.models import PlayerId
+
+    # Get tower_ids directly sus (no game_instance link yet)
+    standalone_sus = set(
+        ModerationRecord.objects.filter(
+            moderation_type=ModerationRecord.ModerationType.SUS, resolved_at__isnull=True, game_instance__isnull=True
+        ).values_list("tower_id", flat=True)
+    )
+
+    # Get sus GameInstances
+    sus_instances = (
+        ModerationRecord.objects.filter(moderation_type=ModerationRecord.ModerationType.SUS, resolved_at__isnull=True, game_instance__isnull=False)
+        .values_list("game_instance_id", flat=True)
+        .distinct()
+    )
+
+    # Get ALL tower_ids in those GameInstances
+    instance_ids = set(PlayerId.objects.filter(game_instance_id__in=sus_instances).values_list("id", flat=True))
+
+    return standalone_sus | instance_ids
 
 
 def get_banned_ids():
-    return ModerationRecord.get_active_moderation_ids(ModerationRecord.ModerationType.BAN)
+    """
+    Get all tower_ids that should be filtered as banned.
+    Returns all tower_ids in banned GameInstances, plus standalone banned tower_ids.
+    """
+    from thetower.backend.sus.models import PlayerId
+
+    # Get tower_ids directly banned (no game_instance link yet)
+    standalone_banned = set(
+        ModerationRecord.objects.filter(
+            moderation_type=ModerationRecord.ModerationType.BAN, resolved_at__isnull=True, game_instance__isnull=True
+        ).values_list("tower_id", flat=True)
+    )
+
+    # Get banned GameInstances
+    banned_instances = (
+        ModerationRecord.objects.filter(moderation_type=ModerationRecord.ModerationType.BAN, resolved_at__isnull=True, game_instance__isnull=False)
+        .values_list("game_instance_id", flat=True)
+        .distinct()
+    )
+
+    # Get ALL tower_ids in those GameInstances
+    instance_ids = set(PlayerId.objects.filter(game_instance_id__in=banned_instances).values_list("id", flat=True))
+
+    return standalone_banned | instance_ids
 
 
 def get_soft_banned_ids():
-    return ModerationRecord.get_active_moderation_ids(ModerationRecord.ModerationType.SOFT_BAN)
+    """
+    Get all tower_ids that should be filtered as soft banned.
+    Returns all tower_ids in soft banned GameInstances, plus standalone soft banned tower_ids.
+    """
+    from thetower.backend.sus.models import PlayerId
+
+    # Get tower_ids directly soft banned (no game_instance link yet)
+    standalone_soft_banned = set(
+        ModerationRecord.objects.filter(
+            moderation_type=ModerationRecord.ModerationType.SOFT_BAN, resolved_at__isnull=True, game_instance__isnull=True
+        ).values_list("tower_id", flat=True)
+    )
+
+    # Get soft banned GameInstances
+    soft_banned_instances = (
+        ModerationRecord.objects.filter(
+            moderation_type=ModerationRecord.ModerationType.SOFT_BAN, resolved_at__isnull=True, game_instance__isnull=False
+        )
+        .values_list("game_instance_id", flat=True)
+        .distinct()
+    )
+
+    # Get ALL tower_ids in those GameInstances
+    instance_ids = set(PlayerId.objects.filter(game_instance_id__in=soft_banned_instances).values_list("id", flat=True))
+
+    return standalone_soft_banned | instance_ids
 
 
 def get_last_tourney(league=champ):

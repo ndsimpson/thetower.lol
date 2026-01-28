@@ -1,5 +1,5 @@
 from django.contrib import admin
-from django.urls import path
+from django.urls import path, include
 from django.views.generic.base import RedirectView
 
 from thetower.backend.sus.api_views import BanPlayerAPI
@@ -10,6 +10,7 @@ admin.site.site_url = "/admin"
 
 
 base_patterns = [
+    path("_nested_admin/", include("nested_admin.urls")),
     path("admin/", admin.site.urls),
     path("", RedirectView.as_view(url="admin/", permanent=True)),
     path("api/ban_player/", BanPlayerAPI.as_view(), name="ban_player_api"),

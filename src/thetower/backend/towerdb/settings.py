@@ -51,10 +51,8 @@ with open(BASE_DIR.parent.parent.parent / "SECRET_KEY", "r") as infile:
 ALLOWED_HOSTS = [
     "localhost",
     "127.0.0.1",
-    "116.203.133.96",
-    "thetower.lol",
     "towerfans.lol",
-    "65.109.4.244",
+    "thetower.lol",
     "api.thetower.lol",
     "admin.thetower.lol",
 ]
@@ -71,6 +69,7 @@ CSRF_TRUSTED_ORIGINS = [
 # Application definition
 
 INSTALLED_APPS = [
+    "nested_admin",
     "django.contrib.admin",
     "django.contrib.auth",
     "django.contrib.contenttypes",

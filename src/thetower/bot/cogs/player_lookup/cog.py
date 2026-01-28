@@ -121,8 +121,8 @@ class PlayerLookup(BaseCog, name="Player Lookup", description="Universal player 
         """Get a player by their Tower player id"""
         await self.wait_until_ready()
         try:
-            # Query database directly for the player
-            player = await sync_to_async(KnownPlayer.objects.filter(ids__id=player_id).select_related("django_user").first)()
+            # Query database directly for the player via game_instances
+            player = await sync_to_async(KnownPlayer.objects.filter(game_instances__player_ids__id=player_id).select_related("django_user").first)()
             return player
         except Exception as e:
             self.logger.error(f"Error getting player by player ID {player_id}: {e}")
@@ -132,9 +132,25 @@ class PlayerLookup(BaseCog, name="Player Lookup", description="Universal player 
         """Get a player by their Discord ID"""
         await self.wait_until_ready()
         try:
-            # Query database directly for the player
-            player = await sync_to_async(KnownPlayer.objects.filter(discord_id=discord_id).select_related("django_user").first)()
-            return player
+            from thetower.backend.sus.models import LinkedAccount
+
+            # Ensure discord_id is a string for database lookup
+            discord_id_str = str(discord_id)
+            self.logger.debug(f"Querying LinkedAccount for Discord ID: {discord_id_str}")
+
+            # Query database for the LinkedAccount, then get player
+            linked_account = await sync_to_async(
+                LinkedAccount.objects.filter(platform=LinkedAccount.Platform.DISCORD, account_id=discord_id_str)
+                .select_related("player__django_user")
+                .first
+            )()
+
+            if linked_account:
+                self.logger.debug(f"Found LinkedAccount for Discord ID {discord_id_str}, returning player: {linked_account.player.name}")
+                return linked_account.player
+
+            self.logger.debug(f"No LinkedAccount found for Discord ID: {discord_id_str}")
+            return None
         except Exception as e:
             self.logger.error(f"Error getting player by Discord ID {discord_id}: {e}")
             return None
@@ -159,7 +175,10 @@ class PlayerLookup(BaseCog, name="Player Lookup", description="Universal player 
 
         # Try Discord ID first (most specific)
         if identifier.isdigit() and len(identifier) >= 15:  # Discord IDs are long numbers
+            self.logger.debug(f"Attempting Discord ID lookup for: {identifier}")
             player = await self.get_player_by_discord_id(identifier)
+            if player:
+                self.logger.debug(f"Found player by Discord ID: {player.name}")
 
         # Try player ID
         if not player:
@@ -187,20 +206,46 @@ class PlayerLookup(BaseCog, name="Player Lookup", description="Universal player 
         if discord_id is not None:
             # Single user lookup
             try:
-                known_player = await sync_to_async(KnownPlayer.objects.filter(discord_id=discord_id).select_related("django_user").first)()
+                from thetower.backend.sus.models import LinkedAccount
 
-                if not known_player:
+                # Ensure discord_id is a string for database lookup
+                discord_id_str = str(discord_id)
+
+                linked_account = await sync_to_async(
+                    LinkedAccount.objects.filter(platform=LinkedAccount.Platform.DISCORD, account_id=discord_id_str)
+                    .select_related("player__django_user")
+                    .first
+                )()
+
+                if not linked_account:
                     return {}
 
-                # Get all player IDs for this user
-                all_ids = await sync_to_async(lambda: list(known_player.ids.values_list("id", flat=True)))()
+                known_player = linked_account.player
+
+                # Get game instances with their player IDs
+
+                def get_instance_data():
+                    instances = []
+
+                    for instance in known_player.game_instances.all().order_by("-primary", "created_at"):
+                        player_ids = list(instance.player_ids.all().order_by("-primary", "id"))
+                        instance_data = {
+                            "id": instance.id,
+                            "name": instance.name,
+                            "primary": instance.primary,
+                            "player_ids": [{"id": pid.id, "primary": pid.primary} for pid in player_ids],
+                        }
+                        instances.append(instance_data)
+
+                    return instances
+
+                game_instances = await sync_to_async(get_instance_data)()
 
                 return {
                     discord_id: {
-                        "all_ids": all_ids,
+                        "game_instances": game_instances,
                         "discord_id": discord_id,
                         "name": known_player.name or "",
-                        "player_id": all_ids[0] if all_ids else "",  # Primary ID
                     }
                 }
 
@@ -211,23 +256,46 @@ class PlayerLookup(BaseCog, name="Player Lookup", description="Universal player 
         else:
             # Full mapping lookup
             try:
-                # Get all known players with Discord IDs
+                # Get all known players with verified Discord accounts (replacement for deprecated discord_id field)
+                from thetower.backend.sus.models import LinkedAccount
+
                 known_players = await sync_to_async(list)(
-                    KnownPlayer.objects.exclude(discord_id__isnull=True).exclude(discord_id="").select_related("django_user")
+                    KnownPlayer.objects.filter(linked_accounts__platform=LinkedAccount.Platform.DISCORD, linked_accounts__verified=True)
+                    .distinct()
+                    .select_related("django_user")
                 )
 
                 mapping = {}
                 for player in known_players:
-                    discord_id = player.discord_id
-                    if discord_id:  # Double-check it's not empty
-                        # Get all player IDs for this user
-                        all_ids = await sync_to_async(lambda: list(player.ids.values_list("id", flat=True)))()
+                    # Get primary Discord account from LinkedAccount (not deprecated discord_id field)
+                    primary_discord_account = await sync_to_async(
+                        LinkedAccount.objects.filter(player=player, platform=LinkedAccount.Platform.DISCORD, primary=True).first
+                    )()
+                    if primary_discord_account:
+                        discord_id = primary_discord_account.account_id
+                        # Get game instances with their player IDs
+
+                        def get_instance_data():
+                            instances = []
+
+                            for instance in player.game_instances.all().order_by("-primary", "created_at"):
+                                player_ids = list(instance.player_ids.all().order_by("-primary", "id"))
+                                instance_data = {
+                                    "id": instance.id,
+                                    "name": instance.name,
+                                    "primary": instance.primary,
+                                    "player_ids": [{"id": pid.id, "primary": pid.primary} for pid in player_ids],
+                                }
+                                instances.append(instance_data)
+
+                            return instances
+
+                        game_instances = await sync_to_async(get_instance_data)()
 
                         mapping[discord_id] = {
-                            "all_ids": all_ids,
+                            "game_instances": game_instances,
                             "discord_id": discord_id,
                             "name": player.name or "",
-                            "player_id": all_ids[0] if all_ids else "",  # Primary ID
                         }
 
                 return mapping
@@ -257,6 +325,10 @@ class PlayerLookup(BaseCog, name="Player Lookup", description="Universal player 
         await self.wait_until_ready()
         search_term = search_term.strip()
 
+        self.logger.debug(
+            f"search_player called with: '{search_term}', isdigit={search_term.isdigit()}, len={len(search_term)}, allow_partial={self.allow_partial_matches}"
+        )
+
         # Store original for player ID searches (which are uppercase)
         search_term_upper = search_term.upper()
         # Apply case sensitivity setting for name searches
@@ -267,8 +339,10 @@ class PlayerLookup(BaseCog, name="Player Lookup", description="Universal player 
         async def player_id_already_in_results(player_id: str, results: List[Any]) -> bool:
             for r in results:
                 if isinstance(r, KnownPlayer):
-                    # Wrap the Django query in sync_to_async
-                    ids = await sync_to_async(list)(r.ids.all())
+                    # Wrap the Django query in sync_to_async - get IDs from all game instances
+                    from thetower.backend.sus.models import PlayerId
+
+                    ids = await sync_to_async(list)(PlayerId.objects.filter(game_instance__player=r))
                     if any(pid.id == player_id for pid in ids):
                         return True
                 elif isinstance(r, UnverifiedPlayer):
@@ -327,13 +401,20 @@ class PlayerLookup(BaseCog, name="Player Lookup", description="Universal player 
             name_results = await sync_to_async(list)(KnownPlayer.objects.filter(name__icontains=search_term))
             results.extend(name_results)
 
-            # Search by player ID (use uppercase for player IDs)
-            id_results = await sync_to_async(list)(KnownPlayer.objects.filter(ids__id__icontains=search_term_upper).distinct())
+            # Search by player ID (use uppercase for player IDs) - search through game instances
+            id_results = await sync_to_async(list)(KnownPlayer.objects.filter(game_instances__player_ids__id__icontains=search_term_upper).distinct())
             results.extend([r for r in id_results if r not in results])
 
-            # Search by Discord ID
-            discord_results = await sync_to_async(list)(KnownPlayer.objects.filter(discord_id__icontains=search_term))
-            results.extend([r for r in discord_results if r not in results])
+            # Search by Discord ID in LinkedAccount
+            from thetower.backend.sus.models import LinkedAccount
+
+            linked_account_results = await sync_to_async(list)(
+                KnownPlayer.objects.filter(
+                    linked_accounts__platform=LinkedAccount.Platform.DISCORD,
+                    linked_accounts__account_id__icontains=search_term,
+                ).distinct()
+            )
+            results.extend([r for r in linked_account_results if r not in results])
 
             # Search by tower_id in ModerationRecord for unverified players (use uppercase)
             moderation_results = await sync_to_async(list)(

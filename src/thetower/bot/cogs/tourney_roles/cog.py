@@ -16,6 +16,7 @@ import datetime
 from typing import Optional
 
 import discord
+from discord.ext import commands
 
 from thetower.bot.basecog import BaseCog
 
@@ -429,6 +430,35 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
             self.logger.error(f"Error in fallback tournament date lookup: {e}")
             return None
 
+    async def get_cached_role_for_discord_user(self, discord_id: str, guild_id: int) -> Optional[int]:
+        """Get cached role for a Discord user by looking up their primary_player_id.
+
+        Args:
+            discord_id: Discord user ID as string
+            guild_id: Guild ID
+
+        Returns:
+            Role ID if cached, None otherwise
+        """
+        # Get player mapping to find their primary_player_id
+        player_mapping = await self.get_discord_to_player_mapping(discord_id=discord_id)
+        if not player_mapping or discord_id not in player_mapping:
+            return None
+
+        # Find which game instance this Discord account uses for roles
+        player_data = player_mapping[discord_id]
+        game_instances = player_data.get("game_instances", [])
+
+        for instance in game_instances:
+            discord_accounts = instance.get("discord_accounts_receiving_roles", [])
+            if str(discord_id) in [str(did) for did in discord_accounts]:
+                # Found their game instance - get the cached role
+                primary_player_id = instance.get("primary_player_id")
+                if primary_player_id:
+                    return self.role_cache.get(guild_id, {}).get(primary_player_id)
+
+        return None
+
     async def get_discord_to_player_mapping(self, discord_id: str = None):
         """Get mapping of Discord IDs to player information from PlayerLookup
 
@@ -528,28 +558,26 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
         loop_start_time = datetime.datetime.now(datetime.timezone.utc)
         self.logger.info(f"[LOOP START] calculate_roles_for_users: Building stats lookup for {len(users_to_process)} users")
 
-        stats_lookup = await self.core.build_batch_player_stats(tourney_stats_cog, discord_to_player)
+        # Returns: (primary_player_id -> stats, discord_id -> primary_player_id)
+        primary_stats_lookup, discord_to_primary = await self.core.build_batch_player_stats(tourney_stats_cog, discord_to_player)
 
         lookup_duration = (datetime.datetime.now(datetime.timezone.utc) - loop_start_time).total_seconds()
-        self.logger.info(f"Stats lookup built in {lookup_duration:.1f}s for {len(stats_lookup)} users")
+        self.logger.info(f"Stats lookup built in {lookup_duration:.1f}s for {len(primary_stats_lookup)} game instances")
 
-        # 6. Calculate roles for each user
-        calculated = 0
-        skipped = 0
+        # 6. Calculate roles per game instance (not per Discord account)
+        calculated_primary_roles = {}  # primary_player_id -> role_id
+        game_instances_processed = set()
         latest_tourney_date = None
 
         # Initialize cache for guild if needed
         if guild_id not in self.role_cache:
             self.role_cache[guild_id] = {}
 
-        total_users = len(users_to_process)
         calc_start_time = datetime.datetime.now(datetime.timezone.utc)
 
-        for idx, discord_id in enumerate(users_to_process):
-            # Get player stats
-            player_stats = stats_lookup.get(discord_id)
-            if not player_stats:
-                skipped += 1
+        # Calculate roles per unique game instance
+        for primary_player_id, player_stats in primary_stats_lookup.items():
+            if primary_player_id in game_instances_processed:
                 continue
 
             # Track latest tournament date
@@ -561,29 +589,40 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
                 if latest_tourney_date is None or tourney_date > latest_tourney_date:
                     latest_tourney_date = tourney_date
 
-            # Determine best role
+            # Determine best role for this game instance
             best_role_id = self.core.determine_best_role(player_stats, roles_config, league_hierarchy, debug_logging)
 
-            # Update cache
-            self.role_cache[guild_id][discord_id] = best_role_id
-            calculated += 1
-
-            # Report progress
-            if progress_callback:
-                await progress_callback(idx + 1, total_users)
+            # Cache by primary_player_id
+            self.role_cache[guild_id][primary_player_id] = best_role_id
+            calculated_primary_roles[primary_player_id] = best_role_id
+            game_instances_processed.add(primary_player_id)
 
             # Yield control
             await asyncio.sleep(0)
 
-        # 7. Update global cache metadata
+        # 7. Count how many Discord accounts were processed
+        calculated = 0
+        skipped = 0
+        for idx, discord_id in enumerate(users_to_process):
+            primary_player_id = discord_to_primary.get(discord_id)
+            if primary_player_id and primary_player_id in calculated_primary_roles:
+                calculated += 1
+            else:
+                skipped += 1
+
+            # Report progress
+            if progress_callback:
+                await progress_callback(idx + 1, len(users_to_process))
+
+        # 8. Update global cache metadata
         self.cache_timestamp = datetime.datetime.now(datetime.timezone.utc)
         if latest_tourney_date:
             self.cache_latest_tourney_date = latest_tourney_date
 
         calc_duration = (datetime.datetime.now(datetime.timezone.utc) - calc_start_time).total_seconds()
-        rate = calculated / calc_duration if calc_duration > 0 else 0
+        rate = len(game_instances_processed) / calc_duration if calc_duration > 0 else 0
         self.logger.info(
-            f"[LOOP END] calculate_roles_for_users: Calculated {calculated} roles (skipped {skipped}) in {calc_duration:.1f}s ({rate:.1f} users/sec)"
+            f"[LOOP END] calculate_roles_for_users: Calculated {len(game_instances_processed)} game instance roles for {calculated} Discord accounts (skipped {skipped}) in {calc_duration:.1f}s ({rate:.1f} instances/sec)"
         )
 
         return {"calculated": calculated, "skipped": skipped, "latest_tourney_date": latest_tourney_date}
@@ -631,16 +670,23 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
         verified_role_id = self.core.get_verified_role_id(guild_id)
         dry_run = self.get_global_setting("dry_run", False)
 
-        # 2. Determine which users to process
+        # 2. Determine which users to process and get their player mappings
+        discord_to_player = None
         if user_ids is None:
-            # Bulk mode: all users in cache for this guild
-            cached_users = self.role_cache.get(guild_id, {})
-            users_to_process = list(cached_users.keys())
+            # Bulk mode: Need to get all Discord users and their mappings
+            discord_to_player = await self.get_discord_to_player_mapping()
+            users_to_process = list(discord_to_player.keys())
             is_single_user_mode = False
         else:
             # Single user mode
             users_to_process = [str(uid) for uid in user_ids]
             is_single_user_mode = True
+            # Get mapping just for these users
+            discord_to_player = {}
+            for uid in users_to_process:
+                mapping = await self.get_discord_to_player_mapping(discord_id=uid)
+                if mapping:
+                    discord_to_player.update(mapping)
 
         # 3. Stats tracking
         stats = {
@@ -667,8 +713,20 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
                 stats["not_in_guild"] += 1
                 continue
 
-            # Get calculated role from cache
-            calculated_role_id = self.role_cache.get(guild_id, {}).get(discord_id_str)
+            # Find this user's primary_player_id from their game instances
+            player_data = discord_to_player.get(discord_id_str)
+            calculated_role_id = None
+
+            if player_data:
+                game_instances = player_data.get("game_instances", [])
+                for instance in game_instances:
+                    discord_accounts = instance.get("discord_accounts_receiving_roles", [])
+                    if discord_id_str in [str(did) for did in discord_accounts]:
+                        # Found their game instance - get cached role
+                        primary_player_id = instance.get("primary_player_id")
+                        if primary_player_id:
+                            calculated_role_id = self.role_cache.get(guild_id, {}).get(primary_player_id)
+                        break
 
             # Handle cache miss
             if calculated_role_id is None:
@@ -1540,8 +1598,8 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
                         # Role added - apply tournament roles
                         self.logger.info(f"Member {after.name} ({after.id}) gained verified role - applying tournament roles")
 
-                        # Check cache first
-                        cached_role = self.role_cache.get(after.guild.id, {}).get(str(after.id))
+                        # Check cache first using helper method
+                        cached_role = await self.get_cached_role_for_discord_user(str(after.id), after.guild.id)
 
                         if cached_role is None:
                             # Not in cache - try to calculate
@@ -1712,6 +1770,247 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
 
         except Exception as e:
             self.logger.error(f"Error handling tourney_data_refreshed event: {e}", exc_info=True)
+
+    @commands.Cog.listener()
+    async def on_player_verified(self, guild_id: int, discord_id: str, primary_player_id: int, old_primary_player_id: int = None) -> None:
+        """Event listener triggered when a player is verified or primary player ID changes.
+
+        This allows TourneyRoles to invalidate and recalculate roles for the player
+        without requiring direct coupling between validation and tourney_roles cogs.
+
+        Processes ALL guilds where the player is a member and TourneyRoles is enabled,
+        not just the guild where verification occurred.
+
+        Args:
+            guild_id: Guild where verification occurred (for logging)
+            discord_id: Discord account ID that was verified
+            primary_player_id: The new primary player ID (tower ID)
+            old_primary_player_id: The old primary player ID (if it changed), or None for new verifications
+        """
+        try:
+            self.logger.info(
+                f"Player verified event: origin_guild={guild_id}, discord_id={discord_id}, " f"new={primary_player_id}, old={old_primary_player_id}"
+            )
+
+            # Find all guilds where this Discord user is a member AND TourneyRoles is enabled
+            target_guilds = []
+            for guild in self.bot.guilds:
+                # Check if cog is enabled for this guild
+                if not self.is_cog_enabled_for_guild(guild.id):
+                    continue
+
+                # Check if the Discord user is a member of this guild
+                member = guild.get_member(int(discord_id))
+                if member:
+                    target_guilds.append(guild.id)
+
+            if not target_guilds:
+                self.logger.debug(f"Discord user {discord_id} not found in any guilds with TourneyRoles enabled")
+                return
+
+            self.logger.info(f"Processing verification for {len(target_guilds)} guild(s): {target_guilds}")
+
+            # Process each guild where the player is a member
+            for target_guild_id in target_guilds:
+                try:
+                    # Invalidate old cache entry if primary changed
+                    if old_primary_player_id and old_primary_player_id != primary_player_id:
+                        await self.invalidate_cache_entry(old_primary_player_id, target_guild_id)
+
+                    # Immediately calculate and apply role for the new primary
+                    await self._calculate_and_apply_for_primary(primary_player_id, target_guild_id)
+
+                except Exception as e:
+                    self.logger.error(f"Error processing verification for guild {target_guild_id}: {e}", exc_info=True)
+
+        except Exception as e:
+            self.logger.error(f"Error handling player_verified event: {e}", exc_info=True)
+
+    async def _calculate_and_apply_for_primary(self, primary_player_id: int, guild_id: int) -> None:
+        """Calculate role for a primary player ID and apply to all associated Discord accounts.
+
+        Args:
+            primary_player_id: The primary player ID to calculate role for
+            guild_id: Discord guild ID
+        """
+        try:
+            from asgiref.sync import sync_to_async
+
+            from thetower.backend.sus.models import LinkedAccount
+
+            # Get the guild
+            guild = self.bot.get_guild(guild_id)
+            if not guild:
+                self.logger.warning(f"Guild {guild_id} not found for role calculation")
+                return
+
+            # Find the game instance with this primary player ID
+            def get_game_instance_and_discord_ids():
+                """Get game instance and associated Discord IDs."""
+                try:
+                    from thetower.backend.sus.models import PlayerId
+
+                    # Find the game instance with this primary player ID
+                    player_id_obj = PlayerId.objects.filter(id=primary_player_id, primary=True).select_related("game_instance__player").first()
+                    if not player_id_obj or not player_id_obj.game_instance:
+                        return None, []
+
+                    game_instance = player_id_obj.game_instance
+
+                    # Get all Discord accounts that should receive roles for this instance
+                    discord_ids = list(
+                        LinkedAccount.objects.filter(
+                            player=game_instance.player,
+                            platform=LinkedAccount.Platform.DISCORD,
+                            id__in=game_instance.discord_accounts_receiving_roles.all(),
+                        ).values_list("account_id", flat=True)
+                    )
+
+                    return game_instance, discord_ids
+
+                except Exception as e:
+                    self.logger.error(f"Error looking up game instance for primary_player_id={primary_player_id}: {e}")
+                    return None, []
+
+            game_instance, discord_ids = await sync_to_async(get_game_instance_and_discord_ids)()
+
+            if not game_instance:
+                self.logger.warning(f"No game instance found for primary_player_id={primary_player_id}")
+                return
+
+            if not discord_ids:
+                self.logger.debug(f"No Discord accounts to apply roles for primary_player_id={primary_player_id}")
+                return
+
+            # Calculate role for this primary player ID
+            from .ui.core import build_batch_player_stats
+
+            # Build stats for just this game instance
+            primary_stats_lookup, discord_to_primary = await build_batch_player_stats(self, guild_id, game_instances=[game_instance])
+
+            if primary_player_id not in primary_stats_lookup:
+                self.logger.warning(f"No stats available for primary_player_id={primary_player_id}")
+                return
+
+            stats = primary_stats_lookup[primary_player_id]
+
+            # Determine the best role for this player
+            best_role_id = None
+            best_priority = -1
+
+            for role_data in self.role_priority:
+                if self._user_meets_criteria(stats, role_data["criteria"]):
+                    if role_data["priority"] > best_priority:
+                        best_role_id = role_data["role_id"]
+                        best_priority = role_data["priority"]
+
+            # Cache the calculated role
+            if guild_id not in self.role_cache:
+                self.role_cache[guild_id] = {}
+            self.role_cache[guild_id][primary_player_id] = best_role_id
+
+            self.logger.info(f"Calculated role {best_role_id} for primary_player_id={primary_player_id} (priority {best_priority})")
+
+            # Apply role to all associated Discord accounts
+            for discord_id in discord_ids:
+                try:
+                    member = guild.get_member(int(discord_id))
+                    if not member:
+                        self.logger.debug(f"Member {discord_id} not found in guild {guild_id}")
+                        continue
+
+                    # Apply the calculated role
+                    await self._apply_role_to_member(member, best_role_id, guild_id, reason="Player verification/primary ID change")
+
+                except Exception as e:
+                    self.logger.error(f"Error applying role to discord_id={discord_id}: {e}", exc_info=True)
+
+        except Exception as e:
+            self.logger.error(f"Error in _calculate_and_apply_for_primary: {e}", exc_info=True)
+
+    async def _apply_role_to_member(
+        self, member: discord.Member, target_role_id: int | None, guild_id: int, reason: str = "Tournament role update"
+    ) -> None:
+        """Apply a tournament role to a member, removing other tournament roles.
+
+        Args:
+            member: Discord member to apply role to
+            target_role_id: Role ID to apply (None to remove all tournament roles)
+            guild_id: Guild ID
+            reason: Reason for the role change (for audit log)
+        """
+        try:
+            guild = member.guild
+
+            # Get managed tournament role IDs
+            roles_config = self.core.get_roles_config(guild_id)
+            managed_role_ids = {config.id for config in roles_config.values()}
+            current_tourney_roles = {r for r in member.roles if str(r.id) in managed_role_ids}
+
+            # Determine changes needed
+            roles_to_add = []
+            roles_to_remove = []
+            changes = []
+
+            # Add target role if not already present
+            if target_role_id:
+                target_role = guild.get_role(int(target_role_id))
+                if target_role and target_role not in current_tourney_roles:
+                    roles_to_add.append(target_role)
+                    changes.append(f"+{target_role.name}")
+
+            # Remove other tournament roles
+            for existing_role in current_tourney_roles:
+                if target_role_id is None or existing_role.id != int(target_role_id):
+                    roles_to_remove.append(existing_role)
+                    changes.append(f"-{existing_role.name}")
+
+            # Apply changes
+            if roles_to_add:
+                await member.add_roles(*roles_to_add, reason=reason)
+                for role in roles_to_add:
+                    self.bot.dispatch("tourney_role_added", member, role)
+
+            if roles_to_remove:
+                await member.remove_roles(*roles_to_remove, reason=reason)
+                for role in roles_to_remove:
+                    self.bot.dispatch("tourney_role_removed", member, role)
+
+            # Log changes
+            if changes:
+                await self.log_role_change(guild_id, member.name, changes, immediate=True)
+                self.logger.info(f"Applied role changes to {member.name}: {', '.join(changes)}")
+
+        except Exception as e:
+            self.logger.error(f"Error applying role to member {member.id}: {e}", exc_info=True)
+
+    async def invalidate_cache_entry(self, primary_player_id: int, guild_id: int) -> dict:
+        """Invalidate cache entry for a specific primary player ID.
+
+        This method should be called when:
+        - A player's primary player ID changes (pass the OLD primary_player_id)
+        - Player IDs are added/removed from a game instance (pass the current primary)
+        - You want to force recalculation of a specific game instance's role
+
+        Args:
+            primary_player_id: The primary player ID to invalidate from cache
+            guild_id: Discord guild ID
+
+        Returns:
+            Dict with success status and whether entry was found
+        """
+        if not self.is_cog_enabled_for_guild(guild_id):
+            self.logger.debug(f"Cog not enabled for guild {guild_id}, skipping cache invalidation")
+            return {"success": False, "reason": "cog_not_enabled"}
+
+        # Remove from cache if present
+        if guild_id in self.role_cache and primary_player_id in self.role_cache[guild_id]:
+            del self.role_cache[guild_id][primary_player_id]
+            self.logger.info(f"Invalidated cache entry for primary_player_id={primary_player_id} in guild {guild_id}")
+            return {"success": True, "invalidated": True}
+        else:
+            self.logger.debug(f"No cache entry found for primary_player_id={primary_player_id} in guild {guild_id}")
+            return {"success": True, "invalidated": False}
 
     async def refresh_user_roles_for_user(self, user_id: int, guild_id: int) -> str:
         """Public method for other cogs to refresh tournament roles for a specific user.
@@ -2197,7 +2496,7 @@ class TourneyRolesRefreshButton(discord.ui.Button):
             # Check permissions with Django groups
             from asgiref.sync import sync_to_async
 
-            from thetower.backend.sus.models import KnownPlayer
+            from thetower.backend.sus.models import LinkedAccount
 
             # Get authorized groups from settings
             authorized_groups = self.cog.get_setting("authorized_refresh_groups", guild_id=self.guild_id, default=[])
@@ -2206,19 +2505,23 @@ class TourneyRolesRefreshButton(discord.ui.Button):
                 await interaction.followup.send("❌ Tournament role refresh is not configured for this server.", ephemeral=True)
                 return
 
-            # Get Django user from Discord ID via KnownPlayer
+            # Get Django user from Discord ID via LinkedAccount
             discord_id = str(interaction.user.id)
 
-            def get_known_player():
-                return KnownPlayer.objects.filter(discord_id=discord_id).select_related("django_user").first()
+            def get_linked_account():
+                return (
+                    LinkedAccount.objects.filter(platform=LinkedAccount.Platform.DISCORD, account_id=discord_id)
+                    .select_related("player__django_user")
+                    .first()
+                )
 
-            known_player = await sync_to_async(get_known_player)()
+            linked_account = await sync_to_async(get_linked_account)()
 
-            if not known_player or not known_player.django_user:
+            if not linked_account or not linked_account.player or not linked_account.player.django_user:
                 await interaction.followup.send("❌ No Django user account found for your Discord ID.", ephemeral=True)
                 return
 
-            django_user = known_player.django_user
+            django_user = linked_account.player.django_user
 
             # Check if user is in approved groups
             def get_user_groups():
@@ -2250,4 +2553,5 @@ class TourneyRolesRefreshButton(discord.ui.Button):
 
 
 async def setup(bot) -> None:
+    await bot.add_cog(TourneyRoles(bot))
     await bot.add_cog(TourneyRoles(bot))

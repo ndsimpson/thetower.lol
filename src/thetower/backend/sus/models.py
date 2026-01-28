@@ -39,7 +39,7 @@ class ApiKey(models.Model):
 
 class KnownPlayer(models.Model):
     name = models.CharField(max_length=100, blank=True, null=True, help_text="Player's friendly name, e.g. common discord handle")
-    discord_id = models.CharField(max_length=50, blank=True, null=True, help_text="Discord numeric id")
+    discord_id = models.CharField(max_length=50, blank=True, null=True, help_text="DEPRECATED: Discord numeric id (use linked_accounts instead)")
     creator_code = models.CharField(max_length=50, blank=True, null=True, help_text="Creator/supporter code to promote in shop")
     approved = models.BooleanField(blank=False, null=False, default=True, help_text="Has this entry been validated?")
     django_user = models.OneToOneField(
@@ -48,7 +48,13 @@ class KnownPlayer(models.Model):
 
     def __str__(self):
         user_info = f" ({self.django_user.username})" if self.django_user else ""
-        return f"{self.name} ({self.ids.filter(primary=True).first().id if self.ids.filter(primary=True).first() else ''}){user_info}"
+        primary_instance = self.game_instances.filter(primary=True).first()
+        if primary_instance:
+            primary_id = primary_instance.player_ids.filter(primary=True).first()
+            id_str = primary_id.id if primary_id else ""
+        else:
+            id_str = ""
+        return f"{self.name} ({id_str}){user_info}"
 
     def save(self, *args, **kwargs):
         self.nname = self.name.strip()
@@ -59,13 +65,135 @@ class KnownPlayer(models.Model):
         """Check if this KnownPlayer is linked to a Django user account."""
         return self.django_user is not None
 
+    @classmethod
+    def get_by_discord_id(cls, discord_id):
+        """Backward compat helper: lookup by discord ID via LinkedAccount."""
+        linked_account = LinkedAccount.objects.filter(platform=LinkedAccount.Platform.DISCORD, account_id=str(discord_id)).first()
+        return linked_account.player if linked_account else None
+
+    def get_primary_discord_accounts(self):
+        """Get all Discord LinkedAccount objects for this player."""
+        return self.linked_accounts.filter(platform=LinkedAccount.Platform.DISCORD)
+
+    def get_primary_game_instance(self):
+        """Get the primary game instance (determines roles)."""
+        return self.game_instances.filter(primary=True).first()
+
+    def get_all_player_ids(self):
+        """Get ALL PlayerIds across all game instances."""
+        return PlayerId.objects.filter(game_instance__player=self)
+
+    def get_primary_player_id(self):
+        """Get primary PlayerId from primary GameInstance."""
+        primary_instance = self.get_primary_game_instance()
+        if primary_instance:
+            return primary_instance.player_ids.filter(primary=True).first()
+        return None
+
+    history = HistoricalRecords()
+
+
+class LinkedAccount(models.Model):
+    """Social media accounts linked to a KnownPlayer."""
+
+    class Platform(models.TextChoices):
+        DISCORD = "discord", "Discord"
+        REDDIT = "reddit", "Reddit"
+        TWITTER = "twitter", "Twitter"
+        TWITCH = "twitch", "Twitch"
+
+    player = models.ForeignKey(KnownPlayer, on_delete=models.CASCADE, related_name="linked_accounts", help_text="The player this account belongs to")
+    platform = models.CharField(max_length=20, choices=Platform.choices, help_text="Social media platform")
+    account_id = models.CharField(max_length=100, help_text="Platform-specific account ID or username")
+    display_name = models.CharField(max_length=100, blank=True, null=True, help_text="Display name on this platform (optional)")
+    verified = models.BooleanField(default=False, help_text="Has this account link been verified?")
+    verified_at = models.DateTimeField(null=True, blank=True, default=timezone.now, help_text="When this account was verified")
+    primary = models.BooleanField(default=False, help_text="Is this the primary account for this platform? (only one per player per platform)")
+    role_source_instance = models.ForeignKey(
+        "GameInstance",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="linked_accounts_receiving_roles",
+        help_text="Which game instance provides Discord roles for this account. Null = no roles assigned.",
+    )
+
+    class Meta:
+        unique_together = [("platform", "account_id")]
+        indexes = [
+            models.Index(fields=["platform", "account_id"]),
+        ]
+
+    def __str__(self):
+        return f"{self.get_platform_display()}: {self.account_id}"
+
+    def get_role_instance(self):
+        """Get the GameInstance that determines this account's roles. Returns None if no roles should be assigned."""
+        if self.role_source_instance:
+            # Verify instance still belongs to same player
+            if self.role_source_instance.player_id != self.player_id:
+                # Instance was transferred to different player, clear the reference
+                self.role_source_instance = None
+                self.save(update_fields=["role_source_instance"])
+                return None
+        return self.role_source_instance
+
+    def save(self, *args, **kwargs):
+        """Ensure only one primary account per player per platform."""
+        if self.primary:
+            # Clear any other primary accounts for this player on this platform
+            LinkedAccount.objects.filter(player=self.player, platform=self.platform, primary=True).exclude(pk=self.pk).update(primary=False)
+        super().save(*args, **kwargs)
+
+    history = HistoricalRecords()
+
+
+class GameInstance(models.Model):
+    """A single installation/account in The Tower game."""
+
+    player = models.ForeignKey(
+        KnownPlayer, on_delete=models.CASCADE, related_name="game_instances", help_text="The player who owns this game instance"
+    )
+    name = models.CharField(max_length=50, blank=True, null=True, help_text="Friendly name for this instance (e.g., 'Instance 1', 'Instance 2')")
+    primary = models.BooleanField(default=False, help_text="Primary instance - determines Discord roles for all linked accounts")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-primary", "created_at"]
+
+    def __str__(self):
+        primary_marker = " (PRIMARY)" if self.primary else ""
+        name_str = f" - {self.name}" if self.name else ""
+        return f"{self.player.name}{name_str}{primary_marker}"
+
+    def save(self, *args, **kwargs):
+        # Ensure only one primary instance per player
+        if self.primary:
+            GameInstance.objects.filter(player=self.player).exclude(pk=self.pk).update(primary=False)
+        super().save(*args, **kwargs)
+
     history = HistoricalRecords()
 
 
 class PlayerId(models.Model):
     id = models.CharField(max_length=32, primary_key=True, help_text="Player id from The Tower, pk")
-    player = models.ForeignKey(KnownPlayer, null=False, blank=False, related_name="ids", on_delete=models.CASCADE, help_text="Player")
-    primary = models.BooleanField(default=False)
+    game_instance = models.ForeignKey(
+        GameInstance,
+        null=True,
+        blank=True,
+        related_name="player_ids",
+        on_delete=models.CASCADE,
+        help_text="The game instance this Tower ID belongs to",
+    )
+    player = models.ForeignKey(
+        KnownPlayer,
+        null=True,
+        blank=True,
+        related_name="ids",
+        on_delete=models.CASCADE,
+        help_text="DEPRECATED: Direct link to player (use game_instance.player)",
+    )
+    primary = models.BooleanField(default=False, help_text="Primary ID for this game instance (in case of ID changes)")
     notes = models.TextField(null=True, blank=True, max_length=1000, help_text="Documentation about this Tower ID (e.g., ID change notes)")
 
     def __str__(self):
@@ -78,7 +206,8 @@ class PlayerId(models.Model):
 
     def save_base(self, *args, force_insert=False, **kwargs):
         if force_insert and self.primary:
-            self.player.ids.filter(~Q(id=self.id), primary=True).update(primary=False)
+            # Ensure only one primary ID per game instance
+            self.game_instance.player_ids.filter(~Q(id=self.id), primary=True).update(primary=False)
 
         return super().save_base(*args, **kwargs)
 
@@ -87,10 +216,11 @@ class PlayerId(models.Model):
 
 class ModerationRecord(models.Model):
     """
-    New unified moderation system.
-    - For verified players: links to KnownPlayer AND stores tower_id
-    - For unverified players: stores only tower_id (known_player=null)
-    - Auto-linking: when unverified player links Discord, existing moderation follows
+    Unified moderation system - game instance centric.
+    - For verified players: links to GameInstance (what is banned) AND stores tower_id (what triggered it)
+    - For unverified players: stores only tower_id (game_instance=null)
+    - Auto-linking: when unverified player links Discord, existing moderation gets game_instance updated
+    - Identity tracking: get KnownPlayer via game_instance.player
     """
 
     # Moderation Types
@@ -110,16 +240,18 @@ class ModerationRecord(models.Model):
     # Moderation timeline - using datetime fields instead of status
     started_at = models.DateTimeField(default=timezone.now, help_text="When this moderation action began")
 
-    # Core identification - hybrid linking approach
-    known_player = models.ForeignKey(
-        KnownPlayer,
+    # Core identification - game instance centric
+    game_instance = models.ForeignKey(
+        "GameInstance",
         null=True,
         blank=True,
-        on_delete=models.CASCADE,
+        on_delete=models.SET_NULL,
         related_name="moderation_records",
-        help_text="Linked KnownPlayer (null for unverified players)",
+        help_text="GameInstance being moderated (null for unverified players)",
     )
-    tower_id = models.CharField(max_length=32, db_index=True, help_text="Tower ID being moderated (always stored regardless of verification status)")
+    tower_id = models.CharField(
+        max_length=32, db_index=True, help_text="Tower ID that triggered moderation (always stored regardless of verification status)"
+    )
 
     # Moderation details
     moderation_type = models.CharField(max_length=20, choices=ModerationType.choices, help_text="Type of moderation action")
@@ -198,8 +330,9 @@ class ModerationRecord(models.Model):
             # Fast tower_id lookups for tournament filtering
             models.Index(fields=["tower_id", "resolved_at"]),
             models.Index(fields=["tower_id", "moderation_type", "resolved_at"]),
-            # Known player lookups
-            models.Index(fields=["known_player", "resolved_at"]),
+            # Game instance lookups (primary moderation check)
+            models.Index(fields=["game_instance", "resolved_at"]),
+            models.Index(fields=["game_instance", "moderation_type", "resolved_at"]),
             # Source and type filtering
             models.Index(fields=["source", "moderation_type"]),
             # Time-based queries
@@ -211,17 +344,22 @@ class ModerationRecord(models.Model):
         ]
 
     def __str__(self):
-        player_info = f"{self.known_player.name}" if self.known_player else f"Tower ID {self.tower_id}"
+        if self.game_instance:
+            player_info = f"{self.game_instance.player.name} ({self.game_instance.name})"
+        else:
+            player_info = f"Tower ID {self.tower_id}"
         status = "Active" if self.is_active else "Resolved"
         return f"{self.get_moderation_type_display()} - {player_info} ({status})"
 
     def resolve(self, resolved_by_user=None, resolved_by_discord_id=None, resolved_by_api_key=None):
-        """Mark this moderation record as resolved"""
+        """Mark this moderation record as resolved and queue tournament recalculation"""
         self.resolved_at = timezone.now()
         self.resolved_by = resolved_by_user
         self.resolved_by_discord_id = resolved_by_discord_id
         self.resolved_by_api_key = resolved_by_api_key
         self.save()
+        # Queue recalculation since moderation status changed
+        self._queue_recalculation()
 
     @property
     def is_active(self):
@@ -257,12 +395,26 @@ class ModerationRecord(models.Model):
             return f"API: {self.resolved_by_api_key.user.username} (…{self.resolved_by_api_key.key_suffix()})"
         return "System"
 
+    @staticmethod
+    def _auto_link_game_instance(tower_id):
+        """Helper to find and return GameInstance for a tower_id, or None if not found."""
+        try:
+            player_id_obj = PlayerId.objects.select_related("game_instance").get(id=tower_id)
+            return player_id_obj.game_instance if player_id_obj.game_instance else None
+        except PlayerId.DoesNotExist:
+            return None
+
     @classmethod
     def create_for_admin(cls, tower_id, moderation_type, admin_user, reason=None, **kwargs):
         """Create a moderation record from admin interface"""
         # Don't override needs_zendesk_ticket if explicitly set
         if "needs_zendesk_ticket" not in kwargs:
             kwargs["needs_zendesk_ticket"] = True
+
+        # Auto-link to GameInstance if one exists for this tower_id
+        if "game_instance" not in kwargs:
+            kwargs["game_instance"] = cls._auto_link_game_instance(tower_id)
+
         return cls.objects.create(
             tower_id=tower_id, moderation_type=moderation_type, source=cls.ModerationSource.MANUAL, created_by=admin_user, reason=reason, **kwargs
         )
@@ -273,6 +425,11 @@ class ModerationRecord(models.Model):
         # Don't override needs_zendesk_ticket if explicitly set
         if "needs_zendesk_ticket" not in kwargs:
             kwargs["needs_zendesk_ticket"] = True
+
+        # Auto-link to GameInstance if one exists for this tower_id
+        if "game_instance" not in kwargs:
+            kwargs["game_instance"] = cls._auto_link_game_instance(tower_id)
+
         return cls.objects.create(
             tower_id=tower_id,
             moderation_type=moderation_type,
@@ -290,6 +447,10 @@ class ModerationRecord(models.Model):
         # API-sourced records should NOT create Zendesk tickets to avoid circular loops
         if "needs_zendesk_ticket" not in kwargs:
             kwargs["needs_zendesk_ticket"] = False
+
+        # Auto-link to GameInstance if one exists for this tower_id
+        if "game_instance" not in kwargs:
+            kwargs["game_instance"] = cls._auto_link_game_instance(tower_id)
 
         # Get existing active records for this player
         existing_active = cls.objects.filter(tower_id=tower_id, resolved_at__isnull=True)  # Only active records
@@ -426,6 +587,44 @@ class ModerationRecord(models.Model):
             cls.objects.filter(moderation_type=moderation_type, resolved_at__isnull=True).values_list("tower_id", flat=True)  # Active = not resolved
         )
 
+    def _queue_recalculation(self):
+        """Queue recalculation for tournaments involving this moderation record.
+
+        With GameInstance-level moderation, we need to mark tournaments for ALL
+        tower_ids in the same GameInstance, not just the one in the moderation record.
+        """
+        try:
+            from django.db.models import Q
+
+            from ..tourney_results.models import TourneyResult
+
+            # Get all tower_ids in the same GameInstance (if linked)
+            if self.game_instance:
+                # Get all tower_ids in this GameInstance
+                tower_ids = list(self.game_instance.player_ids.values_list("id", flat=True))
+            else:
+                # No GameInstance - just use the single tower_id from this record
+                try:
+                    player_id_obj = PlayerId.objects.select_related("game_instance").get(id=self.tower_id)
+                    if player_id_obj.game_instance:
+                        # Tower ID got linked since record was created - use all IDs in that instance
+                        tower_ids = list(player_id_obj.game_instance.player_ids.values_list("id", flat=True))
+                    else:
+                        tower_ids = [self.tower_id]
+                except PlayerId.DoesNotExist:
+                    # Tower ID doesn't exist yet - just use it directly
+                    tower_ids = [self.tower_id]
+
+            # Mark affected tournaments as needing recalculation
+            q_filter = Q()
+            for tid in tower_ids:
+                q_filter |= Q(rows__player_id=tid)
+
+            TourneyResult.objects.filter(q_filter).distinct().update(needs_recalc=True, recalc_retry_count=0)
+        except Exception:
+            # Swallow exceptions - recalculation queuing should not block moderation operations
+            pass
+
     history = HistoricalRecords()
 
 
@@ -456,160 +655,5 @@ class SusPerson(models.Model):
 
     history = HistoricalRecords()
 
-    # Transient flag used to allow internal API-driven saves to bypass save-time protections
-    _allow_api_save = False
-
-    def mark_banned_by_api(self, api_user, api_key_obj=None, note=None):
-        """Set banned and provenance, append note with user and key suffix, and save."""
-        from django.utils import timezone
-
-        # Store original sus/shun status for recalculation check
-        original_sus = self.sus
-        original_shun = self.shun
-
-        self.banned = True
-        self.api_ban = True
-        # For API bans, explicitly set sus=False (override model default)
-        # unless sus was already explicitly set by API
-        if not self.api_sus:
-            self.sus = False
-        ts = timezone.now().astimezone(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-        suffix = f" (API key …{api_key_obj.key_suffix()})" if api_key_obj else ""
-        who = getattr(api_user, "username", str(api_user))
-        action_note = f"API BANNED by {who}{suffix} at {ts}"
-        if note:
-            action_note += f" | {note}"
-        self.notes = (self.notes or "") + f"\n{action_note}"
-        self._allow_api_save = True
-        # Set history user for simple_history tracking
-        self._history_user = api_user
-        try:
-            self.save()
-            # Queue recalculation if sus or shun status changed
-            if original_sus != self.sus or original_shun != self.shun:
-                self._queue_recalculation()
-        finally:
-            self._allow_api_save = False
-
-    def unban_by_api(self, api_user, api_key_obj=None, note=None):
-        """Clear banned and provenance when performed by API; append unban note."""
-        from django.utils import timezone
-
-        # Only allow unban via API if api_ban was previously set
-        if not self.api_ban:
-            from django.core.exceptions import PermissionDenied
-
-            raise PermissionDenied("Cannot unban: ban was not created by the API.")
-
-        # Store original sus/shun status for recalculation check
-        original_sus = self.sus
-        original_shun = self.shun
-
-        self.banned = False
-        self.api_ban = False
-        ts = timezone.now().astimezone(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-        suffix = f" (API key …{api_key_obj.key_suffix()})" if api_key_obj else ""
-        who = getattr(api_user, "username", str(api_user))
-        action_note = f"API UNBANNED by {who}{suffix} at {ts}"
-        if note:
-            action_note += f" | {note}"
-        self.notes = (self.notes or "") + f"\n{action_note}"
-        self._allow_api_save = True
-        # Set history user for simple_history tracking
-        self._history_user = api_user
-        try:
-            self.save()
-            # Queue recalculation if sus or shun status changed
-            if original_sus != self.sus or original_shun != self.shun:
-                self._queue_recalculation()
-        finally:
-            self._allow_api_save = False
-
-    def mark_sus_by_api(self, api_user, api_key_obj=None, note=None):
-        from django.utils import timezone
-
-        # Store original sus/shun status for recalculation check
-        original_sus = self.sus
-        original_shun = self.shun
-
-        self.sus = True
-        self.api_sus = True
-        ts = timezone.now().astimezone(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-        suffix = f" (API key …{api_key_obj.key_suffix()})" if api_key_obj else ""
-        who = getattr(api_user, "username", str(api_user))
-        action_note = f"API SUSSED by {who}{suffix} at {ts}"
-        if note:
-            action_note += f" | {note}"
-        self.notes = (self.notes or "") + f"\n{action_note}"
-        self._allow_api_save = True
-        # Set history user for simple_history tracking
-        self._history_user = api_user
-        try:
-            self.save()
-            # Queue recalculation if sus or shun status changed
-            if original_sus != self.sus or original_shun != self.shun:
-                self._queue_recalculation()
-        finally:
-            self._allow_api_save = False
-
-    def unsus_by_api(self, api_user, api_key_obj=None, note=None):
-        from django.core.exceptions import PermissionDenied
-        from django.utils import timezone
-
-        if not self.api_sus:
-            raise PermissionDenied("Cannot unsus: sus was not created by the API.")
-
-        # Store original sus/shun status for recalculation check
-        original_sus = self.sus
-        original_shun = self.shun
-
-        self.sus = False
-        self.api_sus = False
-        ts = timezone.now().astimezone(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-        suffix = f" (API key …{api_key_obj.key_suffix()})" if api_key_obj else ""
-        who = getattr(api_user, "username", str(api_user))
-        action_note = f"API UNSUSSED by {who}{suffix} at {ts}"
-        if note:
-            action_note += f" | {note}"
-        self.notes = (self.notes or "") + f"\n{action_note}"
-        self._allow_api_save = True
-        # Set history user for simple_history tracking
-        self._history_user = api_user
-        try:
-            self.save()
-            # Queue recalculation if sus or shun status changed
-            if original_sus != self.sus or original_shun != self.shun:
-                self._queue_recalculation()
-        finally:
-            self._allow_api_save = False
-
-    def save(self, *args, **kwargs):
-        # Prevent manual unsetting of banned/sus when api_ban/api_sus is set.
-        if self.pk:
-            try:
-                original = SusPerson.objects.get(pk=self.pk)
-            except SusPerson.DoesNotExist:
-                original = None
-
-            if original is not None and not getattr(self, "_allow_api_save", False):
-                # If original was api-banned and still marked banned, but new instance clears banned => disallow
-                if original.api_ban and original.banned and (not self.banned):
-                    from django.core.exceptions import ValidationError
-
-                    raise ValidationError("Cannot manually unban a record created by the API.")
-                if original.api_sus and original.sus and (not self.sus):
-                    from django.core.exceptions import ValidationError
-
-                    raise ValidationError("Cannot manually unsus a record created by the API.")
-
-        return super().save(*args, **kwargs)
-
-    def _queue_recalculation(self):
-        """Queue recalculation for tournaments involving this player."""
-        try:
-            from ..tourney_results.models import TourneyResult
-
-            TourneyResult.objects.filter(rows__player_id=self.player_id).update(needs_recalc=True, recalc_retry_count=0)
-        except Exception:
-            # Swallow exceptions - recalculation queuing should not block API operations
-            pass
+    def __str__(self):
+        return f"[DEPRECATED] {self.player_id} - {self.name}"

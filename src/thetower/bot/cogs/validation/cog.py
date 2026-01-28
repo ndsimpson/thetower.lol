@@ -1,4 +1,5 @@
 import asyncio
+import datetime
 import logging
 
 import discord
@@ -6,10 +7,10 @@ from asgiref.sync import sync_to_async
 from discord import app_commands
 from discord.ext import commands
 
-from thetower.backend.sus.models import KnownPlayer, PlayerId
+from thetower.backend.sus.models import GameInstance, KnownPlayer, LinkedAccount, PlayerId
 from thetower.bot.basecog import BaseCog
 
-from .ui import ValidationSettingsView, VerificationModal
+from .ui import ValidationSettingsView, VerificationModal, VerificationStatusView
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +33,7 @@ class Validation(BaseCog, name="Validation"):
         # Global settings (bot-wide)
         self.global_settings = {
             "approved_unverify_groups": [],  # List of Django group names that can un-verify players
+            "approved_manage_alt_links_groups": [],  # List of Django group names that can manage alt links for any user
         }
 
         # Guild-specific settings
@@ -43,36 +45,527 @@ class Validation(BaseCog, name="Validation"):
 
     def _create_or_update_player(self, discord_id, author_name, player_id):
         try:
-            # Ensure discord_id is a string for consistent comparison (KnownPlayer.discord_id is CharField)
+            # Ensure discord_id is a string for consistent comparison
             discord_id_str = str(discord_id)
 
             # Check if this player_id is already linked to a different Discord account
-            existing_player_id = PlayerId.objects.filter(id=player_id).select_related("player").first()
-            if existing_player_id and existing_player_id.player.discord_id != discord_id_str:
-                # Player ID is already linked to a different Discord account
-                return {
-                    "error": "already_linked",
-                    "existing_discord_id": existing_player_id.player.discord_id,
-                    "existing_player_name": existing_player_id.player.name,
-                }
+            existing_player_id = PlayerId.objects.filter(id=player_id).select_related("game_instance__player").first()
+            if existing_player_id and existing_player_id.game_instance:
+                # Get the KnownPlayer for this tower ID
+                existing_player = existing_player_id.game_instance.player
+                # Check if this player is already linked to a different Discord account
+                existing_linked_account = LinkedAccount.objects.filter(player=existing_player, platform=LinkedAccount.Platform.DISCORD).first()
+                if existing_linked_account and existing_linked_account.account_id != discord_id_str:
+                    # Player ID is already linked to a different Discord account
+                    return {
+                        "error": "already_linked",
+                        "existing_discord_id": existing_linked_account.account_id,
+                        "existing_player_name": existing_player.name,
+                    }
 
-            player, created = KnownPlayer.objects.get_or_create(discord_id=discord_id_str, defaults=dict(approved=True, name=author_name))
+            # Try to find existing player by Discord account
+            linked_account = (
+                LinkedAccount.objects.filter(platform=LinkedAccount.Platform.DISCORD, account_id=discord_id_str).select_related("player").first()
+            )
 
-            # If player already exists but was unapproved, re-approve them
-            if not created and not player.approved:
-                player.approved = True
-                player.save()
+            if linked_account:
+                # Existing player verification with new ID
+                player = linked_account.player
+                created = False
 
-            # First, set all existing PlayerIds for this player to non-primary
-            PlayerId.objects.filter(player_id=player.id).update(primary=False)
+                # If player was unapproved, re-approve them
+                if not player.approved:
+                    player.approved = True
+                    player.save()
 
-            # Then create/update the new PlayerID as primary
-            player_id_obj, player_id_created = PlayerId.objects.update_or_create(id=player_id, player_id=player.id, defaults=dict(primary=True))
+                # Get the primary game instance
+                primary_instance = player.game_instances.filter(primary=True).first()
+                if not primary_instance:
+                    # Create a primary instance if somehow missing
+                    primary_instance = GameInstance.objects.create(player=player, name="Instance 1", primary=True)
+
+                # Capture old primary player ID before changing it (for cache invalidation)
+                old_primary_player_id_obj = PlayerId.objects.filter(game_instance=primary_instance, primary=True).first()
+                old_primary_player_id = old_primary_player_id_obj.id if old_primary_player_id_obj else None
+
+                # Set all existing PlayerIds for this instance to non-primary
+                PlayerId.objects.filter(game_instance=primary_instance).update(primary=False)
+
+                # Create/update the new PlayerID as primary
+                player_id_obj, player_id_created = PlayerId.objects.update_or_create(
+                    id=player_id, defaults=dict(game_instance=primary_instance, primary=True)
+                )
+            else:
+                # New player verification
+                player = KnownPlayer.objects.create(name=author_name, approved=True)
+                created = True
+
+                # Create LinkedAccount
+                LinkedAccount.objects.create(
+                    player=player,
+                    platform=LinkedAccount.Platform.DISCORD,
+                    account_id=str(discord_id_str),
+                    display_name=author_name,
+                    verified=True,
+                )
+
+                # Create primary GameInstance
+                primary_instance = GameInstance.objects.create(player=player, name="Instance 1", primary=True)
+
+                # Create the PlayerID as primary
+                PlayerId.objects.create(id=player_id, game_instance=primary_instance, primary=True)
+                old_primary_player_id = None  # New player, no old primary
+
+            # Auto-link any existing orphaned ModerationRecords for this tower_id
+            from thetower.backend.sus.models import ModerationRecord
+
+            linked_count = ModerationRecord.objects.filter(tower_id=player_id, game_instance__isnull=True).update(game_instance=primary_instance)
+            if linked_count > 0:
+                print(f"Auto-linked {linked_count} existing moderation record(s) to new GameInstance for player {player_id}")
 
             # Return simple values instead of Django model instances to avoid lazy evaluation
-            return {"player_id": player.id, "player_name": player.name, "discord_id": player.discord_id, "created": created}
+            result = {
+                "player_id": player.id,
+                "player_name": player.name,
+                "discord_id": discord_id_str,
+                "created": created,
+                "primary_player_id": player_id,
+                "old_primary_player_id": old_primary_player_id,
+            }
+            return result
         except Exception as exc:
             raise exc
+
+    def load_pending_links_data(self):
+        """Load pending links data - helper for UI components (synchronous wrapper)."""
+        # Use a simple file name for pending links data
+        file_path = self.data_directory / "pending_links.json"
+        # Since this is called from sync context, we need to handle it differently
+        # For now, return empty dict with pending_links structure if file doesn't exist
+        import json
+
+        if file_path.exists():
+            with open(file_path, "r") as f:
+                return json.load(f)
+        return {"pending_links": {}}
+
+    def save_pending_links_data(self, data):
+        """Save pending links data - helper for UI components (synchronous wrapper)."""
+        file_path = self.data_directory / "pending_links.json"
+        import json
+
+        with open(file_path, "w") as f:
+            json.dump(data, f, indent=2)
+
+    def load_pending_player_id_changes_data(self):
+        """Load pending player ID changes data."""
+        file_path = self.data_directory / "pending_player_id_changes.json"
+        import json
+
+        if file_path.exists():
+            with open(file_path, "r") as f:
+                return json.load(f)
+        return {"pending_changes": {}}
+
+    def save_pending_player_id_changes_data(self, data):
+        """Save pending player ID changes data."""
+        file_path = self.data_directory / "pending_player_id_changes.json"
+        import json
+
+        with open(file_path, "w") as f:
+            json.dump(data, f, indent=2)
+
+    async def provide_alt_account_info(self, details: dict, requesting_user: discord.User, permission_context) -> list[dict]:
+        """Provide alt account information for player lookup embeds.
+
+        Args:
+            details: Standardized player details dictionary
+            requesting_user: The Discord user requesting the info
+            permission_context: Permission context for the requesting user
+
+        Returns:
+            List of embed field dictionaries to add to the player embed
+        """
+        from asgiref.sync import sync_to_async
+
+        try:
+            # Get the Discord ID from details
+            discord_id_str = details.get("discord_id")
+            if not discord_id_str:
+                return []
+
+            # Get all LinkedAccounts for this player
+            def get_all_discord_accounts(discord_id: str):
+                try:
+                    linked_account = (
+                        LinkedAccount.objects.filter(platform=LinkedAccount.Platform.DISCORD, account_id=discord_id, verified=True)
+                        .select_related("player")
+                        .first()
+                    )
+
+                    if not linked_account or not linked_account.player:
+                        return [], []
+
+                    # Get all Discord accounts linked to this player
+                    all_accounts = list(
+                        LinkedAccount.objects.filter(player=linked_account.player, platform=LinkedAccount.Platform.DISCORD, verified=True)
+                        .exclude(account_id=discord_id)
+                        .order_by("verified_at")
+                    )
+
+                    # Get pending outgoing links
+                    data = self.load_pending_links_data()
+                    pending_links = data.get("pending_links", {})
+
+                    # Find pending links where this Discord ID is the requester
+                    pending_outgoing = []
+                    for alt_discord_id, link_data in pending_links.items():
+                        if link_data.get("requester_id") == discord_id:
+                            pending_outgoing.append((alt_discord_id, link_data))
+
+                    return all_accounts, pending_outgoing
+                except Exception as e:
+                    self.logger.error(f"Error getting alt accounts for {discord_id}: {e}")
+                    return [], []
+
+            all_accounts, pending_outgoing = await sync_to_async(get_all_discord_accounts)(discord_id_str)
+
+            # Build embed fields
+            fields = []
+
+            # Show linked alt accounts
+            if all_accounts:
+                account_list = []
+                for account in all_accounts:
+                    account_list.append(f"<@{account.account_id}>")
+                fields.append({"name": "🔗 Linked Alt Accounts", "value": "\n".join(account_list), "inline": False})
+
+            # Show pending outgoing link requests - only to authorized users
+            if pending_outgoing:
+                can_manage = await self.can_manage_alt_links(requesting_user)
+                if can_manage:
+                    pending_list = []
+                    for alt_id, link_data in pending_outgoing:
+                        pending_list.append(f"<@{alt_id}> (Pending)")
+                    fields.append({"name": "⏳ Pending Link Requests", "value": "\n".join(pending_list), "inline": False})
+
+            return fields
+
+        except Exception as e:
+            self.logger.error(f"Error providing alt account info: {e}")
+            return []
+
+    async def can_manage_alt_links(self, user: discord.User) -> bool:
+        """Check if a user has permission to manage alt links for any user.
+
+        Args:
+            user: The Discord user to check
+
+        Returns:
+            bool: True if user can manage alt links, False otherwise
+        """
+        from asgiref.sync import sync_to_async
+
+        approved_groups = self.config.get_global_cog_setting("validation", "approved_manage_alt_links_groups", [])
+        if not approved_groups:
+            return False
+
+        def get_user_groups():
+            try:
+                from thetower.backend.sus.models import LinkedAccount
+
+                linked_account = (
+                    LinkedAccount.objects.filter(platform=LinkedAccount.Platform.DISCORD, account_id=str(user.id))
+                    .select_related("player__django_user")
+                    .first()
+                )
+                if not linked_account or not linked_account.player.django_user:
+                    return []
+
+                return [group.name for group in linked_account.player.django_user.groups.all()]
+            except Exception:
+                return []
+
+        user_groups = await sync_to_async(get_user_groups)()
+        return any(group in approved_groups for group in user_groups)
+
+    async def cancel_pending_link(self, discord_id: str) -> int:
+        """Cancel any pending link requests where the given Discord ID is the requester.
+
+        Args:
+            discord_id: Discord ID of the user whose pending links should be cancelled
+
+        Returns:
+            int: Number of pending links cancelled
+        """
+        from asgiref.sync import sync_to_async
+
+        def cancel_links():
+            data = self.load_pending_links_data()
+            pending_links = data.get("pending_links", {})
+
+            # Find and remove any pending links where this user is the requester
+            to_remove = [alt_id for alt_id, link_data in pending_links.items() if link_data.get("requester_id") == discord_id]
+
+            for alt_id in to_remove:
+                del pending_links[alt_id]
+
+            if to_remove:
+                self.save_pending_links_data(data)
+
+            return len(to_remove)
+
+        return await sync_to_async(cancel_links)()
+
+    async def create_player_id_change_request(
+        self,
+        interaction: discord.Interaction,
+        discord_id: str,
+        old_player_id: str,
+        new_player_id: str,
+        reason: str,
+        image_filename: str,
+        timestamp: datetime.datetime,
+        instance_id: int = None,
+    ):
+        """Create a player ID change request and log it to the verification channel.
+
+        Args:
+            interaction: The Discord interaction
+            discord_id: Discord ID of the requesting user
+            old_player_id: Current player ID
+            new_player_id: New player ID
+            reason: Reason for change ("game_changed" or "typo")
+            image_filename: Filename of the saved verification image
+            timestamp: Timestamp of the request
+            instance_id: ID of the GameInstance being updated (optional, uses primary if None)
+        """
+        from asgiref.sync import sync_to_async
+
+        # Log to verification channel with approve/deny buttons
+        log_channel_id = self.get_setting("verification_log_channel_id", guild_id=interaction.guild.id)
+        if not log_channel_id:
+            self.logger.warning(f"No verification log channel configured for guild {interaction.guild.id}")
+            return
+
+        log_channel = interaction.guild.get_channel(log_channel_id)
+        if not log_channel:
+            self.logger.warning(f"Verification log channel {log_channel_id} not found in guild {interaction.guild.id}")
+            return
+
+        # Create embed
+        reason_display = "Game changed my ID" if reason == "game_changed" else "I typed the wrong ID"
+        reason_emoji = "🎮" if reason == "game_changed" else "✏️"
+
+        embed = discord.Embed(title=f"{reason_emoji} Player ID Change Request", color=discord.Color.orange(), timestamp=timestamp)
+
+        embed.add_field(name="Discord User", value=f"{interaction.user.mention}\n`{interaction.user.name}`", inline=True)
+        embed.add_field(name="Discord ID", value=f"`{discord_id}`", inline=True)
+        embed.add_field(name="Reason", value=reason_display, inline=True)
+        embed.add_field(name="Old Player ID", value=f"`{old_player_id}`", inline=True)
+        embed.add_field(name="New Player ID", value=f"`{new_player_id}`", inline=True)
+        embed.add_field(name="Status", value="⏳ Pending Review", inline=True)
+
+        embed.set_thumbnail(url=interaction.user.display_avatar.url)
+
+        # Attach verification image
+        file = None
+        if (self.data_directory / image_filename).exists():
+            file = discord.File(self.data_directory / image_filename, filename=image_filename)
+            embed.set_image(url=f"attachment://{image_filename}")
+
+        # Create view with approve/deny buttons
+        from .ui.core import PlayerIdChangeApprovalView
+
+        view = PlayerIdChangeApprovalView(self, discord_id, old_player_id, new_player_id, reason, instance_id)
+
+        # Send to log channel
+        try:
+            if file:
+                message = await log_channel.send(embed=embed, file=file, view=view)
+            else:
+                message = await log_channel.send(embed=embed, view=view)
+
+            # Store pending change with message ID
+            def save_pending_change():
+                data = self.load_pending_player_id_changes_data()
+                if "pending_changes" not in data:
+                    data["pending_changes"] = {}
+
+                data["pending_changes"][discord_id] = {
+                    "old_player_id": old_player_id,
+                    "new_player_id": new_player_id,
+                    "reason": reason,
+                    "image_filename": image_filename,
+                    "timestamp": timestamp.isoformat(),
+                    "guild_id": interaction.guild.id,
+                    "message_id": message.id,
+                    "channel_id": log_channel.id,
+                }
+
+                self.save_pending_player_id_changes_data(data)
+
+            await sync_to_async(save_pending_change)()
+
+        except discord.Forbidden:
+            self.logger.error(f"Missing permission to send to verification log channel {log_channel_id}")
+        except Exception as e:
+            self.logger.error(f"Failed to log player ID change request: {e}")
+
+    async def build_verification_status_display(self, discord_id_str: str) -> tuple:
+        """Build verification status embed showing complete setup with role assignments.
+
+        Returns:
+            Tuple of (embed, verification_info, has_pending_link) or (None, None, False) if not verified
+        """
+        from asgiref.sync import sync_to_async
+
+        def get_verification_info():
+            try:
+                from thetower.backend.sus.models import LinkedAccount
+
+                linked_account = (
+                    LinkedAccount.objects.filter(platform=LinkedAccount.Platform.DISCORD, account_id=discord_id_str)
+                    .select_related("player", "role_source_instance")
+                    .first()
+                )
+
+                if not linked_account:
+                    return None
+
+                player = linked_account.player
+
+                # Get all Discord LinkedAccounts with their role sources
+                from thetower.backend.sus.models import PlayerId
+
+                all_discord_accounts = list(
+                    LinkedAccount.objects.filter(player=player, platform=LinkedAccount.Platform.DISCORD)
+                    .select_related("role_source_instance")
+                    .values(
+                        "account_id", "verified", "display_name", "primary", "verified_at", "role_source_instance__id", "role_source_instance__name"
+                    )
+                )
+
+                # For each account with a role source, get the primary player ID
+                for account in all_discord_accounts:
+                    if account["role_source_instance__id"]:
+                        primary_player_id = PlayerId.objects.filter(game_instance_id=account["role_source_instance__id"], primary=True).first()
+                        account["role_source_player_id"] = primary_player_id.id if primary_player_id else None
+                    else:
+                        account["role_source_player_id"] = None
+
+                # Get all game instances with their tower IDs
+                game_instances = []
+                for instance in player.game_instances.all():
+                    tower_ids = list(instance.player_ids.values("id", "primary"))
+                    game_instances.append({"id": instance.id, "name": instance.name, "primary": instance.primary, "tower_ids": tower_ids})
+
+                return {
+                    "status": "verified",
+                    "player_id": player.id,
+                    "player_name": player.name,
+                    "verified": linked_account.verified,
+                    "verified_at": linked_account.verified_at,
+                    "all_discord_accounts": all_discord_accounts,
+                    "game_instances": game_instances,
+                }
+            except Exception as exc:
+                self.logger.error(f"Error getting verification info for {discord_id_str}: {exc}")
+                return None
+
+        verification_info = await sync_to_async(get_verification_info)()
+
+        if not verification_info:
+            return None, None, False
+
+        # Build embed with comprehensive display
+        embed = discord.Embed(
+            title="✅ Verification Status", description=f"**Known Player:** {verification_info['player_name']}", color=discord.Color.green()
+        )
+
+        # Section 1: Game Instances with Tower IDs
+        game_instances = verification_info["game_instances"]
+        show_instance_names = len(game_instances) > 1  # Only show instance names if multiple instances
+
+        for instance_info in game_instances:
+            primary_marker = " 🌟" if instance_info["primary"] else ""
+
+            if show_instance_names:
+                instance_name = f"**{instance_info['name']}**{primary_marker}"
+                field_name = f"📋 {instance_name}"
+            else:
+                # Single instance - just show "Tower IDs" with primary marker if applicable
+                field_name = f"📋 Tower IDs{primary_marker}"
+
+            tower_ids_text = []
+            for tower_id_data in instance_info["tower_ids"]:
+                primary_id_marker = " **(Primary)**" if tower_id_data["primary"] else ""
+                tower_ids_text.append(f"• `{tower_id_data['id']}`{primary_id_marker}")
+
+            embed.add_field(name=field_name, value="\n".join(tower_ids_text) if tower_ids_text else "_No Tower IDs_", inline=False)
+
+        # Section 2: Discord Accounts with Role Assignments
+        discord_accounts_text = []
+        for account in verification_info["all_discord_accounts"]:
+            account_id = account["account_id"]
+            verified = account["verified"]
+            display_name = account["display_name"]
+            primary = account["primary"]
+            verified_at = account["verified_at"]
+            role_instance_id = account["role_source_instance__id"]
+            role_instance_name = account["role_source_instance__name"]
+
+            # Build account line
+            status_emoji = "✅" if verified else "⏳"
+            is_current = " **(You)**" if account_id == discord_id_str else ""
+            primary_marker = " 🌟" if primary else ""
+            name_str = f" ({display_name})" if display_name else ""
+
+            account_line = f"{status_emoji} <@{account_id}>{name_str}{primary_marker}{is_current}"
+
+            # Add verification timestamp
+            if verified and verified_at:
+                if hasattr(verified_at, "timestamp"):
+                    unix_timestamp = int(verified_at.timestamp())
+                    if unix_timestamp == 1577836800:  # Historical placeholder date
+                        account_line += " • Verified: _Unknown date_"
+                    else:
+                        account_line += f" • Verified: <t:{unix_timestamp}:R>"
+
+            # Add role source info
+            if role_instance_id:
+                role_source_player_id = account.get("role_source_player_id")
+                role_value = role_source_player_id if role_source_player_id else role_instance_name
+                role_line = f"   └─ Roles: **{role_value}**"
+            else:
+                role_line = "   └─ Roles: **None**"
+
+            discord_accounts_text.append(f"{account_line}\n{role_line}")
+
+        embed.add_field(
+            name="🎮 Discord Accounts", value="\n\n".join(discord_accounts_text) if discord_accounts_text else "_No Discord accounts_", inline=False
+        )
+
+        # Check for pending outgoing links
+        def check_pending_outgoing_links():
+            data = self.load_pending_links_data()
+            pending_links = data.get("pending_links", {})
+            outgoing = []
+            for alt_id, link_data in pending_links.items():
+                if link_data.get("requester_id") == discord_id_str:
+                    outgoing.append({"alt_discord_id": alt_id, "timestamp": link_data.get("timestamp")})
+            return outgoing
+
+        pending_outgoing = await sync_to_async(check_pending_outgoing_links)()
+
+        # Show pending outgoing link requests if any
+        if pending_outgoing:
+            pending_text = []
+            for link in pending_outgoing:
+                pending_text.append(f"• <@{link['alt_discord_id']}> (Waiting for approval)")
+            embed.add_field(name="⏳ Pending Link Requests", value="\n".join(pending_text), inline=False)
+
+        return embed, verification_info, len(pending_outgoing) > 0
 
     @staticmethod
     def only_made_of_hex(text: str) -> bool:
@@ -84,10 +577,8 @@ class Validation(BaseCog, name="Validation"):
     @app_commands.command(name="verify", description="Verify your player ID to gain access to the server")
     @app_commands.guild_only()
     async def verify_slash(self, interaction: discord.Interaction) -> None:
-        """Slash command to start the verification process."""
+        """Slash command to start the verification process or view verification status."""
         from asgiref.sync import sync_to_async
-
-        from thetower.backend.sus.models import KnownPlayer, PlayerId
 
         # Check if verification is enabled for this guild
         verification_enabled = self.get_setting("verification_enabled", guild_id=interaction.guild.id)
@@ -95,40 +586,12 @@ class Validation(BaseCog, name="Validation"):
             await interaction.response.send_message("❌ Verification is currently disabled. Please contact a server administrator.", ephemeral=True)
             return
 
-        # Check if user is already verified
-        verified_role_id = self.get_setting("verified_role_id", guild_id=interaction.guild.id)
-        if verified_role_id:
-            member = interaction.user
-            role = interaction.guild.get_role(verified_role_id)
-            if role and role in member.roles:
-                # Check if they have a registered primary ID
-                try:
-                    discord_id_str = str(interaction.user.id)
-
-                    def get_primary_id():
-                        try:
-                            player = KnownPlayer.objects.get(discord_id=discord_id_str)
-                            primary_id = PlayerId.objects.filter(player=player, primary=True).first()
-                            return primary_id.id if primary_id else None
-                        except KnownPlayer.DoesNotExist:
-                            return None
-
-                    primary_id = await sync_to_async(get_primary_id)()
-
-                    if primary_id:
-                        await interaction.response.send_message(
-                            f"✅ You are already verified!\n" f"Your registered player ID is: `{primary_id}`", ephemeral=True
-                        )
-                    else:
-                        await interaction.response.send_message("✅ You are already verified!", ephemeral=True)
-                except Exception as exc:
-                    self.logger.error(f"Error checking primary ID for {interaction.user.id}: {exc}")
-                    await interaction.response.send_message("✅ You are already verified!", ephemeral=True)
-                return
+        # Check user's current verification status
+        discord_id_str = str(interaction.user.id)
 
         # Block verification if user has an active ban moderation
         try:
-            if await self._has_active_ban(str(interaction.user.id)):
+            if await self._has_active_ban(discord_id_str):
                 # Log the blocked attempt to the verification log channel for moderator awareness
                 try:
                     await self._log_detailed_verification(
@@ -142,7 +605,7 @@ class Validation(BaseCog, name="Validation"):
                     self.logger.error(f"Failed to log blocked verification attempt for {interaction.user.id}: {log_exc}")
 
                 await interaction.response.send_message(
-                    "❌ Verification blocked: you have an active ban on your account. Please contact a moderator.",
+                    "⚠️ Unable to complete verification at this time. Please contact a server moderator for assistance.",
                     ephemeral=True,
                 )
                 return
@@ -153,6 +616,104 @@ class Validation(BaseCog, name="Validation"):
                 ephemeral=True,
             )
             return
+
+        def get_verification_info():
+            """Get comprehensive verification information for this Discord user."""
+            try:
+                # Check if this Discord account has a LinkedAccount
+                linked_account = (
+                    LinkedAccount.objects.filter(platform=LinkedAccount.Platform.DISCORD, account_id=discord_id_str).select_related("player").first()
+                )
+
+                if not linked_account:
+                    return {"status": "not_verified"}
+
+                player = linked_account.player
+
+                # Get all LinkedAccounts for this player (to show if verified with alt account)
+                all_linked_accounts = list(
+                    LinkedAccount.objects.filter(player=player, platform=LinkedAccount.Platform.DISCORD).values_list(
+                        "account_id", "verified", "display_name"
+                    )
+                )
+
+                # Get all game instances and their tower IDs
+                game_instances = []
+                for instance in player.game_instances.all():
+                    tower_ids = list(instance.player_ids.values_list("id", "primary"))
+                    game_instances.append({"name": instance.name, "primary": instance.primary, "tower_ids": tower_ids})
+
+                return {
+                    "status": "verified" if linked_account.verified else "pending",
+                    "player_name": player.name,
+                    "player_id": player.id,
+                    "verified": linked_account.verified,
+                    "verified_at": linked_account.verified_at,
+                    "all_discord_accounts": all_linked_accounts,
+                    "game_instances": game_instances,
+                }
+            except Exception as exc:
+                self.logger.error(f"Error getting verification info for {discord_id_str}: {exc}")
+                return {"status": "error", "error": str(exc)}
+
+        verification_info = await sync_to_async(get_verification_info)()
+
+        # If user is already verified, show comprehensive status
+        if verification_info["status"] == "verified":
+            embed, verification_info, has_pending_link = await self.build_verification_status_display(discord_id_str)
+
+            if embed is None:
+                await interaction.response.send_message("❌ Could not load verification status.", ephemeral=True)
+                return
+
+            # /verify only shows your own profile, so never admin mode
+            view = VerificationStatusView(
+                self,
+                verification_info,
+                discord_id_str,
+                has_pending_link=has_pending_link,
+                requesting_user=interaction.user,
+                can_manage_alt_links=False,
+            )
+            await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+            return
+
+        # User is not verified - check for pending link requests
+        def check_pending_link():
+            data = self.load_pending_links_data()
+            pending_links = data.get("pending_links", {})
+            return pending_links.get(discord_id_str)
+
+        pending_link = await sync_to_async(check_pending_link)()
+
+        if pending_link:
+            # User has a pending link request - show option to accept or decline
+            from .ui.core import AcceptLinkView
+
+            requester_id = pending_link["requester_id"]
+            player_name = pending_link["player_name"]
+
+            view = AcceptLinkView(self, discord_id_str, pending_link)
+            await interaction.response.send_message(
+                f"📨 **Pending Link Request**\n\n"
+                f"<@{requester_id}> has requested to link your Discord account to their player: **{player_name}**\n\n"
+                f"If you accept, both Discord accounts will share the same verification and game instances.\n\n"
+                f"Choose an option below:",
+                view=view,
+                ephemeral=True,
+            )
+            return
+
+        # Check if user has verified role but no LinkedAccount (shouldn't happen, but handle it)
+        verified_role_id = self.get_setting("verified_role_id", guild_id=interaction.guild.id)
+        if verified_role_id:
+            member = interaction.user
+            role = interaction.guild.get_role(verified_role_id)
+            if role and role in member.roles:
+                await interaction.response.send_message(
+                    "⚠️ You have the verified role but no linked account. Please contact a moderator.", ephemeral=True
+                )
+                return
 
         # Open the verification modal
         modal = VerificationModal(self)
@@ -180,10 +741,20 @@ class Validation(BaseCog, name="Validation"):
             ban_ids = ModerationRecord.get_active_moderation_ids("ban")
 
             banned_records = []
-            players = KnownPlayer.objects.filter(discord_id__isnull=False).exclude(discord_id="").select_related().prefetch_related("ids")
+            # Get all players with Discord LinkedAccounts
+            linked_accounts = (
+                LinkedAccount.objects.filter(platform=LinkedAccount.Platform.DISCORD, verified=True)
+                .select_related("player")
+                .prefetch_related("player__game_instances__player_ids")
+            )
 
-            for player in players:
-                player_ids = list(player.ids.all())
+            for linked_account in linked_accounts:
+                player = linked_account.player
+                primary_instance = player.game_instances.filter(primary=True).first()
+                if not primary_instance:
+                    continue
+
+                player_ids = list(primary_instance.player_ids.all())
                 if not player_ids:
                     continue
 
@@ -198,7 +769,7 @@ class Validation(BaseCog, name="Validation"):
 
                 banned_records.append(
                     {
-                        "discord_id": player.discord_id,
+                        "discord_id": linked_account.account_id,  # Get from LinkedAccount
                         "player_id": primary.id,
                         "player_name": player.name,
                         "latest_tourney_date": latest_date,
@@ -275,6 +846,13 @@ class Validation(BaseCog, name="Validation"):
                 # UI extensions are registered automatically by BaseCog.__init__
                 # No need to call register_ui_extensions() here
 
+                # Register info extension for player lookup (alt account info)
+                self.logger.debug("Registering player lookup info extension")
+                tracker.update_status("Registering info extensions")
+                self.bot.cog_manager.register_info_extension(
+                    target_cog="player_lookup", source_cog="validation", provider_func=self.provide_alt_account_info
+                )
+
                 # Run startup reconciliation to fix any role issues that occurred while bot was offline
                 tracker.update_status("Running startup reconciliation")
                 await self._startup_reconciliation()
@@ -292,8 +870,6 @@ class Validation(BaseCog, name="Validation"):
         """Reconcile verified roles with KnownPlayers on startup."""
         from asgiref.sync import sync_to_async
 
-        from thetower.backend.sus.models import KnownPlayer
-
         self.logger.info("Running startup verification reconciliation...")
 
         for guild in self.bot.guilds:
@@ -306,19 +882,25 @@ class Validation(BaseCog, name="Validation"):
                 if not verified_role:
                     continue
 
-                # Get all KnownPlayers with discord_id and approved=True
+                # Get all KnownPlayers with verified Discord LinkedAccounts and approved=True
                 def get_known_players():
-                    return list(KnownPlayer.objects.filter(discord_id__isnull=False).exclude(discord_id="").filter(approved=True).distinct())
+                    # Get all LinkedAccounts with Discord platform and verified=True
+                    linked_accounts = (
+                        LinkedAccount.objects.filter(platform=LinkedAccount.Platform.DISCORD, verified=True, player__approved=True)
+                        .select_related("player")
+                        .distinct()
+                    )
+                    return list(linked_accounts)
 
-                known_players = await sync_to_async(get_known_players)()
+                linked_accounts = await sync_to_async(get_known_players)()
 
                 roles_added = 0
                 roles_removed = 0
 
-                # Check each known player
-                for player in known_players:
+                # Check each linked account
+                for linked_account in linked_accounts:
                     try:
-                        discord_id = int(player.discord_id)
+                        discord_id = int(linked_account.account_id)
                         member = guild.get_member(discord_id)
 
                         if member:
@@ -337,8 +919,16 @@ class Validation(BaseCog, name="Validation"):
 
                         async def get_startup_verification_status():
                             try:
-                                player = await sync_to_async(KnownPlayer.objects.get)(discord_id=discord_id_str)
+                                linked_account = await sync_to_async(
+                                    LinkedAccount.objects.filter(platform=LinkedAccount.Platform.DISCORD, account_id=discord_id_str)
+                                    .select_related("player")
+                                    .first
+                                )()
 
+                                if not linked_account:
+                                    return {"should_have_role": False, "reason": "not verified"}
+
+                                player = linked_account.player
                                 if not player.approved:
                                     return {"should_have_role": False, "reason": "not approved"}
 
@@ -346,8 +936,8 @@ class Validation(BaseCog, name="Validation"):
                                     return {"should_have_role": False, "reason": "active ban moderation"}
 
                                 return {"should_have_role": True, "reason": None}
-                            except KnownPlayer.DoesNotExist:
-                                return {"should_have_role": False, "reason": "not approved"}
+                            except Exception:
+                                return {"should_have_role": False, "reason": "not verified"}
 
                         status = await get_startup_verification_status()
                         if not status["should_have_role"]:
@@ -374,8 +964,6 @@ class Validation(BaseCog, name="Validation"):
         """
         from asgiref.sync import sync_to_async
 
-        from thetower.backend.sus.models import KnownPlayer, PlayerId
-
         try:
             # Do not add role if member has an active ban
             if await self._has_active_ban(str(member.id)):
@@ -392,16 +980,28 @@ class Validation(BaseCog, name="Validation"):
 
             def get_player_id():
                 try:
-                    player = KnownPlayer.objects.get(discord_id=discord_id_str)
+                    linked_account = (
+                        LinkedAccount.objects.filter(platform=LinkedAccount.Platform.DISCORD, account_id=discord_id_str)
+                        .select_related("player")
+                        .first()
+                    )
+                    if not linked_account:
+                        return None
+
+                    player = linked_account.player
+                    primary_instance = player.game_instances.filter(primary=True).first()
+                    if not primary_instance:
+                        return None
+
                     # First try to get primary ID
-                    primary_id = PlayerId.objects.filter(player=player, primary=True).first()
+                    primary_id = primary_instance.player_ids.filter(primary=True).first()
                     if primary_id:
                         return primary_id.id
 
                     # If no primary ID, just pick any available ID
-                    any_id = PlayerId.objects.filter(player=player).first()
+                    any_id = primary_instance.player_ids.first()
                     return any_id.id if any_id else None
-                except KnownPlayer.DoesNotExist:
+                except Exception:
                     return None
 
             player_id = await sync_to_async(get_player_id)()
@@ -432,12 +1032,18 @@ class Validation(BaseCog, name="Validation"):
             try:
                 from thetower.backend.sus.models import ModerationRecord
 
-                player = KnownPlayer.objects.get(discord_id=discord_id_str)
+                linked_account = (
+                    LinkedAccount.objects.filter(platform=LinkedAccount.Platform.DISCORD, account_id=discord_id_str).select_related("player").first()
+                )
+                if not linked_account:
+                    return False
+
+                player = linked_account.player
                 ban_ids = ModerationRecord.get_active_moderation_ids("ban")
-                player_tower_ids = [pid.id for pid in player.ids.all()]
+
+                # Get all tower IDs across all game instances
+                player_tower_ids = [pid.id for instance in player.game_instances.all() for pid in instance.player_ids.all()]
                 return any(pid in ban_ids for pid in player_tower_ids)
-            except KnownPlayer.DoesNotExist:
-                return False
             except Exception as exc:  # defensive logging; do not fail hard
                 self.logger.error(f"Error checking active ban for {discord_id_str}: {exc}")
                 return False
@@ -457,8 +1063,6 @@ class Validation(BaseCog, name="Validation"):
         """
         from asgiref.sync import sync_to_async
 
-        from thetower.backend.sus.models import KnownPlayer, PlayerId
-
         try:
             # Track this as a bot action to prevent feedback loop
             self._bot_role_changes.add((member.id, member.guild.id))
@@ -470,16 +1074,28 @@ class Validation(BaseCog, name="Validation"):
 
             def get_player_id():
                 try:
-                    player = KnownPlayer.objects.get(discord_id=discord_id_str)
+                    linked_account = (
+                        LinkedAccount.objects.filter(platform=LinkedAccount.Platform.DISCORD, account_id=discord_id_str)
+                        .select_related("player")
+                        .first()
+                    )
+                    if not linked_account:
+                        return None
+
+                    player = linked_account.player
+                    primary_instance = player.game_instances.filter(primary=True).first()
+                    if not primary_instance:
+                        return None
+
                     # First try to get primary ID
-                    primary_id = PlayerId.objects.filter(player=player, primary=True).first()
+                    primary_id = primary_instance.player_ids.filter(primary=True).first()
                     if primary_id:
                         return primary_id.id
 
                     # If no primary ID, just pick any available ID
-                    any_id = PlayerId.objects.filter(player=player).first()
+                    any_id = primary_instance.player_ids.first()
                     return any_id.id if any_id else None
-                except KnownPlayer.DoesNotExist:
+                except Exception:
                     return None
 
             player_id = await sync_to_async(get_player_id)()
@@ -655,8 +1271,6 @@ class Validation(BaseCog, name="Validation"):
         """Handle member joins - auto-verify known players."""
         from asgiref.sync import sync_to_async
 
-        from thetower.backend.sus.models import KnownPlayer
-
         try:
             verified_role_id = self.get_setting("verified_role_id", guild_id=member.guild.id)
             if not verified_role_id:
@@ -671,7 +1285,15 @@ class Validation(BaseCog, name="Validation"):
 
             def should_have_verified_role():
                 try:
-                    player = KnownPlayer.objects.get(discord_id=discord_id_str)
+                    linked_account = (
+                        LinkedAccount.objects.filter(platform=LinkedAccount.Platform.DISCORD, account_id=discord_id_str)
+                        .select_related("player")
+                        .first()
+                    )
+                    if not linked_account:
+                        return False
+
+                    player = linked_account.player
                     if not player.approved:
                         return False
 
@@ -679,9 +1301,10 @@ class Validation(BaseCog, name="Validation"):
                     from thetower.backend.sus.models import ModerationRecord
 
                     ban_ids = ModerationRecord.get_active_moderation_ids("ban")
-                    player_tower_ids = [pid.id for pid in player.ids.all()]
+                    # Get all tower IDs across all game instances
+                    player_tower_ids = [pid.id for instance in player.game_instances.all() for pid in instance.player_ids.all()]
                     return not any(pid in ban_ids for pid in player_tower_ids)
-                except KnownPlayer.DoesNotExist:
+                except Exception:
                     return False
 
             if await sync_to_async(should_have_verified_role)():
@@ -695,8 +1318,6 @@ class Validation(BaseCog, name="Validation"):
     async def on_member_update(self, before: discord.Member, after: discord.Member) -> None:
         """Handle member updates - monitor verified role changes."""
         from asgiref.sync import sync_to_async
-
-        from thetower.backend.sus.models import KnownPlayer
 
         try:
             verified_role_id = self.get_setting("verified_role_id", guild_id=after.guild.id)
@@ -723,7 +1344,15 @@ class Validation(BaseCog, name="Validation"):
 
             def get_verification_status():
                 try:
-                    player = KnownPlayer.objects.get(discord_id=discord_id_str)
+                    linked_account = (
+                        LinkedAccount.objects.filter(platform=LinkedAccount.Platform.DISCORD, account_id=discord_id_str)
+                        .select_related("player")
+                        .first()
+                    )
+                    if not linked_account:
+                        return {"should_have_role": False, "reason": "not verified"}
+
+                    player = linked_account.player
 
                     # Check if approved
                     if not player.approved:
@@ -733,13 +1362,14 @@ class Validation(BaseCog, name="Validation"):
                     from thetower.backend.sus.models import ModerationRecord
 
                     ban_ids = ModerationRecord.get_active_moderation_ids("ban")
-                    player_tower_ids = [pid.id for pid in player.ids.all()]
+                    # Get all tower IDs across all game instances
+                    player_tower_ids = [pid.id for instance in player.game_instances.all() for pid in instance.player_ids.all()]
                     if any(pid in ban_ids for pid in player_tower_ids):
                         return {"should_have_role": False, "reason": "active ban"}
 
                     return {"should_have_role": True, "reason": None}
-                except KnownPlayer.DoesNotExist:
-                    return {"should_have_role": False, "reason": "not approved"}
+                except Exception:
+                    return {"should_have_role": False, "reason": "not verified"}
 
             status = await sync_to_async(get_verification_status)()
 
@@ -759,13 +1389,30 @@ class Validation(BaseCog, name="Validation"):
                 # Get player ID for detailed logging
                 def get_player_id():
                     try:
-                        player = KnownPlayer.objects.get(discord_id=discord_id_str)
-                        primary_id = PlayerId.objects.filter(player=player, primary=True).first()
-                        if primary_id:
-                            return primary_id.id
-                        any_id = PlayerId.objects.filter(player=player).first()
-                        return any_id.id if any_id else None
-                    except KnownPlayer.DoesNotExist:
+                        from thetower.backend.sus.models import LinkedAccount
+
+                        linked_account = (
+                            LinkedAccount.objects.filter(platform=LinkedAccount.Platform.DISCORD, account_id=discord_id_str)
+                            .select_related("player")
+                            .first()
+                        )
+                        if not linked_account:
+                            return None
+
+                        player = linked_account.player
+                        # Get primary game instance's primary ID
+                        primary_instance = player.game_instances.filter(primary=True).first()
+                        if primary_instance:
+                            primary_id = primary_instance.player_ids.filter(primary=True).first()
+                            if primary_id:
+                                return primary_id.id
+                        # Fallback to any ID from any game instance
+                        any_instance = player.game_instances.first()
+                        if any_instance:
+                            any_id = any_instance.player_ids.first()
+                            return any_id.id if any_id else None
+                        return None
+                    except Exception:
                         return None
 
                 player_id = await sync_to_async(get_player_id)()
@@ -782,108 +1429,21 @@ class Validation(BaseCog, name="Validation"):
         except Exception as exc:
             self.logger.error(f"Error in on_member_update for {after} ({after.id}): {exc}", exc_info=True)
 
-    def register_ui_extensions(self) -> None:
-        """Register UI extensions for other cogs."""
-        self.bot.cog_manager.register_ui_extension(
-            "player_lookup",
-            "Validation",
-            self.provide_unverify_button,
-        )
-
-    def provide_unverify_button(self, details, requesting_user, guild_id, permission_context):
-        """UI extension provider for un-verify button in player profiles.
-
-        Args:
-            details: The player details dictionary
-            requesting_user: The Discord user requesting the profile
-            guild_id: The guild ID where the request is made
-            permission_context: Permission context for the requesting user
-
-        Returns:
-            UnverifyButton if user has permission, None otherwise
-        """
-        # Only show for verified players
-        if not details.get("is_verified", False):
-            return None
-
-        # Don't allow users to un-verify themselves
-        if details.get("discord_id") and str(details["discord_id"]) == str(requesting_user.id):
-            return None
-
-        # Check if the requesting user has permission to un-verify
-        # Get approved groups from settings
-        approved_groups = self.config.get_global_cog_setting("validation", "approved_unverify_groups", [])
-
-        if not approved_groups:
-            return None  # No groups configured for un-verification
-
-        # Check if user has any of the approved groups
-        if permission_context.has_any_group(approved_groups):
-            from .ui.core import UnverifyButton
-
-            return UnverifyButton(self, details["discord_id"], details["name"], requesting_user, guild_id)
-
-        return None
-
     async def cog_unload(self) -> None:
         """Clean up when unloading."""
         # Call parent's cog_unload to ensure UI extensions are cleaned up
         await super().cog_unload()
 
-    def _unverify_player(self, discord_id, requesting_user):
-        """Un-verify a player by marking their KnownPlayer as unapproved.
-
-        Args:
-            discord_id: Discord ID of the player to un-verify
-            requesting_user: Django user requesting the un-verification
-
-        Returns:
-            dict: Result with success status and message
-        """
-        try:
-            # Ensure discord_id is a string for consistent comparison (KnownPlayer.discord_id is CharField)
-            discord_id_str = str(discord_id)
-
-            # Check if requesting user is in approved groups
-            approved_groups = self.config.get_global_cog_setting(
-                "validation", "approved_unverify_groups", self.global_settings["approved_unverify_groups"]
-            )
-            user_groups = [group.name for group in requesting_user.groups.all()]
-
-            if not any(group in approved_groups for group in user_groups):
-                return {"success": False, "message": "You don't have permission to un-verify players."}
-
-            # Get the player
-            try:
-                player = KnownPlayer.objects.get(discord_id=discord_id_str)
-            except KnownPlayer.DoesNotExist:
-                return {"success": False, "message": f"No verified player found with Discord ID {discord_id_str}."}
-
-            # Mark the player as unapproved
-            player.approved = False
-            player.save()
-
-            return {
-                "success": True,
-                "message": f"Successfully un-verified player {player.name} (Discord ID: {discord_id_str}). Player marked as unapproved.",
-                "player_id": player.id,
-                "player_name": player.name,
-                "discord_id": discord_id_str,
-            }
-
-        except Exception as exc:
-            logger.error(f"Error un-verifying player {discord_id_str}: {exc}")
-            return {"success": False, "message": f"Error un-verifying player: {exc}"}
-
-    async def remove_verified_role_from_user(self, discord_id: int, guild_id: int) -> bool:
+    async def remove_verified_role_from_user(self, discord_id: int, guild_id: int, reason: str = "player un-verified") -> bool:
         """Remove the verified role from a Discord user.
 
         Args:
             discord_id: Discord ID of the user
             guild_id: Guild ID where to remove the role
+            reason: Reason for role removal (default: "player un-verified")
 
         Returns:
-            bool: True if role was removed, False otherwise
+            bool: True if role was removed, "not_needed" if user didn't have role, False on error
         """
         try:
             guild = self.bot.get_guild(guild_id)
@@ -918,130 +1478,13 @@ class Validation(BaseCog, name="Validation"):
                 self.logger.info(f"Member {member.name} does not have verified role {role.name}")
                 return "not_needed"  # Special return value: user didn't have the role
 
-            self.logger.info(f"Removing verified role {role.name} from {member.name}")
-            await member.remove_roles(role)
-            self.logger.info(f"Successfully removed verified role {role.name} from {member.name}")
-            return True
+            # Use helper method for proper tracking and logging
+            success = await self._remove_verified_role(member, role, reason)
+            return success
 
         except Exception as exc:
             logger.error(f"Error removing verified role from user {discord_id}: {exc}")
             return False
-
-    async def unverify_player_complete(self, discord_id: int, requesting_user, guild_ids: list = None) -> dict:
-        """Complete un-verification process: update database and remove roles.
-
-        Args:
-            discord_id: Discord ID of the player to un-verify
-            requesting_user: Django user requesting the un-verification
-            guild_ids: List of guild IDs to remove roles from (if None, tries all guilds)
-
-        Returns:
-            dict: Result with success status, message, and role removal results
-        """
-        from asgiref.sync import sync_to_async
-
-        # First, un-verify in database (wrap sync method in sync_to_async)
-        db_result = await sync_to_async(self._unverify_player)(discord_id, requesting_user)
-        if not db_result["success"]:
-            return db_result
-
-        # If no specific guilds provided, get all guilds the bot is in
-        if guild_ids is None:
-            guild_ids = [guild.id for guild in self.bot.guilds]
-
-        # Remove verified role from each guild
-        role_removal_results = []
-        for guild_id in guild_ids:
-            role_removed = await self.remove_verified_role_from_user(discord_id, guild_id)
-            role_removal_results.append({"guild_id": guild_id, "role_removed": role_removed})
-
-        # Log the un-verification if log channel is configured
-        await self._log_unverification(discord_id, requesting_user, role_removal_results)
-
-        return {
-            "success": True,
-            "message": db_result["message"],
-            "role_removal_results": role_removal_results,
-            "player_id": db_result.get("player_id"),
-            "player_name": db_result.get("player_name"),
-        }
-
-    async def _log_unverification(self, discord_id: int, requesting_user, role_removal_results: list):
-        """Log an un-verification event to the configured log channel."""
-        # This would log to verification log channels across guilds
-        # For now, we'll log to the first configured channel we find
-        for guild in self.bot.guilds:
-            log_channel_id = self.get_setting("verification_log_channel_id", guild_id=guild.id)
-            if log_channel_id:
-                log_channel = guild.get_channel(log_channel_id)
-                if log_channel:
-                    embed = discord.Embed(
-                        title="🚫 Player Un-verified",
-                        description=f"Player <@{discord_id}> (Discord ID `{discord_id}`) has been un-verified.",
-                        color=discord.Color.red(),
-                        timestamp=discord.utils.utcnow(),
-                    )
-
-                    embed.add_field(name="Requested by", value=f"`{requesting_user.username}`", inline=True)
-                    embed.add_field(name="Discord User", value=f"<@{discord_id}>", inline=True)
-
-                    # Show role removal results for this guild
-                    guild_result = next((r for r in role_removal_results if r["guild_id"] == guild.id), None)
-                    if guild_result:
-                        role_removed = guild_result["role_removed"]
-                        verified_role_id = self.get_setting("verified_role_id", guild_id=guild.id)
-                        if verified_role_id:
-                            role = guild.get_role(verified_role_id)
-                            if role:
-                                if role_removed is True:
-                                    status = f"✅ {role.mention}"
-                                elif role_removed == "not_needed":
-                                    status = f"ℹ️ {role.mention} (already removed)"
-                                else:
-                                    status = f"❌ {role.mention} (failed to remove)"
-                                embed.add_field(name="Role Removed", value=status, inline=True)
-
-                    try:
-                        # Check if bot has permission to send messages and embeds
-                        permissions = log_channel.permissions_for(guild.me)
-                        if not permissions.send_messages:
-                            logger.warning(f"Missing 'Send Messages' permission in verification log channel {log_channel.name} ({log_channel_id})")
-                            continue
-                        if not permissions.embed_links:
-                            logger.warning(f"Missing 'Embed Links' permission in verification log channel {log_channel.name} ({log_channel_id})")
-                            # Try to send a text message instead
-                            guild_result = next((r for r in role_removal_results if r["guild_id"] == guild.id), None)
-                            role_status = "Unknown"
-                            if guild_result:
-                                role_removed = guild_result["role_removed"]
-                                verified_role_id = self.get_setting("verified_role_id", guild_id=guild.id)
-                                if verified_role_id:
-                                    role = guild.get_role(verified_role_id)
-                                    if role:
-                                        if role_removed is True:
-                                            role_status = f"✅ {role.mention}"
-                                        elif role_removed == "not_needed":
-                                            role_status = f"ℹ️ {role.mention} (already removed)"
-                                        else:
-                                            role_status = f"❌ {role.mention} (failed to remove)"
-
-                            text_message = (
-                                f"🚫 **Player Un-verified**\n"
-                                f"Player <@{discord_id}> (Discord ID `{discord_id}`) has been un-verified.\n"
-                                f"Requested by: `{requesting_user.username}`\n"
-                                f"Role Removed: {role_status if role else 'Unknown'}"
-                            )
-                            await log_channel.send(text_message)
-                        else:
-                            await log_channel.send(embed=embed)
-                    except discord.Forbidden as forbidden_exc:
-                        logger.error(f"Permission denied when logging to channel {log_channel.name} ({log_channel_id}): {forbidden_exc}")
-                        logger.error(f"Bot permissions in channel: send_messages={permissions.send_messages}, embed_links={permissions.embed_links}")
-                    except Exception as log_exc:
-                        logger.error(f"Failed to log un-verification to channel {log_channel_id}: {log_exc}")
-
-                    # Only log to one channel to avoid spam
-                    break
 
     @commands.Cog.listener()
     async def on_member_moderated(self, tower_id: str, moderation_type: str, record, requesting_user: discord.User, updated: bool = False):
@@ -1059,9 +1502,16 @@ class Validation(BaseCog, name="Validation"):
             def get_discord_id():
                 try:
                     # Find the PlayerId for this tower_id
-                    player_id_obj = PlayerId.objects.filter(id=tower_id).select_related("player").first()
-                    if player_id_obj and player_id_obj.player.discord_id:
-                        return player_id_obj.player.discord_id
+                    player_id_obj = PlayerId.objects.filter(id=tower_id).select_related("game_instance__player").first()
+                    if player_id_obj and player_id_obj.game_instance:
+                        # Get the primary Discord account from LinkedAccount
+                        from thetower.backend.sus.models import LinkedAccount
+
+                        linked_account = LinkedAccount.objects.filter(
+                            player=player_id_obj.game_instance.player, platform=LinkedAccount.Platform.DISCORD, primary=True
+                        ).first()
+                        if linked_account:
+                            return linked_account.account_id
                 except Exception as e:
                     self.logger.error(f"Error looking up Discord ID for tower_id {tower_id}: {e}")
                 return None

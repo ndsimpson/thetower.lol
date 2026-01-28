@@ -17,9 +17,9 @@ def get_namechangers():
 
     st.write(table_styling, unsafe_allow_html=True)
 
-    id_data = PlayerId.objects.all().select_related("player__name").values("id", "player__name", "primary")
+    id_data = PlayerId.objects.all().select_related("game_instance__player").values("id", "game_instance__player__name", "primary")
     iddf = pd.DataFrame(id_data)
-    iddf = iddf.rename(columns={"player__name": "real_name"})
+    iddf = iddf.rename(columns={"game_instance__player__name": "real_name"})
 
     piddf = iddf[iddf.primary]
     real_name_id_mapping = dict(zip(piddf.real_name, piddf.id))

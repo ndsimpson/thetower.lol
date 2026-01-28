@@ -91,9 +91,9 @@ def search_players_optimized(search_term, excluded_player_ids, page=20):
 
             priority1_results = list(
                 PlayerId.objects.filter(base_condition & Q(primary=True) & ~Q(id__in=excluded_player_ids))
-                .select_related("player")
-                .order_by("player_id")
-                .values_list("id", "player__name")[:page]
+                .select_related("game_instance__player")
+                .order_by("id")
+                .values_list("id", "game_instance__player__name")[:page]
             )
             # Add league info by querying TourneyRow for each player
             priority1_with_league = []
@@ -142,9 +142,9 @@ def search_players_optimized(search_term, excluded_player_ids, page=20):
 
             priority3_results = list(
                 PlayerId.objects.filter(base_condition & Q(primary=True) & ~Q(id__in=existing_player_ids) & ~Q(id__in=excluded_player_ids))
-                .select_related("player")
-                .order_by("player_id")
-                .values_list("id", "player__name")[: page - len(all_results)]
+                .select_related("game_instance__player")
+                .order_by("id")
+                .values_list("id", "game_instance__player__name")[: page - len(all_results)]
             )
             # Add league info
             priority3_with_league = []

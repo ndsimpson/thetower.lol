@@ -41,12 +41,16 @@ def results_per_tourney(request, league, tourney_date):  # Unused with api disab
 
 
 def results_per_user(request, player_id):  # Unused with api disabled
-    player_ids = PlayerId.objects.filter(id=player_id)
+    player_ids = PlayerId.objects.filter(id=player_id).select_related("game_instance")
     how_many = int(request.GET.get("how_many", 1000))
 
     if player_ids:
         player_id = player_ids[0]
-        all_player_ids = player_id.player.ids.all().values_list("id", flat=True)
+        # Get all PlayerIds for this specific game instance
+        if player_id.game_instance:
+            all_player_ids = PlayerId.objects.filter(game_instance=player_id.game_instance).values_list("id", flat=True)
+        else:
+            all_player_ids = [player_id.id]
         rows = (
             TourneyRow.objects.select_related("result")
             .filter(

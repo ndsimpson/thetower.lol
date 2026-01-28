@@ -1,11 +1,12 @@
 # UI package for Validation cog
 # This package contains the user interface components
 
-from .core import UnverifyButton, VerificationModal
+from .core import AcceptLinkView, VerificationModal, VerificationStatusView
 from .settings import ValidationSettingsView
 
 __all__ = [
     "VerificationModal",
-    "UnverifyButton",
+    "VerificationStatusView",
+    "AcceptLinkView",
     "ValidationSettingsView",
 ]

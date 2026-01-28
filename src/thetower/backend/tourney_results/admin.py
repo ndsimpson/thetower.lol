@@ -120,11 +120,7 @@ def generate_summary(modeladmin, request, queryset):
 def regenerate_battle_conditions(modeladmin, request, queryset):
     """Regenerate battle conditions for selected tournaments using towerbcs predictions."""
     if not TOWERBCS_AVAILABLE:
-        modeladmin.message_user(
-            request,
-            "Error: towerbcs package is not available. Cannot regenerate battle conditions.",
-            level="ERROR"
-        )
+        modeladmin.message_user(request, "Error: towerbcs package is not available. Cannot regenerate battle conditions.", level="ERROR")
         return
 
     from datetime import datetime
@@ -157,16 +153,11 @@ def regenerate_battle_conditions(modeladmin, request, queryset):
             error_count += 1
 
     if updated_count > 0:
-        modeladmin.message_user(
-            request,
-            f"Successfully regenerated battle conditions for {updated_count} tournament(s)."
-        )
+        modeladmin.message_user(request, f"Successfully regenerated battle conditions for {updated_count} tournament(s).")
 
     if error_count > 0:
         modeladmin.message_user(
-            request,
-            f"Failed to regenerate battle conditions for {error_count} tournament(s). Check logs for details.",
-            level="WARNING"
+            request, f"Failed to regenerate battle conditions for {error_count} tournament(s). Check logs for details.", level="WARNING"
         )
 
 
@@ -190,7 +181,14 @@ class TourneyRowAdmin(SimpleHistoryAdmin):
     )
 
     def _known_player(self, obj):
-        player_pk = PlayerId.objects.get(id=obj.player_id).player.id
+        player_id_obj = PlayerId.objects.select_related("game_instance__player").get(id=obj.player_id)
+        if player_id_obj.game_instance and player_id_obj.game_instance.player:
+            player_pk = player_id_obj.game_instance.player.id
+        elif hasattr(player_id_obj, "player") and player_id_obj.player:
+            # Fallback for unmigrated data
+            player_pk = player_id_obj.player.id
+        else:
+            return "No KnownPlayer"
         return format_html(
             f"<a href='{BASE_ADMIN_URL}sus/knownplayer/{player_pk}/change/'>{BASE_ADMIN_URL}<br>sus/<br>knownplayer/{player_pk}/change/</a>"
         )
@@ -271,7 +269,7 @@ class TourneyResultAdmin(SimpleHistoryAdmin):
         url = f"{self.get_admin_url('regenerate_bcs', obj.pk)}"
         return format_html(
             '<a class="button" href="{}" style="background: #417690; color: white; padding: 5px 10px; text-decoration: none; border-radius: 3px;">Regenerate BCs</a>',
-            url
+            url,
         )
 
     regenerate_bcs_button.short_description = "Regenerate Battle Conditions"
@@ -280,29 +278,32 @@ class TourneyResultAdmin(SimpleHistoryAdmin):
     readonly_fields = ("regenerate_bcs_button",)
 
     fieldsets = (
-        (None, {
-            'fields': ('league', 'date', 'result_file', 'public', 'conditions', 'overview')
-        }),
-        ('Recalculation', {
-            'fields': ('needs_recalc', 'last_recalc_at', 'recalc_retry_count', 'regenerate_bcs_button'),
-            'classes': ('collapse',),
-        }),
+        (None, {"fields": ("league", "date", "result_file", "public", "conditions", "overview")}),
+        (
+            "Recalculation",
+            {
+                "fields": ("needs_recalc", "last_recalc_at", "recalc_retry_count", "regenerate_bcs_button"),
+                "classes": ("collapse",),
+            },
+        ),
     )
 
     def get_admin_url(self, action, obj_id):
         """Generate admin URL for custom actions."""
         from django.urls import reverse
-        return reverse(f'admin:{self.model._meta.app_label}_{self.model._meta.model_name}_{action}', args=[obj_id])
+
+        return reverse(f"admin:{self.model._meta.app_label}_{self.model._meta.model_name}_{action}", args=[obj_id])
 
     def get_urls(self):
         """Add custom URLs for admin actions."""
         from django.urls import path
+
         urls = super().get_urls()
         custom_urls = [
             path(
-                '<path:object_id>/regenerate_bcs/',
+                "<path:object_id>/regenerate_bcs/",
                 self.admin_site.admin_view(self.regenerate_bcs_view),
-                name=f'{self.model._meta.app_label}_{self.model._meta.model_name}_regenerate_bcs',
+                name=f"{self.model._meta.app_label}_{self.model._meta.model_name}_regenerate_bcs",
             ),
         ]
         return custom_urls + urls
@@ -430,6 +431,7 @@ class BattleConditionAdmin(SimpleHistoryAdmin):
 class NameDayWinnerAdmin(SimpleHistoryAdmin):
     list_display = (
         "winner",
+        "winner_discord_accounts",
         "tourney",
         "winning_nickname",
         "nameday_theme",
@@ -438,9 +440,21 @@ class NameDayWinnerAdmin(SimpleHistoryAdmin):
     search_fields = (
         "winning_nickname",
         "winner__name",
-        "winner__discord_id",
+        "winner__linked_accounts__account_id",
         "nameday_theme",
     )
+
+    def winner_discord_accounts(self, obj):
+        """Display Discord accounts for the winner."""
+        from thetower.backend.sus.models import LinkedAccount
+
+        discord_accounts = obj.winner.linked_accounts.filter(platform=LinkedAccount.Platform.DISCORD)
+        if discord_accounts:
+            accounts_str = ", ".join([f"{acc.account_id}{' ✓' if acc.verified else ''}" for acc in discord_accounts])
+            return accounts_str
+        return "No Discord accounts"
+
+    winner_discord_accounts.short_description = "Discord Accounts"
 
 
 @admin.register(Injection)

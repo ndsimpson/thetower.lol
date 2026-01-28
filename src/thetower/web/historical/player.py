@@ -68,7 +68,7 @@ def compute_player_lookup():
 
     info_tab, league_graph_tab, patch_tab = st.tabs(["Overview", "Performance Graph", "Patch best"])
 
-    player_ids = PlayerId.objects.filter(id=options.current_player)
+    player_ids = PlayerId.objects.filter(id=options.current_player).select_related("game_instance__player")
     print(f"{player_ids=} {options.current_player=}")
 
     hidden_query = {} if hidden_features else {"result__public": True, "position__lte": how_many_results_public_site}
@@ -76,8 +76,13 @@ def compute_player_lookup():
     if player_ids:
         player_id = player_ids[0]
         print(f"{player_ids=} {player_id=}")
+        # Get all PlayerIds for THIS specific game instance only
+        if player_id.game_instance:
+            game_instance_ids = PlayerId.objects.filter(game_instance=player_id.game_instance).values_list("id", flat=True)
+        else:
+            game_instance_ids = [player_id.id]
         rows = TourneyRow.objects.filter(
-            player_id__in=player_id.player.ids.all().values_list("id", flat=True),
+            player_id__in=game_instance_ids,
             **hidden_query,
         )
     else:
@@ -314,16 +319,22 @@ def draw_info_tab(info_tab, user, player_id, player_df, hidden_features):
 
     tourney_join = "✅" if check_all_live_entry(player_df.iloc[0].id) else "⛔"
 
-    # Get creator code from KnownPlayer model
+    # Get creator code from the player's KnownPlayer via GameInstance
     creator_code = ""
     try:
         # Look up the player by their player ID
         player_id_value = player_df.iloc[0].id
 
-        player_ids = PlayerId.objects.filter(id=player_id_value)
+        player_ids = PlayerId.objects.filter(id=player_id_value).select_related("game_instance__player")
         if player_ids.exists():
-            known_player = player_ids.first().player
-            if known_player.creator_code:
+            player_id_obj = player_ids.first()
+            known_player = None
+
+            # Get KnownPlayer via GameInstance
+            if player_id_obj.game_instance:
+                known_player = player_id_obj.game_instance.player
+
+            if known_player and known_player.creator_code:
                 creator_code = f"<div style='font-size: 15px'>Creator code: <span style='color:#cd4b3d; font-weight:bold;'>{known_player.creator_code}</span> <a href='https://store.techtreegames.com/thetower/' target='_blank' style='text-decoration: none;'>🏪</a></div>"
     except Exception:
         # Silently fail if there's any issue looking up the creator code

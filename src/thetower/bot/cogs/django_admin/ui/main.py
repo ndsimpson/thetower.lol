@@ -4,7 +4,7 @@ import discord
 from asgiref.sync import sync_to_async
 from django.contrib.auth.models import Group, User
 
-from thetower.backend.sus.models import KnownPlayer
+from thetower.backend.sus.models import KnownPlayer, PlayerId
 
 
 class DjangoAdminMainView(discord.ui.View):
@@ -769,7 +769,17 @@ class UserInfoModal(discord.ui.Modal):
 
                     has_known_player = hasattr(user, "known_player") and user.known_player is not None
                     known_player_name = user.known_player.name if has_known_player else None
-                    discord_id = user.known_player.discord_id if has_known_player else None
+
+                    # Get discord_id from LinkedAccount (primary Discord account)
+                    discord_id = None
+                    if has_known_player:
+                        from thetower.backend.sus.models import LinkedAccount
+
+                        linked_account = LinkedAccount.objects.filter(
+                            player=user.known_player, platform=LinkedAccount.Platform.DISCORD, primary=True
+                        ).first()
+                        if linked_account:
+                            discord_id = linked_account.account_id
 
                     return {
                         "id": user.id,
@@ -1086,7 +1096,12 @@ class UnlinkUserModal(discord.ui.Modal):
 
                     known_player = django_user.known_player
                     known_player_name = known_player.name
-                    discord_id = known_player.discord_id
+
+                    # Get discord_id from LinkedAccount (primary Discord account)
+                    from thetower.backend.sus.models import LinkedAccount
+
+                    linked_account = LinkedAccount.objects.filter(player=known_player, platform=LinkedAccount.Platform.DISCORD, primary=True).first()
+                    discord_id = linked_account.account_id if linked_account else None
 
                     known_player.django_user = None
                     known_player.save()
@@ -1147,13 +1162,17 @@ class LinkStatusModal(discord.ui.Modal):
 
                     if has_known_player:
                         kp = django_user.known_player
+                        # Get primary Discord account from LinkedAccount
+                        from thetower.backend.sus.models import LinkedAccount as LA
+
+                        discord_account = LA.objects.filter(player=kp, platform=LA.Platform.DISCORD, primary=True).first()
                         return {
                             "user_id": django_user.id,
                             "username": django_user.username,
                             "linked": True,
                             "known_player_name": kp.name,
-                            "discord_id": kp.discord_id,
-                            "player_id_count": kp.ids.count(),
+                            "discord_id": discord_account.account_id if discord_account else None,
+                            "player_id_count": PlayerId.objects.filter(game_instance__player=kp).count(),
                         }, None
                     else:
                         return {
