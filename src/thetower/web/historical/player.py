@@ -292,20 +292,20 @@ def draw_info_tab(info_tab, user, player_id, player_df, hidden_features):
             unsafe_allow_html=True,
         )
 
-    avatar = player_df.iloc[0].avatar
+    # avatar = player_df.iloc[0].avatar
     relic = player_df.iloc[0].relic
 
-    if avatar in [35, 36, 39, 42, 44, 45, 46]:
-        extension = "webp"
-    else:
-        extension = "png"
+    # if avatar in [35, 36, 39, 42, 44, 45, 46]:
+    #     extension = "webp"
+    # else:
+    #     extension = "png"
 
     # avatar_string = f"<img src='./app/static/Tower_Skins/{avatar}.{extension}' width=100>" if avatar > 0 else ""
     avatar_string = ""
 
     # Check if the relic exists in all_relics dictionary to avoid KeyError
     if relic in all_relics:
-        title = f"title='{all_relics[relic][0]}, {all_relics[relic][2]} {all_relics[relic][3]}'"
+        # title = f"title='{all_relics[relic][0]}, {all_relics[relic][2]} {all_relics[relic][3]}'"
         # relic_url = f"<img src='./app/static/Tower_Relics/{all_relics[relic][1]}' width=100, {title}>" if relic >= 0 else ""
         relic_url = ""
     else:
