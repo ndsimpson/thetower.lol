@@ -229,11 +229,25 @@ class PlayerLookup(BaseCog, name="Player Lookup", description="Universal player 
 
                     for instance in known_player.game_instances.all().order_by("-primary", "created_at"):
                         player_ids = list(instance.player_ids.all().order_by("-primary", "id"))
+
+                        # Find primary player ID
+                        primary_player_id = next((pid.id for pid in player_ids if pid.primary), None)
+
+                        # Get Discord accounts receiving roles from this instance
+                        discord_accounts_receiving_roles = list(
+                            LinkedAccount.objects.filter(role_source_instance=instance, platform=LinkedAccount.Platform.DISCORD).values_list(
+                                "account_id", flat=True
+                            )
+                        )
+
                         instance_data = {
                             "id": instance.id,
                             "name": instance.name,
                             "primary": instance.primary,
                             "player_ids": [{"id": pid.id, "primary": pid.primary} for pid in player_ids],
+                            "primary_player_id": primary_player_id,
+                            "discord_accounts_receiving_roles": discord_accounts_receiving_roles,
+                            "all_player_ids": [pid.id for pid in player_ids],
                         }
                         instances.append(instance_data)
 
@@ -280,11 +294,25 @@ class PlayerLookup(BaseCog, name="Player Lookup", description="Universal player 
 
                             for instance in player.game_instances.all().order_by("-primary", "created_at"):
                                 player_ids = list(instance.player_ids.all().order_by("-primary", "id"))
+
+                                # Find primary player ID
+                                primary_player_id = next((pid.id for pid in player_ids if pid.primary), None)
+
+                                # Get Discord accounts receiving roles from this instance
+                                discord_accounts_receiving_roles = list(
+                                    LinkedAccount.objects.filter(role_source_instance=instance, platform=LinkedAccount.Platform.DISCORD).values_list(
+                                        "account_id", flat=True
+                                    )
+                                )
+
                                 instance_data = {
                                     "id": instance.id,
                                     "name": instance.name,
                                     "primary": instance.primary,
                                     "player_ids": [{"id": pid.id, "primary": pid.primary} for pid in player_ids],
+                                    "primary_player_id": primary_player_id,
+                                    "discord_accounts_receiving_roles": discord_accounts_receiving_roles,
+                                    "all_player_ids": [pid.id for pid in player_ids],
                                 }
                                 instances.append(instance_data)
 
