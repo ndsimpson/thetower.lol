@@ -1102,15 +1102,14 @@ class PlayerIdChangeModal(ui.Modal, title="Update Player ID"):
         current_id = None
         if self.instance_id:
             # Get current ID from the selected instance
-            async def get_instance_primary_id():
-
+            def get_instance_primary_id():
                 instance = GameInstance.objects.filter(id=self.instance_id).first()
                 if instance:
                     primary_player_id = instance.player_ids.filter(primary=True).first()
                     return primary_player_id.id if primary_player_id else None
                 return None
 
-            current_id = await get_instance_primary_id()
+            current_id = await sync_to_async(get_instance_primary_id)()
         else:
             # Fallback to primary instance (shouldn't happen with new flow)
             for instance in self.verification_info.get("game_instances", []):
