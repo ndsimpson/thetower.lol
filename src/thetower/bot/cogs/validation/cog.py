@@ -100,17 +100,18 @@ class Validation(BaseCog, name="Validation"):
                 player = KnownPlayer.objects.create(name=author_name, approved=True)
                 created = True
 
-                # Create LinkedAccount
+                # Create primary GameInstance first (needed for role_source_instance)
+                primary_instance = GameInstance.objects.create(player=player, name="Instance 1", primary=True)
+
+                # Create LinkedAccount with role_source_instance set to primary instance
                 LinkedAccount.objects.create(
                     player=player,
                     platform=LinkedAccount.Platform.DISCORD,
                     account_id=str(discord_id_str),
                     display_name=author_name,
                     verified=True,
+                    role_source_instance=primary_instance,
                 )
-
-                # Create primary GameInstance
-                primary_instance = GameInstance.objects.create(player=player, name="Instance 1", primary=True)
 
                 # Create the PlayerID as primary
                 PlayerId.objects.create(id=player_id, game_instance=primary_instance, primary=True)
