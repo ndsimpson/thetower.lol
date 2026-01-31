@@ -268,7 +268,7 @@ class LinkedAccountInline(nested_admin.NestedTabularInline):
     model = LinkedAccount
     verbose_name = "Linked Social Account"
     verbose_name_plural = "Linked Social Accounts"
-    extra = 0
+    extra = 1
     fields = ("platform", "account_id", "display_name", "verified", "verified_at", "primary", "role_source_instance")
     readonly_fields = ("verified_at",)
 
