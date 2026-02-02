@@ -66,9 +66,9 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
         self.log_buffers = {}  # {guild_id: [messages]}
         self.log_buffer_max_size = 8000  # Characters before forcing flush
 
-        # Track members currently being updated to prevent duplicate logging from on_member_update
-        # This includes manual updates, bulk updates, and role corrections
-        self.updating_members = set()  # Set of (guild_id, user_id) tuples
+        # Track pending role corrections with delayed timers (state-based approach)
+        # Each entry is a task that will apply correction after delay if state remains wrong
+        self.pending_corrections = {}  # {(guild_id, user_id): asyncio.Task}
 
         # Role cache for calculated tournament roles
         self.role_cache = {}  # {guild_id: {user_id: calculated_role_id}}
@@ -95,6 +95,7 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
             "error_retry_delay": 300,
             "league_hierarchy": ["Legend", "Champion", "Platinum", "Gold", "Silver", "Copper"],
             "pause": False,  # Global pause - bot owner can pause all role updates
+            "correction_delay_seconds": 3.0,  # Wait time before correcting wrong roles (allows changes to settle)
         }
 
         # Guild-specific settings
@@ -697,15 +698,40 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
             "skipped_no_cache": 0,
             "skipped_not_verified": 0,
             "not_in_guild": 0,
+            "aborted": False,
         }
 
         total_cache_size = len(self.role_cache.get(guild_id, {}))
         total_users = len(users_to_process)
         loop_start_time = datetime.datetime.now(datetime.timezone.utc)
+
+        # Store cache date at loop start to detect invalidation mid-loop
+        loop_start_cache_date = self.cache_latest_tourney_date
+
         self.logger.info(f"[LOOP START] apply_roles_for_users: Processing {total_users} users from role_cache for guild {guild.name}")
 
         # 4. Process each user
         for idx, discord_id_str in enumerate(users_to_process):
+            # Check if cache was invalidated during loop (new tourney data arrived)
+            if self.cache_latest_tourney_date != loop_start_cache_date:
+                self.logger.warning(
+                    f"Cache invalidated during apply loop (was: {loop_start_cache_date}, now: {self.cache_latest_tourney_date}) - aborting"
+                )
+
+                # Cancel all pending corrections - they're based on stale expectations
+                cancelled_count = len(self.pending_corrections)
+                for task in self.pending_corrections.values():
+                    task.cancel()
+                self.pending_corrections.clear()
+
+                if cancelled_count > 0:
+                    self.logger.info(f"Cancelled {cancelled_count} pending corrections due to cache invalidation")
+
+                # Release lock immediately so new update can start
+                self.currently_updating = False
+                stats["aborted"] = True
+
+                break  # Exit loop - on_tourney_data_refreshed will trigger new update
             discord_id = int(discord_id_str)
             member = guild.get_member(discord_id)
 
@@ -773,8 +799,6 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
                         # Build new role list without tournament roles
                         new_roles = [role for role in member.roles if str(role.id) not in all_managed_role_ids and not role.is_default()]
 
-                        member_key = (guild_id, member.id)
-                        self.updating_members.add(member_key)
                         try:
                             changes = []
                             if not dry_run:
@@ -791,13 +815,6 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
                         except Exception as e:
                             self.logger.error(f"Error removing roles from {member.name}: {e}")
                             stats["errors"] += 1
-                        finally:
-                            # Delay removal to allow Discord's on_member_update event to fire and be ignored
-                            async def delayed_removal():
-                                await asyncio.sleep(0.5)
-                                self.updating_members.discard(member_key)
-
-                            asyncio.create_task(delayed_removal())
 
                     stats["skipped_not_verified"] += 1
                     stats["processed"] += 1
@@ -828,8 +845,6 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
 
             # Apply changes if any
             if changes:
-                member_key = (guild_id, member.id)
-                self.updating_members.add(member_key)
                 try:
                     if not dry_run:
                         await member.edit(roles=new_roles, reason="Tournament participation role update")
@@ -862,14 +877,6 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
                 except Exception as e:
                     self.logger.error(f"Error updating roles for {member.name}: {e}")
                     stats["errors"] += 1
-                finally:
-                    # Delay removal to allow Discord's on_member_update event to fire and be ignored
-                    # Discord's gateway can take a moment to process the role change and trigger the event
-                    async def delayed_removal():
-                        await asyncio.sleep(0.5)  # 500ms delay
-                        self.updating_members.discard(member_key)
-
-                    asyncio.create_task(delayed_removal())
 
             stats["processed"] += 1
 
@@ -888,8 +895,9 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
         rate = stats["processed"] / loop_duration if loop_duration > 0 else 0
 
         # Log comprehensive statistics
+        status = "ABORTED - Cache invalidated" if stats["aborted"] else "Completed"
         self.logger.info(
-            f"[LOOP END] apply_roles_for_users: Completed in {loop_duration:.1f}s ({rate:.1f} users/sec)\n"
+            f"[LOOP END] apply_roles_for_users: {status} in {loop_duration:.1f}s ({rate:.1f} users/sec)\n"
             f"  Guild: {guild.name} ({guild.id})\n"
             f"  Total users in role_cache: {total_cache_size}\n"
             f"  Users being processed: {total_users}\n"
@@ -968,8 +976,9 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
                 raise
 
             finally:
-                # Make absolutely sure we unset the updating flag
-                self.currently_updating = False
+                # Unset the updating flag (unless already unset by early abort)
+                if self.currently_updating:
+                    self.currently_updating = False
                 if hasattr(self, "update_progress"):
                     self.update_progress["completed"] = True
 
@@ -1559,29 +1568,124 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
 
     async def cog_unload(self):
         """Clean up when cog is unloaded"""
+        # Cancel all pending correction timers
+        for task in self.pending_corrections.values():
+            task.cancel()
+        self.pending_corrections.clear()
+
         if self.update_task:
             self.update_task.cancel()
         await super().cog_unload()
         self.logger.info("Tournament roles cog unloaded")
 
+    async def _delayed_correction(self, guild_id: int, user_id: int, expected_role_id: int):
+        """Apply role correction after delay if state is still wrong.
+
+        Args:
+            guild_id: Guild ID
+            user_id: User ID
+            expected_role_id: The role ID that should be applied
+        """
+        try:
+            # Wait for configured delay
+            delay = self.get_global_setting("correction_delay_seconds", 3.0)
+            await asyncio.sleep(delay)
+
+            # Get guild and member from cache (cache is current since no events = no changes during timer)
+            guild = self.bot.get_guild(guild_id)
+            if not guild:
+                return
+
+            member = guild.get_member(user_id)
+            if not member:
+                return  # User left server during timer
+
+            # Get current state
+            roles_config = self.core.get_roles_config(guild_id)
+            managed_role_ids = {config.id for config in roles_config.values()}
+            current_tourney_roles = {role.id for role in member.roles if str(role.id) in managed_role_ids}
+
+            # Check if state is now correct (defensive check, should still be wrong)
+            if expected_role_id in current_tourney_roles and len(current_tourney_roles) == 1:
+                self.logger.debug(f"Timer expired but {member.name} now has correct role - ignoring")
+                return
+
+            # Apply correction
+            await self._apply_role_correction(member, expected_role_id, guild_id, current_tourney_roles)
+
+        except asyncio.CancelledError:
+            # Timer was cancelled because state became correct
+            pass
+        except Exception as e:
+            self.logger.error(f"Error in delayed correction for user {user_id}: {e}", exc_info=True)
+        finally:
+            # Clean up pending correction
+            member_key = (guild_id, user_id)
+            self.pending_corrections.pop(member_key, None)
+
+    async def _apply_role_correction(self, member: discord.Member, expected_role_id: int, guild_id: int, current_tourney_roles: set):
+        """Apply the actual role correction.
+
+        Args:
+            member: Discord member
+            expected_role_id: Role ID that should be applied
+            guild_id: Guild ID
+            current_tourney_roles: Set of current tournament role IDs
+        """
+        try:
+            expected_role = member.guild.get_role(expected_role_id)
+            if not expected_role:
+                self.logger.warning(f"Expected role {expected_role_id} not found in guild")
+                return
+
+            changes = []
+
+            # Determine what needs to change
+            if expected_role_id not in current_tourney_roles:
+                # Add missing role
+                await member.add_roles(expected_role, reason="Correcting tournament role")
+                changes.append(f"+{expected_role.name}")
+                self.logger.info(f"Restored tournament role {expected_role.name} to {member.name}")
+                self.bot.dispatch("tourney_role_added", member, expected_role)
+
+            # Remove extra roles
+            if len(current_tourney_roles) > 1:
+                roles_to_remove = []
+                for role_id in current_tourney_roles:
+                    if role_id != expected_role_id:
+                        role = member.guild.get_role(role_id)
+                        if role:
+                            roles_to_remove.append(role)
+
+                if roles_to_remove:
+                    await member.remove_roles(*roles_to_remove, reason="Removing extra tournament roles")
+                    for role in roles_to_remove:
+                        changes.append(f"-{role.name}")
+                        self.bot.dispatch("tourney_role_removed", member, role)
+                    removed_names = [r.name for r in roles_to_remove]
+                    self.logger.info(f"Removed extra tournament roles {removed_names} from {member.name}")
+
+            # Log changes
+            if changes:
+                await self.log_role_change(guild_id, member.name, changes, immediate=True)
+
+        except Exception as e:
+            self.logger.error(f"Error applying role correction for {member.name}: {e}", exc_info=True)
+
     @discord.ext.commands.Cog.listener()
     async def on_member_update(self, before: discord.Member, after: discord.Member):
-        """Monitor role changes and handle tournament roles.
+        """Monitor role changes and handle tournament roles using state-based correction.
 
-        Handles both:
+        Handles:
         1. Verified role changes (add/remove tournament roles)
-        2. Tournament role corrections for verified users
+        2. State-based tournament role corrections with delayed timer
         """
         try:
             # Only process if this cog is enabled for the guild
             if not self.bot.cog_manager.can_guild_use_cog(self.cog_name, after.guild.id, False):
                 return
 
-            # Skip if we're already updating this member (prevents duplicate logging)
-            # This includes manual updates, bulk updates, and role corrections
             member_key = (after.guild.id, after.id)
-            if member_key in self.updating_members:
-                return
 
             # Get verified role ID from settings
             verified_role_id = self.get_setting("verified_role_id", guild_id=after.guild.id)
@@ -1641,80 +1745,37 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
                     self.logger.debug(f"Tournament role changed for {after.name} but user is not verified - no correction")
                     return
 
-                # Check if user should have their cached role
-                cached_role_id = self.role_cache.get(after.guild.id, {}).get(str(after.id))
+                # Get expected role from cache
+                expected_role_id = self.role_cache.get(after.guild.id, {}).get(str(after.id))
 
-                # Determine if any correction is actually needed
-                needs_correction = False
+                if not expected_role_id:
+                    # No cached role - user shouldn't have tournament roles
+                    self.logger.debug(f"No cached role for {after.name} - ignoring role change")
+                    return
 
-                if cached_role_id:
-                    # User should have this specific role
-                    if cached_role_id not in after_tourney_roles:
-                        # Role was removed, add it back
-                        needs_correction = True
-                        role = after.guild.get_role(int(cached_role_id))
-                        if role:
-                            # Mark as updating to prevent duplicate logging
-                            member_key = (after.guild.id, after.id)
-                            self.updating_members.add(member_key)
-                            try:
-                                await after.add_roles(role, reason="Correcting tournament role removal")
-                                self.logger.info(f"Restored tournament role {role.name} to {after.name}")
+                # STATE-BASED CHECK: Is current state correct?
+                expected_role_id_int = int(expected_role_id)
+                if expected_role_id_int in after_tourney_roles and len(after_tourney_roles) == 1:
+                    # State is correct! Cancel any pending correction
+                    if member_key in self.pending_corrections:
+                        self.pending_corrections[member_key].cancel()
+                        del self.pending_corrections[member_key]
+                        self.logger.debug(f"Role change for {after.name} resulted in correct state - cancelled pending correction")
+                    return  # No work needed
 
-                                # Dispatch custom event for role addition
-                                self.bot.dispatch("tourney_role_added", after, role)
-
-                                # Log using unified function with immediate flush
-                                await self.log_role_change(after.guild.id, after.name, [f"+{role.name}"], immediate=True)
-                            finally:
-                                # Delay removal to allow Discord's on_member_update event to fire and be ignored
-                                async def delayed_removal():
-                                    await asyncio.sleep(0.5)
-                                    self.updating_members.discard(member_key)
-
-                                asyncio.create_task(delayed_removal())
-                    elif len(after_tourney_roles) > 1:
-                        # User has multiple tournament roles, remove extras
-                        needs_correction = True
-                        roles_to_remove = []
-                        for role_id in after_tourney_roles:
-                            if role_id != int(cached_role_id):
-                                role = after.guild.get_role(role_id)
-                                if role:
-                                    roles_to_remove.append(role)
-
-                        if roles_to_remove:
-                            # Mark as updating to prevent duplicate logging
-                            member_key = (after.guild.id, after.id)
-                            self.updating_members.add(member_key)
-                            try:
-                                await after.remove_roles(*roles_to_remove, reason="Removing extra tournament roles")
-                                removed_names = [role.name for role in roles_to_remove]
-                                self.logger.info(f"Removed extra tournament roles {removed_names} from {after.name}")
-
-                                # Dispatch custom events for role removals
-                                for role in roles_to_remove:
-                                    self.bot.dispatch("tourney_role_removed", after, role)
-
-                                # Log using unified function with immediate flush
-                                changes = [f"-{name}" for name in removed_names]
-                                await self.log_role_change(after.guild.id, after.name, changes, immediate=True)
-                            finally:
-                                # Delay removal to allow Discord's on_member_update event to fire and be ignored
-                                async def delayed_removal():
-                                    await asyncio.sleep(0.5)
-                                    self.updating_members.discard(member_key)
-
-                                asyncio.create_task(delayed_removal())
-
-                # Only log if we actually made a correction
-                if needs_correction:
-                    self.logger.debug(f"Corrected tournament role change for {after.name} ({after.id})")
+                # State is wrong - start or reset delayed correction timer
+                if member_key in self.pending_corrections:
+                    # Cancel existing timer and start new one (extends wait period)
+                    self.pending_corrections[member_key].cancel()
+                    self.logger.debug(f"Resetting correction timer for {after.name}")
                 else:
-                    self.logger.debug(f"Tournament role change for {after.name} ({after.id}) - no correction needed")
+                    self.logger.info(f"Starting correction timer for {after.name} (expected: {expected_role_id}, current: {after_tourney_roles})")
+
+                # Create new delayed correction task
+                self.pending_corrections[member_key] = asyncio.create_task(self._delayed_correction(after.guild.id, after.id, expected_role_id_int))
 
         except Exception as e:
-            self.logger.error(f"Error in on_member_update: {e}")
+            self.logger.error(f"Error in on_member_update: {e}", exc_info=True)
 
     @discord.ext.commands.Cog.listener()
     async def on_tourney_data_refreshed(self, data: dict):
@@ -2392,60 +2453,49 @@ class TourneySelfRefreshButton(discord.ui.Button):
                 # Fast path: Use cached role (same as on_member_update)
                 await interaction.response.send_message("🔄 Refreshing roles...", ephemeral=True)
 
-                # Mark member as being updated to prevent duplicate logging
-                member_key = (self.guild_id, self.user_id)
-                self.cog.updating_members.add(member_key)
-                try:
-                    role = guild.get_role(int(cached_role_id))
-                    if not role:
-                        await interaction.edit_original_response(content="❌ Cached role not found")
-                        return
+                role = guild.get_role(int(cached_role_id))
+                if not role:
+                    await interaction.edit_original_response(content="❌ Cached role not found")
+                    return
 
-                    # Get current tournament roles
-                    roles_config = self.cog.core.get_roles_config(self.guild_id)
-                    managed_role_ids = {config.id for config in roles_config.values()}
-                    current_tourney_roles = {r for r in member.roles if str(r.id) in managed_role_ids}
+                # Get current tournament roles
+                roles_config = self.cog.core.get_roles_config(self.guild_id)
+                managed_role_ids = {config.id for config in roles_config.values()}
+                current_tourney_roles = {r for r in member.roles if str(r.id) in managed_role_ids}
 
-                    # Check what needs to be done
-                    changes = []
-                    roles_to_add = []
-                    roles_to_remove = []
+                # Check what needs to be done
+                changes = []
+                roles_to_add = []
+                roles_to_remove = []
 
-                    if role not in current_tourney_roles:
-                        roles_to_add.append(role)
-                        changes.append(f"+{role.name}")
+                if role not in current_tourney_roles:
+                    roles_to_add.append(role)
+                    changes.append(f"+{role.name}")
 
-                    # Remove any other tournament roles
-                    for existing_role in current_tourney_roles:
-                        if existing_role.id != role.id:
-                            roles_to_remove.append(existing_role)
-                            changes.append(f"-{existing_role.name}")
+                # Remove any other tournament roles
+                for existing_role in current_tourney_roles:
+                    if existing_role.id != role.id:
+                        roles_to_remove.append(existing_role)
+                        changes.append(f"-{existing_role.name}")
 
-                    # Apply role changes
-                    if roles_to_add:
-                        await member.add_roles(*roles_to_add, reason="User refreshed tournament roles")
-                        # Dispatch custom events for role additions
-                        for role in roles_to_add:
-                            self.cog.bot.dispatch("tourney_role_added", member, role)
-                    if roles_to_remove:
-                        await member.remove_roles(*roles_to_remove, reason="User refreshed tournament roles")
-                        # Dispatch custom events for role removals
-                        for role in roles_to_remove:
-                            self.cog.bot.dispatch("tourney_role_removed", member, role)
+                # Apply role changes
+                if roles_to_add:
+                    await member.add_roles(*roles_to_add, reason="User refreshed tournament roles")
+                    # Dispatch custom events for role additions
+                    for role in roles_to_add:
+                        self.cog.bot.dispatch("tourney_role_added", member, role)
+                if roles_to_remove:
+                    await member.remove_roles(*roles_to_remove, reason="User refreshed tournament roles")
+                    # Dispatch custom events for role removals
+                    for role in roles_to_remove:
+                        self.cog.bot.dispatch("tourney_role_removed", member, role)
 
-                    # Log changes if any
-                    if changes:
-                        await self.cog.log_role_change(self.guild_id, member.name, changes, immediate=True)
-                        await interaction.edit_original_response(content=f"✅ Roles updated: {', '.join(changes)}")
-                    else:
-                        await interaction.edit_original_response(content="✅ Your roles are already up to date!")
-                finally:
-                    # Delay removal to allow Discord's on_member_update event to fire and be ignored
-                    async def delayed_removal():
-                        await asyncio.sleep(0.5)
-                        self.cog.updating_members.discard(member_key)
-
-                    asyncio.create_task(delayed_removal())
+                # Log changes if any
+                if changes:
+                    await self.cog.log_role_change(self.guild_id, member.name, changes, immediate=True)
+                    await interaction.edit_original_response(content=f"✅ Roles updated: {', '.join(changes)}")
+                else:
+                    await interaction.edit_original_response(content="✅ Your roles are already up to date!")
             else:
                 # Slow path: No cache, need to recalculate
                 loading_embed = discord.Embed(
@@ -2455,19 +2505,9 @@ class TourneySelfRefreshButton(discord.ui.Button):
                 )
                 await interaction.response.send_message(embed=loading_embed, ephemeral=True)
 
-                member_key = (self.guild_id, self.user_id)
-                self.cog.updating_members.add(member_key)
-                try:
-                    result = await self.cog.refresh_user_roles_for_user(self.user_id, self.guild_id)
-                    success_embed = discord.Embed(title="✅ Roles Updated", description=result, color=discord.Color.green())
-                    await interaction.edit_original_response(embed=success_embed)
-                finally:
-                    # Delay removal to allow Discord's on_member_update event to fire and be ignored
-                    async def delayed_removal():
-                        await asyncio.sleep(0.5)
-                        self.cog.updating_members.discard(member_key)
-
-                    asyncio.create_task(delayed_removal())
+                result = await self.cog.refresh_user_roles_for_user(self.user_id, self.guild_id)
+                success_embed = discord.Embed(title="✅ Roles Updated", description=result, color=discord.Color.green())
+                await interaction.edit_original_response(embed=success_embed)
 
         except Exception as e:
             self.cog.logger.error(f"Error refreshing tournament roles for user {self.user_id}: {e}")
@@ -2534,18 +2574,11 @@ class TourneyRolesRefreshButton(discord.ui.Button):
                 await interaction.followup.send("❌ You don't have permission to refresh tournament roles for other players.", ephemeral=True)
                 return
 
-            # Mark member as being updated to prevent duplicate logging from on_member_update
-            member_key = (self.guild_id, self.user_id)
-            self.cog.updating_members.add(member_key)
-            try:
-                # Call the public method to refresh roles
-                result = await self.cog.refresh_user_roles_for_user(self.user_id, self.guild_id)
+            # Call the public method to refresh roles
+            result = await self.cog.refresh_user_roles_for_user(self.user_id, self.guild_id)
 
-                # Send the result
-                await interaction.followup.send(result, ephemeral=True)
-            finally:
-                # Always remove from updating set
-                self.cog.updating_members.discard(member_key)
+            # Send the result
+            await interaction.followup.send(result, ephemeral=True)
 
         except Exception as e:
             self.cog.logger.error(f"Error refreshing tournament roles for user {self.user_id}: {e}")
@@ -2553,5 +2586,4 @@ class TourneyRolesRefreshButton(discord.ui.Button):
 
 
 async def setup(bot) -> None:
-    await bot.add_cog(TourneyRoles(bot))
     await bot.add_cog(TourneyRoles(bot))
