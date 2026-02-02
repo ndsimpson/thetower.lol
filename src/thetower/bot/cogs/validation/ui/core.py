@@ -1351,7 +1351,7 @@ class ApprovePlayerIdChangeButton(discord.ui.Button):
 
         await sync_to_async(remove_pending)()
 
-        # Update the message embed
+        # Update the log channel message embed
         embed = interaction.message.embeds[0] if interaction.message.embeds else None
         if embed:
             # Update status field
@@ -1363,6 +1363,24 @@ class ApprovePlayerIdChangeButton(discord.ui.Button):
 
             # Remove buttons
             await interaction.message.edit(embed=embed, view=None)
+
+        # Update the mod notification message if it exists
+        if pending.get("mod_message_id") and pending.get("mod_channel_id"):
+            try:
+                mod_channel = self.cog.bot.get_channel(pending["mod_channel_id"])
+                if mod_channel:
+                    mod_message = await mod_channel.fetch_message(pending["mod_message_id"])
+                    if mod_message and mod_message.embeds:
+                        mod_embed = mod_message.embeds[0]
+                        # Update status field
+                        for idx, field in enumerate(mod_embed.fields):
+                            if field.name == "Status":
+                                mod_embed.set_field_at(idx, name="Status", value=f"✅ Approved by {interaction.user.mention}", inline=True)
+                                break
+                        mod_embed.color = discord.Color.green()
+                        await mod_message.edit(embed=mod_embed, view=None)
+            except Exception as e:
+                self.cog.logger.warning(f"Could not update mod notification message: {e}")
 
         # Notify user
         try:
@@ -1409,7 +1427,7 @@ class DenyPlayerIdChangeButton(discord.ui.Button):
             await interaction.followup.send("❌ Pending change request not found.", ephemeral=True)
             return
 
-        # Update the message embed
+        # Update the log channel message embed
         embed = interaction.message.embeds[0] if interaction.message.embeds else None
         if embed:
             # Update status field
@@ -1421,6 +1439,24 @@ class DenyPlayerIdChangeButton(discord.ui.Button):
 
             # Remove buttons
             await interaction.message.edit(embed=embed, view=None)
+
+        # Update the mod notification message if it exists
+        if pending.get("mod_message_id") and pending.get("mod_channel_id"):
+            try:
+                mod_channel = self.cog.bot.get_channel(pending["mod_channel_id"])
+                if mod_channel:
+                    mod_message = await mod_channel.fetch_message(pending["mod_message_id"])
+                    if mod_message and mod_message.embeds:
+                        mod_embed = mod_message.embeds[0]
+                        # Update status field
+                        for idx, field in enumerate(mod_embed.fields):
+                            if field.name == "Status":
+                                mod_embed.set_field_at(idx, name="Status", value=f"❌ Denied by {interaction.user.mention}", inline=True)
+                                break
+                        mod_embed.color = discord.Color.red()
+                        await mod_message.edit(embed=mod_embed, view=None)
+            except Exception as e:
+                self.cog.logger.warning(f"Could not update mod notification message: {e}")
 
         # Notify user
         try:

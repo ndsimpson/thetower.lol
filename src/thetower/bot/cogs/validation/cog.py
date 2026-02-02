@@ -34,6 +34,7 @@ class Validation(BaseCog, name="Validation"):
         self.global_settings = {
             "approved_unverify_groups": [],  # List of Django group names that can un-verify players
             "approved_manage_alt_links_groups": [],  # List of Django group names that can manage alt links for any user
+            "mod_notification_channel_id": None,  # Optional channel ID for moderator notifications (bot-wide)
         }
 
         # Guild-specific settings
@@ -42,6 +43,35 @@ class Validation(BaseCog, name="Validation"):
             "verification_log_channel_id": None,  # Channel ID for logging verifications
             "verification_enabled": True,  # Whether verification is enabled for this guild
         }
+
+    async def cog_load(self):
+        """Called when cog is loaded - restore persistent views."""
+        await super().cog_load()
+
+        # Restore persistent views for pending player ID changes
+        from .ui.core import PlayerIdChangeApprovalView
+
+        data = self.load_pending_player_id_changes_data()
+        pending_changes = data.get("pending_changes", {})
+
+        for discord_id, pending_data in pending_changes.items():
+            old_player_id = pending_data.get("old_player_id")
+            new_player_id = pending_data.get("new_player_id")
+            reason = pending_data.get("reason")
+            instance_id = pending_data.get("instance_id")
+
+            # Create view for log channel message
+            if pending_data.get("log_message_id"):
+                view = PlayerIdChangeApprovalView(self, discord_id, old_player_id, new_player_id, reason, instance_id)
+                self.bot.add_view(view, message_id=pending_data["log_message_id"])
+
+            # Create view for mod notification message
+            if pending_data.get("mod_message_id"):
+                mod_view = PlayerIdChangeApprovalView(self, discord_id, old_player_id, new_player_id, reason, instance_id)
+                self.bot.add_view(mod_view, message_id=pending_data["mod_message_id"])
+
+        if pending_changes:
+            self.logger.info(f"Restored {len(pending_changes)} pending player ID change request(s)")
 
     def _create_or_update_player(self, discord_id, author_name, player_id):
         try:
@@ -381,13 +411,46 @@ class Validation(BaseCog, name="Validation"):
         view = PlayerIdChangeApprovalView(self, discord_id, old_player_id, new_player_id, reason, instance_id)
 
         # Send to log channel
+        log_message = None
         try:
             if file:
-                message = await log_channel.send(embed=embed, file=file, view=view)
+                log_message = await log_channel.send(embed=embed, file=file, view=view)
             else:
-                message = await log_channel.send(embed=embed, view=view)
+                log_message = await log_channel.send(embed=embed, view=view)
+        except discord.Forbidden:
+            self.logger.error(f"Missing permission to send to verification log channel {log_channel_id}")
+        except Exception as e:
+            self.logger.error(f"Failed to log player ID change request: {e}")
 
-            # Store pending change with message ID
+        # Send to mod notification channel if configured
+        mod_message = None
+        mod_channel_id = self.get_global_setting("mod_notification_channel_id")
+        if mod_channel_id:
+            try:
+                mod_channel = self.bot.get_channel(mod_channel_id)
+                if mod_channel:
+                    # Create a new file object if we have an image (can't reuse the same file)
+                    mod_file = None
+                    if (self.data_directory / image_filename).exists():
+                        mod_file = discord.File(self.data_directory / image_filename, filename=image_filename)
+
+                    # Create a new view instance for the mod channel
+                    mod_view = PlayerIdChangeApprovalView(self, discord_id, old_player_id, new_player_id, reason, instance_id)
+
+                    if mod_file:
+                        mod_message = await mod_channel.send(embed=embed.copy(), file=mod_file, view=mod_view)
+                    else:
+                        mod_message = await mod_channel.send(embed=embed.copy(), view=mod_view)
+                else:
+                    self.logger.warning(f"Mod notification channel {mod_channel_id} not found")
+            except discord.Forbidden:
+                self.logger.error(f"Missing permission to send to mod notification channel {mod_channel_id}")
+            except Exception as e:
+                self.logger.error(f"Failed to send to mod notification channel: {e}")
+
+        # Store pending change with both message IDs
+        if log_message:  # Only save if log message was sent successfully
+
             def save_pending_change():
                 data = self.load_pending_player_id_changes_data()
                 if "pending_changes" not in data:
@@ -400,18 +463,16 @@ class Validation(BaseCog, name="Validation"):
                     "image_filename": image_filename,
                     "timestamp": timestamp.isoformat(),
                     "guild_id": interaction.guild.id,
-                    "message_id": message.id,
-                    "channel_id": log_channel.id,
+                    "log_message_id": log_message.id,
+                    "log_channel_id": log_channel.id,
+                    "mod_message_id": mod_message.id if mod_message else None,
+                    "mod_channel_id": mod_channel_id if mod_message else None,
+                    "instance_id": instance_id,
                 }
 
                 self.save_pending_player_id_changes_data(data)
 
             await sync_to_async(save_pending_change)()
-
-        except discord.Forbidden:
-            self.logger.error(f"Missing permission to send to verification log channel {log_channel_id}")
-        except Exception as e:
-            self.logger.error(f"Failed to log player ID change request: {e}")
 
     async def build_verification_status_display(self, discord_id_str: str) -> tuple:
         """Build verification status embed showing complete setup with role assignments.

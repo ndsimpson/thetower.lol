@@ -26,6 +26,9 @@ class ValidationSettingsView(BaseSettingsView):
 
         # Global settings section - only show to bot owners
         if self.is_bot_owner:
+            # Add mod notification channel select (global)
+            self.add_item(ModNotificationChannelSelect(self.cog))
+
             # Add dropdown for configuring approved un-verify groups (global)
             options = [
                 discord.SelectOption(
@@ -351,6 +354,38 @@ class VerificationLogChannelSelect(ui.ChannelSelect):
         self.cog.set_setting("verification_log_channel_id", channel.id, self.guild_id)
 
         await interaction.response.send_message(f"✅ Verification log channel set to {channel.mention}.", ephemeral=True)
+
+
+class ModNotificationChannelSelect(ui.ChannelSelect):
+    """Channel select for choosing the mod notification channel (global setting)."""
+
+    def __init__(self, cog: BaseCog):
+        current_channel_id = cog.get_global_setting("mod_notification_channel_id")
+        placeholder = "Select mod notification channel (optional)..."
+        if current_channel_id:
+            channel = cog.bot.get_channel(current_channel_id)
+            if channel:
+                placeholder = f"Current: {channel.name}"
+
+        super().__init__(placeholder=placeholder, min_values=0, max_values=1, channel_types=[discord.ChannelType.text])
+        self.cog = cog
+
+    async def callback(self, interaction: discord.Interaction):
+        """Handle channel selection."""
+        if not self.values:
+            # Clear the setting
+            self.cog.set_global_setting("mod_notification_channel_id", None)
+            await interaction.response.send_message("✅ Mod notification channel cleared.", ephemeral=True)
+            return
+
+        channel = self.values[0]
+        self.cog.set_global_setting("mod_notification_channel_id", channel.id)
+
+        await interaction.response.send_message(
+            f"✅ Mod notification channel set to {channel.mention}.\n"
+            f"Player ID change requests will now be sent to both the verification log channel and this mod notification channel.",
+            ephemeral=True,
+        )
 
 
 class ValidationGroupsSelectView(discord.ui.View):
