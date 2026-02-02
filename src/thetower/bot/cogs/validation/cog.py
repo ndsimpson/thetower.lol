@@ -35,6 +35,7 @@ class Validation(BaseCog, name="Validation"):
             "approved_unverify_groups": [],  # List of Django group names that can un-verify players
             "approved_manage_alt_links_groups": [],  # List of Django group names that can manage alt links for any user
             "mod_notification_channel_id": None,  # Optional channel ID for moderator notifications (bot-wide)
+            "approved_id_change_moderator_groups": [],  # List of Django group names that can moderate player ID changes
         }
 
         # Guild-specific settings
@@ -838,6 +839,32 @@ class Validation(BaseCog, name="Validation"):
         modal = VerificationModal(self)
         await interaction.response.send_modal(modal)
 
+    @app_commands.command(name="pending_id_changes", description="View and manage pending player ID change requests")
+    @app_commands.guild_only()
+    async def pending_id_changes(self, interaction: discord.Interaction) -> None:
+        """View all pending player ID change requests with moderation actions."""
+        # Check if user has permission (bot owner or approved Django group)
+        is_bot_owner = await self.bot.is_owner(interaction.user)
+        is_approved_moderator = await self.check_id_change_moderator_permission(interaction.user)
+
+        if not (is_bot_owner or is_approved_moderator):
+            await interaction.response.send_message("❌ You need to be in an approved moderator group to use this command.", ephemeral=True)
+            return
+
+        from .ui.core import PendingIdChangesListView
+
+        # Load pending changes
+        data = self.load_pending_player_id_changes_data()
+        pending_changes = data.get("pending_changes", {})
+
+        if not pending_changes:
+            await interaction.response.send_message("✅ No pending player ID change requests.", ephemeral=True)
+            return
+
+        view = PendingIdChangesListView(self, pending_changes)
+        embed = view.create_list_embed()
+        await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+
     @app_commands.command(name="check", description="Bot owner: list banned users in this server")
     @app_commands.guild_only()
     async def check_banned(self, interaction: discord.Interaction) -> None:
@@ -947,8 +974,10 @@ class Validation(BaseCog, name="Validation"):
 
         For the validation cog:
         - The /verify command should be usable in any channel where the bot can respond
+        - The /pending_id_changes command requires admin permissions but is allowed in any channel
         """
         # Allow /verify command in any channel (no channel restrictions)
+        # Allow /pending_id_changes in any channel
         return True
 
     async def cog_initialize(self) -> None:

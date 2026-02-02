@@ -41,6 +41,11 @@ class ValidationSettingsView(BaseSettingsView):
                     value="approved_manage_alt_links_groups",
                     description="Django groups that can manage alt links for users",
                 ),
+                discord.SelectOption(
+                    label="Approved ID Change Moderator Groups",
+                    value="approved_id_change_moderator_groups",
+                    description="Django groups that can moderate player ID changes",
+                ),
             ]
 
             self.setting_select = discord.ui.Select(
@@ -55,7 +60,7 @@ class ValidationSettingsView(BaseSettingsView):
         setting_name = self.setting_select.values[0]
 
         # Special handling for group settings
-        if setting_name in ("approved_unverify_groups", "approved_manage_alt_links_groups"):
+        if setting_name in ("approved_unverify_groups", "approved_manage_alt_links_groups", "approved_id_change_moderator_groups"):
             current_groups = self.cog.config.get_global_cog_setting("validation", setting_name, self.cog.global_settings.get(setting_name, []))
             view = ValidationGroupsSelectView(self.cog, interaction, current_groups, setting_key=setting_name, context=self.ctx)
             embed = view.create_selection_embed()
