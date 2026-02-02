@@ -53,6 +53,7 @@ class Validation(BaseCog, name="Validation"):
 
         data = self.load_pending_player_id_changes_data()
         pending_changes = data.get("pending_changes", {})
+        changes_to_remove = []
 
         for discord_id, pending_data in pending_changes.items():
             old_player_id = pending_data.get("old_player_id")
@@ -60,18 +61,74 @@ class Validation(BaseCog, name="Validation"):
             reason = pending_data.get("reason")
             instance_id = pending_data.get("instance_id")
 
-            # Create view for log channel message
-            if pending_data.get("log_message_id"):
-                view = PlayerIdChangeApprovalView(self, discord_id, old_player_id, new_player_id, reason, instance_id)
-                self.bot.add_view(view, message_id=pending_data["log_message_id"])
+            # Track if any messages were found
+            log_message_found = False
+            mod_message_found = False
 
-            # Create view for mod notification message
-            if pending_data.get("mod_message_id"):
-                mod_view = PlayerIdChangeApprovalView(self, discord_id, old_player_id, new_player_id, reason, instance_id)
-                self.bot.add_view(mod_view, message_id=pending_data["mod_message_id"])
+            # Verify and restore log channel message view
+            if pending_data.get("log_message_id") and pending_data.get("log_channel_id"):
+                try:
+                    log_channel = self.bot.get_channel(pending_data["log_channel_id"])
+                    if log_channel:
+                        # Try to fetch the message to verify it exists
+                        try:
+                            await log_channel.fetch_message(pending_data["log_message_id"])
+                            log_message_found = True
+                            view = PlayerIdChangeApprovalView(self, discord_id, old_player_id, new_player_id, reason, instance_id)
+                            self.bot.add_view(view, message_id=pending_data["log_message_id"])
+                        except discord.NotFound:
+                            self.logger.warning(
+                                f"Log message {pending_data['log_message_id']} for pending change (user {discord_id}) not found - was deleted"
+                            )
+                        except discord.Forbidden:
+                            self.logger.warning(
+                                f"Cannot access log message {pending_data['log_message_id']} for pending change (user {discord_id}) - missing permissions"
+                            )
+                    else:
+                        self.logger.warning(f"Log channel {pending_data['log_channel_id']} not found for pending change (user {discord_id})")
+                except Exception as e:
+                    self.logger.error(f"Error verifying log message for pending change (user {discord_id}): {e}")
 
-        if pending_changes:
-            self.logger.info(f"Restored {len(pending_changes)} pending player ID change request(s)")
+            # Verify and restore mod notification message view
+            if pending_data.get("mod_message_id") and pending_data.get("mod_channel_id"):
+                try:
+                    mod_channel = self.bot.get_channel(pending_data["mod_channel_id"])
+                    if mod_channel:
+                        try:
+                            await mod_channel.fetch_message(pending_data["mod_message_id"])
+                            mod_message_found = True
+                            mod_view = PlayerIdChangeApprovalView(self, discord_id, old_player_id, new_player_id, reason, instance_id)
+                            self.bot.add_view(mod_view, message_id=pending_data["mod_message_id"])
+                        except discord.NotFound:
+                            self.logger.warning(
+                                f"Mod notification message {pending_data['mod_message_id']} for pending change (user {discord_id}) not found - was deleted"
+                            )
+                        except discord.Forbidden:
+                            self.logger.warning(
+                                f"Cannot access mod notification message {pending_data['mod_message_id']} for pending change (user {discord_id}) - missing permissions"
+                            )
+                    else:
+                        self.logger.warning(
+                            f"Mod notification channel {pending_data['mod_channel_id']} not found for pending change (user {discord_id})"
+                        )
+                except Exception as e:
+                    self.logger.error(f"Error verifying mod notification message for pending change (user {discord_id}): {e}")
+
+            # If neither message exists, mark for removal
+            if not log_message_found and not mod_message_found:
+                changes_to_remove.append(discord_id)
+                self.logger.info(f"Marking pending change for user {discord_id} for removal - no messages found")
+
+        # Remove pending changes where messages no longer exist
+        if changes_to_remove:
+            for discord_id in changes_to_remove:
+                del data["pending_changes"][discord_id]
+            self.save_pending_player_id_changes_data(data)
+            self.logger.info(f"Cleaned up {len(changes_to_remove)} pending change(s) with deleted messages")
+
+        restored_count = len(pending_changes) - len(changes_to_remove)
+        if restored_count > 0:
+            self.logger.info(f"Restored {restored_count} pending player ID change request(s)")
 
     def _create_or_update_player(self, discord_id, author_name, player_id):
         try:
