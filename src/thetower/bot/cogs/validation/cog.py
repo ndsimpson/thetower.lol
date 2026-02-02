@@ -458,7 +458,7 @@ class Validation(BaseCog, name="Validation"):
                 # Get all game instances with their tower IDs
                 game_instances = []
                 for instance in player.game_instances.all():
-                    tower_ids = list(instance.player_ids.values("id", "primary"))
+                    tower_ids = [(pid["id"], pid["primary"]) for pid in instance.player_ids.values("id", "primary")]
                     game_instances.append({"id": instance.id, "name": instance.name, "primary": instance.primary, "tower_ids": tower_ids})
 
                 return {
