@@ -18,11 +18,11 @@ When writing or modifying code, follow these steps automatically:
 1. **Write/modify** the code as requested
 2. **Check Problems panel** for any errors or warnings in the affected files
 3. **Fix all issues**:
-   - Remove unused imports
-   - Resolve unresolved imports
-   - Remove trailing whitespace from all lines
-   - Ensure no blank lines contain whitespace
-   - Fix any linting errors shown in Problems panel
+    - Remove unused imports
+    - Resolve unresolved imports
+    - Remove trailing whitespace from all lines
+    - Ensure no blank lines contain whitespace
+    - Fix any linting errors shown in Problems panel
 4. **Verify** the code adheres to project standards (150-char line length, type hints, etc.)
 5. **Stage and commit** changes with a descriptive message
 6. **Never push** to remote repository
@@ -278,8 +278,29 @@ Services run via systemd on Linux:
 
 ### Git Commit Standards
 
-- **Format**: `<type>: <description>` (e.g., "feat: add player lookup cog", "fix: resolve import error in basecog")
+- **Format**: `<type>: <summary>` with optional body for complex changes
 - **Types**: feat, fix, refactor, docs, test, chore
+- **Summary**: Single line, imperative mood (e.g., "add player lookup cog", "fix import error in basecog")
+- **Body** (optional): Add when changes are non-trivial:
+    - Multiple related changes in one commit
+    - Changes affecting multiple files or systems
+    - Changes requiring explanation of why/how
+    - Use bullet points for clarity, keep concise (3-6 lines typically)
+- **Examples**:
+
+    ```
+    # Simple - title only
+    fix: resolve player ID display issue in verification log channel
+
+    # Complex - title + body
+    feat: add optional mod notification channel for player ID change requests
+
+    - Added global setting for mod_notification_channel_id configurable by bot owner
+    - Sends requests to both log channel and mod channel with synchronized buttons
+    - Includes bot resume support with automatic cleanup of deleted messages
+    - Updates both messages when approve/deny is clicked in either channel
+    ```
+
 - **Auto-commit**: After writing/modifying code, stage and commit automatically
 - **No push**: Never push to remote unless explicitly requested
 
