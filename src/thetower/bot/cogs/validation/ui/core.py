@@ -1257,7 +1257,12 @@ class ApprovePlayerIdChangeButton(discord.ui.Button):
     """Button to approve player ID change."""
 
     def __init__(self, cog, discord_id: str, old_player_id: str, new_player_id: str, reason: str, instance_id: int = None):
-        super().__init__(label="Approve", style=discord.ButtonStyle.success, emoji="✅")
+        super().__init__(
+            label="Approve",
+            style=discord.ButtonStyle.success,
+            emoji="✅",
+            custom_id=f"approve_player_id_change:{discord_id}:{old_player_id}:{new_player_id}",
+        )
         self.cog = cog
         self.discord_id = discord_id
         self.old_player_id = old_player_id
@@ -1410,7 +1415,7 @@ class DenyPlayerIdChangeButton(discord.ui.Button):
     """Button to deny player ID change."""
 
     def __init__(self, cog, discord_id: str):
-        super().__init__(label="Deny", style=discord.ButtonStyle.danger, emoji="❌")
+        super().__init__(label="Deny", style=discord.ButtonStyle.danger, emoji="❌", custom_id=f"deny_player_id_change:{discord_id}")
         self.cog = cog
         self.discord_id = discord_id
 
