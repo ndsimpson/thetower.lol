@@ -1619,9 +1619,11 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
         except Exception as e:
             self.logger.error(f"Error in delayed correction for user {user_id}: {e}", exc_info=True)
         finally:
-            # Clean up pending correction
+            # Clean up pending correction only if we're still the tracked task
+            # This prevents cancelled tasks from removing newer task references
             member_key = (guild_id, user_id)
-            self.pending_corrections.pop(member_key, None)
+            if self.pending_corrections.get(member_key) is asyncio.current_task():
+                self.pending_corrections.pop(member_key, None)
 
     async def _apply_role_correction(self, member: discord.Member, expected_role_id: int, guild_id: int, current_tourney_roles: set):
         """Apply the actual role correction.
