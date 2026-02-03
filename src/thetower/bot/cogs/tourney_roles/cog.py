@@ -2465,18 +2465,29 @@ class TourneyStatsButton(discord.ui.Button):
             player_data = await player_lookup_cog.get_discord_to_player_mapping(discord_id=str(self.user_id))
             player_data = player_data.get(str(self.user_id)) if player_data else None
 
-            if not player_data or "all_ids" not in player_data:
+            if not player_data:
                 error_embed = discord.Embed(title="❌ Error", description="No player data found", color=discord.Color.red())
+                await interaction.edit_original_response(embed=error_embed)
+                return
+
+            # Extract all player IDs from game instances
+            all_ids = []
+            for instance in player_data.get("game_instances", []):
+                for pid in instance.get("player_ids", []):
+                    all_ids.append(pid["id"])
+
+            if not all_ids:
+                error_embed = discord.Embed(title="❌ Error", description="No player IDs found", color=discord.Color.red())
                 await interaction.edit_original_response(embed=error_embed)
                 return
 
             # Get tournament stats using cached DataFrames (fast!)
             # Build single-user batch lookup
-            player_ids = set(player_data["all_ids"])
+            player_ids = set(all_ids)
             batch_stats = await tourney_stats_cog.get_batch_player_stats(player_ids)
 
             # Aggregate stats across all player IDs (returns TournamentStats object)
-            player_stats = await self.cog.core._aggregate_player_stats(player_data["all_ids"], batch_stats)
+            player_stats = await self.cog.core._aggregate_player_stats(all_ids, batch_stats)
 
             # Get current patch info
             current_patch = tourney_stats_cog.latest_patch if tourney_stats_cog.latest_patch else "Unknown"
@@ -2488,8 +2499,8 @@ class TourneyStatsButton(discord.ui.Button):
                 color=discord.Color.blue(),
             )
 
-            # Add player ID (just primary)
-            primary_id = player_data.get("primary_id")
+            # Add player ID (get primary from first instance)
+            primary_id = all_ids[0] if all_ids else None
             if primary_id:
                 embed.add_field(name="Player ID", value=f"`{primary_id}`", inline=False)
 
