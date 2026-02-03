@@ -302,6 +302,7 @@ Services run via systemd on Linux:
     ```
 
 - **Commit workflow**: After writing/modifying code, stage changes and prepare a descriptive commit message, then ask user for approval
+- **Commit format**: Use a single multiline message (not multiple -m flags) - title on first line, blank line, then bullet points
 - **Single operation**: Stage and commit together in one step only after user approves
 - **No push**: Never push to remote unless explicitly requested
 
