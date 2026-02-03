@@ -1322,7 +1322,7 @@ class ApprovePlayerIdChangeButton(discord.ui.Button):
 
                 # If reason is typo, delete the old player ID
                 if self.reason == "typo":
-                    old_player_id_obj.delete()
+                    PlayerId.objects.filter(id=self.old_player_id).delete()
 
                 # Get Discord IDs for event dispatching
                 discord_ids = list(
