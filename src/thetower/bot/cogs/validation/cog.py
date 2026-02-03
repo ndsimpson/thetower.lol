@@ -378,6 +378,40 @@ class Validation(BaseCog, name="Validation"):
         user_groups = await sync_to_async(get_user_groups)()
         return any(group in approved_groups for group in user_groups)
 
+    async def check_id_change_moderator_permission(self, user: discord.User) -> bool:
+        """Check if a user has permission to moderate player ID change requests.
+
+        Args:
+            user: The Discord user to check
+
+        Returns:
+            bool: True if user can moderate ID changes, False otherwise
+        """
+        from asgiref.sync import sync_to_async
+
+        approved_groups = self.config.get_global_cog_setting("validation", "approved_id_change_moderator_groups", [])
+        if not approved_groups:
+            return False
+
+        def get_user_groups():
+            try:
+                from thetower.backend.sus.models import LinkedAccount
+
+                linked_account = (
+                    LinkedAccount.objects.filter(platform=LinkedAccount.Platform.DISCORD, account_id=str(user.id))
+                    .select_related("player__django_user")
+                    .first()
+                )
+                if not linked_account or not linked_account.player.django_user:
+                    return []
+
+                return [group.name for group in linked_account.player.django_user.groups.all()]
+            except Exception:
+                return []
+
+        user_groups = await sync_to_async(get_user_groups)()
+        return any(group in approved_groups for group in user_groups)
+
     async def cancel_pending_link(self, discord_id: str) -> int:
         """Cancel any pending link requests where the given Discord ID is the requester.
 
