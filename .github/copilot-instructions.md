@@ -24,7 +24,7 @@ When writing or modifying code, follow these steps automatically:
     - Ensure no blank lines contain whitespace
     - Fix any linting errors shown in Problems panel
 4. **Verify** the code adheres to project standards (150-char line length, type hints, etc.)
-5. **Stage and commit** changes with a descriptive message
+5. **Prepare commit message** and ask user for approval, then stage and commit together
 6. **Never push** to remote repository
 
 Apply this workflow for all code writing/modification requests unless explicitly told otherwise.
@@ -301,7 +301,8 @@ Services run via systemd on Linux:
     - Updates both messages when approve/deny is clicked in either channel
     ```
 
-- **Auto-commit**: After writing/modifying code, stage and commit automatically
+- **Commit workflow**: After writing/modifying code, stage changes and prepare a descriptive commit message, then ask user for approval
+- **Single operation**: Stage and commit together in one step only after user approves
 - **No push**: Never push to remote unless explicitly requested
 
 ### Logging
