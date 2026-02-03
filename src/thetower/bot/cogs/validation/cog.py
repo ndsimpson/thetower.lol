@@ -598,7 +598,7 @@ class Validation(BaseCog, name="Validation"):
                 # Get all game instances with their tower IDs
                 game_instances = []
                 for instance in player.game_instances.all():
-                    tower_ids = [(pid["id"], pid["primary"]) for pid in instance.player_ids.values("id", "primary")]
+                    tower_ids = [{"id": pid["id"], "primary": pid["primary"]} for pid in instance.player_ids.values("id", "primary")]
                     game_instances.append({"id": instance.id, "name": instance.name, "primary": instance.primary, "tower_ids": tower_ids})
 
                 return {
@@ -773,16 +773,28 @@ class Validation(BaseCog, name="Validation"):
 
                 # Get all LinkedAccounts for this player (to show if verified with alt account)
                 all_linked_accounts = list(
-                    LinkedAccount.objects.filter(player=player, platform=LinkedAccount.Platform.DISCORD).values_list(
-                        "account_id", "verified", "display_name"
+                    LinkedAccount.objects.filter(player=player, platform=LinkedAccount.Platform.DISCORD)
+                    .select_related("role_source_instance")
+                    .values(
+                        "account_id", "verified", "display_name", "primary", "verified_at", "role_source_instance__id", "role_source_instance__name"
                     )
                 )
+
+                # For each account with a role source, get the primary player ID
+                from thetower.backend.sus.models import PlayerId
+
+                for account in all_linked_accounts:
+                    if account["role_source_instance__id"]:
+                        primary_player_id = PlayerId.objects.filter(game_instance_id=account["role_source_instance__id"], primary=True).first()
+                        account["role_source_player_id"] = primary_player_id.id if primary_player_id else None
+                    else:
+                        account["role_source_player_id"] = None
 
                 # Get all game instances and their tower IDs
                 game_instances = []
                 for instance in player.game_instances.all():
-                    tower_ids = list(instance.player_ids.values_list("id", "primary"))
-                    game_instances.append({"name": instance.name, "primary": instance.primary, "tower_ids": tower_ids})
+                    tower_ids = [{"id": pid["id"], "primary": pid["primary"]} for pid in instance.player_ids.values("id", "primary")]
+                    game_instances.append({"id": instance.id, "name": instance.name, "primary": instance.primary, "tower_ids": tower_ids})
 
                 return {
                     "status": "verified" if linked_account.verified else "pending",

@@ -701,17 +701,17 @@ class AltAccountUserSelect(discord.ui.UserSelect):
         if len(verification_info["game_instances"]) == 1:
             instance_info = verification_info["game_instances"][0]
             tower_ids_text = []
-            for tower_id, is_primary in instance_info["tower_ids"]:
-                primary_id_marker = " **(Primary)**" if is_primary else ""
-                tower_ids_text.append(f"• `{tower_id}`{primary_id_marker}")
+            for tower_id_data in instance_info["tower_ids"]:
+                primary_id_marker = " **(Primary)**" if tower_id_data["primary"] else ""
+                tower_ids_text.append(f"• `{tower_id_data['id']}`{primary_id_marker}")
             embed.add_field(name="Tower IDs", value="\n".join(tower_ids_text) if tower_ids_text else "No tower IDs", inline=False)
         else:
             for instance_info in verification_info["game_instances"]:
                 primary_marker = " 🌟 (Primary)" if instance_info["primary"] else ""
                 tower_ids_text = []
-                for tower_id, is_primary in instance_info["tower_ids"]:
-                    primary_id_marker = " **(Primary)**" if is_primary else ""
-                    tower_ids_text.append(f"• `{tower_id}`{primary_id_marker}")
+                for tower_id_data in instance_info["tower_ids"]:
+                    primary_id_marker = " **(Primary)**" if tower_id_data["primary"] else ""
+                    tower_ids_text.append(f"• `{tower_id_data['id']}`{primary_id_marker}")
                 embed.add_field(
                     name=f"{instance_info['name']}{primary_marker}",
                     value="\n".join(tower_ids_text) if tower_ids_text else "No tower IDs",
@@ -905,9 +905,11 @@ class UpdatePlayerIdButton(discord.ui.Button):
             # Only one instance, auto-select it and proceed to reason selection
             instance_id = None
             # Get the GameInstance ID by finding it from the primary ID
-            for pid, is_primary in game_instances[0].get("tower_ids", []):
-                if is_primary:
+            for pid_data in game_instances[0].get("tower_ids", []):
+                if pid_data["primary"]:
+                    pid = pid_data["id"]
                     # Extract instance from player lookup
+
                     async def get_instance_id():
                         from asgiref.sync import sync_to_async
 
@@ -926,7 +928,7 @@ class UpdatePlayerIdButton(discord.ui.Button):
         else:
             # Multiple instances, show selector
             view = GameInstanceSelectView(self.cog, self.verification_info, self.current_discord_id)
-            primary_ids = [next((pid for pid, is_primary in inst.get("tower_ids", []) if is_primary), None) for inst in game_instances]
+            primary_ids = [next((tid["id"] for tid in inst.get("tower_ids", []) if tid["primary"]), None) for inst in game_instances]
             id_list = "\n".join([f"• `{pid}`" for pid in primary_ids if pid])
             await interaction.response.edit_message(
                 content=f"**Update Player ID**\n\nYou have multiple game instances. Select which player ID you want to update:\n\n{id_list}",
@@ -1114,9 +1116,9 @@ class PlayerIdChangeModal(ui.Modal, title="Update Player ID"):
             # Fallback to primary instance (shouldn't happen with new flow)
             for instance in self.verification_info.get("game_instances", []):
                 if instance.get("primary"):
-                    for tower_id, is_primary in instance.get("tower_ids", []):
-                        if is_primary:
-                            current_id = tower_id
+                    for tower_id_data in instance.get("tower_ids", []):
+                        if tower_id_data["primary"]:
+                            current_id = tower_id_data["id"]
                             break
 
         if not current_id:
