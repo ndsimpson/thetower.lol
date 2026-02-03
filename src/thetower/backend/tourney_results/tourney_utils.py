@@ -322,10 +322,10 @@ def get_live_df(league: str, shun: bool = False) -> pd.DataFrame:
     df["real_name"] = [lookup.get(id, name) for id, name in zip(df.player_id, df.name)]
     df["real_name"] = df["real_name"].astype(str)
 
-    if shun:
-        excluded_ids = get_sus_ids()
-    else:
-        excluded_ids = get_sus_ids() | get_shun_ids()
+    # Always exclude banned and suspicious IDs, optionally exclude shunned IDs
+    excluded_ids = get_sus_ids() | get_banned_ids()
+    if not shun:
+        excluded_ids = excluded_ids | get_shun_ids()
     df = df[~df.player_id.isin(excluded_ids)]
     df = df.reset_index(drop=True)
     t1_stop = perf_counter()
@@ -397,10 +397,10 @@ def get_latest_live_df(league: str, shun: bool = False) -> pd.DataFrame:
     df["real_name"] = [lookup.get(id, name) for id, name in zip(df.player_id, df.name)]
     df["real_name"] = df["real_name"].astype(str)
 
-    if shun:
-        excluded_ids = get_sus_ids()
-    else:
-        excluded_ids = get_sus_ids() | get_shun_ids()
+    # Always exclude banned and suspicious IDs, optionally exclude shunned IDs
+    excluded_ids = get_sus_ids() | get_banned_ids()
+    if not shun:
+        excluded_ids = excluded_ids | get_shun_ids()
     df = df[~df.player_id.isin(excluded_ids)]
     df = df.reset_index(drop=True)
     t1_stop = perf_counter()
