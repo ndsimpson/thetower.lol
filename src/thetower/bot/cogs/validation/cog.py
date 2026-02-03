@@ -492,10 +492,7 @@ class Validation(BaseCog, name="Validation"):
         # Send to log channel
         log_message = None
         try:
-            if file:
-                log_message = await log_channel.send(embed=embed, file=file, view=view)
-            else:
-                log_message = await log_channel.send(embed=embed, view=view)
+            log_message = await log_channel.send(embed=embed, file=file, view=view)
         except discord.Forbidden:
             self.logger.error(f"Missing permission to send to verification log channel {log_channel_id}")
         except Exception as e:
@@ -516,10 +513,7 @@ class Validation(BaseCog, name="Validation"):
                     # Create a new view instance for the mod channel
                     mod_view = PlayerIdChangeApprovalView(self, discord_id, old_player_id, new_player_id, reason, instance_id)
 
-                    if mod_file:
-                        mod_message = await mod_channel.send(embed=embed.copy(), file=mod_file, view=mod_view)
-                    else:
-                        mod_message = await mod_channel.send(embed=embed.copy(), view=mod_view)
+                    mod_message = await mod_channel.send(embed=embed.copy(), file=mod_file, view=mod_view)
                 else:
                     self.logger.warning(f"Mod notification channel {mod_channel_id} not found")
             except discord.Forbidden:
