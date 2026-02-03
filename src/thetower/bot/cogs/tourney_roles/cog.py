@@ -1524,12 +1524,25 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
         if not self.bot.cog_manager.can_guild_use_cog(self.cog_name, guild_id, False):
             return None
 
-        # Only show button if the player has a Discord ID
-        if not details.get("discord_id"):
+        # Extract game instances from new structure
+        game_instances = details.get("game_instances", [])
+        if not game_instances:
             return None
 
-        # Show stats button to everyone (no permission check needed for viewing)
-        return TourneyStatsButton(self, int(details["discord_id"]), guild_id, details["name"])
+        # Get player name
+        player_name = details.get("account_name") or details.get("name", "Unknown")
+
+        # If single instance, create button directly
+        if len(game_instances) == 1:
+            instance = game_instances[0]
+            discord_accounts = instance.get("discord_accounts_receiving_roles", [])
+            if discord_accounts:
+                discord_id = discord_accounts[0]  # Use first Discord account
+                return TourneyStatsButton(self, int(discord_id), guild_id, player_name)
+            return None
+
+        # Multiple instances - return selector button
+        return TourneyStatsInstanceSelectorButton(self, details, guild_id)
 
     def get_tourney_roles_button_for_player(
         self, details, requesting_user: discord.User, guild_id: int, permission_context
@@ -1546,23 +1559,46 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
         if not self.bot.cog_manager.can_guild_use_cog(self.cog_name, guild_id, False):
             return None
 
-        # Only show button if the player has a Discord ID
-        if not details.get("discord_id"):
+        # Extract game instances from new structure
+        game_instances = details.get("game_instances", [])
+        if not game_instances:
             return None
 
         # Check if requesting user is viewing their own profile
-        is_own_profile = str(details["discord_id"]) == str(requesting_user.id)
+        # Need to check all discord accounts across all instances
+        all_discord_accounts = set()
+        for instance in game_instances:
+            all_discord_accounts.update(instance.get("discord_accounts_receiving_roles", []))
+        # Also check unassigned accounts
+        all_discord_accounts.update(details.get("unassigned_discord_accounts", []))
+
+        is_own_profile = str(requesting_user.id) in all_discord_accounts
 
         if is_own_profile:
-            # Always show refresh button on own profile
-            return TourneySelfRefreshButton(self, int(details["discord_id"]), guild_id)
+            # If single instance, create button directly
+            if len(game_instances) == 1:
+                instance = game_instances[0]
+                discord_accounts = instance.get("discord_accounts_receiving_roles", [])
+                if discord_accounts:
+                    discord_id = discord_accounts[0]  # Use first Discord account
+                    return TourneySelfRefreshButton(self, int(discord_id), guild_id)
+                return None
+            # Multiple instances - return selector button
+            return TourneyRolesInstanceSelectorButton(self, details, guild_id, requesting_user.id, is_self_refresh=True)
         else:
             # For other users, check if requesting user has permission to refresh roles
-            # Get authorized groups from settings and check if user has any of them
             authorized_groups = self.get_setting("authorized_refresh_groups", guild_id=guild_id, default=[])
             if authorized_groups and permission_context.has_any_group(authorized_groups):
-                # Use the player's Discord ID (the person being looked up), not the requesting user's ID
-                return TourneyRolesRefreshButton(self, int(details["discord_id"]), guild_id, requesting_user.id)
+                # If single instance, create button directly
+                if len(game_instances) == 1:
+                    instance = game_instances[0]
+                    discord_accounts = instance.get("discord_accounts_receiving_roles", [])
+                    if discord_accounts:
+                        discord_id = discord_accounts[0]  # Use first Discord account
+                        return TourneyRolesRefreshButton(self, int(discord_id), guild_id, requesting_user.id)
+                    return None
+                # Multiple instances - return selector button
+                return TourneyRolesInstanceSelectorButton(self, details, guild_id, requesting_user.id, is_self_refresh=False)
 
             return None
 
@@ -2147,6 +2183,249 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
         except Exception as e:
             self.logger.error(f"Error refreshing roles for user {user_id}: {e}")
             return f"❌ Error updating roles: {str(e)}"
+
+
+class TourneyStatsInstanceSelectorButton(discord.ui.Button):
+    """Button that opens a game instance selector for tournament stats."""
+
+    def __init__(self, cog, details: dict, guild_id: int):
+        super().__init__(label="View Tournament Stats", style=discord.ButtonStyle.secondary, emoji="📊", row=2)
+        self.cog = cog
+        self.details = details
+        self.guild_id = guild_id
+
+    async def callback(self, interaction: discord.Interaction):
+        """Show game instance selector."""
+        game_instances = self.details.get("game_instances", [])
+        player_name = self.details.get("account_name") or self.details.get("name", "Unknown")
+
+        # Create select menu with game instances
+        select = GameInstanceSelect(
+            placeholder="Select a game account...",
+            game_instances=game_instances,
+            player_name=player_name,
+            button_type="stats",
+            cog=self.cog,
+            guild_id=self.guild_id,
+        )
+
+        view = discord.ui.View(timeout=180)
+        view.add_item(select)
+
+        await interaction.response.send_message(
+            f"Select which game account to view tournament stats for **{player_name}**:",
+            view=view,
+            ephemeral=True,
+        )
+
+
+class TourneyRolesInstanceSelectorButton(discord.ui.Button):
+    """Button that opens a game instance selector for role refresh."""
+
+    def __init__(self, cog, details: dict, guild_id: int, requesting_user_id: int, is_self_refresh: bool = True):
+        label = "Refresh My Roles" if is_self_refresh else "Update Tournament Roles"
+        super().__init__(label=label, style=discord.ButtonStyle.primary, emoji="🔄", row=2)
+        self.cog = cog
+        self.details = details
+        self.guild_id = guild_id
+        self.requesting_user_id = requesting_user_id
+        self.is_self_refresh = is_self_refresh
+
+    async def callback(self, interaction: discord.Interaction):
+        """Show game instance selector."""
+        game_instances = self.details.get("game_instances", [])
+        player_name = self.details.get("account_name") or self.details.get("name", "Unknown")
+
+        # Create select menu with game instances
+        select = GameInstanceSelect(
+            placeholder="Select a game account...",
+            game_instances=game_instances,
+            player_name=player_name,
+            button_type="refresh_self" if self.is_self_refresh else "refresh_other",
+            cog=self.cog,
+            guild_id=self.guild_id,
+            requesting_user_id=self.requesting_user_id,
+        )
+
+        view = discord.ui.View(timeout=180)
+        view.add_item(select)
+
+        action = "refresh your roles" if self.is_self_refresh else "update tournament roles"
+        await interaction.response.send_message(
+            f"Select which game account to {action} for **{player_name}**:",
+            view=view,
+            ephemeral=True,
+        )
+
+
+class GameInstanceSelect(discord.ui.Select):
+    """Select menu for choosing a game instance."""
+
+    def __init__(
+        self,
+        placeholder: str,
+        game_instances: list,
+        player_name: str,
+        button_type: str,
+        cog,
+        guild_id: int,
+        requesting_user_id: int = None,
+    ):
+        options = []
+        for instance in game_instances:
+            primary_id = instance.get("primary_player_id")
+            instance_name = instance.get("name", "Unnamed")
+            is_primary = instance.get("primary", False)
+
+            label = f"{instance_name}"
+            if is_primary:
+                label = f"⭐ {label}"
+
+            description = f"ID: {primary_id}" if primary_id else "No ID"
+
+            options.append(
+                discord.SelectOption(
+                    label=label,
+                    value=str(instance.get("id")),
+                    description=description,
+                )
+            )
+
+        super().__init__(placeholder=placeholder, options=options, min_values=1, max_values=1)
+        self.game_instances = game_instances
+        self.player_name = player_name
+        self.button_type = button_type
+        self.cog = cog
+        self.guild_id = guild_id
+        self.requesting_user_id = requesting_user_id
+
+    async def callback(self, interaction: discord.Interaction):
+        """Handle instance selection."""
+        selected_instance_id = int(self.values[0])
+
+        # Find the selected instance
+        selected_instance = next((inst for inst in self.game_instances if inst.get("id") == selected_instance_id), None)
+
+        if not selected_instance:
+            await interaction.response.send_message("❌ Instance not found", ephemeral=True)
+            return
+
+        discord_accounts = selected_instance.get("discord_accounts_receiving_roles", [])
+        if not discord_accounts:
+            await interaction.response.send_message("❌ No Discord account associated with this game instance", ephemeral=True)
+            return
+
+        discord_id = int(discord_accounts[0])  # Use first Discord account
+
+        # Acknowledge the selection and close the menu
+        instance_name = selected_instance.get("name", "Selected instance")
+        await interaction.response.edit_message(content=f"✅ Selected: **{instance_name}**", view=None)
+
+        # Execute the appropriate action
+        if self.button_type == "stats":
+            await self._show_stats(interaction, discord_id)
+        elif self.button_type == "refresh_self" or self.button_type == "refresh_other":
+            await self._refresh_roles(interaction, discord_id)
+        else:
+            await interaction.followup.send("❌ Unknown button type", ephemeral=True)
+
+    async def _show_stats(self, interaction: discord.Interaction, discord_id: int):
+        """Show tournament stats for the selected instance."""
+        loading_embed = discord.Embed(
+            title="📊 Loading Tournament Stats...",
+            description=f"Gathering tournament data for {self.player_name}...",
+            color=discord.Color.orange(),
+        )
+        message = await interaction.followup.send(embed=loading_embed, ephemeral=True, wait=True)
+
+        try:
+            # Get tournament stats cog
+            tourney_stats_cog = await self.cog.get_tourney_stats_cog()
+            if not tourney_stats_cog:
+                error_embed = discord.Embed(title="❌ Error", description="Tournament stats not available", color=discord.Color.red())
+                await message.edit(embed=error_embed)
+                return
+
+            # Get player lookup cog
+            player_lookup_cog = await self.cog.get_known_players_cog()
+            if not player_lookup_cog:
+                error_embed = discord.Embed(title="❌ Error", description="Player lookup not available", color=discord.Color.red())
+                await message.edit(embed=error_embed)
+                return
+
+            # Get player data
+            player_data = await player_lookup_cog.get_discord_to_player_mapping(discord_id=str(discord_id))
+            player_data = player_data.get(str(discord_id)) if player_data else None
+
+            if not player_data:
+                error_embed = discord.Embed(title="❌ Error", description="No player data found", color=discord.Color.red())
+                await message.edit(embed=error_embed)
+                return
+
+            # Get all player IDs from game instances
+            all_ids = []
+            for instance in player_data.get("game_instances", []):
+                for pid in instance.get("player_ids", []):
+                    all_ids.append(pid["id"])
+
+            if not all_ids:
+                error_embed = discord.Embed(title="❌ Error", description="No player IDs found", color=discord.Color.red())
+                await message.edit(embed=error_embed)
+                return
+
+            # Get tournament stats
+            batch_stats = await tourney_stats_cog.get_batch_player_stats(set(all_ids))
+            player_stats = await self.cog.core._aggregate_player_stats(all_ids, batch_stats)
+
+            # Create embed (simplified version - the full version is in TourneyStatsButton)
+            embed = discord.Embed(
+                title=f"📊 Tournament Stats - {self.player_name}",
+                description="Tournament performance across all game accounts",
+                color=discord.Color.blue(),
+            )
+
+            primary_id = player_data.get("primary_id") or (all_ids[0] if all_ids else None)
+            if primary_id:
+                embed.add_field(name="Player ID", value=f"`{primary_id}`", inline=False)
+
+            if player_stats.total_tourneys > 0:
+                # Add stats summary
+                embed.add_field(name="Total Tournaments", value=str(player_stats.total_tourneys), inline=True)
+
+                # Add league stats
+                for league_name, league_stats in player_stats.leagues.items():
+                    best_pos = league_stats.get("best_position", "N/A")
+                    total = league_stats.get("total_tourneys", 0)
+                    embed.add_field(name=f"🏆 {league_name.title()}", value=f"Best: {best_pos}\nTotal: {total}", inline=True)
+            else:
+                embed.add_field(name="📈 Performance", value="No tournament participation found", inline=False)
+
+            # Add view with post publicly button
+            view = TourneyStatsPublicView(self.cog, discord_id, self.guild_id, self.player_name)
+            await message.edit(embed=embed, view=view)
+
+        except Exception as e:
+            self.cog.logger.error(f"Error showing stats: {e}", exc_info=True)
+            error_embed = discord.Embed(title="❌ Error", description=f"Error loading stats: {str(e)}", color=discord.Color.red())
+            await message.edit(embed=error_embed)
+
+    async def _refresh_roles(self, interaction: discord.Interaction, discord_id: int):
+        """Refresh tournament roles for the selected instance."""
+        loading_embed = discord.Embed(
+            title="🔄 Refreshing Roles...",
+            description="Updating tournament roles...",
+            color=discord.Color.orange(),
+        )
+        message = await interaction.followup.send(embed=loading_embed, ephemeral=True, wait=True)
+
+        try:
+            result = await self.cog.refresh_user_roles_for_user(discord_id, self.guild_id)
+            success_embed = discord.Embed(title="✅ Roles Updated", description=result, color=discord.Color.green())
+            await message.edit(embed=success_embed)
+        except Exception as e:
+            self.cog.logger.error(f"Error refreshing roles: {e}", exc_info=True)
+            error_embed = discord.Embed(title="❌ Error", description=f"Error updating roles: {str(e)}", color=discord.Color.red())
+            await message.edit(embed=error_embed)
 
 
 class TourneyStatsButton(discord.ui.Button):
