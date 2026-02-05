@@ -71,9 +71,10 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
         self.pending_corrections = {}  # {(guild_id, user_id): asyncio.Task}
 
         # Role cache for calculated tournament roles
-        self.role_cache = {}  # {guild_id: {user_id: calculated_role_id}}
+        self.role_cache = {}  # {guild_id: {gameinstance_id: calculated_role_id}}
         self.cache_timestamp = None
         self.cache_latest_tourney_date = None  # Latest tournament date in cache
+        self.cache_source_refreshed_at = None  # When source data was refreshed (from tourney_stats)
 
         # Core components
         self.core = TournamentRolesCore(self)
@@ -103,6 +104,7 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
             "roles_config": {},
             "verified_role_id": None,
             "log_channel_id": None,
+            "dry_run_log_channel_id": None,  # Separate log channel for dry run mode (optional)
             "pause": False,
             "immediate_logging": True,
             "bulk_batch_size": 45,  # Concurrent operations per batch
@@ -134,6 +136,7 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
                 "role_cache": self.role_cache,
                 "cache_timestamp": self.cache_timestamp.isoformat() if self.cache_timestamp else None,
                 "cache_latest_tourney_date": self.cache_latest_tourney_date.isoformat() if self.cache_latest_tourney_date else None,
+                "cache_source_refreshed_at": self.cache_source_refreshed_at.isoformat() if self.cache_source_refreshed_at else None,
             }
 
             # Use BaseCog's utility to save data
@@ -173,6 +176,9 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
                 self.cache_timestamp = datetime.datetime.fromisoformat(save_data["cache_timestamp"]) if save_data.get("cache_timestamp") else None
                 self.cache_latest_tourney_date = (
                     datetime.datetime.fromisoformat(save_data["cache_latest_tourney_date"]) if save_data.get("cache_latest_tourney_date") else None
+                )
+                self.cache_source_refreshed_at = (
+                    datetime.datetime.fromisoformat(save_data["cache_source_refreshed_at"]) if save_data.get("cache_source_refreshed_at") else None
                 )
 
                 # Log cache loading details
@@ -257,1059 +263,314 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
         """Get the TourneyStats cog instance."""
         return self.bot.get_cog("Tourney Stats")
 
-    def is_cache_valid(self, guild_id: int) -> bool:
-        """Check if the role cache is still valid for a guild."""
-        if not self.cache_timestamp or guild_id not in self.role_cache:
-            return False
+    async def _get_gameinstance_id_from_player_id(self, player_id: int) -> Optional[int]:
+        """Get the game instance ID for a given player ID.
 
-        # Cache is valid until new tournament data arrives or admin clears it
-        return True
+        Args:
+            player_id: The player ID to look up (primary or non-primary)
 
-    async def _check_tournament_data_on_startup(self) -> None:
-        """Check for newer tournament data on startup to catch any missed events.
-
-        This ensures we don't miss tournament data updates that happened while
-        the bot was offline or during restarts. Uses TourneyStats cog as the
-        source of truth for tournament dates.
+        Returns:
+            Game instance ID if found, None otherwise
         """
-        try:
-            self.logger.info("Checking for tournament data updates on startup")
+        from asgiref.sync import sync_to_async
 
-            # Get the TourneyStats cog
-            tourney_stats_cog = await self.get_tourney_stats_cog()
-            if not tourney_stats_cog:
-                self.logger.warning("TourneyStats cog not available for startup check")
-                return
+        from thetower.backend.sus.models import PlayerId
 
-            # Wait for TourneyStats to be ready
-            if not tourney_stats_cog.is_ready:
-                self.logger.info("Waiting for TourneyStats to be ready...")
-                ready = await tourney_stats_cog.wait_until_ready(timeout=30)
-                if not ready:
-                    self.logger.warning("TourneyStats cog not ready within timeout, skipping startup check")
-                    return
+        def get_gameinstance_id():
+            player_id_obj = PlayerId.objects.filter(id=player_id).select_related("game_instance").first()
+            return player_id_obj.game_instance.id if player_id_obj and player_id_obj.game_instance else None
 
-            # Get the latest tournament date from TourneyStats
-            latest_tourney_date = tourney_stats_cog.latest_tournament_date
+        return await sync_to_async(get_gameinstance_id)()
 
-            if not latest_tourney_date:
-                self.logger.info("No tournament data loaded in TourneyStats yet")
-                return
+    async def _get_gameinstance_id_from_discord_id(self, discord_id: int) -> Optional[int]:
+        """Get the game instance ID for a Discord account via role_source_instance.
 
-            # Normalize both to dates for comparison (ignore time component)
-            if isinstance(latest_tourney_date, datetime.datetime):
-                latest_date = latest_tourney_date.date()
-            else:
-                latest_date = latest_tourney_date
+        Args:
+            discord_id: The Discord account ID
 
-            # Extract date from cached datetime
-            cached_date = self.cache_latest_tourney_date
-            if cached_date:
-                if isinstance(cached_date, datetime.datetime):
-                    cached_date = cached_date.date()
+        Returns:
+            Game instance ID if found, None otherwise
+        """
+        from asgiref.sync import sync_to_async
 
-            # Compare dates only
-            if cached_date is None:
-                # No cache, we'll need to calculate on first update
-                self.logger.info(f"No cached tournament date, will calculate on first update (TourneyStats has: {latest_date})")
-            elif latest_date > cached_date:
-                # TourneyStats has newer data
-                self.logger.info(f"Newer tournament data found on startup: {latest_date} > {cached_date}")
-                self.logger.info("Invalidating cache and triggering recalculation")
+        from thetower.backend.sus.models import LinkedAccount
 
-                # Invalidate cache
-                self.cache_latest_tourney_date = None
+        def get_gameinstance_id():
+            linked_account = (
+                LinkedAccount.objects.filter(platform=LinkedAccount.Platform.DISCORD, account_id=str(discord_id))
+                .select_related("role_source_instance")
+                .first()
+            )
+            return linked_account.role_source_instance.id if linked_account and linked_account.role_source_instance else None
+
+        return await sync_to_async(get_gameinstance_id)()
+
+    # ============================================================================
+    # NEW SIMPLIFIED ROLE CALCULATION AND CACHING SYSTEM
+    # ============================================================================
+
+    def _clear_cache(self, guild_id: int, gameinstance_id: int = None) -> None:
+        """Clear role cache entries.
+
+        Args:
+            guild_id: Guild to clear cache for
+            gameinstance_id: Specific GameInstance to clear, or None to clear entire guild
+        """
+        if gameinstance_id is None:
+            # Clear entire guild cache
+            if guild_id in self.role_cache:
+                count = len(self.role_cache[guild_id])
+                self.role_cache[guild_id] = {}
+                self.logger.info(f"Cleared {count} cached roles for guild {guild_id}")
                 self.cache_timestamp = None
+                self.cache_latest_tourney_date = None
+        else:
+            # Clear specific GameInstance
+            if guild_id in self.role_cache and gameinstance_id in self.role_cache[guild_id]:
+                del self.role_cache[guild_id][gameinstance_id]
+                self.logger.debug(f"Cleared cached role for GameInstance {gameinstance_id} in guild {guild_id}")
 
-                # Trigger recalculation (calculation phase only)
-                # Check global pause setting first
-                if self.get_global_setting("pause", False):
-                    self.logger.info("Role updates are globally paused, skipping startup recalculation")
-                else:
-                    calc_success = await self.calculate_all_roles()
-                if calc_success:
-                    self.logger.info("Startup role recalculation completed successfully")
-                    self.mark_data_modified()
-                    await self.save_data()
-                else:
-                    self.logger.warning("Startup role recalculation failed")
-            else:
-                self.logger.info(f"Cache is current (latest: {self.cache_latest_tourney_date})")
+    async def _calculate_role_for_gameinstance(self, gameinstance_id: int, guild_id: int) -> Optional[int]:
+        """Calculate the appropriate tournament role for a GameInstance.
 
-        except Exception as e:
-            self.logger.error(f"Error checking tournament data on startup: {e}", exc_info=True)
-            # Don't raise - this is a non-critical check
+        Pure calculation - does not touch cache.
 
-    async def is_cache_valid_with_tourney_check(self, guild_id: int) -> bool:
-        """Check if cache is valid, including checking for newer tournament data."""
-        if not self.is_cache_valid(guild_id):
-            return False
+        Args:
+            gameinstance_id: Database ID of the GameInstance
+            guild_id: Guild to calculate role for
 
-        # Check if there's newer tournament data
+        Returns:
+            Role ID (int) if a qualifying role exists, None otherwise
+        """
         try:
-            latest_tourney_date = await self.get_latest_tournament_date()
-            if latest_tourney_date and self.cache_latest_tourney_date:
-                # Compare only dates, not times, since tournaments are based on UTC date
-                latest_date = latest_tourney_date.date() if isinstance(latest_tourney_date, datetime.datetime) else latest_tourney_date
-                cache_date = (
-                    self.cache_latest_tourney_date.date()
-                    if isinstance(self.cache_latest_tourney_date, datetime.datetime)
-                    else self.cache_latest_tourney_date
-                )
-                if latest_date > cache_date:
-                    self.logger.info(f"Cache invalidated: New tournament data available ({latest_date} > {cache_date})")
-                    return False
-            elif latest_tourney_date and not self.cache_latest_tourney_date:
-                self.logger.info(f"Cache invalidated: Tournament data now available ({latest_tourney_date})")
-                return False
-        except Exception as e:
-            self.logger.error(f"Error checking tournament date for cache validation: {e}")
-            # If we can't check, assume cache is still valid to avoid unnecessary recalculation
-            return True
-
-        return True
-
-    async def get_latest_tournament_date(self) -> Optional[datetime.datetime]:
-        """Get the latest tournament date from TourneyResult model."""
-        try:
-            # Import Django models synchronously
             from asgiref.sync import sync_to_async
-            from django.apps import apps
 
-            # Get the TourneyResult model
-            TourneyResult = apps.get_model("tourney_results", "TourneyResult")
+            from thetower.backend.sus.models import GameInstance
 
-            # Query for the most recent tournament date
-            latest_result = await sync_to_async(lambda: TourneyResult.objects.order_by("-date").first())()
+            # Get GameInstance from database
+            game_instance = await sync_to_async(
+                lambda: GameInstance.objects.select_related("player").prefetch_related("player_ids").filter(id=gameinstance_id).first()
+            )()
 
-            if latest_result and latest_result.date:
-                # Convert date to datetime (set to end of day to be safe)
-                latest_datetime = datetime.datetime.combine(latest_result.date, datetime.time.max, tzinfo=datetime.timezone.utc)
-                self.logger.debug(f"Latest tournament date from database: {latest_datetime}")
-                return latest_datetime
+            if not game_instance:
+                self.logger.warning(f"GameInstance {gameinstance_id} not found in database")
+                return None
 
-            self.logger.warning("No tournament results found in database")
-            return None
+            # Get all player IDs for this GameInstance
+            player_ids = await sync_to_async(list)(game_instance.player_ids.all())
 
-        except Exception as e:
-            self.logger.error(f"Error querying latest tournament date from database: {e}")
-            # Fallback to sampling player data
-            self.logger.info("Falling back to player data sampling for latest tournament date")
-            return await self._get_latest_tournament_date_from_players()
+            if not player_ids:
+                self.logger.debug(f"GameInstance {gameinstance_id} has no player IDs")
+                return None
 
-    async def _get_latest_tournament_date_from_players(self) -> Optional[datetime.datetime]:
-        """Fallback method to get latest tournament date by sampling player data."""
-        try:
+            # Extract Tower IDs
+            tower_ids = [pid.id for pid in player_ids]
+            self.logger.debug(f"GameInstance {gameinstance_id} has player IDs: {tower_ids}")
+
+            # Get tournament stats from TourneyStats cog
             tourney_stats_cog = await self.get_tourney_stats_cog()
             if not tourney_stats_cog:
+                self.logger.error("TourneyStats cog not available")
                 return None
 
-            # Fallback: check if any recent tournaments exist by looking at player data
-            discord_mapping = await self.get_discord_to_player_mapping()
-            if not discord_mapping:
+            # Get player stats
+            player_stats = await self.core.get_player_tournament_stats(tourney_stats_cog, tower_ids)
+
+            if not player_stats:
+                self.logger.debug(f"No tournament stats found for GameInstance {gameinstance_id}")
                 return None
 
-            latest_date = None
-            sample_players = list(discord_mapping.values())[:5]  # Check first 5 players
+            # Get guild configuration
+            roles_config = self.core.get_roles_config(guild_id)
+            league_hierarchy = self.core.get_league_hierarchy(guild_id)
+            debug_logging = self.get_global_setting("debug_logging", False)
 
-            for player_data in sample_players:
-                if "all_ids" in player_data and player_data["all_ids"]:
-                    try:
-                        player_stats = await self.core.get_player_tournament_stats(tourney_stats_cog, player_data["all_ids"][:1])
-                        if player_stats.latest_tournament and player_stats.latest_tournament.get("date"):
-                            tourney_date = player_stats.latest_tournament["date"]
-                            if isinstance(tourney_date, str):
-                                tourney_date = datetime.datetime.fromisoformat(tourney_date.replace("Z", "+00:00"))
-                            if latest_date is None or tourney_date > latest_date:
-                                latest_date = tourney_date
-                    except Exception as e:
-                        self.logger.debug(f"Error getting tournament date for player: {e}")
+            # Determine best role using existing correct logic
+            role_id = self.core.determine_best_role(player_stats, roles_config, league_hierarchy, debug_logging)
 
-            return latest_date
-
-        except Exception as e:
-            self.logger.error(f"Error in fallback tournament date lookup: {e}")
-            return None
-
-    async def get_cached_role_for_discord_user(self, discord_id: str, guild_id: int) -> Optional[int]:
-        """Get cached role for a Discord user by looking up their primary_player_id.
-
-        Args:
-            discord_id: Discord user ID as string
-            guild_id: Guild ID
-
-        Returns:
-            Role ID if cached, None otherwise
-        """
-        # Get player mapping to find their primary_player_id
-        player_mapping = await self.get_discord_to_player_mapping(discord_id=discord_id)
-        if not player_mapping or discord_id not in player_mapping:
-            return None
-
-        # Find which game instance this Discord account uses for roles
-        player_data = player_mapping[discord_id]
-        game_instances = player_data.get("game_instances", [])
-
-        for instance in game_instances:
-            discord_accounts = instance.get("discord_accounts_receiving_roles", [])
-            if str(discord_id) in [str(did) for did in discord_accounts]:
-                # Found their game instance - get the cached role
-                primary_player_id = instance.get("primary_player_id")
-                if primary_player_id:
-                    return self.role_cache.get(guild_id, {}).get(primary_player_id)
-
-        return None
-
-    async def get_discord_to_player_mapping(self, discord_id: str = None):
-        """Get mapping of Discord IDs to player information from PlayerLookup
-
-        Args:
-            discord_id: Optional Discord ID to get data for a single user.
-                       If None, returns mapping for all users.
-
-        Returns:
-            Dict mapping Discord IDs to player information dictionaries.
-        """
-        known_players_cog = await self.get_known_players_cog()
-        if not known_players_cog:
-            self.logger.error("Failed to get PlayerLookup cog")
-            return {}
-
-        try:
-            # Wait for PlayerLookup to be ready
-            if not known_players_cog.is_ready:
-                self.logger.info("Waiting for PlayerLookup to be ready...")
-                await known_players_cog.wait_until_ready()
-
-            # Get the mapping (pass through discord_id for single-user lookups)
-            mapping = await known_players_cog.get_discord_to_player_mapping(discord_id=discord_id)
-
-            # Add detailed debug logging
-            if mapping:
-                self.logger.debug(f"Retrieved {len(mapping)} entries from PlayerLookup")
-                sample_entry = next(iter(mapping.items()))
-                self.logger.debug(f"Sample mapping entry: {sample_entry}")
+            if role_id:
+                self.logger.debug(f"Calculated role {role_id} for GameInstance {gameinstance_id} in guild {guild_id}")
             else:
-                self.logger.warning("PlayerLookup returned empty mapping")
-                # Check if PlayerLookup has any data at all
-                # Note: PlayerLookup doesn't have a cache like KnownPlayers did
-                self.logger.debug("PlayerLookup returned empty mapping")
+                self.logger.debug(f"No qualifying role for GameInstance {gameinstance_id} in guild {guild_id}")
 
-            return mapping or {}  # Ensure we return at least an empty dict
+            return int(role_id) if role_id else None
 
         except Exception as e:
-            self.logger.error(f"Error getting player mapping: {e}", exc_info=True)
-            return {}
+            self.logger.error(f"Error calculating role for GameInstance {gameinstance_id}: {e}", exc_info=True)
+            return None
 
-    async def calculate_roles_for_users(
-        self,
-        user_ids: Optional[list] = None,
-        guild_id: int = None,
-        discord_to_player: Optional[dict] = None,
-        progress_callback: Optional[object] = None,
-    ) -> dict:
-        """
-        Calculate tournament roles and update cache.
+    def _cache_role(self, gameinstance_id: int, guild_id: int, role_id: Optional[int]) -> None:
+        """Store a calculated role in cache.
 
         Args:
-            user_ids: List of user IDs to calculate for, or None for all users
-            guild_id: Guild to calculate roles for
-            discord_to_player: Pre-fetched player mapping (optional, will fetch if None)
-            progress_callback: Optional async callback(current, total) for progress
-
-        Returns:
-            dict: {
-                "calculated": int,
-                "skipped": int,
-                "latest_tourney_date": datetime or None
-            }
+            gameinstance_id: Database ID of the GameInstance
+            guild_id: Guild this role applies to
+            role_id: Role ID to cache, or None if no qualifying role
         """
-        # 1. Fetch discord_to_player if not provided
-        if discord_to_player is None:
-            discord_to_player = await self.get_discord_to_player_mapping()
-            if not discord_to_player:
-                self.logger.error("Failed to get player mapping for role calculation")
-                return {"calculated": 0, "skipped": 0, "latest_tourney_date": None}
-
-        # 2. Get guild and configuration
-        guild = self.bot.get_guild(guild_id)
-        if not guild:
-            self.logger.error(f"Guild {guild_id} not found")
-            return {"calculated": 0, "skipped": 0, "latest_tourney_date": None}
-
-        roles_config = self.core.get_roles_config(guild_id)
-        league_hierarchy = self.core.get_league_hierarchy(guild_id)
-        debug_logging = self.get_global_setting("debug_logging", False)
-
-        # 3. Get tourney stats cog for player data
-        tourney_stats_cog = await self.get_tourney_stats_cog()
-        if not tourney_stats_cog:
-            self.logger.error("TourneyStats cog not available")
-            return {"calculated": 0, "skipped": 0, "latest_tourney_date": None}
-
-        # 4. Determine which users to process
-        if user_ids is None:
-            # Bulk mode: all users in discord_to_player
-            users_to_process = list(discord_to_player.keys())
-        else:
-            # Single user mode: just specified users
-            users_to_process = [str(uid) for uid in user_ids]
-
-        # 5. Pre-fetch all tournament stats (for bulk mode efficiency)
-        loop_start_time = datetime.datetime.now(datetime.timezone.utc)
-        self.logger.info(f"[LOOP START] calculate_roles_for_users: Building stats lookup for {len(users_to_process)} users")
-
-        # Returns: (primary_player_id -> stats, discord_id -> primary_player_id)
-        primary_stats_lookup, discord_to_primary = await self.core.build_batch_player_stats(tourney_stats_cog, discord_to_player)
-
-        lookup_duration = (datetime.datetime.now(datetime.timezone.utc) - loop_start_time).total_seconds()
-        self.logger.info(f"Stats lookup built in {lookup_duration:.1f}s for {len(primary_stats_lookup)} game instances")
-
-        # 6. Calculate roles per game instance (not per Discord account)
-        calculated_primary_roles = {}  # primary_player_id -> role_id
-        game_instances_processed = set()
-        latest_tourney_date = None
-
-        # Initialize cache for guild if needed
         if guild_id not in self.role_cache:
             self.role_cache[guild_id] = {}
 
-        calc_start_time = datetime.datetime.now(datetime.timezone.utc)
+        self.role_cache[guild_id][gameinstance_id] = role_id
+        self.logger.debug(f"Cached role {role_id} for GameInstance {gameinstance_id} in guild {guild_id}")
 
-        # Calculate roles per unique game instance
-        for primary_player_id, player_stats in primary_stats_lookup.items():
-            if primary_player_id in game_instances_processed:
-                continue
+    async def _calculate_and_cache_role_for_gameinstance(self, gameinstance_id: int, guild_id: int, force: bool = False) -> Optional[int]:
+        """Calculate and cache the role for a GameInstance.
 
-            # Track latest tournament date
-            if player_stats.latest_tournament and player_stats.latest_tournament.get("date"):
-                tourney_date = player_stats.latest_tournament["date"]
-                # Convert to datetime if needed
-                if isinstance(tourney_date, str):
-                    tourney_date = datetime.datetime.fromisoformat(tourney_date.replace("Z", "+00:00"))
-                if latest_tourney_date is None or tourney_date > latest_tourney_date:
-                    latest_tourney_date = tourney_date
-
-            # Determine best role for this game instance
-            best_role_id = self.core.determine_best_role(player_stats, roles_config, league_hierarchy, debug_logging)
-
-            # Cache by primary_player_id
-            self.role_cache[guild_id][primary_player_id] = best_role_id
-            calculated_primary_roles[primary_player_id] = best_role_id
-            game_instances_processed.add(primary_player_id)
-
-            # Yield control
-            await asyncio.sleep(0)
-
-        # 7. Count how many Discord accounts were processed
-        calculated = 0
-        skipped = 0
-        for idx, discord_id in enumerate(users_to_process):
-            primary_player_id = discord_to_primary.get(discord_id)
-            if primary_player_id and primary_player_id in calculated_primary_roles:
-                calculated += 1
-            else:
-                skipped += 1
-
-            # Report progress
-            if progress_callback:
-                await progress_callback(idx + 1, len(users_to_process))
-
-        # 8. Update global cache metadata
-        self.cache_timestamp = datetime.datetime.now(datetime.timezone.utc)
-        if latest_tourney_date:
-            self.cache_latest_tourney_date = latest_tourney_date
-
-        calc_duration = (datetime.datetime.now(datetime.timezone.utc) - calc_start_time).total_seconds()
-        rate = len(game_instances_processed) / calc_duration if calc_duration > 0 else 0
-        self.logger.info(
-            f"[LOOP END] calculate_roles_for_users: Calculated {len(game_instances_processed)} game instance roles for {calculated} Discord accounts (skipped {skipped}) in {calc_duration:.1f}s ({rate:.1f} instances/sec)"
-        )
-
-        return {"calculated": calculated, "skipped": skipped, "latest_tourney_date": latest_tourney_date}
-
-    async def apply_roles_for_users(self, user_ids: Optional[list] = None, guild_id: int = None, progress_callback: Optional[object] = None) -> dict:
-        """
-        Apply pre-calculated tournament roles from cache.
+        Combines calculation and caching in one operation.
 
         Args:
-            user_ids: List of user IDs to apply roles for, or None for all cached users
-            guild_id: Guild to apply roles in
-            progress_callback: Optional async callback(current, total) for progress
+            gameinstance_id: Database ID of the GameInstance
+            guild_id: Guild to calculate role for
+            force: If True, always calculate even if cached. If False, return cached value if available.
 
         Returns:
-            dict: {
-                "processed": int,
+            Role ID if calculated, None otherwise
+        """
+        # Check cache first unless force is True
+        if not force:
+            cached_role_id = self.role_cache.get(guild_id, {}).get(gameinstance_id)
+            if cached_role_id is not None:
+                self.logger.debug(f"Using cached role {cached_role_id} for GameInstance {gameinstance_id} in guild {guild_id}")
+                return cached_role_id
+
+        # Calculate and cache
+        role_id = await self._calculate_role_for_gameinstance(gameinstance_id, guild_id)
+        self._cache_role(gameinstance_id, guild_id, role_id)
+        return role_id
+
+    async def _apply_role_for_discord_account(self, discord_id: int, guild_id: int) -> dict:
+        """Apply the cached tournament role to a Discord account.
+
+        Looks up the account's role source GameInstance, finds the cached role,
+        and updates their Discord roles accordingly.
+
+        Args:
+            discord_id: Discord account ID
+            guild_id: Guild to apply roles in
+
+        Returns:
+            Dict with stats: {
                 "roles_added": int,
                 "roles_removed": int,
                 "errors": int,
-                "skipped_no_cache": int,
-                "skipped_not_verified": int
+                "skipped": str (reason) or None
             }
         """
-        # 1. Get guild and configuration
-        guild = self.bot.get_guild(guild_id)
-        if not guild:
-            self.logger.error(f"Guild {guild_id} not found")
-            return {"error": "Guild not found"}
+        stats = {"roles_added": 0, "roles_removed": 0, "errors": 0, "skipped": None}
 
-        # Check if this guild has paused role updates
-        if self.get_setting("pause", default=False, guild_id=guild_id):
-            self.logger.info(f"Role updates are paused for guild {guild.name}, skipping")
-            return {
-                "processed": 0,
-                "roles_added": 0,
-                "roles_removed": 0,
-                "errors": 0,
-                "skipped_no_cache": 0,
-                "skipped_not_verified": 0,
-                "not_in_guild": 0,
-            }
+        try:
+            # Get guild
+            guild = self.bot.get_guild(guild_id)
+            if not guild:
+                stats["errors"] = 1
+                stats["skipped"] = "guild_not_found"
+                return stats
 
-        roles_config = self.core.get_roles_config(guild_id)
-        all_managed_role_ids = set(config.id for config in roles_config.values())
-        verified_role_id = self.core.get_verified_role_id(guild_id)
-        dry_run = self.get_global_setting("dry_run", False)
-
-        # 2. Determine which users to process and get their player mappings
-        discord_to_player = None
-        if user_ids is None:
-            # Bulk mode: Need to get all Discord users and their mappings
-            discord_to_player = await self.get_discord_to_player_mapping()
-            users_to_process = list(discord_to_player.keys())
-            is_single_user_mode = False
-        else:
-            # Single user mode
-            users_to_process = [str(uid) for uid in user_ids]
-            is_single_user_mode = True
-            # Get mapping just for these users
-            discord_to_player = {}
-            for uid in users_to_process:
-                mapping = await self.get_discord_to_player_mapping(discord_id=uid)
-                if mapping:
-                    discord_to_player.update(mapping)
-
-        # 3. Stats tracking
-        stats = {
-            "processed": 0,
-            "roles_added": 0,
-            "roles_removed": 0,
-            "errors": 0,
-            "skipped_no_cache": 0,
-            "skipped_not_verified": 0,
-            "not_in_guild": 0,
-            "aborted": False,
-        }
-
-        total_cache_size = len(self.role_cache.get(guild_id, {}))
-        total_users = len(users_to_process)
-        loop_start_time = datetime.datetime.now(datetime.timezone.utc)
-
-        # Store cache date at loop start to detect invalidation mid-loop
-        loop_start_cache_date = self.cache_latest_tourney_date
-
-        self.logger.info(f"[LOOP START] apply_roles_for_users: Processing {total_users} users from role_cache for guild {guild.name}")
-
-        # 4. Process each user
-        for idx, discord_id_str in enumerate(users_to_process):
-            # Check if cache was invalidated during loop (new tourney data arrived)
-            if self.cache_latest_tourney_date != loop_start_cache_date:
-                self.logger.warning(
-                    f"Cache invalidated during apply loop (was: {loop_start_cache_date}, now: {self.cache_latest_tourney_date}) - aborting"
-                )
-
-                # Cancel all pending corrections - they're based on stale expectations
-                cancelled_count = len(self.pending_corrections)
-                for task in self.pending_corrections.values():
-                    task.cancel()
-                self.pending_corrections.clear()
-
-                if cancelled_count > 0:
-                    self.logger.info(f"Cancelled {cancelled_count} pending corrections due to cache invalidation")
-
-                # Release lock immediately so new update can start
-                self.currently_updating = False
-                stats["aborted"] = True
-
-                break  # Exit loop - on_tourney_data_refreshed will trigger new update
-            discord_id = int(discord_id_str)
+            # Get member
             member = guild.get_member(discord_id)
-
             if not member:
-                stats["not_in_guild"] += 1
-                continue
+                stats["skipped"] = "not_in_guild"
+                return stats
 
-            # Find this user's primary_player_id from their game instances
-            player_data = discord_to_player.get(discord_id_str)
-            calculated_role_id = None
-
-            if player_data:
-                game_instances = player_data.get("game_instances", [])
-                for instance in game_instances:
-                    discord_accounts = instance.get("discord_accounts_receiving_roles", [])
-                    if discord_id_str in [str(did) for did in discord_accounts]:
-                        # Found their game instance - get cached role
-                        primary_player_id = instance.get("primary_player_id")
-                        if primary_player_id:
-                            calculated_role_id = self.role_cache.get(guild_id, {}).get(primary_player_id)
-                        break
-
-            # Handle cache miss
-            if calculated_role_id is None:
-                if is_single_user_mode:
-                    # Single user - try to calculate now with single-user player mapping
-                    self.logger.warning(f"Cache miss for user {discord_id} in single-user mode, calculating...")
-
-                    # Fetch player mapping for just this user to avoid rebuilding stats for all users
-                    single_user_mapping = await self.get_discord_to_player_mapping(discord_id=discord_id_str)
-
-                    if not single_user_mapping:
-                        self.logger.info(f"User {discord_id} has no player data - skipping role calculation")
-                        stats["skipped_no_cache"] += 1
-                        stats["errors"] += 1
-                        continue
-
-                    calc_result = await self.calculate_roles_for_users([discord_id], guild_id, discord_to_player=single_user_mapping)
-
-                    if calc_result["calculated"] == 0:
-                        self.logger.info(f"No role calculated for user {discord_id} (player data may be incomplete)")
-                        stats["skipped_no_cache"] += 1
-                        stats["errors"] += 1
-                        continue
-
-                    calculated_role_id = self.role_cache.get(guild_id, {}).get(discord_id_str)
-                    if calculated_role_id is None:
-                        stats["skipped_no_cache"] += 1
-                        stats["errors"] += 1
-                        continue
-                else:
-                    # Bulk mode - skip silently (expected for users without player data)
-                    self.logger.debug(f"Skipping user {discord_id} - no calculated role in cache")
-                    stats["skipped_no_cache"] += 1
-                    continue
+            # Get role source GameInstance ID using utility method
+            gameinstance_id = await self._get_gameinstance_id_from_discord_id(discord_id)
+            if not gameinstance_id:
+                stats["skipped"] = "no_role_source"
+                return stats
 
             # Check verification requirement
+            verified_role_id = self.core.get_verified_role_id(guild_id)
             if verified_role_id:
                 verified_role = guild.get_role(int(verified_role_id))
                 if verified_role and verified_role not in member.roles:
-                    # User not verified - remove all tournament roles
+                    # User not verified - remove all tournament roles if they have any
+                    roles_config = self.core.get_roles_config(guild_id)
+                    all_managed_role_ids = {str(config.id) for config in roles_config.values()}
                     current_tourney_roles = [role for role in member.roles if str(role.id) in all_managed_role_ids]
 
                     if current_tourney_roles:
-                        # Build new role list without tournament roles
                         new_roles = [role for role in member.roles if str(role.id) not in all_managed_role_ids and not role.is_default()]
-
                         try:
-                            changes = []
+                            dry_run = self.get_global_setting("dry_run", False)
                             if not dry_run:
                                 await member.edit(roles=new_roles, reason="Removing tournament roles - not verified")
-
+                            stats["roles_removed"] = len(current_tourney_roles)
                             for role in current_tourney_roles:
-                                changes.append(f"-{role.name}")
-                                stats["roles_removed"] += 1
-                                # Dispatch custom event for role removal
                                 self.bot.dispatch("tourney_role_removed", member, role)
-
-                            if changes:
-                                await self.log_role_change(guild_id, member.name, changes, immediate=is_single_user_mode)
                         except Exception as e:
                             self.logger.error(f"Error removing roles from {member.name}: {e}")
-                            stats["errors"] += 1
+                            stats["errors"] = 1
 
-                    stats["skipped_not_verified"] += 1
-                    stats["processed"] += 1
-                    continue
+                    stats["skipped"] = "not_verified"
+                    return stats
 
-            # Determine what changes are needed
+            # Look up cached role using gameinstance_id
+            cached_role_id = self.role_cache.get(guild_id, {}).get(gameinstance_id)
+
+            # Get all managed tournament role IDs
+            roles_config = self.core.get_roles_config(guild_id)
+            all_managed_role_ids = {str(config.id) for config in roles_config.values()}
+
+            # Find current tournament roles
             current_tourney_roles = {str(role.id): role for role in member.roles if str(role.id) in all_managed_role_ids}
+
+            # Build new role list
+            new_roles = [role for role in member.roles if str(role.id) not in all_managed_role_ids and not role.is_default()]
 
             changes = []
 
-            # Build new role list atomically
-            new_roles = [role for role in member.roles if str(role.id) not in all_managed_role_ids and not role.is_default()]
-
-            # Add calculated role if they should have one
-            if calculated_role_id:
-                role = guild.get_role(int(calculated_role_id))
+            # Add cached role if it exists
+            if cached_role_id:
+                role = guild.get_role(cached_role_id)
                 if role:
                     new_roles.append(role)
-                    if calculated_role_id not in current_tourney_roles:
+                    if str(cached_role_id) not in current_tourney_roles:
                         changes.append(f"+{role.name}")
-                        stats["roles_added"] += 1
+                        stats["roles_added"] = 1
 
             # Track removed roles
-            for role_id, role in current_tourney_roles.items():
-                if calculated_role_id != role_id:
+            for role_id_str, role in current_tourney_roles.items():
+                if str(cached_role_id) != role_id_str:
                     changes.append(f"-{role.name}")
                     stats["roles_removed"] += 1
 
             # Apply changes if any
             if changes:
                 try:
+                    dry_run = self.get_global_setting("dry_run", False)
                     if not dry_run:
-                        await member.edit(roles=new_roles, reason="Tournament participation role update")
+                        await member.edit(roles=new_roles, reason="Tournament role update")
 
-                    # Dispatch custom events for individual role changes
+                    # Dispatch events
                     for change in changes:
                         if change.startswith("+"):
-                            role_name = change[1:]  # Remove the + prefix
-                            # Find the role object that was added
-                            added_role = None
-                            for role in new_roles:
-                                if role.name == role_name and str(role.id) in all_managed_role_ids:
-                                    added_role = role
-                                    break
+                            role_name = change[1:]
+                            added_role = next((r for r in new_roles if r.name == role_name and str(r.id) in all_managed_role_ids), None)
                             if added_role:
                                 self.bot.dispatch("tourney_role_added", member, added_role)
                         elif change.startswith("-"):
-                            role_name = change[1:]  # Remove the - prefix
-                            # Find the role object that was removed
-                            removed_role = None
-                            for role_id, role in current_tourney_roles.items():
-                                if role.name == role_name:
-                                    removed_role = role
-                                    break
+                            role_name = change[1:]
+                            removed_role = next((r for r_id, r in current_tourney_roles.items() if r.name == role_name), None)
                             if removed_role:
                                 self.bot.dispatch("tourney_role_removed", member, removed_role)
 
                     # Log changes
-                    await self.log_role_change(guild_id, member.name, changes, immediate=is_single_user_mode)
+                    await self.log_role_change(guild_id, member.name, changes, immediate=False)
+
                 except Exception as e:
                     self.logger.error(f"Error updating roles for {member.name}: {e}")
-                    stats["errors"] += 1
+                    stats["errors"] = 1
 
-            stats["processed"] += 1
+            return stats
 
-            # Report progress
-            if progress_callback:
-                await progress_callback(idx + 1, total_users)
-
-            # Yield control
-            await asyncio.sleep(0)
-
-        # Flush logs for bulk mode
-        if not is_single_user_mode:
-            await self.flush_log_buffer(guild_id)
-
-        loop_duration = (datetime.datetime.now(datetime.timezone.utc) - loop_start_time).total_seconds()
-        rate = stats["processed"] / loop_duration if loop_duration > 0 else 0
-
-        # Log comprehensive statistics
-        status = "ABORTED - Cache invalidated" if stats["aborted"] else "Completed"
-        self.logger.info(
-            f"[LOOP END] apply_roles_for_users: {status} in {loop_duration:.1f}s ({rate:.1f} users/sec)\n"
-            f"  Guild: {guild.name} ({guild.id})\n"
-            f"  Total users in role_cache: {total_cache_size}\n"
-            f"  Users being processed: {total_users}\n"
-            f"  Users not in guild: {stats['not_in_guild']}\n"
-            f"  Users processed: {stats['processed']}\n"
-            f"  Roles added: {stats['roles_added']}\n"
-            f"  Roles removed: {stats['roles_removed']}\n"
-            f"  Skipped (not verified): {stats['skipped_not_verified']}\n"
-            f"  Skipped (no cache): {stats['skipped_no_cache']}\n"
-            f"  Errors: {stats['errors']}"
-        )
-
-        return stats
-
-    async def update_all_roles(self):
-        """Update roles for all users across all enabled guilds using separated calculation and application phases"""
-        if self.currently_updating:
-            self.logger.warning("Role update already in progress, skipping")
-            return
-
-        # Check global pause setting (bot owner control)
-        if self.get_global_setting("pause", False):
-            self.logger.info("Role updates are globally paused. Skipping update.")
-            return
-
-        async with self.task_tracker.task_context("Role Update", "Updating tournament roles"):
-            start_time = datetime.datetime.now(datetime.timezone.utc)
-            try:
-                self.currently_updating = True
-                self.logger.info("Starting full role update")
-
-                # Phase 1: Calculate roles if needed
-                if not self.calculation_complete:
-                    self.logger.info("Running calculation phase")
-                    calc_success = await self.calculate_all_roles()
-                    if not calc_success:
-                        self.logger.error("Role calculation failed, aborting update")
-                        return
-                else:
-                    self.logger.info("Using previously calculated roles")
-
-                # Phase 2: Apply roles
-                self.logger.info("Running application phase")
-                apply_success = await self.apply_all_roles()
-                if not apply_success:
-                    self.logger.error("Role application failed")
-                    return
-
-                # Update timestamp and mark completion
-                self.last_full_update = datetime.datetime.now(datetime.timezone.utc)
-                duration = (self.last_full_update - start_time).total_seconds()
-
-                self.logger.info(f"Role update completed in {duration:.1f}s")
-
-                # Mark data as modified and save
-                self.mark_data_modified()
-                await self.save_data()
-
-                # Reset phase flags for next update
-                self.calculation_complete = False
-                self.calculated_roles = {}
-
-            except Exception as e:
-                # Set the timestamp even if there was an error
-                error_time = datetime.datetime.now(datetime.timezone.utc)
-                error_duration = (error_time - start_time).total_seconds()
-                self.logger.error(f"Error during role update after {error_duration:.1f}s: {e}")
-                self.last_full_update = error_time
-                if hasattr(self, "update_progress"):
-                    self.update_progress["error"] = str(e)
-                # Send error to all enabled guilds
-                for guild in self.bot.guilds:
-                    if self.bot.cog_manager.can_guild_use_cog(self.cog_name, guild.id, False):
-                        await self.add_log_message(f"❌ Error during role update: {e}", guild_id=guild.id)
-                await self.flush_log_buffer()
-                raise
-
-            finally:
-                # Unset the updating flag (unless already unset by early abort)
-                if self.currently_updating:
-                    self.currently_updating = False
-                if hasattr(self, "update_progress"):
-                    self.update_progress["completed"] = True
-
-    async def calculate_all_roles(self):
-        """Calculate tournament roles for all users across all enabled guilds"""
-        if self.currently_calculating:
-            self.logger.warning("Role calculation already in progress, skipping")
-            return False
-
-        async with self.task_tracker.task_context("Role Calculation", "Calculating tournament roles"):
-            start_time = datetime.datetime.now(datetime.timezone.utc)
-            calculation_message = None
-
-            try:
-                self.currently_calculating = True
-                self.logger.info("Starting role calculation phase")
-
-                # Get enabled guilds for this cog
-                enabled_guilds = []
-                for guild in self.bot.guilds:
-                    try:
-                        if self.bot.cog_manager.can_guild_use_cog(self.cog_name, guild.id, False):
-                            enabled_guilds.append(guild)
-                    except Exception as e:
-                        self.logger.debug(f"Error checking cog enablement for guild {guild.id}: {e}")
-
-                # Get player data with retries
-                max_retries = 3
-                retry_delay = 5  # seconds
-                discord_to_player = None
-
-                for attempt in range(max_retries):
-                    discord_to_player = await self.get_discord_to_player_mapping()
-                    if discord_to_player:
-                        break
-                    if attempt < max_retries - 1:
-                        self.logger.warning(f"Retry {attempt + 1}/{max_retries} getting player mapping...")
-                        await asyncio.sleep(retry_delay)
-
-                if not discord_to_player:
-                    self.logger.error("Failed to get player mapping after retries")
-                    return False
-
-                if not enabled_guilds:
-                    self.logger.warning("No guilds have TourneyRoles enabled, cannot proceed with role calculation")
-                    return False
-
-                # Process each enabled guild for calculation using unified method
-                total_calculated = 0
-                for guild in enabled_guilds:
-                    self.logger.info(f"Calculating roles for guild: {guild.name} (ID: {guild.id})")
-
-                    # Check if we need to recalculate roles or can use cache
-                    if not await self.is_cache_valid_with_tourney_check(guild.id):
-                        self.logger.info(f"Cache invalid for guild {guild.id}, recalculating roles")
-                        calc_result = await self.calculate_roles_for_users(
-                            user_ids=None, guild_id=guild.id, discord_to_player=discord_to_player, progress_callback=None
-                        )
-                        total_calculated += calc_result["calculated"]
-                    else:
-                        self.logger.info(f"Using cached roles for guild {guild.id}")
-                        cached_users = self.role_cache.get(guild.id, {})
-                        total_calculated += len(cached_users)
-
-                    # Store guild roles in calculated_roles for backward compatibility
-                    self.calculated_roles[guild.id] = self.role_cache.get(guild.id, {})
-
-                self.calculation_complete = True
-                self.logger.info("Role calculation phase completed successfully")
-
-                # Update the calculation message with completion status
-                if calculation_message:
-                    try:
-                        duration = (datetime.datetime.now(datetime.timezone.utc) - start_time).total_seconds()
-                        await calculation_message.edit(
-                            content=f"✅ Tournament role calculation completed in {duration:.1f}s ({total_calculated} users processed)"
-                        )
-                    except Exception as e:
-                        self.logger.error(f"Error updating calculation message: {e}")
-
-                return True
-
-            except Exception as e:
-                self.logger.error(f"Error during role calculation: {e}")
-
-                # Update message with error status
-                if calculation_message:
-                    try:
-                        duration = (datetime.datetime.now(datetime.timezone.utc) - start_time).total_seconds()
-                        await calculation_message.edit(content=f"❌ Tournament role calculation failed after {duration:.1f}s: {str(e)}")
-                    except Exception as edit_error:
-                        self.logger.error(f"Error updating calculation error message: {edit_error}")
-
-                return False
-            finally:
-                self.currently_calculating = False
-
-    async def apply_all_roles(self):
-        """Apply calculated tournament roles to all users across all enabled guilds"""
-        if not self.calculation_complete:
-            self.logger.warning("Cannot apply roles - calculation phase not complete")
-            return False
-
-        if not self.calculated_roles:
-            self.logger.warning("No calculated roles available for application")
-            return False
-
-        async with self.task_tracker.task_context("Role Application", "Applying tournament roles"):
-            try:
-                self.logger.info("Starting role application phase")
-
-                # Log if in dry run mode
-                dry_run = self.get_global_setting("dry_run", False)
-                if dry_run:
-                    self.logger.info("Running in DRY RUN mode - no actual role changes will be made")
-                    self.logger.info("In dry run mode, processing all users for testing")
-
-                # Reset stats for application phase
-                self.processed_users = 0
-                self.roles_assigned = 0
-                self.roles_removed = 0
-                self.users_with_no_player_data = 0
-
-                # Get enabled guilds for this cog
-                enabled_guilds = []
-                for guild in self.bot.guilds:
-                    try:
-                        if self.bot.cog_manager.can_guild_use_cog(self.cog_name, guild.id, False):
-                            enabled_guilds.append(guild)
-                    except Exception as e:
-                        self.logger.debug(f"Error checking cog enablement for guild {guild.id}: {e}")
-
-                # Process each enabled guild for role application using unified method
-                for guild in enabled_guilds:
-                    self.logger.info(f"Applying roles for guild: {guild.name} (ID: {guild.id})")
-
-                    # Apply roles using unified method
-                    apply_result = await self.apply_roles_for_users(user_ids=None, guild_id=guild.id, progress_callback=None)
-
-                    # Update stats
-                    self.processed_users += apply_result["processed"]
-                    self.roles_assigned += apply_result["roles_added"]
-                    self.roles_removed += apply_result["roles_removed"]
-
-                # Log completion to console only (embed shows this to users)
-                if dry_run:
-                    self.logger.info("Dry run role application completed")
-                else:
-                    self.logger.info("Role application completed")
-
-                self.logger.info(
-                    f"Application Stats: Processed {self.processed_users} users, "
-                    f"{self.roles_assigned} roles assigned, {self.roles_removed} roles removed"
-                )
-
-                # Note: Completion status and stats are shown in the embed via update_progress_message
-                # No need to send duplicate text messages to the log channel
-
-                return True
-
-            except Exception as e:
-                self.logger.error(f"Error during role application: {e}")
-                # Send error to all enabled guilds
-                for guild in self.bot.guilds:
-                    if self.bot.cog_manager.can_guild_use_cog(self.cog_name, guild.id, False):
-                        await self.add_log_message(f"❌ Error during role application: {e}", guild_id=guild.id)
-                await self.flush_log_buffer()
-                return False
-
-    async def start_update_with_progress(self, message, manual_update=False):
-        """Start a role update with progress tracking
-
-        Args:
-            message: The Discord message to update with progress
-            manual_update: Whether this is a manual update (True) or automatic (False)
-        """
-        # Store start time with timezone awareness
-        start_time = datetime.datetime.now(datetime.timezone.utc)
-
-        # Get total number of users to process
-        discord_mapping = await self.get_discord_to_player_mapping()
-        total_users = len(discord_mapping)
-
-        # Get dry run status
-        dry_run = self.get_global_setting("dry_run", False)
-
-        # Create shared progress data
-        progress_data = {
-            "processed": 0,
-            "total": total_users,
-            "start_time": start_time,
-            "message": message,
-            "dry_run": dry_run,
-            "last_percentage": -1,
-            "completed": False,
-            "error": None,
-            "manual_update": manual_update,
-        }
-
-        # Store progress data where update task can access it
-        self.update_progress = progress_data
-
-        # Create background task to handle updates
-        self.update_task = asyncio.create_task(self.update_all_roles())
-
-        # Create separate task to update the progress message
-        self.progress_task = asyncio.create_task(self.update_progress_message())
-
-    async def update_progress_message(self):
-        """Background task that updates the progress message"""
-        if not hasattr(self, "update_progress"):
-            return
-
-        try:
-            # Keep updating until the process completes
-            while not self.update_progress["completed"]:
-                # Update message every 3 seconds
-                await self.update_progress_display()
-                await asyncio.sleep(3)
-
-            # One final update after completion
-            await self.update_progress_display(final=True)
         except Exception as e:
-            self.logger.error(f"Error in progress update: {e}")
-        finally:
-            # Clear reference
-            if hasattr(self, "update_progress"):
-                del self.update_progress
+            self.logger.error(f"Error applying role for Discord account {discord_id}: {e}", exc_info=True)
+            stats["errors"] = 1
+            return stats
 
-    async def update_progress_display(self, final=False):
-        """Update the progress message with current status"""
-        data = self.update_progress
-        if not data:
-            return
-
-        message = data["message"]
-        processed = data["processed"]
-        total = data["total"]
-        start_time = data["start_time"]
-        dry_run = data["dry_run"]
-        error = data["error"]
-        manual_update = data.get("manual_update", True)
-
-        # Calculate percentage
-        current_percentage = int((processed / total) * 100) if total > 0 else 0
-
-        # Calculate timing info
-        elapsed = (datetime.datetime.now(datetime.timezone.utc) - start_time).total_seconds()
-
-        # Update every time during progress (not just on percentage change) to show live updates
-        if not final:
-            # Calculate processing rate and ETA
-            rate = processed / elapsed if elapsed > 0 and processed > 0 else 0
-            remaining = total - processed
-            eta_seconds = remaining / rate if rate > 0 else 0
-
-            # Format ETA
-            if eta_seconds > 3600:
-                eta_str = f"{eta_seconds / 3600:.1f} hours"
-            elif eta_seconds > 60:
-                eta_str = f"{eta_seconds / 60:.1f} minutes"
-            else:
-                eta_str = f"{eta_seconds:.0f} seconds"
-
-            # Create progress bar (20 characters)
-            filled = int(current_percentage / 5)  # 5% per block
-            progress_bar = "█" * filled + "░" * (20 - filled)
-
-            # Create embed
-            update_type = "Manual" if manual_update else "Automatic"
-            title = f"{update_type} Tournament Role Update" + (" (DRY RUN)" if dry_run else "")
-            embed = discord.Embed(
-                title=title,
-                description=f"Calculating roles for {total:,} users",
-                color=discord.Color.blue(),
-            )
-
-            embed.add_field(
-                name="Progress",
-                value=f"{progress_bar} {current_percentage}%\n**{processed:,}** / **{total:,}** users",
-                inline=False,
-            )
-
-            embed.add_field(
-                name="⏱️ Processing Rate",
-                value=f"{rate:.1f} users/sec",
-                inline=True,
-            )
-
-            embed.add_field(
-                name="🕐 Estimated Time Remaining",
-                value=eta_str,
-                inline=True,
-            )
-
-            try:
-                await message.edit(content=None, embed=embed)
-            except Exception as e:
-                self.logger.error(f"Error updating progress embed: {e}")
-
-        elif final:
-            if error:
-                await message.edit(content=f"❌ Error during role update: {error}")
-                return
-
-            # Create completion embed
-            duration = elapsed
-            duration_str = f"{duration:.1f}"
-            update_type = "Manual" if manual_update else "Automatic"
-            embed = discord.Embed(
-                title=f"{update_type} Tournament Roles Updated" + (" (DRY RUN)" if dry_run else ""),
-                description=f"Successfully updated roles in {duration_str} seconds",
-                color=discord.Color.green(),
-            )
-
-            # Add stats
-            embed.add_field(
-                name="Statistics",
-                value=(
-                    f"**Users Processed:** {self.processed_users}\n"
-                    f"**Roles Assigned:** {self.roles_assigned}\n"
-                    f"**Roles Removed:** {self.roles_removed}\n"
-                    f"**No Player Data:** {self.users_with_no_player_data}"
-                ),
-                inline=False,
-            )
-
-            # Add timestamp
-            embed.set_footer(text=f"Completed at {datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}")
-
-            await message.edit(content=None, embed=embed)
+    # ============================================================================
+    # END NEW SIMPLIFIED ROLE SYSTEM
+    # ============================================================================
 
     async def log_role_change(self, guild_id: int, username: str, changes: list, immediate: bool = False):
         """
@@ -1407,7 +668,14 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
         if not log_messages:
             return
 
-        log_channel_id = self.get_setting("log_channel_id", guild_id=guild_id)
+        # Check if we're in dry run mode and use appropriate channel
+        dry_run = self.get_global_setting("dry_run", False)
+        if dry_run:
+            # In dry run mode, only use dry_run_log_channel_id (no fallback to regular channel)
+            log_channel_id = self.get_setting("dry_run_log_channel_id", guild_id=guild_id)
+        else:
+            log_channel_id = self.get_setting("log_channel_id", guild_id=guild_id)
+
         if not log_channel_id:
             return  # No logging channel configured
 
@@ -1464,13 +732,60 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
                 # 3. Check for newer tournament data on startup
                 self.logger.debug("Checking for tournament data updates")
                 tracker.update_status("Checking tournament data")
-                await self._check_tournament_data_on_startup()
+
+                tourney_stats_cog = await self.get_tourney_stats_cog()
+                if tourney_stats_cog:
+                    # Wait for tourney_stats to be ready to avoid race condition
+                    if hasattr(tourney_stats_cog, "ready"):
+                        self.logger.debug("Waiting for TourneyStats cog to be ready...")
+                        await tourney_stats_cog.ready.wait()
+
+                    # Get latest tournament date and refresh time from TourneyStats cog
+                    latest_tourney_date = tourney_stats_cog.latest_tournament_date
+                    source_refreshed_at = tourney_stats_cog.last_updated
+
+                    if latest_tourney_date:
+                        self.logger.info(f"Latest tournament date in database: {latest_tourney_date}")
+                        if source_refreshed_at:
+                            self.logger.info(f"Source data last refreshed at: {source_refreshed_at}")
+
+                        # Compare with cached data
+                        if self.cache_latest_tourney_date:
+                            # Check if tournament date is newer
+                            tourney_date_newer = latest_tourney_date > self.cache_latest_tourney_date
+
+                            # Check if source was refreshed after our cache was built
+                            source_newer = False
+                            if source_refreshed_at and self.cache_source_refreshed_at:
+                                source_newer = source_refreshed_at > self.cache_source_refreshed_at
+
+                            if tourney_date_newer:
+                                self.logger.info(
+                                    f"Newer tournament data available: {latest_tourney_date} > {self.cache_latest_tourney_date}. "
+                                    "Cache will be rebuilt on next full update."
+                                )
+                            elif source_newer:
+                                self.logger.info(
+                                    f"Source data was refreshed ({source_refreshed_at} > {self.cache_source_refreshed_at}). "
+                                    "Cache will be rebuilt on next full update."
+                                )
+                            else:
+                                self.logger.info(
+                                    f"Cache is up to date (tournament date: {self.cache_latest_tourney_date}, "
+                                    f"source refreshed: {self.cache_source_refreshed_at})"
+                                )
+                        else:
+                            self.logger.info("No cached tournament date found - cache will be built on first update")
+                    else:
+                        self.logger.warning("TourneyStats cog ready but has no tournament date loaded yet")
+                else:
+                    self.logger.warning("TourneyStats cog not available for tournament date check")
 
                 # 4. Run startup role update if enabled
                 if self.get_global_setting("update_on_startup", True):
                     self.logger.debug("Running startup role update")
                     tracker.update_status("Running startup role update")
-                    await self.update_all_roles()
+                    # TODO: Implement a loop to check all discord accounts.
 
                 # 5. Mark as ready and complete initialization
                 self.set_ready(True)
@@ -1737,30 +1052,28 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
                 if had_verified != has_verified:
                     # Verified role was added or removed - update tournament roles
                     if has_verified:
-                        # Role added - apply tournament roles
+                        # Role added - calculate and apply tournament roles
                         self.logger.info(f"Member {after.name} ({after.id}) gained verified role - applying tournament roles")
 
-                        # Check cache first using helper method
-                        cached_role = await self.get_cached_role_for_discord_user(str(after.id), after.guild.id)
+                        # Get user's GameInstance ID
+                        gameinstance_id = await self._get_gameinstance_id_from_discord_id(after.id)
 
-                        if cached_role is None:
-                            # Not in cache - try to calculate
-                            single_user_mapping = await self.get_discord_to_player_mapping(discord_id=str(after.id))
+                        if gameinstance_id:
+                            # Calculate and cache role for this GameInstance (force=True to ensure fresh calculation)
+                            await self._calculate_and_cache_role_for_gameinstance(gameinstance_id, after.guild.id, force=True)
 
-                            if single_user_mapping:
-                                # User has player data - calculate their role
-                                await self.calculate_roles_for_users([after.id], after.guild.id, discord_to_player=single_user_mapping)
-                            else:
-                                self.logger.info(f"User {after.name} ({after.id}) has no player data - skipping role calculation")
-                                return
+                            # Apply the cached role to the Discord account
+                            await self._apply_role_for_discord_account(after.id, after.guild.id)
+                        else:
+                            self.logger.info(f"User {after.name} ({after.id}) has no game instance - skipping role calculation")
 
-                        # Apply roles (will use cache if available, or handle verification requirement)
-                        await self.apply_roles_for_users([after.id], after.guild.id)
                         return  # Don't process tournament role corrections for this update
                     else:
                         # Role removed - remove tournament roles
                         self.logger.info(f"Member {after.name} ({after.id}) lost verified role - removing tournament roles")
-                        await self.apply_roles_for_users([after.id], after.guild.id)
+
+                        # Apply roles (will remove all tournament roles since verification check fails)
+                        await self._apply_role_for_discord_account(after.id, after.guild.id)
                         return  # Don't process tournament role corrections for this update
 
             # Check if tournament roles changed
@@ -1819,8 +1132,10 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
     async def on_tourney_data_refreshed(self, data: dict):
         """Called when TourneyStats has refreshed its tournament data.
 
-        This event is dispatched by the TourneyStats cog when it detects
-        new tournament data and refreshes its cache.
+        Implements the new simplified role update flow:
+        1. Clear all role caches (data is now stale)
+        2. Calculate roles for all GameInstances
+        3. Apply roles to all Discord accounts
 
         Args:
             data: Dictionary containing:
@@ -1828,44 +1143,164 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
                 - patch: Current game patch
                 - total_tournaments: Total number of tournaments
                 - league_counts: Tournament counts per league
+                - refreshed_at: When the source data was refreshed
         """
         try:
             latest_date = data.get("latest_date")
-            self.logger.info(f"Received tourney_data_refreshed event for date: {latest_date}")
+            refreshed_at = data.get("refreshed_at")
+            self.logger.info(f"Received tourney_data_refreshed event for date: {latest_date}, refreshed at: {refreshed_at}")
 
-            # Check if this is actually newer than our cache
-            if self.cache_latest_tourney_date and latest_date:
-                # Compare dates only (handle both datetime and date objects)
-                cache_date = (
-                    self.cache_latest_tourney_date.date()
-                    if isinstance(self.cache_latest_tourney_date, datetime.datetime)
-                    else self.cache_latest_tourney_date
-                )
-                event_date = latest_date.date() if isinstance(latest_date, datetime.datetime) else latest_date
-                if event_date <= cache_date:
-                    self.logger.debug(f"Event date {event_date} not newer than cache {cache_date}, ignoring")
-                    return
+            # Check global pause setting
+            if self.get_global_setting("pause", False):
+                self.logger.info("Role updates are globally paused, ignoring tournament data refresh")
+                return
 
-            # Invalidate our role cache
-            self.logger.info("Invalidating role cache due to new tournament data")
-            self.cache_latest_tourney_date = None
-            self.cache_timestamp = None
+            # Prevent concurrent updates
+            if self.currently_updating:
+                self.logger.warning("Role update already in progress, skipping tournament data refresh")
+                return
 
-            # If we're not currently updating, trigger a full update with role application
-            if not self.currently_updating:
-                self.logger.info("Triggering full role update for new tournament data")
+            self.currently_updating = True
 
-                # Check global pause setting first
-                if self.get_global_setting("pause", False):
-                    self.logger.info("Role updates are globally paused, skipping automatic update")
-                    return
+            try:
+                async with self.task_tracker.task_context("Tournament Data Refresh"):
+                    start_time = datetime.datetime.now(datetime.timezone.utc)
 
-                # Trigger full update (calculation + application)
-                # When new tournament data is detected, we want to apply role changes immediately
-                # Note: Guild-level pause setting is also checked per-guild during role application
-                await self.update_all_roles()
-            else:
-                self.logger.info("Role update already in progress, skipping event-triggered update")
+                    # Get all enabled guilds
+                    enabled_guilds = [g for g in self.bot.guilds if self.bot.cog_manager.can_guild_use_cog(self.cog_name, g.id, False)]
+
+                    if not enabled_guilds:
+                        self.logger.info("No guilds have TourneyRoles enabled")
+                        return
+
+                    # Phase 1: Clear all caches
+                    self.logger.info(f"Phase 1: Clearing role caches for {len(enabled_guilds)} guilds")
+                    for guild in enabled_guilds:
+                        self._clear_cache(guild.id)
+
+                    # Phase 2: Calculate roles for all GameInstances
+                    self.logger.info("Phase 2: Calculating roles for all GameInstances")
+
+                    from asgiref.sync import sync_to_async
+
+                    from thetower.backend.sus.models import GameInstance
+
+                    # Get all GameInstances from database
+                    all_game_instances = await sync_to_async(list)(GameInstance.objects.all())
+
+                    if not all_game_instances:
+                        self.logger.warning("No GameInstances found in database")
+                        return
+
+                    self.logger.info(f"Found {len(all_game_instances)} GameInstances to process")
+
+                    # Calculate roles for each GameInstance across all guilds
+                    calculated_count = 0
+                    error_count = 0
+
+                    for gi in all_game_instances:
+                        for guild in enabled_guilds:
+                            try:
+                                await self._calculate_and_cache_role_for_gameinstance(gi.id, guild.id)
+                                calculated_count += 1
+                            except Exception as e:
+                                self.logger.error(f"Error calculating role for GameInstance {gi.id} in guild {guild.id}: {e}")
+                                error_count += 1
+
+                        # Yield control periodically
+                        await asyncio.sleep(0)
+
+                    calculation_duration = (datetime.datetime.now(datetime.timezone.utc) - start_time).total_seconds()
+                    self.logger.info(
+                        f"Calculated {calculated_count} roles ({error_count} errors) in {calculation_duration:.1f}s "
+                        f"({calculated_count/calculation_duration:.1f} roles/sec)"
+                    )
+
+                    # Phase 3: Apply roles to all Discord accounts
+                    self.logger.info("Phase 3: Applying roles to all Discord members")
+
+                    from thetower.backend.sus.models import LinkedAccount
+
+                    # Get all Discord accounts with role sources
+                    discord_accounts = await sync_to_async(list)(
+                        LinkedAccount.objects.filter(platform=LinkedAccount.Platform.DISCORD, role_source_instance__isnull=False)
+                        .select_related("role_source_instance")
+                        .values_list("account_id", flat=True)
+                    )
+
+                    self.logger.info(f"Found {len(discord_accounts)} Discord accounts with role sources")
+
+                    # Apply roles per guild
+                    total_applied = 0
+                    total_added = 0
+                    total_removed = 0
+                    total_errors = 0
+
+                    for guild in enabled_guilds:
+                        # Check guild-level pause
+                        if self.get_setting("pause", default=False, guild_id=guild.id):
+                            self.logger.info(f"Guild {guild.name} has paused role updates, skipping")
+                            continue
+
+                        guild_stats = {"added": 0, "removed": 0, "errors": 0, "processed": 0}
+
+                        for discord_id_str in discord_accounts:
+                            try:
+                                discord_id = int(discord_id_str)
+                                result = await self._apply_role_for_discord_account(discord_id, guild.id)
+
+                                if result["skipped"] is None:  # Actually processed
+                                    guild_stats["added"] += result["roles_added"]
+                                    guild_stats["removed"] += result["roles_removed"]
+                                    guild_stats["errors"] += result["errors"]
+                                    guild_stats["processed"] += 1
+
+                            except Exception as e:
+                                self.logger.error(f"Error applying role for Discord account {discord_id_str} in guild {guild.id}: {e}")
+                                guild_stats["errors"] += 1
+
+                            # Yield control periodically
+                            await asyncio.sleep(0)
+
+                        # Flush log buffer for this guild
+                        await self.flush_log_buffer(guild.id)
+
+                        self.logger.info(
+                            f"Guild {guild.name}: processed {guild_stats['processed']}, "
+                            f"added {guild_stats['added']}, removed {guild_stats['removed']}, errors {guild_stats['errors']}"
+                        )
+
+                        total_applied += guild_stats["processed"]
+                        total_added += guild_stats["added"]
+                        total_removed += guild_stats["removed"]
+                        total_errors += guild_stats["errors"]
+
+                    # Update metadata
+                    self.cache_timestamp = datetime.datetime.now(datetime.timezone.utc)
+                    self.cache_latest_tourney_date = latest_date
+                    self.cache_source_refreshed_at = refreshed_at
+                    self.last_full_update = self.cache_timestamp
+                    self.logger.info(
+                        f"Updated cache metadata: timestamp={self.cache_timestamp}, "
+                        f"tourney_date={self.cache_latest_tourney_date}, source_refreshed_at={self.cache_source_refreshed_at}"
+                    )
+
+                    # Save data
+                    self.mark_data_modified()
+                    await self.save_data()
+
+                    total_duration = (datetime.datetime.now(datetime.timezone.utc) - start_time).total_seconds()
+                    self.logger.info(
+                        f"Tournament data refresh complete in {total_duration:.1f}s: "
+                        f"{total_applied} accounts processed, {total_added} roles added, {total_removed} roles removed, {total_errors} errors"
+                    )
+
+            finally:
+                self.currently_updating = False
+
+        except Exception as e:
+            self.logger.error(f"Error handling tourney_data_refreshed event: {e}", exc_info=True)
+            self.currently_updating = False
 
         except Exception as e:
             self.logger.error(f"Error handling tourney_data_refreshed event: {e}", exc_info=True)
@@ -1912,12 +1347,22 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
             # Process each guild where the player is a member
             for target_guild_id in target_guilds:
                 try:
-                    # Invalidate old cache entry if primary changed
-                    if old_primary_player_id and old_primary_player_id != primary_player_id:
-                        await self.invalidate_cache_entry(old_primary_player_id, target_guild_id)
+                    # Get the game instance that contains the new player ID
+                    # (old player ID won't exist in DB anymore if it was changed)
+                    gameinstance_id = await self._get_gameinstance_id_from_player_id(primary_player_id)
 
-                    # Immediately calculate and apply role for the new primary
-                    await self._calculate_and_apply_for_primary(primary_player_id, target_guild_id)
+                    if not gameinstance_id:
+                        self.logger.warning(f"No game instance found for player ID {primary_player_id} in guild {target_guild_id}")
+                        continue
+
+                    # Clear cache for this game instance (player data has changed)
+                    self._clear_cache(target_guild_id, gameinstance_id=gameinstance_id)
+
+                    # Calculate and cache role for this game instance
+                    await self._calculate_and_cache_role_for_gameinstance(gameinstance_id, target_guild_id)
+
+                    # Apply role to the Discord account
+                    await self._apply_role_for_discord_account(int(discord_id), target_guild_id)
 
                 except Exception as e:
                     self.logger.error(f"Error processing verification for guild {target_guild_id}: {e}", exc_info=True)
@@ -1925,194 +1370,13 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
         except Exception as e:
             self.logger.error(f"Error handling player_verified event: {e}", exc_info=True)
 
-    async def _calculate_and_apply_for_primary(self, primary_player_id: int, guild_id: int) -> None:
-        """Calculate role for a primary player ID and apply to all associated Discord accounts.
-
-        Args:
-            primary_player_id: The primary player ID to calculate role for
-            guild_id: Discord guild ID
-        """
-        try:
-            from asgiref.sync import sync_to_async
-
-            from thetower.backend.sus.models import LinkedAccount
-
-            # Get the guild
-            guild = self.bot.get_guild(guild_id)
-            if not guild:
-                self.logger.warning(f"Guild {guild_id} not found for role calculation")
-                return
-
-            # Find the game instance with this primary player ID
-            def get_game_instance_and_discord_ids():
-                """Get game instance and associated Discord IDs."""
-                try:
-                    from thetower.backend.sus.models import PlayerId
-
-                    # Find the game instance with this primary player ID
-                    player_id_obj = PlayerId.objects.filter(id=primary_player_id, primary=True).select_related("game_instance__player").first()
-                    if not player_id_obj or not player_id_obj.game_instance:
-                        return None, []
-
-                    game_instance = player_id_obj.game_instance
-
-                    # Get all Discord accounts that should receive roles for this instance
-                    discord_ids = list(
-                        LinkedAccount.objects.filter(
-                            player=game_instance.player,
-                            platform=LinkedAccount.Platform.DISCORD,
-                            id__in=game_instance.discord_accounts_receiving_roles.all(),
-                        ).values_list("account_id", flat=True)
-                    )
-
-                    return game_instance, discord_ids
-
-                except Exception as e:
-                    self.logger.error(f"Error looking up game instance for primary_player_id={primary_player_id}: {e}")
-                    return None, []
-
-            game_instance, discord_ids = await sync_to_async(get_game_instance_and_discord_ids)()
-
-            if not game_instance:
-                self.logger.warning(f"No game instance found for primary_player_id={primary_player_id}")
-                return
-
-            if not discord_ids:
-                self.logger.debug(f"No Discord accounts to apply roles for primary_player_id={primary_player_id}")
-                return
-
-            # Calculate role for this primary player ID
-            from .ui.core import build_batch_player_stats
-
-            # Build stats for just this game instance
-            primary_stats_lookup, discord_to_primary = await build_batch_player_stats(self, guild_id, game_instances=[game_instance])
-
-            if primary_player_id not in primary_stats_lookup:
-                self.logger.warning(f"No stats available for primary_player_id={primary_player_id}")
-                return
-
-            stats = primary_stats_lookup[primary_player_id]
-
-            # Determine the best role for this player
-            best_role_id = None
-            best_priority = -1
-
-            for role_data in self.role_priority:
-                if self._user_meets_criteria(stats, role_data["criteria"]):
-                    if role_data["priority"] > best_priority:
-                        best_role_id = role_data["role_id"]
-                        best_priority = role_data["priority"]
-
-            # Cache the calculated role
-            if guild_id not in self.role_cache:
-                self.role_cache[guild_id] = {}
-            self.role_cache[guild_id][primary_player_id] = best_role_id
-
-            self.logger.info(f"Calculated role {best_role_id} for primary_player_id={primary_player_id} (priority {best_priority})")
-
-            # Apply role to all associated Discord accounts
-            for discord_id in discord_ids:
-                try:
-                    member = guild.get_member(int(discord_id))
-                    if not member:
-                        self.logger.debug(f"Member {discord_id} not found in guild {guild_id}")
-                        continue
-
-                    # Apply the calculated role
-                    await self._apply_role_to_member(member, best_role_id, guild_id, reason="Player verification/primary ID change")
-
-                except Exception as e:
-                    self.logger.error(f"Error applying role to discord_id={discord_id}: {e}", exc_info=True)
-
-        except Exception as e:
-            self.logger.error(f"Error in _calculate_and_apply_for_primary: {e}", exc_info=True)
-
-    async def _apply_role_to_member(
-        self, member: discord.Member, target_role_id: int | None, guild_id: int, reason: str = "Tournament role update"
-    ) -> None:
-        """Apply a tournament role to a member, removing other tournament roles.
-
-        Args:
-            member: Discord member to apply role to
-            target_role_id: Role ID to apply (None to remove all tournament roles)
-            guild_id: Guild ID
-            reason: Reason for the role change (for audit log)
-        """
-        try:
-            guild = member.guild
-
-            # Get managed tournament role IDs
-            roles_config = self.core.get_roles_config(guild_id)
-            managed_role_ids = {config.id for config in roles_config.values()}
-            current_tourney_roles = {r for r in member.roles if str(r.id) in managed_role_ids}
-
-            # Determine changes needed
-            roles_to_add = []
-            roles_to_remove = []
-            changes = []
-
-            # Add target role if not already present
-            if target_role_id:
-                target_role = guild.get_role(int(target_role_id))
-                if target_role and target_role not in current_tourney_roles:
-                    roles_to_add.append(target_role)
-                    changes.append(f"+{target_role.name}")
-
-            # Remove other tournament roles
-            for existing_role in current_tourney_roles:
-                if target_role_id is None or existing_role.id != int(target_role_id):
-                    roles_to_remove.append(existing_role)
-                    changes.append(f"-{existing_role.name}")
-
-            # Apply changes
-            if roles_to_add:
-                await member.add_roles(*roles_to_add, reason=reason)
-                for role in roles_to_add:
-                    self.bot.dispatch("tourney_role_added", member, role)
-
-            if roles_to_remove:
-                await member.remove_roles(*roles_to_remove, reason=reason)
-                for role in roles_to_remove:
-                    self.bot.dispatch("tourney_role_removed", member, role)
-
-            # Log changes
-            if changes:
-                await self.log_role_change(guild_id, member.name, changes, immediate=True)
-                self.logger.info(f"Applied role changes to {member.name}: {', '.join(changes)}")
-
-        except Exception as e:
-            self.logger.error(f"Error applying role to member {member.id}: {e}", exc_info=True)
-
-    async def invalidate_cache_entry(self, primary_player_id: int, guild_id: int) -> dict:
-        """Invalidate cache entry for a specific primary player ID.
-
-        This method should be called when:
-        - A player's primary player ID changes (pass the OLD primary_player_id)
-        - Player IDs are added/removed from a game instance (pass the current primary)
-        - You want to force recalculation of a specific game instance's role
-
-        Args:
-            primary_player_id: The primary player ID to invalidate from cache
-            guild_id: Discord guild ID
-
-        Returns:
-            Dict with success status and whether entry was found
-        """
-        if not self.is_cog_enabled_for_guild(guild_id):
-            self.logger.debug(f"Cog not enabled for guild {guild_id}, skipping cache invalidation")
-            return {"success": False, "reason": "cog_not_enabled"}
-
-        # Remove from cache if present
-        if guild_id in self.role_cache and primary_player_id in self.role_cache[guild_id]:
-            del self.role_cache[guild_id][primary_player_id]
-            self.logger.info(f"Invalidated cache entry for primary_player_id={primary_player_id} in guild {guild_id}")
-            return {"success": True, "invalidated": True}
-        else:
-            self.logger.debug(f"No cache entry found for primary_player_id={primary_player_id} in guild {guild_id}")
-            return {"success": True, "invalidated": False}
-
     async def refresh_user_roles_for_user(self, user_id: int, guild_id: int) -> str:
         """Public method for other cogs to refresh tournament roles for a specific user.
+
+        Uses the new simplified system:
+        1. Get user's GameInstance ID
+        2. Calculate and cache role for that GameInstance
+        3. Apply cached role to Discord account
 
         Args:
             user_id: Discord user ID
@@ -2131,57 +1395,59 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
             if not member:
                 return "❌ User not found in server"
 
-            # Get player mapping for just this user
-            single_user_mapping = await self.get_discord_to_player_mapping(discord_id=str(user_id))
+            # Get user's GameInstance ID using utility method
+            gameinstance_id = await self._get_gameinstance_id_from_discord_id(user_id)
+            if not gameinstance_id:
+                return "❌ Player data not found."
 
-            if not single_user_mapping:
-                return "❌ Player data not found"
+            # Calculate and cache role for this GameInstance
+            await self._calculate_and_cache_role_for_gameinstance(gameinstance_id, guild_id)
 
-            # Calculate roles for this user
-            calc_result = await self.calculate_roles_for_users(
-                user_ids=[user_id], guild_id=guild_id, discord_to_player=single_user_mapping, progress_callback=None
-            )
-
-            # Check if calculation succeeded
-            if calc_result["calculated"] == 0:
-                if calc_result["skipped"] > 0:
-                    return "❌ No player data found. Use `/player register` to link your account."
-                return "❌ Error calculating tournament roles"
-
-            # Apply roles for this user
-            apply_result = await self.apply_roles_for_users(user_ids=[user_id], guild_id=guild_id, progress_callback=None)
+            # Apply the cached role to the Discord account
+            apply_result = await self._apply_role_for_discord_account(user_id, guild_id)
 
             # Check for errors
             if apply_result.get("errors", 0) > 0:
                 return "❌ Error updating roles"
 
-            if apply_result["skipped_not_verified"] > 0:
-                return "❌ User not verified for tournament roles"
+            # Handle skip reasons
+            if apply_result.get("skipped"):
+                skip_reason = apply_result["skipped"]
+                if skip_reason == "not_verified":
+                    return "❌ User not verified for tournament roles"
+                elif skip_reason == "no_role_source":
+                    return "❌ No role source configured for this account"
+                elif skip_reason == "not_in_guild":
+                    return "❌ User not found in server"
+                else:
+                    return f"❌ Skipped: {skip_reason}"
 
             # Format response based on dry_run mode
             dry_run = self.get_global_setting("dry_run", False)
+            roles_added = apply_result.get("roles_added", 0)
+            roles_removed = apply_result.get("roles_removed", 0)
 
             if dry_run:
-                if apply_result["roles_added"] > 0 or apply_result["roles_removed"] > 0:
+                if roles_added > 0 or roles_removed > 0:
                     changes = []
-                    if apply_result["roles_added"] > 0:
-                        changes.append(f"would add {apply_result['roles_added']} role(s)")
-                    if apply_result["roles_removed"] > 0:
-                        changes.append(f"would remove {apply_result['roles_removed']} role(s)")
+                    if roles_added > 0:
+                        changes.append(f"would add {roles_added} role(s)")
+                    if roles_removed > 0:
+                        changes.append(f"would remove {roles_removed} role(s)")
                     return f"🔍 DRY RUN: {', '.join(changes)}"
                 return "🔍 DRY RUN: No role changes needed"
             else:
-                if apply_result["roles_added"] > 0 or apply_result["roles_removed"] > 0:
+                if roles_added > 0 or roles_removed > 0:
                     changes = []
-                    if apply_result["roles_added"] > 0:
-                        changes.append(f"added {apply_result['roles_added']} role(s)")
-                    if apply_result["roles_removed"] > 0:
-                        changes.append(f"removed {apply_result['roles_removed']} role(s)")
+                    if roles_added > 0:
+                        changes.append(f"added {roles_added} role(s)")
+                    if roles_removed > 0:
+                        changes.append(f"removed {roles_removed} role(s)")
                     return f"✅ {', '.join(changes)}"
                 return "✅ No role changes needed"
 
         except Exception as e:
-            self.logger.error(f"Error refreshing roles for user {user_id}: {e}")
+            self.logger.error(f"Error refreshing roles for user {user_id}: {e}", exc_info=True)
             return f"❌ Error updating roles: {str(e)}"
 
 
@@ -2727,87 +1993,19 @@ class TourneySelfRefreshButton(discord.ui.Button):
                 await interaction.response.send_message("❌ You can only refresh your own tournament roles.", ephemeral=True)
                 return
 
-            # Get guild and member
-            guild = self.cog.bot.get_guild(self.guild_id)
-            if not guild:
-                await interaction.response.send_message("❌ Guild not found", ephemeral=True)
-                return
+            # Defer the response since this may take a moment
+            await interaction.response.defer(ephemeral=True)
 
-            member = guild.get_member(self.user_id)
-            if not member:
-                await interaction.response.send_message("❌ Member not found", ephemeral=True)
-                return
+            # Use the standardized refresh method
+            result = await self.cog.refresh_user_roles_for_user(self.user_id, self.guild_id)
 
-            # Check if we have a cached role for this user
-            cached_role_id = self.cog.role_cache.get(self.guild_id, {}).get(str(self.user_id))
-
-            if cached_role_id:
-                # Fast path: Use cached role (same as on_member_update)
-                await interaction.response.send_message("🔄 Refreshing roles...", ephemeral=True)
-
-                role = guild.get_role(int(cached_role_id))
-                if not role:
-                    await interaction.edit_original_response(content="❌ Cached role not found")
-                    return
-
-                # Get current tournament roles
-                roles_config = self.cog.core.get_roles_config(self.guild_id)
-                managed_role_ids = {config.id for config in roles_config.values()}
-                current_tourney_roles = {r for r in member.roles if str(r.id) in managed_role_ids}
-
-                # Check what needs to be done
-                changes = []
-                roles_to_add = []
-                roles_to_remove = []
-
-                if role not in current_tourney_roles:
-                    roles_to_add.append(role)
-                    changes.append(f"+{role.name}")
-
-                # Remove any other tournament roles
-                for existing_role in current_tourney_roles:
-                    if existing_role.id != role.id:
-                        roles_to_remove.append(existing_role)
-                        changes.append(f"-{existing_role.name}")
-
-                # Apply role changes
-                if roles_to_add:
-                    await member.add_roles(*roles_to_add, reason="User refreshed tournament roles")
-                    # Dispatch custom events for role additions
-                    for role in roles_to_add:
-                        self.cog.bot.dispatch("tourney_role_added", member, role)
-                if roles_to_remove:
-                    await member.remove_roles(*roles_to_remove, reason="User refreshed tournament roles")
-                    # Dispatch custom events for role removals
-                    for role in roles_to_remove:
-                        self.cog.bot.dispatch("tourney_role_removed", member, role)
-
-                # Log changes if any
-                if changes:
-                    await self.cog.log_role_change(self.guild_id, member.name, changes, immediate=True)
-                    await interaction.edit_original_response(content=f"✅ Roles updated: {', '.join(changes)}")
-                else:
-                    await interaction.edit_original_response(content="✅ Your roles are already up to date!")
-            else:
-                # Slow path: No cache, need to recalculate
-                loading_embed = discord.Embed(
-                    title="🔄 Calculating Roles...",
-                    description="No cached data found. Fetching your tournament stats...",
-                    color=discord.Color.orange(),
-                )
-                await interaction.response.send_message(embed=loading_embed, ephemeral=True)
-
-                result = await self.cog.refresh_user_roles_for_user(self.user_id, self.guild_id)
-                success_embed = discord.Embed(title="✅ Roles Updated", description=result, color=discord.Color.green())
-                await interaction.edit_original_response(embed=success_embed)
+            # Send the result
+            await interaction.followup.send(result, ephemeral=True)
 
         except Exception as e:
             self.cog.logger.error(f"Error refreshing tournament roles for user {self.user_id}: {e}")
-            error_embed = discord.Embed(title="❌ Error", description=f"Error updating roles: {str(e)}", color=discord.Color.red())
-            if interaction.response.is_done():
-                await interaction.edit_original_response(embed=error_embed)
-            else:
-                await interaction.response.send_message(embed=error_embed, ephemeral=True)
+            error_message = f"❌ Error updating roles: {str(e)}"
+            await interaction.followup.send(error_message, ephemeral=True)
 
 
 class TourneyRolesRefreshButton(discord.ui.Button):

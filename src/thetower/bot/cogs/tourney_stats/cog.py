@@ -147,6 +147,7 @@ class TourneyStats(BaseCog, name="Tourney Stats"):
                             "patch": self.latest_patch,
                             "total_tournaments": self.total_tournaments,
                             "league_counts": self.tournament_counts,
+                            "refreshed_at": self.last_updated,  # When the data was refreshed
                         },
                     )
                     self.logger.info(f"Dispatched tourney_data_refreshed event for {latest_db_date}")
