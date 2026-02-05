@@ -1148,7 +1148,12 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
         try:
             latest_date = data.get("latest_date")
             refreshed_at = data.get("refreshed_at")
-            self.logger.info(f"Received tourney_data_refreshed event for date: {latest_date}, refreshed at: {refreshed_at}")
+            patch = data.get("patch")
+            total_tournaments = data.get("total_tournaments")
+            self.logger.info(
+                f"Received tourney_data_refreshed signal: date={latest_date}, patch={patch}, "
+                f"total_tournaments={total_tournaments}, refreshed_at={refreshed_at}"
+            )
 
             # Check global pause setting
             if self.get_global_setting("pause", False):

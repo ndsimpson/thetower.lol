@@ -150,7 +150,11 @@ class TourneyStats(BaseCog, name="Tourney Stats"):
                             "refreshed_at": self.last_updated,  # When the data was refreshed
                         },
                     )
-                    self.logger.info(f"Dispatched tourney_data_refreshed event for {latest_db_date}")
+                    self.logger.info(
+                        f"Dispatched tourney_data_refreshed event: date={latest_db_date}, "
+                        f"patch={self.latest_patch}, total_tournaments={self.total_tournaments}, "
+                        f"refreshed_at={self.last_updated.strftime('%Y-%m-%d %H:%M:%S')}"
+                    )
                 else:
                     self.logger.debug(f"No new tournaments (latest: {self.latest_tournament_date})")
 
