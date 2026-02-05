@@ -112,6 +112,28 @@ class TourneyAdminView(discord.ui.View):
             await self.cog.get_tournament_data(refresh=True)
             duration = datetime.now() - start_time
 
+            # Update last_updated and save
+            self.cog.last_updated = datetime.now()
+            self.cog.mark_data_modified()
+            await self.cog.save_data()
+
+            # Notify other cogs that tournament data has been refreshed
+            self.cog.bot.dispatch(
+                "tourney_data_refreshed",
+                {
+                    "latest_date": self.cog.latest_tournament_date,
+                    "patch": self.cog.latest_patch,
+                    "total_tournaments": self.cog.total_tournaments,
+                    "league_counts": self.cog.tournament_counts,
+                    "refreshed_at": self.cog.last_updated,
+                },
+            )
+            self.cog.logger.info(
+                f"Dispatched tourney_data_refreshed event: date={self.cog.latest_tournament_date}, "
+                f"patch={self.cog.latest_patch}, total_tournaments={self.cog.total_tournaments}, "
+                f"refreshed_at={self.cog.last_updated.strftime('%Y-%m-%d %H:%M:%S')}"
+            )
+
             # Create success embed
             embed = discord.Embed(
                 title="✅ Tournament Data Refreshed",
