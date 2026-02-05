@@ -394,6 +394,92 @@ class LogChannelModal(ui.Modal, title="Set Log Channel"):
         await self.original_interaction.edit_original_response(embed=embed, view=self.parent_view)
 
 
+class DryRunLogChannelModal(ui.Modal, title="Set Dry Run Log Channel"):
+    """Modal for setting the dry run log channel."""
+
+    channel_input = ui.TextInput(
+        label="Channel Name or ID",
+        placeholder="Enter channel name or ID (leave blank to disable)",
+        required=False,
+        max_length=100,
+    )
+
+    def __init__(self, cog, guild_id: int, parent_view, original_interaction):
+        super().__init__()
+        self.cog = cog
+        self.guild_id = guild_id
+        self.parent_view = parent_view
+        self.original_interaction = original_interaction
+
+    async def on_submit(self, interaction: discord.Interaction):
+        """Handle the modal submission."""
+        guild = interaction.guild
+        input_value = self.channel_input.value.strip()
+
+        # Handle blank input to disable dry run logging
+        if not input_value:
+            self.cog.set_setting("dry_run_log_channel_id", None, guild_id=self.guild_id)
+            await interaction.response.send_message("✅ Dry run logging disabled", ephemeral=True)
+
+            # Update the embed
+            embed = await self.parent_view.get_embed()
+            await self.original_interaction.edit_original_response(embed=embed, view=self.parent_view)
+            return
+
+        # Try to find the channel
+        channel = None
+
+        # First, try as channel ID
+        if input_value.isdigit():
+            channel = guild.get_channel(int(input_value))
+
+        # If not found, try by name (case-insensitive, with or without #)
+        if not channel:
+            channel_name = input_value.lstrip("#")
+            channel = discord.utils.get(guild.text_channels, name=channel_name)
+
+        # If still not found, try partial match
+        if not channel:
+            channel_name = input_value.lstrip("#").lower()
+            matching_channels = [c for c in guild.text_channels if channel_name in c.name.lower()]
+            if len(matching_channels) == 1:
+                channel = matching_channels[0]
+            elif len(matching_channels) > 1:
+                channel_names = ", ".join([f"`#{c.name}`" for c in matching_channels[:5]])
+                more = f" and {len(matching_channels) - 5} more" if len(matching_channels) > 5 else ""
+                await interaction.response.send_message(
+                    f"❌ Multiple channels match '{input_value}': {channel_names}{more}\n" f"Please be more specific or use the channel ID.",
+                    ephemeral=True,
+                )
+                return
+
+        # Validate the channel
+        if not channel:
+            await interaction.response.send_message(
+                f"❌ Could not find channel '{input_value}'\n" f"Please enter a valid channel name or ID.",
+                ephemeral=True,
+            )
+            return
+
+        if not isinstance(channel, discord.TextChannel):
+            await interaction.response.send_message("❌ Channel must be a text channel", ephemeral=True)
+            return
+
+        # Check bot permissions
+        permissions = channel.permissions_for(guild.me)
+        if not permissions.send_messages:
+            await interaction.response.send_message(f"❌ Bot doesn't have permission to send messages in {channel.mention}", ephemeral=True)
+            return
+
+        # Set the channel
+        self.cog.set_setting("dry_run_log_channel_id", str(channel.id), guild_id=self.guild_id)
+        await interaction.response.send_message(f"✅ Dry run logs will be sent to {channel.mention}", ephemeral=True)
+
+        # Update the embed
+        embed = await self.parent_view.get_embed()
+        await self.original_interaction.edit_original_response(embed=embed, view=self.parent_view)
+
+
 class TournamentRolesSettingsView(BaseSettingsView):
     """Settings view for tournament roles that integrates with global settings."""
 
@@ -1047,6 +1133,19 @@ class LoggingSettingsView(ui.View):
         else:
             embed.add_field(name="Log Channel", value="None", inline=True)
 
+        # Dry Run Log Channel
+        dry_run_log_channel_id = self.cog.get_setting("dry_run_log_channel_id", None, guild_id=self.guild_id)
+        if dry_run_log_channel_id:
+            guild = self.cog.bot.get_guild(self.guild_id)
+            if guild:
+                channel = guild.get_channel(int(dry_run_log_channel_id))
+                channel_text = channel.mention if channel else f"ID: {dry_run_log_channel_id}"
+            else:
+                channel_text = f"ID: {dry_run_log_channel_id}"
+            embed.add_field(name="Dry Run Log Channel", value=channel_text, inline=True)
+        else:
+            embed.add_field(name="Dry Run Log Channel", value="None", inline=True)
+
         embed.add_field(name="Log Batch Size", value=f"{logging_settings['log_batch_size']} messages", inline=True)
         embed.add_field(name="Immediate Logging", value="Enabled" if logging_settings["immediate_logging"] else "Disabled", inline=True)
 
@@ -1056,6 +1155,12 @@ class LoggingSettingsView(ui.View):
     async def set_log_channel(self, interaction: discord.Interaction, button: ui.Button):
         """Set the logging channel."""
         modal = LogChannelModal(self.cog, self.guild_id, self, interaction)
+        await interaction.response.send_modal(modal)
+
+    @ui.button(label="Set Dry Run Log Channel", style=discord.ButtonStyle.primary, emoji="🔍")
+    async def set_dry_run_log_channel(self, interaction: discord.Interaction, button: ui.Button):
+        """Set the dry run logging channel."""
+        modal = DryRunLogChannelModal(self.cog, self.guild_id, self, interaction)
         await interaction.response.send_modal(modal)
 
     @ui.button(label="Set Batch Size", style=discord.ButtonStyle.primary, emoji="📊")
