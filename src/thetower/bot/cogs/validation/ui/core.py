@@ -985,10 +985,10 @@ class PlayerIdChangeReasonSelect(discord.ui.Select):
             discord.SelectOption(
                 label="Game changed my ID",
                 value="game_changed",
-                description="The game assigned me a new ID, keep the old one to merge data",
+                description="The game assigned me a new ID, but I have results on my old ID too.",
                 emoji="🎮",
             ),
-            discord.SelectOption(label="I typed the wrong ID", value="typo", description="I entered the wrong ID when verifying", emoji="✏️"),
+            discord.SelectOption(label="I typed the wrong ID", value="typo", description="I entered the wrong ID when verifying. My old ID has no data on it.", emoji="✏️"),
         ]
         super().__init__(placeholder="Select reason for change...", options=options, row=0)
         self.cog = cog
