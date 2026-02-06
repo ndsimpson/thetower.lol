@@ -446,7 +446,16 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
             first = career["first_date"].strftime("%Y-%m-%d") if career["first_date"] else "N/A"
             last = career["last_date"].strftime("%Y-%m-%d") if career["last_date"] else "N/A"
             lines.append(f"**Tournaments:** {career['total_tourneys']} ({first} — {last})")
-            lines.append(f"**Patches:** {career['patch_count']} ({', '.join(career['patches'])})")
+
+            # Show first and last patch range
+            patches = career["patches"]
+            if patches:
+                if len(patches) == 1:
+                    patches_str = patches[0]
+                else:
+                    patches_str = f"{patches[-1]} — {patches[0]}"
+                lines.append(f"**Patches:** {career['patch_count']} ({patches_str})")
+
             lines.append(f"**Leagues:** {', '.join(career['leagues_played'])}")
             lines.append(f"**All-Time Peak Wave:** {career['peak_wave']:,}")
             lines.append(f"**All-Time Best Position:** {career['best_position']}")
