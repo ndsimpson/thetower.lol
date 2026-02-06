@@ -582,8 +582,9 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
                             if removed_role:
                                 self.bot.dispatch("tourney_role_removed", member, removed_role)
 
-                    # Log changes
-                    await self.log_role_change(guild_id, member.name, changes, immediate=False)
+                    # Log changes - respect guild's immediate_logging setting
+                    immediate = self.get_setting("immediate_logging", default=True, guild_id=guild_id)
+                    await self.log_role_change(guild_id, member.name, changes, immediate=immediate)
 
                 except Exception as e:
                     self.logger.error(f"Error updating roles for {member.name}: {e}")
@@ -947,6 +948,12 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
 
     async def cog_unload(self):
         """Clean up when cog is unloaded"""
+        # Flush any remaining log buffers before shutdown
+        try:
+            await self.flush_log_buffer()
+        except Exception as e:
+            self.logger.error(f"Error flushing log buffers during unload: {e}")
+
         # Cancel all pending correction timers
         for task in self.pending_corrections.values():
             task.cancel()
@@ -981,7 +988,7 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
 
             # Get current state
             roles_config = self.core.get_roles_config(guild_id)
-            managed_role_ids = {config.id for config in roles_config.values()}
+            managed_role_ids = {str(config.id) for config in roles_config.values()}
             current_tourney_roles = {role.id for role in member.roles if str(role.id) in managed_role_ids}
 
             # Check if state is now correct (defensive check, should still be wrong)
@@ -1106,7 +1113,7 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
 
             # Check if tournament roles changed
             roles_config = self.core.get_roles_config(after.guild.id)
-            managed_role_ids = {config.id for config in roles_config.values()}
+            managed_role_ids = {str(config.id) for config in roles_config.values()}
 
             before_tourney_roles = {role.id for role in before.roles if str(role.id) in managed_role_ids}
             after_tourney_roles = {role.id for role in after.roles if str(role.id) in managed_role_ids}
@@ -1339,9 +1346,6 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
         except Exception as e:
             self.logger.error(f"Error handling tourney_data_refreshed event: {e}", exc_info=True)
             self.currently_updating = False
-
-        except Exception as e:
-            self.logger.error(f"Error handling tourney_data_refreshed event: {e}", exc_info=True)
 
     @commands.Cog.listener()
     async def on_player_verified(self, guild_id: int, discord_id: str, primary_player_id: int, old_primary_player_id: int = None) -> None:
@@ -1887,8 +1891,9 @@ class TourneyStatsButton(discord.ui.Button):
                 if member:
                     # Get what role they SHOULD have from TourneyRoles cache
                     calculated_role_id = None
-                    if self.guild_id in self.cog.role_cache and str(self.user_id) in self.cog.role_cache[self.guild_id]:
-                        calculated_role_id = self.cog.role_cache[self.guild_id][str(self.user_id)]
+                    gameinstance_id = await self.cog._get_gameinstance_id_from_discord_id(self.user_id)
+                    if gameinstance_id and self.guild_id in self.cog.role_cache:
+                        calculated_role_id = self.cog.role_cache[self.guild_id].get(gameinstance_id)
 
                     roles_config = self.cog.core.get_roles_config(self.guild_id)
                     managed_role_ids = {str(config.id) for config in roles_config.values()}

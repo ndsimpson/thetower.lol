@@ -5,9 +5,6 @@ from typing import Any, Dict
 
 import discord
 
-# League hierarchy - order matters for importance
-LEAGUE_HIERARCHY = ["legend", "champion", "platinum", "gold", "silver", "copper"]
-
 
 def format_relative_time(seconds: float) -> str:
     """Format seconds into a human-readable relative time string."""

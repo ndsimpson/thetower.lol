@@ -19,9 +19,6 @@ from thetower.bot.exceptions import ChannelUnauthorized, UserUnauthorized
 
 from .ui import TourneyAdminView, TourneyStatsSettingsView
 
-# Define league hierarchy - order matters for importance
-LEAGUE_HIERARCHY = ["legend", "champion", "platinum", "gold", "silver", "copper"]
-
 
 class TourneyStats(BaseCog, name="Tourney Stats"):
     """
