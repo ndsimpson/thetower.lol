@@ -291,6 +291,157 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
         """Get the TourneyStats cog instance."""
         return self.bot.get_cog("Tourney Stats")
 
+    async def build_tourney_stats_embed(
+        self,
+        player_name: str,
+        tower_ids: list,
+        guild_id: int,
+        discord_id: int = None,
+        instance_name: str = None,
+    ) -> discord.Embed:
+        """Build a tournament stats embed for a set of tower IDs.
+
+        Shared helper used by both TourneyStatsButton and GameInstanceSelect
+        to ensure consistent stats display.
+
+        Args:
+            player_name: Display name for the player
+            tower_ids: List of tower ID strings to aggregate stats for
+            guild_id: Guild ID for role comparison
+            discord_id: Discord user ID (for role comparison section)
+            instance_name: Optional instance name to show in title
+
+        Returns:
+            discord.Embed with formatted tournament stats
+        """
+        tourney_stats_cog = await self.get_tourney_stats_cog()
+        if not tourney_stats_cog:
+            return discord.Embed(title="❌ Error", description="Tournament stats not available", color=discord.Color.red())
+
+        # Get stats via unified batch path
+        batch_stats = await tourney_stats_cog.get_batch_player_stats(set(tower_ids))
+        player_stats = await self.core._aggregate_player_stats(tower_ids, batch_stats)
+
+        current_patch = tourney_stats_cog.latest_patch if tourney_stats_cog.latest_patch else "Unknown"
+
+        # Build title
+        title = f"📊 Tournament Stats - {player_name}"
+        if instance_name:
+            title += f" ({instance_name})"
+
+        embed = discord.Embed(
+            title=title,
+            description=f"Tournament performance for {player_name}",
+            color=discord.Color.blue(),
+        )
+
+        # Player ID
+        primary_id = tower_ids[0] if tower_ids else None
+        if primary_id:
+            embed.add_field(name="Player ID", value=f"`{primary_id}`", inline=False)
+
+        if player_stats.total_tourneys > 0:
+            # Latest Tournament
+            latest = player_stats.latest_tournament
+            if latest.get("league"):
+                latest_text = f"**League:** {latest['league']}\n"
+                latest_text += f"**Position:** {latest.get('placement', 'N/A')}\n"
+                latest_text += f"**Wave:** {latest.get('wave', 'N/A')}\n"
+                if latest.get("date"):
+                    latest_text += f"**Date:** {latest['date']}"
+                embed.add_field(name="📈 Latest Tournament", value=latest_text, inline=False)
+
+            # Per-league stats
+            for league_name, league_stats in player_stats.leagues.items():
+                stats_text = []
+                stats_text.append(f"**Tournaments:** {league_stats.get('total_tourneys', 0)}")
+
+                # Best position with frequency
+                best_position = league_stats.get("best_position", "N/A")
+                tournaments = league_stats.get("tournaments", [])
+
+                if tournaments and best_position != "N/A":
+                    best_pos_tourneys = [t for t in tournaments if t.get("position") == best_position]
+                    count = len(best_pos_tourneys)
+                    if count == 1:
+                        date = best_pos_tourneys[0].get("date", "")
+                        date_str = date.strftime("%Y-%m-%d") if hasattr(date, "strftime") else str(date)
+                        stats_text.append(f"**Best Position:** {best_position} ({date_str})")
+                    else:
+                        dates = sorted(
+                            d.strftime("%Y-%m-%d") if hasattr(d, "strftime") else str(d) for t in best_pos_tourneys for d in [t.get("date", "")]
+                        )
+                        stats_text.append(f"**Best Position:** {best_position} ({count}x: first {dates[0]}, last {dates[-1]})")
+                else:
+                    stats_text.append(f"**Best Position:** {best_position}")
+
+                # Highest wave with frequency
+                highest_wave = league_stats.get("best_wave", 0)
+                if tournaments and highest_wave:
+                    best_wave_tourneys = [t for t in tournaments if t.get("wave") == highest_wave]
+                    wave_count = len(best_wave_tourneys)
+                    if wave_count == 1:
+                        date = best_wave_tourneys[0].get("date", "")
+                        date_str = date.strftime("%Y-%m-%d") if hasattr(date, "strftime") else str(date)
+                        stats_text.append(f"**Highest Wave:** {highest_wave} ({date_str})")
+                    else:
+                        dates = sorted(
+                            d.strftime("%Y-%m-%d") if hasattr(d, "strftime") else str(d) for t in best_wave_tourneys for d in [t.get("date", "")]
+                        )
+                        stats_text.append(f"**Highest Wave:** {highest_wave} ({wave_count}x: first {dates[0]}, last {dates[-1]})")
+                else:
+                    stats_text.append(f"**Highest Wave:** {highest_wave}")
+
+                stats_text.append(f"**Avg Wave:** {league_stats.get('avg_wave', 0):.1f}")
+                stats_text.append(f"**Avg Position:** {league_stats.get('avg_position', 0):.1f}")
+
+                embed.add_field(name=f"🏆 {league_name.title()}", value="\n".join(stats_text), inline=True)
+        else:
+            embed.add_field(name="📈 Performance", value="No tournament participation found", inline=False)
+
+        # Role comparison section
+        if discord_id:
+            guild = self.bot.get_guild(guild_id)
+            if guild:
+                member = guild.get_member(discord_id)
+                if member:
+                    calculated_role_id = None
+                    gameinstance_id = await self._get_gameinstance_id_from_discord_id(discord_id)
+                    if gameinstance_id and guild_id in self.role_cache:
+                        calculated_role_id = self.role_cache[guild_id].get(gameinstance_id)
+
+                    roles_config = self.core.get_roles_config(guild_id)
+                    managed_role_ids = {str(config.id) for config in roles_config.values()}
+
+                    if guild_id not in self.role_cache:
+                        embed.add_field(
+                            name="🎯 Current Tournament Roles",
+                            value="⏳ Role calculations are not ready yet. Please use `/tourneyroles update` to calculate roles.",
+                            inline=False,
+                        )
+                    else:
+                        guild_role_map = {str(role.id): role.name for role in guild.roles}
+                        current_tourney_roles = [role for role in member.roles if str(role.id) in managed_role_ids]
+                        current_role_ids = {str(r.id) for r in current_tourney_roles}
+
+                        role_status = []
+                        if calculated_role_id:
+                            calculated_role_name = guild_role_map.get(str(calculated_role_id), "Unknown")
+                            if str(calculated_role_id) in current_role_ids:
+                                role_status.append(f"✅ {calculated_role_name}")
+                            else:
+                                role_status.append(f"❌ {calculated_role_name} (should have)")
+
+                        for role in current_tourney_roles:
+                            if str(role.id) != str(calculated_role_id):
+                                role_status.append(f"⚠️ {role.name} (has but shouldn't)")
+
+                        if role_status:
+                            embed.add_field(name="🎯 Current Tournament Roles", value="\n".join(role_status), inline=False)
+
+        embed.set_footer(text=f"Stats from patch {current_patch}")
+        return embed
+
     async def _get_gameinstance_id_from_player_id(self, player_id: int) -> Optional[int]:
         """Get the game instance ID for a given player ID.
 
@@ -878,19 +1029,6 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
         if not game_instances:
             return None
 
-        # Get player name
-        player_name = details.get("account_name") or details.get("name", "Unknown")
-
-        # If single instance, create button directly
-        if len(game_instances) == 1:
-            instance = game_instances[0]
-            discord_accounts = instance.get("discord_accounts_receiving_roles", [])
-            if discord_accounts:
-                discord_id = discord_accounts[0]  # Use first Discord account
-                return TourneyStatsButton(self, int(discord_id), guild_id, player_name)
-            return None
-
-        # Multiple instances - return selector button
         return TourneyStatsInstanceSelectorButton(self, details, guild_id)
 
     def get_tourney_roles_button_for_player(
@@ -1526,7 +1664,7 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
 
 
 class TourneyStatsInstanceSelectorButton(discord.ui.Button):
-    """Button that opens a game instance selector for tournament stats."""
+    """Button to view tournament stats. Handles single and multiple game instances."""
 
     def __init__(self, cog, details: dict, guild_id: int):
         super().__init__(label="View Tournament Stats", style=discord.ButtonStyle.secondary, emoji="📊", row=2)
@@ -1535,28 +1673,82 @@ class TourneyStatsInstanceSelectorButton(discord.ui.Button):
         self.guild_id = guild_id
 
     async def callback(self, interaction: discord.Interaction):
-        """Show game instance selector."""
+        """Show tournament stats — auto-select for single instance, dropdown for multiple."""
         game_instances = self.details.get("game_instances", [])
         player_name = self.details.get("account_name") or self.details.get("name", "Unknown")
 
-        # Create select menu with game instances
-        select = GameInstanceSelect(
-            placeholder="Select a game account...",
-            game_instances=game_instances,
-            player_name=player_name,
-            button_type="stats",
-            cog=self.cog,
-            guild_id=self.guild_id,
-        )
+        if len(game_instances) == 1:
+            # Single instance — go straight to loading → stats
+            await self._show_single_instance_stats(interaction, game_instances[0], player_name)
+        else:
+            # Multiple instances — show placeholder embed + dropdown
+            placeholder_embed = discord.Embed(
+                title=f"📊 Tournament Stats - {player_name}",
+                description="Select a game account below to view tournament stats.",
+                color=discord.Color.light_grey(),
+            )
 
-        view = discord.ui.View(timeout=180)
-        view.add_item(select)
+            select = GameInstanceSelect(
+                placeholder="Select a game account...",
+                game_instances=game_instances,
+                player_name=player_name,
+                button_type="stats",
+                cog=self.cog,
+                guild_id=self.guild_id,
+            )
 
-        await interaction.response.send_message(
-            f"Select which game account to view tournament stats for **{player_name}**:",
-            view=view,
-            ephemeral=True,
+            view = discord.ui.View(timeout=300)
+            view.add_item(select)
+
+            await interaction.response.send_message(
+                embed=placeholder_embed,
+                view=view,
+                ephemeral=True,
+            )
+
+    async def _show_single_instance_stats(self, interaction: discord.Interaction, instance: dict, player_name: str):
+        """Show stats for a single game instance directly (no dropdown)."""
+        # Send loading embed
+        loading_embed = discord.Embed(
+            title="📊 Loading Tournament Stats...",
+            description=f"Gathering tournament data for {player_name}...",
+            color=discord.Color.orange(),
         )
+        await interaction.response.send_message(embed=loading_embed, ephemeral=True)
+
+        try:
+            # Get tower IDs from the instance
+            tower_ids = instance.get("all_player_ids", [])
+            if not tower_ids:
+                tower_ids = [pid["id"] for pid in instance.get("player_ids", [])]
+
+            if not tower_ids:
+                error_embed = discord.Embed(title="❌ Error", description="No player IDs found", color=discord.Color.red())
+                await interaction.edit_original_response(embed=error_embed)
+                return
+
+            # Get discord_id for role comparison
+            discord_accounts = instance.get("discord_accounts_receiving_roles", [])
+            discord_id = int(discord_accounts[0]) if discord_accounts else None
+
+            # Build embed using shared helper
+            embed = await self.cog.build_tourney_stats_embed(
+                player_name=player_name,
+                tower_ids=tower_ids,
+                guild_id=self.guild_id,
+                discord_id=discord_id,
+            )
+
+            # View with just Post Publicly button (no dropdown needed)
+            view = discord.ui.View(timeout=300)
+            view.add_item(TourneyStatsPostPubliclyButton(embed, interaction.guild.id, interaction.channel.id, self.cog))
+
+            await interaction.edit_original_response(embed=embed, view=view)
+
+        except Exception as e:
+            self.cog.logger.error(f"Error showing tournament stats: {e}", exc_info=True)
+            error_embed = discord.Embed(title="❌ Error", description=f"Error loading stats: {str(e)}", color=discord.Color.red())
+            await interaction.edit_original_response(embed=error_embed)
 
 
 class TourneyRolesInstanceSelectorButton(discord.ui.Button):
@@ -1650,104 +1842,77 @@ class GameInstanceSelect(discord.ui.Select):
             await interaction.response.send_message("❌ Instance not found", ephemeral=True)
             return
 
-        discord_accounts = selected_instance.get("discord_accounts_receiving_roles", [])
-        if not discord_accounts:
-            await interaction.response.send_message("❌ No Discord account associated with this game instance", ephemeral=True)
-            return
-
-        discord_id = int(discord_accounts[0])  # Use first Discord account
-
-        # Acknowledge the selection and close the menu
-        instance_name = selected_instance.get("name", "Selected instance")
-        await interaction.response.edit_message(content=f"✅ Selected: **{instance_name}**", view=None)
-
-        # Execute the appropriate action
         if self.button_type == "stats":
-            await self._show_stats(interaction, discord_id)
+            await self._show_stats(interaction, selected_instance)
         elif self.button_type == "refresh_self" or self.button_type == "refresh_other":
+            discord_accounts = selected_instance.get("discord_accounts_receiving_roles", [])
+            if not discord_accounts:
+                await interaction.response.send_message("❌ No Discord account associated with this game instance", ephemeral=True)
+                return
+            discord_id = int(discord_accounts[0])
+            instance_name = selected_instance.get("name", "Selected instance")
+            await interaction.response.edit_message(content=f"✅ Selected: **{instance_name}**", view=None)
             await self._refresh_roles(interaction, discord_id)
         else:
-            await interaction.followup.send("❌ Unknown button type", ephemeral=True)
+            await interaction.response.send_message("❌ Unknown button type", ephemeral=True)
 
-    async def _show_stats(self, interaction: discord.Interaction, discord_id: int):
-        """Show tournament stats for the selected instance."""
-        loading_embed = discord.Embed(
-            title="📊 Loading Tournament Stats...",
-            description=f"Gathering tournament data for {self.player_name}...",
-            color=discord.Color.orange(),
-        )
-        message = await interaction.followup.send(embed=loading_embed, ephemeral=True, wait=True)
-
+    async def _show_stats(self, interaction: discord.Interaction, selected_instance: dict):
+        """Show tournament stats for the selected instance by editing the current message."""
         try:
-            # Get tournament stats cog
-            tourney_stats_cog = await self.cog.get_tourney_stats_cog()
-            if not tourney_stats_cog:
-                error_embed = discord.Embed(title="❌ Error", description="Tournament stats not available", color=discord.Color.red())
-                await message.edit(embed=error_embed)
+            # Get tower IDs from the SELECTED instance only
+            tower_ids = selected_instance.get("all_player_ids", [])
+            if not tower_ids:
+                tower_ids = [pid["id"] for pid in selected_instance.get("player_ids", [])]
+
+            if not tower_ids:
+                error_embed = discord.Embed(title="❌ Error", description="No player IDs found for this instance", color=discord.Color.red())
+                await interaction.response.edit_message(embed=error_embed, view=None)
                 return
 
-            # Get player lookup cog
-            player_lookup_cog = await self.cog.get_known_players_cog()
-            if not player_lookup_cog:
-                error_embed = discord.Embed(title="❌ Error", description="Player lookup not available", color=discord.Color.red())
-                await message.edit(embed=error_embed)
-                return
+            # Show loading state in the same message
+            loading_embed = discord.Embed(
+                title="📊 Loading Tournament Stats...",
+                description=f"Gathering tournament data for {self.player_name}...",
+                color=discord.Color.orange(),
+            )
+            await interaction.response.edit_message(embed=loading_embed, view=None)
 
-            # Get player data
-            player_data = await player_lookup_cog.get_discord_to_player_mapping(discord_id=str(discord_id))
-            player_data = player_data.get(str(discord_id)) if player_data else None
+            # Get discord_id for role comparison
+            discord_accounts = selected_instance.get("discord_accounts_receiving_roles", [])
+            discord_id = int(discord_accounts[0]) if discord_accounts else None
 
-            if not player_data:
-                error_embed = discord.Embed(title="❌ Error", description="No player data found", color=discord.Color.red())
-                await message.edit(embed=error_embed)
-                return
+            instance_name = selected_instance.get("name") if len(self.game_instances) > 1 else None
 
-            # Get all player IDs from game instances
-            all_ids = []
-            for instance in player_data.get("game_instances", []):
-                for pid in instance.get("player_ids", []):
-                    all_ids.append(pid["id"])
-
-            if not all_ids:
-                error_embed = discord.Embed(title="❌ Error", description="No player IDs found", color=discord.Color.red())
-                await message.edit(embed=error_embed)
-                return
-
-            # Get tournament stats
-            batch_stats = await tourney_stats_cog.get_batch_player_stats(set(all_ids))
-            player_stats = await self.cog.core._aggregate_player_stats(all_ids, batch_stats)
-
-            # Create embed (simplified version - the full version is in TourneyStatsButton)
-            embed = discord.Embed(
-                title=f"📊 Tournament Stats - {self.player_name}",
-                description="Tournament performance across all game accounts",
-                color=discord.Color.blue(),
+            # Build embed using shared helper
+            embed = await self.cog.build_tourney_stats_embed(
+                player_name=self.player_name,
+                tower_ids=tower_ids,
+                guild_id=self.guild_id,
+                discord_id=discord_id,
+                instance_name=instance_name,
             )
 
-            primary_id = player_data.get("primary_id") or (all_ids[0] if all_ids else None)
-            if primary_id:
-                embed.add_field(name="Player ID", value=f"`{primary_id}`", inline=False)
+            # Build view with instance selector dropdown + post publicly button
+            view = discord.ui.View(timeout=300)
 
-            if player_stats.total_tourneys > 0:
-                # Add stats summary
-                embed.add_field(name="Total Tournaments", value=str(player_stats.total_tourneys), inline=True)
+            # Re-add the instance selector so the user can switch between instances
+            instance_select = GameInstanceSelect(
+                placeholder="Switch game account...",
+                game_instances=self.game_instances,
+                player_name=self.player_name,
+                button_type="stats",
+                cog=self.cog,
+                guild_id=self.guild_id,
+            )
+            view.add_item(instance_select)
+            view.add_item(TourneyStatsPostPubliclyButton(embed, interaction.guild.id, interaction.channel.id, self.cog))
 
-                # Add league stats
-                for league_name, league_stats in player_stats.leagues.items():
-                    best_pos = league_stats.get("best_position", "N/A")
-                    total = league_stats.get("total_tourneys", 0)
-                    embed.add_field(name=f"🏆 {league_name.title()}", value=f"Best: {best_pos}\nTotal: {total}", inline=True)
-            else:
-                embed.add_field(name="📈 Performance", value="No tournament participation found", inline=False)
-
-            # Add view with post publicly button
-            view = TourneyStatsPublicView(self.cog, discord_id, self.guild_id, self.player_name)
-            await message.edit(embed=embed, view=view)
+            await interaction.edit_original_response(embed=embed, view=view)
 
         except Exception as e:
             self.cog.logger.error(f"Error showing stats: {e}", exc_info=True)
             error_embed = discord.Embed(title="❌ Error", description=f"Error loading stats: {str(e)}", color=discord.Color.red())
-            await message.edit(embed=error_embed)
+            await interaction.edit_original_response(embed=error_embed, view=None)
 
     async def _refresh_roles(self, interaction: discord.Interaction, discord_id: int):
         """Refresh tournament roles for the selected instance."""
@@ -1766,239 +1931,6 @@ class GameInstanceSelect(discord.ui.Select):
             self.cog.logger.error(f"Error refreshing roles: {e}", exc_info=True)
             error_embed = discord.Embed(title="❌ Error", description=f"Error updating roles: {str(e)}", color=discord.Color.red())
             await message.edit(embed=error_embed)
-
-
-class TourneyStatsButton(discord.ui.Button):
-    """Button to view tournament stats for a specific player."""
-
-    def __init__(self, cog, user_id: int, guild_id: int, player_name: str):
-        super().__init__(label="View Tournament Stats", style=discord.ButtonStyle.secondary, emoji="📊", row=2)
-        self.cog = cog
-        self.user_id = user_id
-        self.guild_id = guild_id
-        self.player_name = player_name
-
-    async def callback(self, interaction: discord.Interaction):
-        """Show tournament statistics for the player."""
-        # Send immediate loading response
-        loading_embed = discord.Embed(
-            title="📊 Loading Tournament Stats...", description=f"Gathering tournament data for {self.player_name}...", color=discord.Color.orange()
-        )
-        await interaction.response.send_message(embed=loading_embed, ephemeral=True)
-
-        try:
-            # Get tournament stats cog
-            tourney_stats_cog = await self.cog.get_tourney_stats_cog()
-            if not tourney_stats_cog:
-                error_embed = discord.Embed(title="❌ Error", description="Tournament stats not available", color=discord.Color.red())
-                await interaction.edit_original_response(embed=error_embed)
-                return
-
-            # Get player lookup cog to get player IDs
-            player_lookup_cog = await self.cog.get_known_players_cog()
-            if not player_lookup_cog:
-                error_embed = discord.Embed(title="❌ Error", description="Player lookup not available", color=discord.Color.red())
-                await interaction.edit_original_response(embed=error_embed)
-                return
-
-            # Get player data - use single-user lookup instead of full mapping
-            player_data = await player_lookup_cog.get_discord_to_player_mapping(discord_id=str(self.user_id))
-            player_data = player_data.get(str(self.user_id)) if player_data else None
-
-            if not player_data:
-                error_embed = discord.Embed(title="❌ Error", description="No player data found", color=discord.Color.red())
-                await interaction.edit_original_response(embed=error_embed)
-                return
-
-            # Extract all player IDs from game instances
-            all_ids = []
-            for instance in player_data.get("game_instances", []):
-                for pid in instance.get("player_ids", []):
-                    all_ids.append(pid["id"])
-
-            if not all_ids:
-                error_embed = discord.Embed(title="❌ Error", description="No player IDs found", color=discord.Color.red())
-                await interaction.edit_original_response(embed=error_embed)
-                return
-
-            # Get tournament stats using cached DataFrames (fast!)
-            # Build single-user batch lookup
-            player_ids = set(all_ids)
-            batch_stats = await tourney_stats_cog.get_batch_player_stats(player_ids)
-
-            # Aggregate stats across all player IDs (returns TournamentStats object)
-            player_stats = await self.cog.core._aggregate_player_stats(all_ids, batch_stats)
-
-            # Get current patch info
-            current_patch = tourney_stats_cog.latest_patch if tourney_stats_cog.latest_patch else "Unknown"
-
-            # Create embed
-            embed = discord.Embed(
-                title=f"📊 Tournament Stats - {self.player_name}",
-                description=f"Tournament performance for {player_data.get('name', self.player_name)}",
-                color=discord.Color.blue(),
-            )
-
-            # Add player ID (get primary from first instance)
-            primary_id = all_ids[0] if all_ids else None
-            if primary_id:
-                embed.add_field(name="Player ID", value=f"`{primary_id}`", inline=False)
-
-            # Add overall stats
-            if player_stats.total_tourneys > 0:
-                # Latest Tournament section
-                latest = player_stats.latest_tournament
-                if latest.get("league"):
-                    latest_text = f"**League:** {latest['league']}\n"
-                    latest_text += f"**Position:** {latest.get('placement', 'N/A')}\n"
-                    latest_text += f"**Wave:** {latest.get('wave', 'N/A')}\n"
-                    if latest.get("date"):
-                        latest_text += f"**Date:** {latest['date']}"
-
-                    embed.add_field(name="📈 Latest Tournament", value=latest_text, inline=False)
-
-                # Add league-specific stats
-                for league_name, league_stats in player_stats.leagues.items():
-                    stats_text = []
-                    stats_text.append(f"**Tournaments:** {league_stats.get('total_tourneys', 0)}")
-
-                    # Best position with frequency
-                    best_position = league_stats.get("best_position", "N/A")
-                    tournaments = league_stats.get("tournaments", [])
-
-                    if tournaments and best_position != "N/A":
-                        # Count how many times best position was achieved
-                        best_pos_tourneys = [t for t in tournaments if t.get("position") == best_position]
-                        count = len(best_pos_tourneys)
-
-                        if count == 1:
-                            date = best_pos_tourneys[0].get("date", "")
-                            date_str = date.strftime("%Y-%m-%d") if hasattr(date, "strftime") else str(date)
-                            stats_text.append(f"**Best Position:** {best_position} ({date_str})")
-                        else:
-                            dates = []
-                            for t in best_pos_tourneys:
-                                d = t.get("date", "")
-                                dates.append(d.strftime("%Y-%m-%d") if hasattr(d, "strftime") else str(d))
-                            dates = sorted(dates)
-                            first_date = dates[0]  # Earliest date
-                            last_date = dates[-1]  # Most recent date
-                            stats_text.append(f"**Best Position:** {best_position} ({count}x: first {first_date}, last {last_date})")
-                    else:
-                        stats_text.append(f"**Best Position:** {best_position}")
-
-                    # Highest Wave with frequency and date pattern
-                    highest_wave = league_stats.get("best_wave", 0)
-                    if tournaments and highest_wave:
-                        # Count how many times highest wave was achieved
-                        best_wave_tourneys = [t for t in tournaments if t.get("wave") == highest_wave]
-                        wave_count = len(best_wave_tourneys)
-
-                        if wave_count == 1:
-                            date = best_wave_tourneys[0].get("date", "")
-                            date_str = date.strftime("%Y-%m-%d") if hasattr(date, "strftime") else str(date)
-                            stats_text.append(f"**Highest Wave:** {highest_wave} ({date_str})")
-                        else:
-                            dates = []
-                            for t in best_wave_tourneys:
-                                d = t.get("date", "")
-                                dates.append(d.strftime("%Y-%m-%d") if hasattr(d, "strftime") else str(d))
-                            dates = sorted(dates)
-                            first_date = dates[0]  # Earliest date
-                            last_date = dates[-1]  # Most recent date
-                            stats_text.append(f"**Highest Wave:** {highest_wave} ({wave_count}x: first {first_date}, last {last_date})")
-                    else:
-                        stats_text.append(f"**Highest Wave:** {highest_wave}")
-                    stats_text.append(f"**Avg Wave:** {league_stats.get('avg_wave', 0):.1f}")
-                    stats_text.append(f"**Avg Position:** {league_stats.get('avg_position', 0):.1f}")
-
-                    embed.add_field(name=f"🏆 {league_name.title()}", value="\n".join(stats_text), inline=True)
-            else:
-                embed.add_field(name="📈 Performance", value="No tournament participation found", inline=False)
-
-            # Add current tournament roles with calculated role comparison
-            guild = self.cog.bot.get_guild(self.guild_id)
-            if guild:
-                member = guild.get_member(self.user_id)
-                if member:
-                    # Get what role they SHOULD have from TourneyRoles cache
-                    calculated_role_id = None
-                    gameinstance_id = await self.cog._get_gameinstance_id_from_discord_id(self.user_id)
-                    if gameinstance_id and self.guild_id in self.cog.role_cache:
-                        calculated_role_id = self.cog.role_cache[self.guild_id].get(gameinstance_id)
-
-                    roles_config = self.cog.core.get_roles_config(self.guild_id)
-                    managed_role_ids = {str(config.id) for config in roles_config.values()}
-
-                    # Check if role cache is populated
-                    if self.guild_id not in self.cog.role_cache:
-                        # Cache not populated yet
-                        embed.add_field(
-                            name="🎯 Current Tournament Roles",
-                            value="⏳ Role calculations are not ready yet. Please use `/tourneyroles update` to calculate roles.",
-                            inline=False,
-                        )
-                    else:
-                        # Build map of role_id -> role_name from guild
-                        guild_role_map = {str(role.id): role.name for role in guild.roles}
-
-                        # Get what tournament roles they ACTUALLY have in Discord
-                        current_tourney_roles = [role for role in member.roles if str(role.id) in managed_role_ids]
-                        current_role_ids = {str(r.id) for r in current_tourney_roles}
-
-                        # Build role status text
-                        role_status = []
-                        has_discrepancy = False
-
-                        # Show what they should have
-                        if calculated_role_id:
-                            calculated_role_name = guild_role_map.get(str(calculated_role_id), "Unknown")
-                            if str(calculated_role_id) in current_role_ids:
-                                # They have it - only show if there's a discrepancy
-                                role_status.append(f"✅ {calculated_role_name}")
-                            else:
-                                # They should have it but don't
-                                role_status.append(f"❌ {calculated_role_name} (should have)")
-                                has_discrepancy = True
-
-                        # Show roles they have but shouldn't
-                        for role in current_tourney_roles:
-                            if str(role.id) != str(calculated_role_id):
-                                role_status.append(f"⚠️ {role.name} (has but shouldn't)")
-                                has_discrepancy = True
-
-                        # If no discrepancy and they have a role, just show the checkmark version
-                        if not has_discrepancy and calculated_role_id and current_role_ids:
-                            # Already added with checkmark above
-                            pass
-
-                        if role_status:
-                            embed.add_field(name="🎯 Current Tournament Roles", value="\n".join(role_status), inline=False)
-
-            embed.set_footer(text=f"Stats from patch {current_patch}")
-
-            # Create a view with Post Publicly button
-            view = TourneyStatsPublicView(embed, interaction.guild.id, interaction.channel.id, self.cog)
-            await interaction.edit_original_response(embed=embed, view=view)
-
-        except Exception as e:
-            self.cog.logger.error(f"Error showing tournament stats for user {self.user_id}: {e}", exc_info=True)
-            error_embed = discord.Embed(title="❌ Error", description=f"Error loading stats: {str(e)}", color=discord.Color.red())
-            await interaction.edit_original_response(embed=error_embed)
-
-
-class TourneyStatsPublicView(discord.ui.View):
-    """View with Post Publicly button for tournament stats."""
-
-    def __init__(self, embed: discord.Embed, guild_id: int, channel_id: int, cog):
-        super().__init__(timeout=300)  # 5 minute timeout
-        self.embed = embed
-        self.guild_id = guild_id
-        self.channel_id = channel_id
-        self.cog = cog
-
-        # Add post publicly button
-        self.add_item(TourneyStatsPostPubliclyButton(embed, guild_id, channel_id, cog))
 
 
 class TourneyStatsPostPubliclyButton(discord.ui.Button):
