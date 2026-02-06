@@ -358,62 +358,67 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
                 del self.role_cache[guild_id][gameinstance_id]
                 self.logger.debug(f"Cleared cached role for GameInstance {gameinstance_id} in guild {guild_id}")
 
-    async def _calculate_role_for_gameinstance(self, gameinstance_id: int, guild_id: int) -> Optional[int]:
+    async def _calculate_role_for_gameinstance(
+        self, gameinstance_id: int, guild_id: int, tower_ids: list = None, batch_stats: dict = None
+    ) -> Optional[int]:
         """Calculate the appropriate tournament role for a GameInstance.
 
-        Pure calculation - does not touch cache.
+        Pure calculation - does not touch cache. Supports both one-off and batch modes
+        via a single aggregation path (_aggregate_player_stats → determine_best_role).
 
         Args:
             gameinstance_id: Database ID of the GameInstance
             guild_id: Guild to calculate role for
+            tower_ids: Pre-loaded tower IDs for this GameInstance (skip DB lookup if provided)
+            batch_stats: Pre-loaded batch stats from get_batch_player_stats (skip stats fetch if provided)
 
         Returns:
             Role ID (int) if a qualifying role exists, None otherwise
         """
         try:
-            from asgiref.sync import sync_to_async
+            # Step 1: Get tower IDs (from caller or DB)
+            if tower_ids is None:
+                from asgiref.sync import sync_to_async
 
-            from thetower.backend.sus.models import GameInstance
+                from thetower.backend.sus.models import GameInstance
 
-            # Get GameInstance from database
-            game_instance = await sync_to_async(
-                lambda: GameInstance.objects.select_related("player").prefetch_related("player_ids").filter(id=gameinstance_id).first()
-            )()
+                game_instance = await sync_to_async(
+                    lambda: GameInstance.objects.select_related("player").prefetch_related("player_ids").filter(id=gameinstance_id).first()
+                )()
 
-            if not game_instance:
-                self.logger.warning(f"GameInstance {gameinstance_id} not found in database")
-                return None
+                if not game_instance:
+                    self.logger.warning(f"GameInstance {gameinstance_id} not found in database")
+                    return None
 
-            # Get all player IDs for this GameInstance
-            player_ids = await sync_to_async(list)(game_instance.player_ids.all())
+                player_ids = await sync_to_async(list)(game_instance.player_ids.all())
+                tower_ids = [pid.id for pid in player_ids]
 
-            if not player_ids:
+            if not tower_ids:
                 self.logger.debug(f"GameInstance {gameinstance_id} has no player IDs")
                 return None
 
-            # Extract Tower IDs
-            tower_ids = [pid.id for pid in player_ids]
             self.logger.debug(f"GameInstance {gameinstance_id} has player IDs: {tower_ids}")
 
-            # Get tournament stats from TourneyStats cog
-            tourney_stats_cog = await self.get_tourney_stats_cog()
-            if not tourney_stats_cog:
-                self.logger.error("TourneyStats cog not available")
-                return None
+            # Step 2: Get batch stats (from caller or fetch on demand)
+            if batch_stats is None:
+                tourney_stats_cog = await self.get_tourney_stats_cog()
+                if not tourney_stats_cog:
+                    self.logger.error("TourneyStats cog not available")
+                    return None
+                batch_stats = await tourney_stats_cog.get_batch_player_stats(set(tower_ids))
 
-            # Get player stats
-            player_stats = await self.core.get_player_tournament_stats(tourney_stats_cog, tower_ids)
+            # Step 3: Aggregate stats via single unified path
+            player_stats = await self.core._aggregate_player_stats(tower_ids, batch_stats)
 
-            if not player_stats:
+            if not player_stats or player_stats.total_tourneys == 0:
                 self.logger.debug(f"No tournament stats found for GameInstance {gameinstance_id}")
                 return None
 
-            # Get guild configuration
+            # Step 4: Determine best role using guild-specific config
             roles_config = self.core.get_roles_config(guild_id)
             league_hierarchy = self.core.get_league_hierarchy(guild_id)
             debug_logging = self.get_global_setting("debug_logging", False)
 
-            # Determine best role using existing correct logic
             role_id = self.core.determine_best_role(player_stats, roles_config, league_hierarchy, debug_logging)
 
             if role_id:
@@ -1223,33 +1228,60 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
                     for guild in enabled_guilds:
                         self._clear_cache(guild.id)
 
-                    # Phase 2: Calculate roles for all GameInstances
+                    # Phase 2: Calculate roles for all GameInstances (batch-optimized)
                     self.logger.info("Phase 2: Calculating roles for all GameInstances")
 
                     from asgiref.sync import sync_to_async
 
                     from thetower.backend.sus.models import GameInstance
 
-                    # Get all GameInstances from database
-                    all_game_instances = await sync_to_async(list)(GameInstance.objects.all())
+                    # Step 2a: Bulk load all GameInstances with their player_ids in ONE query
+                    all_game_instances = await sync_to_async(list)(GameInstance.objects.prefetch_related("player_ids").all())
 
                     if not all_game_instances:
                         self.logger.warning("No GameInstances found in database")
                         return
 
-                    self.logger.info(f"Found {len(all_game_instances)} GameInstances to process")
+                    # Step 2b: Collect all unique tower IDs and build per-GameInstance mapping
+                    gi_player_ids = {}  # gi.id -> list of tower_id strings
+                    all_tower_ids = set()
 
-                    # Calculate roles for each GameInstance across all guilds
+                    for gi in all_game_instances:
+                        # Access prefetched player_ids (no additional DB query)
+                        tower_ids = [pid.id for pid in gi.player_ids.all()]
+                        gi_player_ids[gi.id] = tower_ids
+                        all_tower_ids.update(tower_ids)
+
+                    self.logger.info(
+                        f"Found {len(all_game_instances)} GameInstances with {len(all_tower_ids)} unique tower IDs"
+                    )
+
+                    # Step 2c: Get tournament stats for ALL players in one batch operation
+                    tourney_stats_cog = await self.get_tourney_stats_cog()
+                    if not tourney_stats_cog:
+                        self.logger.error("TourneyStats cog not available, cannot calculate roles")
+                        return
+
+                    batch_stats = await tourney_stats_cog.get_batch_player_stats(all_tower_ids)
+                    self.logger.info(f"Batch stats loaded for {len(batch_stats)} players")
+
+                    # Step 2d: Calculate and cache roles per GameInstance per guild
                     calculated_count = 0
                     error_count = 0
 
                     for gi in all_game_instances:
+                        tower_ids = gi_player_ids.get(gi.id, [])
+
                         for guild in enabled_guilds:
                             try:
-                                await self._calculate_and_cache_role_for_gameinstance(gi.id, guild.id)
+                                role_id = await self._calculate_role_for_gameinstance(
+                                    gi.id, guild.id, tower_ids=tower_ids, batch_stats=batch_stats
+                                )
+                                self._cache_role(gi.id, guild.id, role_id)
                                 calculated_count += 1
                             except Exception as e:
                                 self.logger.error(f"Error calculating role for GameInstance {gi.id} in guild {guild.id}: {e}")
+                                self._cache_role(gi.id, guild.id, None)
                                 error_count += 1
 
                         # Yield control periodically
