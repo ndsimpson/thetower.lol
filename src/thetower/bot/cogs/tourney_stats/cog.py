@@ -2,17 +2,19 @@ import asyncio
 import datetime
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Dict
+from typing import Any, Dict, Optional, Set
 
 import discord
 import pandas as pd
 from asgiref.sync import sync_to_async
 from discord import app_commands
 from discord.ext import tasks
+from django.db.models import Count, Max, Min
 
 from thetower.backend.tourney_results.constants import how_many_results_hidden_site, leagues, legend
 from thetower.backend.tourney_results.data import get_results_for_patch, get_shun_ids, get_sus_ids, get_tourneys
 from thetower.backend.tourney_results.models import PatchNew as Patch
+from thetower.backend.tourney_results.models import TourneyRow
 from thetower.backend.tourney_results.shun_config import include_shun_enabled_for
 from thetower.bot.basecog import BaseCog
 from thetower.bot.exceptions import ChannelUnauthorized, UserUnauthorized
@@ -425,6 +427,88 @@ class TourneyStats(BaseCog, name="Tourney Stats"):
 
         return batch_stats
 
+    async def get_career_summary(self, player_ids: Set[str]) -> Optional[Dict[str, Any]]:
+        """
+        Get an all-time career summary for a player across all patches.
+
+        Unlike get_batch_player_stats (which only covers the latest patch),
+        this queries the full TourneyRow history directly from the database.
+
+        Args:
+            player_ids: Set of player IDs (a player may have multiple IDs
+                        across linked accounts / game instances).
+
+        Returns:
+            Dictionary with career summary data, or None if no history found:
+            {
+                "total_tourneys": int,
+                "first_date": date,
+                "last_date": date,
+                "peak_wave": int,
+                "best_position": int,
+                "patches": List[str],       # e.g. ["0.22.0", "0.21.1"]
+                "patch_count": int,
+                "leagues_played": List[str], # e.g. ["Champion", "Legend"]
+                "last_league": str,          # league of most recent tournament
+                "last_wave": int,            # wave in most recent tournament
+                "last_position": int,        # position in most recent tournament
+            }
+        """
+
+        @sync_to_async
+        def _query():
+            # Aggregate stats across all player IDs
+            agg = TourneyRow.objects.filter(player_id__in=player_ids).aggregate(
+                total_tourneys=Count("id"),
+                first_date=Min("result__date"),
+                last_date=Max("result__date"),
+                peak_wave=Max("wave"),
+                best_position=Min("position"),
+            )
+
+            if not agg["total_tourneys"]:
+                return None
+
+            # Get the most recent tournament row for "last played" details
+            latest_row = TourneyRow.objects.filter(player_id__in=player_ids).select_related("result").order_by("-result__date", "position").first()
+
+            # Get distinct leagues played
+            leagues_played = list(TourneyRow.objects.filter(player_id__in=player_ids).values_list("result__league", flat=True).distinct())
+
+            # Get distinct patches the player participated in
+            patches = list(
+                Patch.objects.filter(
+                    start_date__lte=agg["last_date"],
+                    end_date__gte=agg["first_date"],
+                ).order_by("-end_date")
+            )
+            # Filter to patches where the player actually has rows
+            player_patches = []
+            for patch in patches:
+                has_rows = TourneyRow.objects.filter(
+                    player_id__in=player_ids,
+                    result__date__gte=patch.start_date,
+                    result__date__lte=patch.end_date,
+                ).exists()
+                if has_rows:
+                    player_patches.append(patch)
+
+            return {
+                "total_tourneys": agg["total_tourneys"],
+                "first_date": agg["first_date"],
+                "last_date": agg["last_date"],
+                "peak_wave": agg["peak_wave"],
+                "best_position": agg["best_position"],
+                "patches": [str(p) for p in player_patches],
+                "patch_count": len(player_patches),
+                "leagues_played": leagues_played,
+                "last_league": latest_row.result.league if latest_row else None,
+                "last_wave": latest_row.wave if latest_row else None,
+                "last_position": latest_row.position if latest_row else None,
+            }
+
+        return await _query()
+
     def _calculate_league_stats(self, player_df: pd.DataFrame, league_name: str) -> Dict:
         """Calculate statistics for a player in a specific league."""
         total_tourneys = len(player_df)
@@ -560,4 +644,7 @@ class TourneyStats(BaseCog, name="Tourney Stats"):
 
 
 async def setup(bot) -> None:
+    await bot.add_cog(TourneyStats(bot))
+    await bot.add_cog(TourneyStats(bot))
+    await bot.add_cog(TourneyStats(bot))
     await bot.add_cog(TourneyStats(bot))

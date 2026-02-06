@@ -439,6 +439,21 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
                         if role_status:
                             embed.add_field(name="🎯 Current Tournament Roles", value="\n".join(role_status), inline=False)
 
+        # Career summary section (all-time stats across all patches)
+        career = await tourney_stats_cog.get_career_summary(set(tower_ids))
+        if career:
+            lines = []
+            first = career["first_date"].strftime("%Y-%m-%d") if career["first_date"] else "N/A"
+            last = career["last_date"].strftime("%Y-%m-%d") if career["last_date"] else "N/A"
+            lines.append(f"**Tournaments:** {career['total_tourneys']} ({first} — {last})")
+            lines.append(f"**Patches:** {career['patch_count']} ({', '.join(career['patches'])})")
+            lines.append(f"**Leagues:** {', '.join(career['leagues_played'])}")
+            lines.append(f"**All-Time Peak Wave:** {career['peak_wave']:,}")
+            lines.append(f"**All-Time Best Position:** {career['best_position']}")
+            if career["last_league"]:
+                lines.append(f"**Last Played:** {last} · {career['last_league']} · #{career['last_position']} · Wave {career['last_wave']:,}")
+            embed.add_field(name="📜 Career Summary", value="\n".join(lines), inline=False)
+
         embed.set_footer(text=f"Stats from patch {current_patch}")
         return embed
 
