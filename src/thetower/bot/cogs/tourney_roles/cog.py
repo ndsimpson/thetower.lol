@@ -993,25 +993,6 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
             target_cog="player_lookup", source_cog=self.__class__.__name__, provider_func=self.get_tourney_roles_button_for_player
         )
 
-    def _user_can_refresh_roles(self, user: discord.User, guild_id: int) -> bool:
-        """Check if authorized refresh groups are configured (lightweight check).
-
-        This is a synchronous method used in UI button providers.
-        Actual permission checking happens in the button callback.
-
-        Args:
-            user: The Discord user to check (unused, kept for signature compatibility)
-            guild_id: The guild ID to check permissions in
-
-        Returns:
-            True if refresh groups are configured, False otherwise
-        """
-        # Get authorized groups from settings
-        authorized_groups = self.get_setting("authorized_refresh_groups", guild_id=guild_id, default=[])
-
-        # Return True if groups are configured (actual permission check is in button callback)
-        return bool(authorized_groups)
-
     def get_tourney_stats_button_for_player(
         self, details, requesting_user: discord.User, guild_id: int, permission_context
     ) -> Optional[discord.ui.Button]:
@@ -1390,9 +1371,7 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
                         gi_player_ids[gi.id] = tower_ids
                         all_tower_ids.update(tower_ids)
 
-                    self.logger.info(
-                        f"Found {len(all_game_instances)} GameInstances with {len(all_tower_ids)} unique tower IDs"
-                    )
+                    self.logger.info(f"Found {len(all_game_instances)} GameInstances with {len(all_tower_ids)} unique tower IDs")
 
                     # Step 2c: Get tournament stats for ALL players in one batch operation
                     tourney_stats_cog = await self.get_tourney_stats_cog()
@@ -1412,9 +1391,7 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
 
                         for guild in enabled_guilds:
                             try:
-                                role_id = await self._calculate_role_for_gameinstance(
-                                    gi.id, guild.id, tower_ids=tower_ids, batch_stats=batch_stats
-                                )
+                                role_id = await self._calculate_role_for_gameinstance(gi.id, guild.id, tower_ids=tower_ids, batch_stats=batch_stats)
                                 self._cache_role(gi.id, guild.id, role_id)
                                 calculated_count += 1
                             except Exception as e:
