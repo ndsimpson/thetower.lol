@@ -144,7 +144,7 @@ class TourneyRoleColors(BaseCog, name="Tourney Role Colors"):
         no configured categories for this guild.
 
         Args:
-            details: Player details dictionary
+            details: Player details dictionary (game_instances structure)
             requesting_user: The user viewing the profile
             guild_id: The guild ID where the profile is being viewed
             permission_context: Permission context for the requesting user
@@ -156,7 +156,14 @@ class TourneyRoleColors(BaseCog, name="Tourney Role Colors"):
         if details.get("is_verified") is False:
             return None
 
-        if details.get("discord_id") and str(details["discord_id"]) != str(requesting_user.id):
+        # Check if the requesting user is one of the player's linked Discord accounts
+        # by checking all game instances and unassigned accounts
+        all_discord_accounts = set()
+        for instance in details.get("game_instances", []):
+            all_discord_accounts.update(instance.get("discord_accounts_receiving_roles", []))
+        all_discord_accounts.update(details.get("unassigned_discord_accounts", []))
+
+        if all_discord_accounts and str(requesting_user.id) not in all_discord_accounts:
             return None
 
         # Check if there are any configured categories
