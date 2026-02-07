@@ -5,6 +5,8 @@ from typing import Dict, List
 import discord
 from discord import ui
 
+from thetower.bot.cogs.tourney_role_colors.ui.settings import _sort_roles_by_inheritance
+
 
 class RoleSelectionView(ui.View):
     """Main view for users to select their tourney role color."""
@@ -127,7 +129,7 @@ class RoleSelectionView(ui.View):
         if self.roles_by_category:
             content += "**Available Roles:**\n"
             for category_name in sorted(self.roles_by_category.keys()):
-                roles = self.roles_by_category[category_name]
+                roles = _sort_roles_by_inheritance(self.roles_by_category[category_name])
                 role_mentions = ", ".join([f"<@&{r['role_id']}>" for r in roles])
                 content += f"**{category_name}:** {role_mentions}\n"
 

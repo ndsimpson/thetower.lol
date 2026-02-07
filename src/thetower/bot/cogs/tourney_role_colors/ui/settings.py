@@ -1,6 +1,7 @@
 """Settings management views for Tourney Role Colors cog."""
 
-from typing import Dict, List, Optional
+import re
+from typing import Dict, List, Optional, Tuple
 
 import discord
 from discord import ui
@@ -8,8 +9,42 @@ from discord import ui
 from thetower.bot.ui.context import BaseSettingsView, SettingsViewContext
 
 
+def _natural_sort_key(name: str) -> List:
+    """Split a name into text and numeric parts for natural sorting.
+
+    E.g. 'Pink 1000' -> ['pink ', 1000] so that numeric segments
+    compare as integers rather than strings.
+    """
+    parts = re.split(r"(\d+)", (name or "").lower())
+    return [int(p) if p.isdigit() else p for p in parts]
+
+
+def _role_sort_key(role: Dict, all_roles: List[Dict]) -> Tuple:
+    """Sort key for roles: by inheritance depth, then natural name order.
+
+    Roles with no parent sort first, then children, grandchildren, etc.
+    Falls back to natural name sort for tiebreaking.
+    """
+    depth = 0
+    current = role
+    seen: set = set()
+    while current.get("inherits_from") and current["inherits_from"] not in seen:
+        seen.add(current["inherits_from"])
+        parent = next((r for r in all_roles if r.get("role_id") == current["inherits_from"]), None)
+        if not parent:
+            break
+        depth += 1
+        current = parent
+    return (depth, _natural_sort_key(role.get("name", "")))
+
+
+def _sort_roles_by_inheritance(roles: List[Dict]) -> List[Dict]:
+    """Return a new list of roles sorted by inheritance depth, then natural name order."""
+    return sorted(roles, key=lambda r: _role_sort_key(r, roles))
+
+
 def _sort_role_ids_by_name(cog, guild_id: int, role_ids: List[int]) -> List[int]:
-    """Return role IDs sorted alphabetically by role name.
+    """Return role IDs sorted by natural name order.
 
     Falls back to stringified ID when role lookup fails.
     """
@@ -19,14 +54,14 @@ def _sort_role_ids_by_name(cog, guild_id: int, role_ids: List[int]) -> List[int]
     except Exception:
         guild = None
 
-    def _name(role_id: int) -> str:
+    def _name_key(role_id: int) -> List:
         if guild:
             role = guild.get_role(role_id)
             if role and role.name:
-                return role.name.lower()
-        return str(role_id)
+                return _natural_sort_key(role.name)
+        return _natural_sort_key(str(role_id))
 
-    return sorted(role_ids, key=_name)
+    return sorted(role_ids, key=_name_key)
 
 
 class TourneyRoleColorsSettingsView(BaseSettingsView):
@@ -68,8 +103,8 @@ class TourneyRoleColorsSettingsView(BaseSettingsView):
 
         # Get current categories
         categories = self.cog.get_setting("categories", [], guild_id=self.guild_id)
-        # Sort categories alphabetically for display
-        sorted_categories = sorted(categories, key=lambda c: (c.get("name") or "").lower())
+        # Sort categories for display
+        sorted_categories = sorted(categories, key=lambda c: _natural_sort_key(c.get("name", "")))
 
         if sorted_categories:
             category_info = []
@@ -353,8 +388,8 @@ class ManageCategoriesButton(ui.Button):
         # Get current categories
         categories = self.cog.get_setting("categories", [], guild_id=self.guild_id)
 
-        # Sort categories alphabetically for display purposes (case-insensitive)
-        sorted_categories = sorted(categories, key=lambda cat: (cat.get("name") or "").lower())
+        # Sort categories for display purposes
+        sorted_categories = sorted(categories, key=lambda cat: _natural_sort_key(cat.get("name", "")))
 
         # Show category management view
         view = CategoryManagementView(self.cog, self.guild_id, categories, interaction)
@@ -428,8 +463,8 @@ class CreateCategoryModal(ui.Modal, title="Create New Category"):
         new_category = {"name": self.category_name.value, "roles": []}
 
         categories.append(new_category)
-        # Persist categories sorted alphabetically by name
-        categories.sort(key=lambda c: (c.get("name") or "").lower())
+        # Persist categories sorted by name
+        categories.sort(key=lambda c: _natural_sort_key(c.get("name", "")))
         self.cog.set_setting("categories", categories, guild_id=self.guild_id)
 
         # Refresh the category management view
@@ -532,7 +567,7 @@ class CategorySelectMenu(ui.Select):
 
         # Create options from categories, sorted alphabetically but retaining original index values
         indexed_categories = list(enumerate(categories[:25]))
-        indexed_categories.sort(key=lambda pair: (pair[1].get("name") or "").lower())
+        indexed_categories.sort(key=lambda pair: _natural_sort_key(pair[1].get("name", "")))
 
         options = [
             discord.SelectOption(label=cat.get("name"), value=str(orig_idx), description=f"{len(cat.get('roles', []))} roles configured")
@@ -555,8 +590,8 @@ class CategorySelectMenu(ui.Select):
             # Delete the category
             deleted_name = category.get("name")
             categories.pop(category_idx)
-            # Persist categories sorted alphabetically by name
-            categories.sort(key=lambda c: (c.get("name") or "").lower())
+            # Persist categories sorted by name
+            categories.sort(key=lambda c: _natural_sort_key(c.get("name", "")))
             self.cog.set_setting("categories", categories, guild_id=self.guild_id)
 
             # Refresh the category management view
@@ -577,8 +612,8 @@ class CategorySelectMenu(ui.Select):
             view = RoleManagementView(self.cog, self.guild_id, category_idx, category)
 
             roles = category.get("roles", [])
-            # Sort roles by name for display
-            display_roles = sorted(roles, key=lambda r: (r.get("name") or "").lower())
+            # Sort roles by inheritance depth for display
+            display_roles = _sort_roles_by_inheritance(roles)
             if display_roles:
                 role_list = "\n".join(
                     [
@@ -608,7 +643,7 @@ class BackToCategoriesButton(ui.Button):
         view = CategoryManagementView(self.cog, self.guild_id, categories)
 
         if categories:
-            sorted_categories = sorted(categories, key=lambda cat: (cat.get("name") or "").lower())
+            sorted_categories = sorted(categories, key=lambda cat: _natural_sort_key(cat.get("name", "")))
             category_list = "\n".join(
                 [f"**{idx + 1}.** {cat.get('name')} ({len(cat.get('roles', []))} roles)" for idx, cat in enumerate(sorted_categories[:10])]
             )
@@ -686,10 +721,7 @@ class AddRoleStep1SelectRoleView(ui.View):
 
         # Move to Step 2: Select inheritance
         # Sort existing roles by name for display
-        existing_roles = sorted(
-            self.category.get("roles", []),
-            key=lambda r: (r.get("name") or "").lower(),
-        )
+        existing_roles = _sort_roles_by_inheritance(self.category.get("roles", []))
 
         if existing_roles:
             view = AddRoleStep2SelectInheritanceView(self.cog, self.guild_id, self.category_idx, self.category, role_id, role_name)
@@ -732,7 +764,7 @@ class AddRoleStep2SelectInheritanceView(ui.View):
 
         # Create select menu with existing roles (single selection)
         # Sort roles alphabetically for display
-        existing_roles = sorted(category.get("roles", []), key=lambda r: (r.get("name") or "").lower())
+        existing_roles = _sort_roles_by_inheritance(category.get("roles", []))
         options = [
             discord.SelectOption(label=role.get("name", "Unknown"), value=str(role.get("role_id")), description="Inherits its prerequisites")
             for role in existing_roles[:25]
@@ -896,9 +928,9 @@ class AddRoleStep3SelectPrerequisitesView(ui.View):
         }
 
         category["roles"].append(new_role)
-        # Persist roles and categories sorted alphabetically by name
-        category["roles"].sort(key=lambda r: (r.get("name") or "").lower())
-        categories.sort(key=lambda c: (c.get("name") or "").lower())
+        # Persist roles sorted by inheritance depth, categories by name
+        category["roles"] = _sort_roles_by_inheritance(category["roles"])
+        categories.sort(key=lambda c: _natural_sort_key(c.get("name", "")))
         self.cog.set_setting("categories", categories, guild_id=self.guild_id)
 
         # Build summary message
@@ -922,7 +954,7 @@ class AddRoleStep3SelectPrerequisitesView(ui.View):
         view = RoleManagementView(self.cog, self.guild_id, self.category_idx, category)
 
         roles = category.get("roles", [])
-        display_roles = sorted(roles, key=lambda r: (r.get("name") or "").lower())
+        display_roles = _sort_roles_by_inheritance(roles)
         if display_roles:
             role_list = "\n".join(
                 [
@@ -960,7 +992,7 @@ class EditRoleView(ui.View):
         # Build inheritance select (single selection)
         existing_roles = [r for r in category.get("roles", []) if r.get("role_id") != self.role_id]
         # Sort for display
-        existing_roles.sort(key=lambda r: (r.get("name") or "").lower())
+        existing_roles = _sort_roles_by_inheritance(existing_roles)
         if existing_roles:
             options = [
                 discord.SelectOption(
@@ -1088,9 +1120,9 @@ class EditRoleView(ui.View):
             "inherits_from": self.inherits_from,
         }
 
-        # Persist roles and categories sorted alphabetically by name
-        roles.sort(key=lambda r: (r.get("name") or "").lower())
-        categories.sort(key=lambda c: (c.get("name") or "").lower())
+        # Persist roles sorted by inheritance depth, categories by name
+        categories[self.category_idx]["roles"] = _sort_roles_by_inheritance(roles)
+        categories.sort(key=lambda c: _natural_sort_key(c.get("name", "")))
         self.cog.set_setting("categories", categories, guild_id=self.guild_id)
 
         # Build summary message
@@ -1117,7 +1149,7 @@ class EditRoleView(ui.View):
         view = RoleManagementView(self.cog, self.guild_id, self.category_idx, self.category)
 
         roles = self.category.get("roles", [])
-        display_roles = sorted(roles, key=lambda r: (r.get("name") or "").lower())
+        display_roles = _sort_roles_by_inheritance(roles)
         role_list = "\n".join(
             [
                 f"**{idx + 1}.** <@&{role.get('role_id')}> - "
@@ -1207,7 +1239,8 @@ class RoleSelectMenu(ui.Select):
 
         # Create options from roles, sorted by name for display while retaining original indices
         indexed_roles = list(enumerate(category.get("roles", [])[:25]))
-        indexed_roles.sort(key=lambda pair: (pair[1].get("name") or "").lower())
+        all_roles = [pair[1] for pair in indexed_roles]
+        indexed_roles.sort(key=lambda pair: _role_sort_key(pair[1], all_roles))
 
         options = [
             discord.SelectOption(
@@ -1241,15 +1274,15 @@ class RoleSelectMenu(ui.Select):
             # Delete the role
             deleted_name = role_config.get("name")
             roles.pop(role_idx)
-            # Persist roles and categories sorted alphabetically by name
-            roles.sort(key=lambda r: (r.get("name") or "").lower())
-            categories.sort(key=lambda c: (c.get("name") or "").lower())
+            # Persist roles sorted by inheritance depth, categories by name
+            category["roles"] = _sort_roles_by_inheritance(roles)
+            categories.sort(key=lambda c: _natural_sort_key(c.get("name", "")))
             self.cog.set_setting("categories", categories, guild_id=self.guild_id)
 
             # Refresh the role management view
             view = RoleManagementView(self.cog, self.guild_id, self.category_idx, category)
             roles = category.get("roles", [])
-            display_roles = sorted(roles, key=lambda r: (r.get("name") or "").lower())
+            display_roles = _sort_roles_by_inheritance(roles)
             if display_roles:
                 role_list = "\n".join(
                     [
