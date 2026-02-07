@@ -24,8 +24,10 @@ When writing or modifying code, follow these steps automatically:
     - Ensure no blank lines contain whitespace
     - Fix any linting errors shown in Problems panel
 4. **Verify** the code adheres to project standards (150-char line length, type hints, etc.)
-5. **Prepare commit message** and ask user for approval, then stage and commit together
-6. **Never push** to remote repository
+5. **Propose commit message** at the end of your response text — do NOT run `git add` or `git commit` yet
+6. **Stop and wait** — do not ask for approval or prompt the user. Remind the user to run their linter. The user will tell you when to commit
+7. **When told to commit**, run `git add` and `git commit` together in a **single terminal command** — never run `git add` separately from `git commit`
+8. **Never push** to remote repository
 
 Apply this workflow for all code writing/modification requests unless explicitly told otherwise.
 
@@ -300,9 +302,9 @@ Services run via systemd on Linux:
     - Updates both messages when approve/deny is clicked in either channel
     ```
 
-- **Commit workflow**: After writing/modifying code, stage changes and prepare a descriptive commit message, then ask user for approval
+- **Commit workflow**: After writing/modifying code, propose a commit message in your response text. Do NOT run `git add` or `git commit`. Stop and wait — the user will run their linter and tell you when to commit.
 - **Commit format**: Use a single multiline message (not multiple -m flags) - title on first line, blank line, then bullet points
-- **Single operation**: Stage and commit together in one step only after user approves
+- **Single operation**: `git add` and `git commit` must always be in the same terminal command — never run `git add` separately
 - **No push**: Never push to remote unless explicitly requested
 
 ### Logging
