@@ -169,45 +169,19 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
                 self.roles_removed = save_data.get("roles_removed", 0)
                 self.users_with_no_player_data = save_data.get("users_with_no_player_data", 0)
 
-                # Load role cache - convert guild IDs from strings to integers
+                # Load role cache - convert guild IDs and gameinstance IDs from strings to integers
+                # JSON serialization converts all dict keys to strings, so we must convert back
                 raw_cache = save_data.get("role_cache", {})
-                self.role_cache = {int(guild_id): users for guild_id, users in raw_cache.items()}
+                self.role_cache = {int(guild_id): {int(gi_id): role_id for gi_id, role_id in users.items()} for guild_id, users in raw_cache.items()}
 
-                # Validate cache structure - if it uses old Discord-ID-based keys (strings), clear it
-                cache_is_valid = True
-                for guild_id, guild_cache in self.role_cache.items():
-                    if guild_cache:
-                        # Check first key - old cache used string Discord IDs, new cache uses int GameInstance IDs
-                        first_key = next(iter(guild_cache.keys()))
-                        if isinstance(first_key, str):
-                            self.logger.warning(
-                                f"Detected old cache format (Discord-ID-based) for guild {guild_id}. "
-                                "Clearing cache to rebuild with new GameInstance-based format."
-                            )
-                            cache_is_valid = False
-                            break
-
-                if not cache_is_valid:
-                    self.logger.info("Clearing outdated role cache - will rebuild on next update")
-                    self.role_cache = {}
-                    self.cache_timestamp = None
-                    self.cache_latest_tourney_date = None
-                    self.cache_source_refreshed_at = None
-                    # Mark data as modified and save to overwrite old cache file
-                    self.mark_data_modified()
-                else:
-                    # Only load timestamps if cache is valid
-                    self.cache_timestamp = datetime.datetime.fromisoformat(save_data["cache_timestamp"]) if save_data.get("cache_timestamp") else None
-                    self.cache_latest_tourney_date = (
-                        datetime.datetime.fromisoformat(save_data["cache_latest_tourney_date"])
-                        if save_data.get("cache_latest_tourney_date")
-                        else None
-                    )
-                    self.cache_source_refreshed_at = (
-                        datetime.datetime.fromisoformat(save_data["cache_source_refreshed_at"])
-                        if save_data.get("cache_source_refreshed_at")
-                        else None
-                    )
+                # Load timestamps
+                self.cache_timestamp = datetime.datetime.fromisoformat(save_data["cache_timestamp"]) if save_data.get("cache_timestamp") else None
+                self.cache_latest_tourney_date = (
+                    datetime.datetime.fromisoformat(save_data["cache_latest_tourney_date"]) if save_data.get("cache_latest_tourney_date") else None
+                )
+                self.cache_source_refreshed_at = (
+                    datetime.datetime.fromisoformat(save_data["cache_source_refreshed_at"]) if save_data.get("cache_source_refreshed_at") else None
+                )
 
                 # Log cache loading details
                 total_guilds = len(self.role_cache)
