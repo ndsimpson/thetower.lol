@@ -97,13 +97,12 @@ class MyCog(BaseCog, name="My Feature"):
         # Slash command implementation - await self.ready.wait() if needed
 ```
 
-**Current cogs** (11 total):
+**Current cogs** (10 total):
 
 - `battle_conditions`: Battle condition predictor (towerbcs integration)
 - `django_admin`: Web admin interface access via Discord
 - `manage_sus`: Player moderation and ban management
 - `player_lookup`: Player stats and history lookup
-- `role_cache`: Guild role caching and management
 - `tourney_live_data`: Live tournament data fetching and display
 - `tourney_roles`: Tournament role assignment automation
 - `tourney_role_colors`: Role color management
