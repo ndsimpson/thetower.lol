@@ -2,6 +2,7 @@
 import asyncio
 import datetime
 import logging
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from types import SimpleNamespace
@@ -14,7 +15,6 @@ from discord.ext.commands import Context
 
 # Local application imports
 from thetower.bot.exceptions import ChannelUnauthorized, UserUnauthorized
-from thetower.bot.ui.context import SettingsViewContext
 from thetower.bot.utils import ConfigManager
 from thetower.bot.utils.data_management import DataManager
 from thetower.bot.utils.task_tracker import TaskTracker
@@ -56,9 +56,6 @@ class BaseCog(commands.Cog):
     - Task status tracking
     - Logging
     """
-
-    # Make SettingsViewContext available to all cogs without individual imports
-    SettingsViewContext = SettingsViewContext
 
     def __init__(self, bot):
         super().__init__()  # Initialize commands.Cog
@@ -165,50 +162,6 @@ class BaseCog(commands.Cog):
         """Check if the cog is currently paused."""
         return self._is_paused
 
-    # Status command helper for task tracking
-    def add_task_status_fields(self, embed: discord.Embed) -> None:
-        """
-        Add task tracking fields to a status embed.
-
-        Args:
-            embed: The discord Embed to add fields to
-        """
-        # Add active tasks
-        active_tasks = self.task_tracker.get_active_tasks()
-        if active_tasks:
-            active_tasks_text = []
-            for name, info in active_tasks.items():
-                elapsed = self.format_relative_time(info["start_time"])
-                active_tasks_text.append(f"🔄 **{name}**: {info['status']} (started {elapsed} ago)")
-
-            if active_tasks_text:
-                embed.add_field(name="Active Processes", value="\n".join(active_tasks_text), inline=False)
-
-        # Add recent task activity
-        report = self.task_tracker.get_status_report()
-        recent_activity = report.get("recent_activity", {})
-        if recent_activity:
-            for name, info in recent_activity.items():
-                time_ago = self.format_relative_time(info["time"])
-                status = "✅ Succeeded" if info["success"] else f"❌ Failed: {info['status']}"
-                duration = self.task_tracker.format_task_time(info["execution_time"])
-
-                embed.add_field(name="Last Activity", value=f"**{name}**: {status} ({time_ago} ago, took {duration})", inline=False)
-                break  # Just show the first recent activity
-
-        # Add task statistics
-        statistics = report.get("statistics", {})
-        if statistics:
-            stats_text = []
-            for name, stats in statistics.items():
-                if stats.get("total", 0) > 0:
-                    success_rate = (stats.get("success", 0) / stats.get("total", 1)) * 100
-                    avg_time = self.task_tracker.format_task_time(stats.get("avg_time", 0))
-                    stats_text.append(f"**{name}**: {stats.get('total', 0)} runs, " f"{success_rate:.1f}% success, avg {avg_time}")
-
-            if stats_text:
-                embed.add_field(name="Task Statistics", value="\n".join(stats_text[:3]), inline=False)  # Limit to 3 for readability
-
     async def _on_ready(self):
         """Internal handler for bot ready event."""
         # If there's no ready task, create one
@@ -287,8 +240,6 @@ class BaseCog(commands.Cog):
         Returns:
             str: The cog name in snake_case format (e.g., 'battle_conditions')
         """
-        import re
-
         # Convert PascalCase to snake_case
         class_name = self.__class__.__name__
         snake = re.sub("([a-z0-9])([A-Z])", r"\1_\2", class_name)
@@ -300,49 +251,6 @@ class BaseCog(commands.Cog):
         if self._cog_data_directory is None:
             self._cog_data_directory = self.config.get_cog_data_directory(self.cog_name)
         return self._cog_data_directory
-
-    def get_command_name(self, ctx: Context) -> str:
-        """Get the full command name including parent commands."""
-        cmd = ctx.command
-        parent = cmd.parent
-        if parent is None:
-            return cmd.name
-        return f"{parent.name} {cmd.name}"
-
-    async def cog_check(self, ctx: Context) -> bool:
-        """Automatically check permissions for all commands in the cog."""
-        if not ctx.command:
-            return False
-
-        # Skip permission checks for help command
-        if ctx.command.name == "help":
-            return True
-
-        # Check if this cog is enabled for the current guild
-        if ctx.guild:
-            cog_name = self.__class__.__name__.replace("Cog", "").lower()
-            # Convert CamelCase to snake_case for cog names like "TourneyRolesCog" -> "tourney_roles"
-            import re
-
-            cog_name = re.sub(r"(?<!^)(?=[A-Z])", "_", cog_name).lower()
-
-            is_bot_owner = await ctx.bot.is_owner(ctx.author)
-
-            # Check if cog is enabled for this guild
-            if not ctx.bot.cog_manager.can_guild_use_cog(cog_name, ctx.guild.id, is_bot_owner):
-                # Don't send a message here - just silently fail
-                # The cog simply won't respond if not enabled for the guild
-                return False
-
-        # Get the full command name for subcommands
-        command_name = self.get_command_name(ctx)
-
-        # Use the bot's permission manager to check permissions
-        try:
-            return await self.bot.permission_manager.check_command_permissions(ctx, command_name)
-        except (UserUnauthorized, ChannelUnauthorized):
-            # Let these exceptions propagate for the error handler
-            raise
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         """Check permissions for slash commands - always includes cog authorization."""
@@ -703,35 +611,6 @@ class BaseCog(commands.Cog):
         """
         return await self._data_manager.load_data(file_path, default)
 
-    async def create_periodic_save_task(self, data: Any, file_path: Union[str, Path], save_interval: int) -> asyncio.Task:
-        """
-        Create a task that periodically saves data.
-
-        Args:
-            data: The data to save (must be serializable)
-            file_path: Path where the data should be saved
-            save_interval: How often to save (in seconds)
-
-        Returns:
-            asyncio.Task: The created task
-        """
-
-        async def periodic_save():
-            await self.bot.wait_until_ready()
-            while not self.bot.is_closed():
-                await asyncio.sleep(save_interval)
-                await self.save_data_if_modified(data, file_path)
-
-        # Cancel any existing task for this file
-        file_key = str(file_path)
-        if file_key in self._save_tasks and not self._save_tasks[file_key].done():
-            self._save_tasks[file_key].cancel()
-
-        # Create and store the new task
-        task = self.bot.loop.create_task(periodic_save())
-        self._save_tasks[file_key] = task
-        return task
-
     def cancel_save_tasks(self):
         """Cancel all periodic save tasks."""
         for task in self._save_tasks.values():
@@ -740,20 +619,6 @@ class BaseCog(commands.Cog):
         self._save_tasks.clear()
 
     # ----- Utility Methods -----
-
-    def format_time_value(self, seconds: int) -> str:
-        """Format seconds into a human-readable string.
-
-        Args:
-            seconds: Number of seconds
-
-        Returns:
-            str: Formatted string like "1h 30m 45s (5445 seconds)"
-        """
-        hours = seconds // 3600
-        minutes = (seconds % 3600) // 60
-        secs = seconds % 60
-        return f"{hours}h {minutes}m {secs}s ({seconds} seconds)"
 
     def format_relative_time(self, timestamp) -> str:
         """Format a timestamp as a relative time string.
