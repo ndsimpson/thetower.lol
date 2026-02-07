@@ -473,7 +473,7 @@ class TourneyStats(BaseCog, name="Tourney Stats"):
             latest_row = TourneyRow.objects.filter(player_id__in=player_ids).select_related("result").order_by("-result__date", "position").first()
 
             # Get distinct leagues played
-            leagues_played = list(TourneyRow.objects.filter(player_id__in=player_ids).values_list("result__league", flat=True).distinct())
+            leagues_played = list(TourneyRow.objects.filter(player_id__in=player_ids).order_by().values_list("result__league", flat=True).distinct())
 
             # Get distinct patches the player participated in
             patches = list(
