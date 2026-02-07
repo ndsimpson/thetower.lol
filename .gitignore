@@ -1,5 +1,6 @@
 # Project-specific
 SECRET_KEY
+TODO.md
 thetower.egg-info
 data
 db.sqlite3*
