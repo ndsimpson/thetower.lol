@@ -7,7 +7,7 @@ from asgiref.sync import sync_to_async
 
 from thetower.backend.tourney_results.constants import leagues
 from thetower.backend.tourney_results.shun_config import include_shun_enabled_for
-from thetower.backend.tourney_results.tourney_utils import check_all_live_entry, get_full_brackets, get_live_df
+from thetower.backend.tourney_results.tourney_utils import TourneyState, check_all_live_entry, get_full_brackets, get_live_df, get_tourney_state
 
 # Local
 from thetower.bot.basecog import BaseCog
@@ -26,10 +26,21 @@ class TourneyLiveData(BaseCog, name="Tourney Live Data", description="Commands f
         # Store reference on bot
         self.bot.tourney_live_data = self
 
+        # Re-export for convenient access by other cogs
+        self.TourneyState = TourneyState
+
         # Define default global settings
         self.global_settings = {
             "enabled": True,
         }
+
+    @property
+    def tourney_state(self) -> TourneyState:
+        """Current tournament state (INACTIVE, ENTRY_OPEN, or EXTENDED).
+
+        Accessible from other cogs via ``bot.tourney_live_data.tourney_state``.
+        """
+        return get_tourney_state()
 
     async def get_player_live_stats(self, player_id: str) -> Optional[Tuple[str, int, int, int, str, str]]:
         """Get player's current live tournament stats.

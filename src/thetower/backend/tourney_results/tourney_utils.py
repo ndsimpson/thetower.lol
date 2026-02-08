@@ -1,10 +1,12 @@
 # Standard library imports
 import datetime
+import enum
 import logging
 import os
 import re
 from pathlib import Path
 from time import perf_counter
+from typing import Optional
 from types import MappingProxyType
 
 # Third-party imports
@@ -21,6 +23,76 @@ from .shun_config import include_shun_enabled_for
 
 # Initialize logging
 logging.basicConfig(level=logging.INFO)
+
+# ── Tournament state detection ─────────────────────────────────────────────
+
+# Tournament days: Wednesday=2, Saturday=5 (Python weekday() values)
+TOURNAMENT_DAYS = {2, 5}
+
+# Weekday groupings for offset calculation (same logic as get_live_results.py)
+_WEEKDAYS_WED = [2, 3, 4]
+_WEEKDAYS_SAT = [5, 6, 0, 1]
+
+
+class TourneyState(enum.Enum):
+    """Current state of the tournament cycle.
+
+    Tournaments run for 28 hours total:
+    - ENTRY_OPEN: First 24 hours (00:00–24:00 UTC on tournament day).
+      Players can enter and play.
+    - EXTENDED: Final 4 hours (00:00–04:00 UTC the following day).
+      No new entries; players finish their runs.
+    - INACTIVE: No tournament is currently running.
+    """
+
+    INACTIVE = "inactive"
+    ENTRY_OPEN = "entry_open"
+    EXTENDED = "extended"
+
+    @property
+    def is_active(self) -> bool:
+        """True if a tournament is currently running (entry or extended)."""
+        return self in (TourneyState.ENTRY_OPEN, TourneyState.EXTENDED)
+
+    @property
+    def is_entry_open(self) -> bool:
+        """True if players can still enter the tournament."""
+        return self == TourneyState.ENTRY_OPEN
+
+
+def get_tourney_state(dt: Optional[datetime.datetime] = None) -> TourneyState:
+    """Determine the current tournament state based on UTC time.
+
+    Tournament timing (all UTC):
+    - Tournament day :00 through :23:59 → ENTRY_OPEN (24 hours)
+    - Next day 00:00 through 03:59 → EXTENDED (4 hours, no new entries)
+    - Otherwise → INACTIVE
+
+    Args:
+        dt: Datetime to check. Defaults to current UTC time.
+
+    Returns:
+        Current TourneyState.
+    """
+    if dt is None:
+        dt = datetime.datetime.now(datetime.timezone.utc)
+
+    weekday = dt.weekday()
+
+    # Calculate offset from last tournament day
+    if weekday in _WEEKDAYS_WED:
+        offset = weekday - 2  # 0 on Wed, 1 on Thu, 2 on Fri
+    elif weekday in _WEEKDAYS_SAT:
+        offset = (weekday - 5) % 7  # 0 on Sat, 1 on Sun, 2 on Mon, 3 on Tue
+    else:
+        return TourneyState.INACTIVE
+
+    if offset == 0:
+        return TourneyState.ENTRY_OPEN
+    elif offset == 1 and dt.hour < 4:
+        return TourneyState.EXTENDED
+    else:
+        return TourneyState.INACTIVE
 
 
 def create_tourney_rows(tourney_result: TourneyResult) -> None:
