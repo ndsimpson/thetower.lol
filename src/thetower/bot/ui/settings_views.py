@@ -920,9 +920,10 @@ class CogVisibilityView(View):
         back_btn.callback = self.back_to_cog_management
         self.add_item(back_btn)
 
-        # Populate guild selector with bot's guilds
+        # Populate guild selector with bot's guilds (Discord limits select menus to 25 options)
         self.guild_select.options = []
-        for guild in sorted(bot.guilds, key=lambda g: g.name):
+        sorted_guilds = sorted(bot.guilds, key=lambda g: g.name)
+        for guild in sorted_guilds[:25]:
             authorized = guild.id in guild_auth["allowed"]
             disallowed = guild.id in guild_auth["disallowed"]
 
@@ -941,6 +942,8 @@ class CogVisibilityView(View):
         if not self.guild_select.options:
             self.guild_select.options = [discord.SelectOption(label="No servers available", value="none", description="Bot is not in any servers")]
             self.guild_select.disabled = True
+        elif len(sorted_guilds) > 25:
+            self.guild_select.placeholder = f"Select a server ({len(sorted_guilds)} total, showing first 25)..."
 
         # Update embed
         embed = discord.Embed(
@@ -1311,11 +1314,15 @@ class GuildCogVisibilityView(View):
             embed.add_field(name="Status", value=self.status_message, inline=False)
             self.status_message = None  # Clear after displaying
 
-        # Populate guild selector
+        # Populate guild selector (Discord limits select menus to 25 options)
         self.guild_select.options = []
-        for guild in sorted(bot.guilds, key=lambda g: g.name):
+        sorted_guilds = sorted(bot.guilds, key=lambda g: g.name)
+        for guild in sorted_guilds[:25]:
             option = discord.SelectOption(label=f"{guild.name}", value=str(guild.id), description=f"ID: {guild.id} | Members: {guild.member_count}")
             self.guild_select.options.append(option)
+
+        if len(sorted_guilds) > 25:
+            self.guild_select.placeholder = f"Select a server ({len(sorted_guilds)} total, showing first 25)..."
 
         # Update display based on guild selection
         if self.selected_guild:
