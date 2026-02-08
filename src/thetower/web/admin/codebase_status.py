@@ -542,15 +542,16 @@ def codebase_status_page():
                         st.caption(f"Current: v{pkg['version']}")
 
                         if pkg["repository_url"]:
-                            # Shorten SSH URLs for display (extract owner/repo)
+                            # Convert SSH URLs to GitHub HTTPS URLs for display
                             repo_display = pkg["repository_url"]
-                            if "git@" in repo_display:
-                                # ssh://git@alias/owner/repo.git → owner/repo
+                            if "git@" in repo_display or repo_display.startswith("ssh://"):
+                                # ssh://git@alias/owner/repo.git → https://github.com/owner/repo
                                 parts = repo_display.rstrip("/").replace(".git", "").split("/")
                                 if len(parts) >= 2:
-                                    repo_display = "/".join(parts[-2:])
+                                    owner_repo = "/".join(parts[-2:])
                                 else:
-                                    repo_display = parts[-1]
+                                    owner_repo = parts[-1]
+                                repo_display = f"https://github.com/{owner_repo}"
                             st.caption(f"Repo: {repo_display}")
 
                 with col2:
