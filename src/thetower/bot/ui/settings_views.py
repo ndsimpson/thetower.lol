@@ -1522,8 +1522,8 @@ class CogReloadView(View):
         # Get only loaded cogs
         loaded_cogs = []
         for extension_name in bot.extensions:
-            if extension_name.startswith("thetower.bot.cogs."):
-                cog_name = extension_name.replace("thetower.bot.cogs.", "")
+            cog_name = bot.cog_manager.resolve_cog_name_from_extension(extension_name)
+            if cog_name:
                 loaded_cogs.append(cog_name)
 
         # Populate dropdown
@@ -1597,8 +1597,8 @@ class CogReloadView(View):
         # Update the view
         loaded_cogs = []
         for extension_name in bot.extensions:
-            if extension_name.startswith("thetower.bot.cogs."):
-                cog_name = extension_name.replace("thetower.bot.cogs.", "")
+            cog_name = bot.cog_manager.resolve_cog_name_from_extension(extension_name)
+            if cog_name:
                 loaded_cogs.append(cog_name)
 
         if loaded_cogs:
@@ -1971,8 +1971,8 @@ class CogManagementView(View):
         bot = interaction.client
 
         # Check actual extension loading state instead of relying on loaded_cogs list
-        extension_name = f"thetower.bot.cogs.{self.selected_cog}"
-        loaded = extension_name in bot.extensions
+        extension_name = bot.cog_manager._find_cog_extension_path(self.selected_cog)
+        loaded = extension_name is not None and extension_name in bot.extensions
 
         if loaded:
             # Offer reload or unload

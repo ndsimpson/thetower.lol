@@ -33,18 +33,27 @@ class CogManager:
         self.info_extension_registry = {}  # target_cog_name -> [(source_cog_name, provider_func), ...]
 
         # Discover all cog sources (built-in and external packages)
-        self._cog_sources = self._discover_cog_sources()  # List of (module_prefix, path) tuples
+        self._cog_sources, self._single_cog_sources = self._discover_cog_sources()
 
-    def _discover_cog_sources(self) -> list[tuple[str, Path]]:
+    def _discover_cog_sources(self) -> tuple[list[tuple[str, Path]], dict[str, str]]:
         """Discover all cog sources from built-in cogs and registered entry points.
 
+        External cog packages can be either:
+        - **Container sources**: A package whose children are individual cogs (multi-cog).
+          The entry point module is scanned for child modules/directories.
+        - **Single-cog sources**: A package that IS the cog itself (has a setup() function).
+          The entry point module is loaded directly as a discord.py extension.
+
         Returns:
-            List of (module_prefix, cog_directory_path) tuples
+            Tuple of:
+                - List of (module_prefix, cog_directory_path) tuples for container sources
+                - Dict of {cog_name: module_path} for single-cog sources
         """
-        sources = [
+        container_sources = [
             # Built-in public cogs from this package
             ("thetower.bot.cogs", Path(__file__).parent.parent.resolve() / "cogs")
         ]
+        single_cog_sources = {}  # cog_name -> module_path
 
         # Discover external cog packages via entry points
         try:
@@ -62,17 +71,25 @@ class CogManager:
 
             for entry_point in cog_entries:
                 try:
-                    module_path = entry_point.value  # e.g., "thetower_private.cogs"
+                    module_path = entry_point.value  # e.g., "tourney_reminder" or "thetower_private.cogs"
                     module = __import__(module_path, fromlist=[""])
-                    cog_path = Path(module.__file__).parent
-                    sources.append((module_path, cog_path))
-                    logger.info(f"Discovered external cog source: {entry_point.name} -> {module_path}")
+
+                    # Check if this module has a setup() function — if so, it IS a cog (single-cog source)
+                    if hasattr(module, "setup") and callable(module.setup):
+                        cog_name = entry_point.name
+                        single_cog_sources[cog_name] = module_path
+                        logger.info(f"Discovered single-cog source: {cog_name} -> {module_path}")
+                    else:
+                        # Container source — scan its children for cogs
+                        cog_path = Path(module.__file__).parent
+                        container_sources.append((module_path, cog_path))
+                        logger.info(f"Discovered container cog source: {entry_point.name} -> {module_path}")
                 except Exception as e:
                     logger.warning(f"Failed to load cog source {entry_point.name}: {e}")
         except Exception as e:
             logger.warning(f"Failed to discover entry points: {e}")
 
-        return sources
+        return container_sources, single_cog_sources
 
     def refresh_cog_sources(self) -> dict[str, list[str]]:
         """Re-discover cog sources to pick up newly installed packages.
@@ -82,9 +99,15 @@ class CogManager:
         Returns:
             Dictionary with 'added' and 'removed' lists of module prefixes
         """
-        old_sources = {module_prefix for module_prefix, _ in self._cog_sources}
-        self._cog_sources = self._discover_cog_sources()
-        new_sources = {module_prefix for module_prefix, _ in self._cog_sources}
+        old_container = {module_prefix for module_prefix, _ in self._cog_sources}
+        old_single = set(self._single_cog_sources.keys())
+        old_sources = old_container | old_single
+
+        self._cog_sources, self._single_cog_sources = self._discover_cog_sources()
+
+        new_container = {module_prefix for module_prefix, _ in self._cog_sources}
+        new_single = set(self._single_cog_sources.keys())
+        new_sources = new_container | new_single
 
         added = list(new_sources - old_sources)
         removed = list(old_sources - new_sources)
@@ -109,7 +132,37 @@ class CogManager:
         # Track cogs we've attempted to load to prevent duplicates
         attempted_loads = set()
 
-        # Iterate over all cog sources
+        # Load single-cog sources first (external packages that are cogs themselves)
+        for cog_name, module_path in self._single_cog_sources.items():
+            if cog_name in attempted_loads:
+                logger.debug(f"Skipping duplicate single-cog '{cog_name}'")
+                continue
+
+            attempted_loads.add(cog_name)
+
+            cog_config = bot_owner_cogs.get(cog_name, {})
+            if not cog_config.get("enabled", False):
+                logger.debug(f"Skipping single-cog '{cog_name}' - not enabled by bot owner")
+                if cog_name not in self.unloaded_cogs:
+                    self.unloaded_cogs.append(cog_name)
+                continue
+
+            if cog_name in self.loaded_cogs:
+                logger.debug(f"Skipping already loaded single-cog '{cog_name}'")
+                continue
+
+            try:
+                await self.bot.load_extension(module_path)
+                if cog_name not in self.loaded_cogs:
+                    self.loaded_cogs.append(cog_name)
+                    logger.info(f"Loaded single-cog '{cog_name}' from {module_path}")
+            except Exception as e:
+                exception = f"{type(e).__name__}: {e}"
+                logger.error(f"Failed to load single-cog {cog_name} from {module_path}\n{exception}")
+                if cog_name not in self.unloaded_cogs:
+                    self.unloaded_cogs.append(cog_name)
+
+        # Load container sources (directories containing multiple cogs)
         for module_prefix, cogs_path in self._cog_sources:
             logger.debug(f"Scanning cog source: {module_prefix} ({cogs_path})")
 
@@ -170,7 +223,12 @@ class CogManager:
         """
         available_cogs = []
 
-        # Scan all cog sources
+        # Include single-cog sources
+        for cog_name in self._single_cog_sources:
+            if cog_name not in available_cogs:
+                available_cogs.append(cog_name)
+
+        # Scan all container cog sources
         for module_prefix, cogs_path in self._cog_sources:
             if not cogs_path.exists():
                 continue
@@ -433,8 +491,13 @@ class CogManager:
             cog_name: The cog name to find
 
         Returns:
-            The full extension path (e.g., 'thetower.bot.cogs.validation') or None
+            The full extension path (e.g., 'thetower.bot.cogs.validation' or 'tourney_reminder') or None
         """
+        # Check single-cog sources first
+        if cog_name in self._single_cog_sources:
+            return self._single_cog_sources[cog_name]
+
+        # Check container sources
         for module_prefix, cogs_path in self._cog_sources:
             if not cogs_path.exists():
                 continue
@@ -445,6 +508,30 @@ class CogManager:
 
             if cog_file.exists() or (cog_dir.exists() and (cog_dir / "__init__.py").exists()):
                 return f"{module_prefix}.{cog_name}"
+
+        return None
+
+    def resolve_cog_name_from_extension(self, extension_name: str) -> str | None:
+        """Resolve a loaded extension name back to its cog name.
+
+        This is the reverse of _find_cog_extension_path. Used by UI code
+        to list loaded cogs without hardcoding module prefix patterns.
+
+        Args:
+            extension_name: The full extension path (e.g., 'thetower.bot.cogs.validation' or 'tourney_reminder')
+
+        Returns:
+            The cog name, or None if the extension doesn't belong to any known cog source
+        """
+        # Check single-cog sources (extension_name == module_path directly)
+        for cog_name, module_path in self._single_cog_sources.items():
+            if extension_name == module_path:
+                return cog_name
+
+        # Check container cog source prefixes
+        for module_prefix, _ in self._cog_sources:
+            if extension_name.startswith(f"{module_prefix}."):
+                return extension_name.replace(f"{module_prefix}.", "")
 
         return None
 
@@ -495,12 +582,18 @@ class CogManager:
         # Get all cog extensions that are currently loaded from any source
         loaded_extensions = set()
         for extension_name in self.bot.extensions.keys():
-            # Check if this extension matches any of our cog source prefixes
-            for module_prefix, _ in self._cog_sources:
-                if extension_name.startswith(f"{module_prefix}."):
-                    cog_name = extension_name.replace(f"{module_prefix}.", "")
+            # Check single-cog sources (extension_name == module_path directly)
+            for cog_name, module_path in self._single_cog_sources.items():
+                if extension_name == module_path:
                     loaded_extensions.add(cog_name)
                     break
+            else:
+                # Check container cog source prefixes
+                for module_prefix, _ in self._cog_sources:
+                    if extension_name.startswith(f"{module_prefix}."):
+                        cog_name = extension_name.replace(f"{module_prefix}.", "")
+                        loaded_extensions.add(cog_name)
+                        break
 
         # Update loaded_cogs list
         self.loaded_cogs = list(loaded_extensions)
@@ -637,8 +730,8 @@ class CogManager:
             is_allowed = self.config.is_cog_allowed_for_guild(cog, guild_id)
 
             # Check actual extension loading state instead of tracking list
-            extension_name = f"thetower.bot.cogs.{cog}"
-            is_loaded = extension_name in self.bot.extensions
+            extension_name = self._find_cog_extension_path(cog)
+            is_loaded = extension_name is not None and extension_name in self.bot.extensions
 
             status = {
                 "name": cog,
