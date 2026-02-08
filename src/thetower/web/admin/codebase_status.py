@@ -574,12 +574,12 @@ def codebase_status_page():
 
                         # Show info for cogs
                         if pkg["type"] == "cog":
-                            st.info("🤖 Managed by Discord bot")
+                            st.info("🤖 Cog reload or bot restart may be needed after updating")
 
                         st.markdown("")  # Add spacing
 
-                        # Action buttons (only for non-cog packages - bot manages cogs)
-                        if pkg["repository_url"] and pkg["type"] != "cog":
+                        # Action buttons
+                        if pkg["repository_url"]:
                             col_a, col_b = st.columns(2)
 
                             with col_a:
