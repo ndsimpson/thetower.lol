@@ -1,19 +1,52 @@
-# Private Cog Deployment Guide
+# Private Package Deployment Guide
 
-This document describes how to set up SSH deploy keys for installing private external cogs on the production server.
+This document describes how to set up SSH deploy keys for installing private packages (cogs, modules, etc.) on the production server.
 
 ## Overview
 
-Private cogs are external Discord bot cogs stored in private GitHub repositories. They use SSH deploy keys for secure, read-only access during installation. This approach provides better security than using personal access tokens or account-level SSH keys.
+Private packages are external Python packages stored in private GitHub repositories. They use SSH deploy keys for secure, read-only access during installation. This approach provides better security than using personal access tokens or account-level SSH keys.
+
+## Automated Setup (Recommended)
+
+Use the `setup_private_package.py` script to automate the entire process:
+
+```bash
+# From the project root on the production server
+python scripts/setup_private_package.py <package_name> <github_url>
+
+# Examples
+python scripts/setup_private_package.py towerbcs https://github.com/username/repo
+python scripts/setup_private_package.py tourney_reminder https://github.com/username/cogname
+```
+
+The script handles:
+
+1. Generating an ED25519 deploy key pair
+2. Creating a dedicated SSH host alias (one per repo)
+3. Showing the public key and GitHub URL for adding as a deploy key
+4. Waiting for confirmation before proceeding
+5. Testing SSH connectivity and installing the package
+6. Cleaning up generated keys if cancelled
+
+Options:
+
+- `--skip-install`: Only set up SSH, don't pip install
+- `--force`: Overwrite existing key and alias
 
 ## Security Model
 
 - **Deploy Keys**: Repository-specific SSH keys with read-only access
-- **One key per repo**: Each private cog gets its own unique deploy key
-- **Host alias**: Single `github-tower-private` SSH alias for all private cogs
-- **Auto-selection**: SSH tries all configured keys and uses the matching one
+- **One key per repo**: Each private package gets its own unique deploy key
+- **One SSH alias per repo**: Each repo gets a dedicated alias (e.g., `github-tower-<name>`)
+- **IdentitiesOnly**: Each alias only offers its own key, ensuring correct authentication
 
-## Initial SSH Setup (One-Time)
+> **Why separate aliases?** GitHub deploy keys authenticate AND authorize in one step.
+> SSH authenticates with the first key GitHub accepts, then GitHub checks if that key
+> has access to the requested repo. With multiple keys under one alias, the wrong key
+> may authenticate first — causing access denied errors. Separate aliases ensure each
+> connection uses the correct key.
+
+## Manual SSH Setup (Reference)
 
 ### 1. Create SSH Config on Production Server
 
@@ -23,17 +56,23 @@ SSH into production and create/edit `~/.ssh/config`:
 nano ~/.ssh/config
 ```
 
-Add this configuration:
+Each private package gets its own Host block with a dedicated alias:
 
 ```
-Host github-tower-private
+Host github-tower-cogname
     HostName github.com
     User git
-    IdentityFile ~/.ssh/thetower_managed_polls_deploy
-    # Add more IdentityFile lines as you add more private cogs
+    IdentityFile ~/.ssh/thetower_cogname_deploy
     IdentitiesOnly yes
     StrictHostKeyChecking no
-    AddKeysToAgent yes
+
+# Add another block for each additional cog
+Host github-tower-anothercog
+    HostName github.com
+    User git
+    IdentityFile ~/.ssh/thetower_anothercog_deploy
+    IdentitiesOnly yes
+    StrictHostKeyChecking no
 ```
 
 Set proper permissions:
@@ -77,24 +116,25 @@ Copy the entire public key output (starts with `ssh-ed25519`).
 
 ### 3. Update SSH Config
 
-Add the new key to the SSH config:
+Add a new Host block with a dedicated alias for the new cog:
 
 ```bash
 nano ~/.ssh/config
 ```
 
-Add a new `IdentityFile` line under the `github-tower-private` host:
+Add a new Host block:
 
 ```
-Host github-tower-private
+Host github-tower-cogname
     HostName github.com
     User git
-    IdentityFile ~/.ssh/thetower_managed_polls_deploy
-    IdentityFile ~/.ssh/thetower_cogname_deploy  # <-- Add this line
+    IdentityFile ~/.ssh/thetower_cogname_deploy
     IdentitiesOnly yes
     StrictHostKeyChecking no
-    AddKeysToAgent yes
 ```
+
+> **Important:** Each repo MUST have its own Host alias. Do NOT combine multiple
+> IdentityFile lines under a single alias — this will cause authentication failures.
 
 ### 4. Add Key to SSH Agent
 
@@ -112,8 +152,8 @@ ssh-add -l
 ### 5. Test SSH Connection
 
 ```bash
-# Test the connection
-ssh -T git@github-tower-private
+# Test the connection using the repo-specific alias
+ssh -T git@github-tower-cogname
 ```
 
 Expected output:
@@ -125,7 +165,7 @@ Hi username/RepoName! You've successfully authenticated, but GitHub does not pro
 If you see an error, debug with verbose output:
 
 ```bash
-ssh -vT git@github-tower-private
+ssh -vT git@github-tower-cogname
 ```
 
 ### 6. Install the Private Cog
@@ -134,8 +174,8 @@ ssh -vT git@github-tower-private
 # Activate production venv
 source /tourney/.venv/bin/activate
 
-# Install using the github-tower-private alias
-pip install git+ssh://git@github-tower-private/username/RepoName.git
+# Install using the repo-specific alias
+pip install git+ssh://git@github-tower-cogname/username/RepoName.git
 ```
 
 ### 7. Verify Installation
@@ -179,8 +219,8 @@ To update an already-installed private cog:
 # Activate venv
 source /tourney/.venv/bin/activate
 
-# Upgrade to latest version
-pip install --upgrade git+ssh://git@github-tower-private/username/RepoName.git
+# Upgrade to latest version (uses the repo-specific alias baked into metadata)
+pip install --upgrade --force-reinstall --no-deps git+ssh://git@github-tower-cogname/username/RepoName.git
 
 # Restart bot
 sudo systemctl restart discord_bot.service
@@ -234,6 +274,11 @@ cogname = "package_name.cogs"
 Complete example for the Managed_PollsCog:
 
 ```bash
+# Automated (recommended)
+python scripts/setup_private_package.py managed_polls https://github.com/ndsimpson/Managed_PollsCog
+
+# Or manually:
+
 # 1. Generate key
 ssh-keygen -t ed25519 -C "thetower-managed-polls-deploy" -f ~/.ssh/thetower_managed_polls_deploy
 
@@ -242,16 +287,23 @@ cat ~/.ssh/thetower_managed_polls_deploy.pub
 
 # 3. Add to GitHub at: https://github.com/ndsimpson/Managed_PollsCog/settings/keys
 
-# 4. Update SSH config (already shown above)
+# 4. Add SSH alias (dedicated per-repo alias)
+# In ~/.ssh/config:
+# Host github-tower-managed-polls
+#     HostName github.com
+#     User git
+#     IdentityFile ~/.ssh/thetower_managed_polls_deploy
+#     IdentitiesOnly yes
+#     StrictHostKeyChecking no
 
 # 5. Add to agent
 ssh-add ~/.ssh/thetower_managed_polls_deploy
 
 # 6. Test
-ssh -T git@github-tower-private
+ssh -T git@github-tower-managed-polls
 
 # 7. Install
-pip install git+ssh://git@github-tower-private/ndsimpson/Managed_PollsCog.git
+pip install git+ssh://git@github-tower-managed-polls/ndsimpson/Managed_PollsCog.git
 
 # 8. Verify
 pip show thetower-managed-polls
@@ -262,14 +314,15 @@ sudo systemctl restart discord_bot.service
 
 ## Quick Reference
 
-| Task                | Command                                                                  |
-| ------------------- | ------------------------------------------------------------------------ |
-| Generate deploy key | `ssh-keygen -t ed25519 -C "description" -f ~/.ssh/keyname`               |
-| Show public key     | `cat ~/.ssh/keyname.pub`                                                 |
-| Add key to agent    | `ssh-add ~/.ssh/keyname`                                                 |
-| List loaded keys    | `ssh-add -l`                                                             |
-| Test SSH connection | `ssh -T git@github-tower-private`                                        |
-| Install private cog | `pip install git+ssh://git@github-tower-private/user/repo.git`           |
-| Update private cog  | `pip install --upgrade git+ssh://git@github-tower-private/user/repo.git` |
-| Restart bot         | `sudo systemctl restart discord_bot.service`                             |
-| Check bot logs      | `sudo journalctl -u discord_bot.service -f`                              |
+| Task                | Command                                                                                                |
+| ------------------- | ------------------------------------------------------------------------------------------------------ |
+| **Automated setup**   | `python scripts/setup_private_package.py <name> <url>`                                                 |
+| Generate deploy key   | `ssh-keygen -t ed25519 -C "description" -f ~/.ssh/keyname`                                             |
+| Show public key       | `cat ~/.ssh/keyname.pub`                                                                               |
+| Add key to agent      | `ssh-add ~/.ssh/keyname`                                                                               |
+| List loaded keys      | `ssh-add -l`                                                                                           |
+| Test SSH connection   | `ssh -T git@github-tower-<name>`                                                                       |
+| Install private pkg   | `pip install git+ssh://git@github-tower-<name>/user/repo.git`                                          |
+| Update private pkg    | `pip install --upgrade --force-reinstall --no-deps git+ssh://git@github-tower-<name>/user/repo.git`    |
+| Restart bot         | `sudo systemctl restart discord_bot.service`                                                           |
+| Check bot logs      | `sudo journalctl -u discord_bot.service -f`                                                            |
