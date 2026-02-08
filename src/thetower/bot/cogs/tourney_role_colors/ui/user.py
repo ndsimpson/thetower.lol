@@ -184,7 +184,10 @@ class CategoryRoleSelectionView(ui.View):
             role_id = role_config["role_id"]
             role_name = role_config["name"]
 
-            btn = ui.Button(label=role_name, style=discord.ButtonStyle.success, emoji="✅")
+            if role_id == parent_view.current_role_id:
+                btn = ui.Button(label=role_name, style=discord.ButtonStyle.success, emoji="✅")
+            else:
+                btn = ui.Button(label=role_name, style=discord.ButtonStyle.secondary)
             btn.callback = self._create_role_callback(role_id, role_name)
             self.add_item(btn)
 
