@@ -26,9 +26,8 @@ import schedule
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "thetower.backend.towerdb.settings")
 django.setup()
 
+from thetower.backend.env_config import get_csv_data
 from thetower.backend.tourney_results.constants import leagues
-
-# used to map player_id -> real display name for caches
 from thetower.backend.tourney_results.data import get_player_id_lookup
 from thetower.backend.tourney_results.shun_config import include_shun_enabled_for
 from thetower.backend.tourney_results.tourney_utils import get_time
@@ -36,17 +35,12 @@ from thetower.backend.tourney_results.tourney_utils import get_time
 logging.basicConfig(level=logging.INFO)
 
 # Configuration
-# Resolve HOME defensively: prefer explicit env var, fall back to Path.home()
-_home_env = os.getenv("HOME")
-HOME = Path(_home_env) if _home_env else Path.home()
-# Allow an explicit override for the live results base (useful for dev/debug)
-LIVE_BASE = Path(os.getenv("LIVE_RESULTS_BASE") or (HOME / "tourney" / "results_cache"))
+LIVE_BASE = Path(get_csv_data())
 # Log resolved paths early to aid debugging when run under different envs
-logging.info(f"Resolved HOME env: {_home_env!r}, HOME Path: {HOME}, LIVE_BASE: {LIVE_BASE}")
+logging.info(f"Resolved LIVE_BASE: {LIVE_BASE}")
 # place caches in the existing results_cache directory (requested):
 # cache files will be written under LIVE_BASE to keep them alongside snapshots
 CACHE_BASE = LIVE_BASE
-GAP_HOURS = 42
 # Cache schema versioning: bump when the on-disk JSON structure changes
 SCHEMA_VERSION = 2  # v2 introduces precomputed quantile_data
 

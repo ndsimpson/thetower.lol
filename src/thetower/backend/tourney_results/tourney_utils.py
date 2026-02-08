@@ -6,14 +6,16 @@ import os
 import re
 from pathlib import Path
 from time import perf_counter
-from typing import Optional
 from types import MappingProxyType
+from typing import Optional
 
 # Third-party imports
 import anthropic
 import pandas as pd
 from django.apps import apps
 from django.db.models import Q
+
+from thetower.backend.env_config import get_csv_data
 
 # Local imports
 from .constants import champ, leagues, legend
@@ -349,8 +351,8 @@ def get_live_df(league: str, shun: bool = False) -> pd.DataFrame:
         ValueError: If no current tournament data is available
     """
     t1_start = perf_counter()
-    home = Path(os.getenv("HOME"))
-    live_path = home / "tourney" / "results_cache" / f"{league}_live"
+    csv_data = get_csv_data()
+    live_path = Path(csv_data) / f"{league}_live"
 
     all_files = sorted(live_path.glob("*.csv.gz"), key=get_time)
 
@@ -442,8 +444,8 @@ def get_latest_live_df(league: str, shun: bool = False) -> pd.DataFrame:
         ValueError: If no current tournament data is available
     """
     t1_start = perf_counter()
-    home = Path(os.getenv("HOME"))
-    live_path = home / "tourney" / "results_cache" / f"{league}_live"
+    csv_data = get_csv_data()
+    live_path = Path(csv_data) / f"{league}_live"
 
     all_files = sorted(live_path.glob("*.csv.gz"), key=get_time)
     non_empty_files = [f for f in all_files if f.stat().st_size > 0]

@@ -15,6 +15,8 @@ django.setup()
 
 from django.core.files.uploadedfile import SimpleUploadedFile
 
+from thetower.backend.env_config import get_csv_data
+
 from ..constants import leagues
 from ..get_results import get_file_name, get_last_date
 from ..models import BattleCondition, TourneyResult
@@ -63,9 +65,8 @@ def execute():
             continue
 
         logging.info("Something new")
-        last_files = sorted(
-            [file_name for file_name in glob(f"{os.getenv('HOME')}/tourney/results_cache/{league}/{last_date}*") if "csv_raw" not in file_name]
-        )
+        csv_data = get_csv_data()
+        last_files = sorted([file_name for file_name in glob(f"{csv_data}/{league}/{last_date}*") if "csv_raw" not in file_name])
 
         if not last_files:
             logging.info("Apparently we're checking the files before the download script could get them, try later.")

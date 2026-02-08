@@ -1,13 +1,13 @@
 import datetime
 import json
 import logging
-import os
 from functools import wraps
 from pathlib import Path
 
 import pandas as pd
 import streamlit as st
 
+from thetower.backend.env_config import get_csv_data
 from thetower.backend.tourney_results.shun_config import include_shun_enabled_for
 from thetower.backend.tourney_results.tourney_utils import (
     get_full_brackets,
@@ -173,9 +173,9 @@ def get_placement_analysis_data(league: str):
 
     # Try to use per-tourney cache placed alongside live snapshots.
     try:
-        home = Path(os.getenv("HOME"))
-        logging.info(f"get_placement_analysis_data: HOME={home!s}")
-        live_path = home / "tourney" / "results_cache" / f"{league}_live"
+        csv_data = get_csv_data()
+        logging.info(f"get_placement_analysis_data: CSV_DATA={csv_data!s}")
+        live_path = Path(csv_data) / f"{league}_live"
         logging.info(f"get_placement_analysis_data: live_path={live_path}")
 
         all_files = sorted([p for p in live_path.glob("*.csv.gz") if p.stat().st_size > 0], key=get_time)
@@ -416,9 +416,9 @@ def get_quantile_analysis_data(league: str):
 
     # Try to use per-tourney cache placed alongside live snapshots
     try:
-        home = Path(os.getenv("HOME"))
-        logging.info(f"get_quantile_analysis_data: HOME={home!s}")
-        live_path = home / "tourney" / "results_cache" / f"{league}_live"
+        csv_data = get_csv_data()
+        logging.info(f"get_quantile_analysis_data: CSV_DATA={csv_data!s}")
+        live_path = Path(csv_data) / f"{league}_live"
         logging.info(f"get_quantile_analysis_data: live_path={live_path}")
 
         all_files = sorted([p for p in live_path.glob("*.csv.gz") if p.stat().st_size > 0], key=get_time)
@@ -592,8 +592,8 @@ def get_data_refresh_timestamp(league: str) -> datetime.datetime | None:
         datetime object representing when data was last refreshed, or None if no data
     """
     try:
-        home = Path(os.getenv("HOME"))
-        live_path = home / "tourney" / "results_cache" / f"{league}_live"
+        csv_data = get_csv_data()
+        live_path = Path(csv_data) / f"{league}_live"
 
         all_files = list(live_path.glob("*.csv.gz"))
 

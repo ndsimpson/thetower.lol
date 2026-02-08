@@ -9,6 +9,8 @@ import pandas as pd
 import requests
 import schedule
 
+from thetower.backend.env_config import get_csv_data
+
 from .constants import leagues
 
 # Constants
@@ -55,7 +57,8 @@ def get_file_name():
 
 
 def get_file_path(file_name, league):
-    return f"{os.getenv('HOME')}/tourney/results_cache/{league}/{file_name}"
+    csv_data = get_csv_data()
+    return f"{csv_data}/{league}/{file_name}"
 
 
 def make_request(league):

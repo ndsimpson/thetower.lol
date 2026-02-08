@@ -10,19 +10,22 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/4.2/ref/settings/
 """
 
+import os
 from pathlib import Path
+
+from thetower.backend.env_config import get_django_data
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-DATA_DIR = Path("/data")
+DATA_DIR = get_django_data()
 
 
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/4.2/howto/static-files/
 
 STATIC_URL = "static/"
-STATIC_ROOT = "/data/static"
+STATIC_ROOT = os.path.join(str(DATA_DIR), "static")
 
 
 # Database
