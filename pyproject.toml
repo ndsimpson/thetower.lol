@@ -92,6 +92,7 @@ Issues = "https://github.com/ndsimpson/thetower.lol/issues"
 [project.scripts]
 thetower-web = "thetower.web.pages:main"
 thetower-bot = "thetower.bot.bot:main"
+thetower-init-streamlit = "thetower.scripts.setup_streamlit:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
