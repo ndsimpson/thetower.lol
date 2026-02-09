@@ -26,6 +26,9 @@ def setup_streamlit():
     try:
         import thetower
 
+        # Ensure target directory exists
+        STREAMLIT_TARGET_DIR.mkdir(parents=True, exist_ok=True)
+
         # Get the installed thetower version
         try:
             # Try to get version from package
