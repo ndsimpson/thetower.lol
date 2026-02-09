@@ -151,7 +151,7 @@ def compute_player_lookup():
         value for value in list(Graph.__members__.keys()) + patches_options if value != options.default_graph.value
     ]
 
-    raw_patch = info_tab.selectbox("Limit results to a patch? (see side bar to change default)", raw_graph_options, key="player_raw_patch")
+    raw_patch = info_tab.selectbox("Limit results to a patch?", raw_graph_options, key="player_raw_patch")
 
     all_battle_conditions = sorted(BattleCondition.objects.all(), key=lambda bc: bc.shortcut)
     raw_filter_bcs = info_tab.multiselect(
