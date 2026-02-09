@@ -256,18 +256,32 @@ def get_status_emoji(repo_info: Dict[str, any]) -> str:
         return "✅"
 
 
+def is_development_mode() -> bool:
+    """Check if running in development mode (git repository available)."""
+    cwd = os.getcwd()
+    # Check if current directory or parent has .git
+    return os.path.exists(os.path.join(cwd, ".git")) or os.path.exists(os.path.join(os.path.dirname(cwd), ".git"))
+
+
 def codebase_status_page():
     """Main codebase status page component."""
     st.title("📋 Codebase Status")
 
-    # Get current working directory (should be the repo root)
-    repo_root = os.getcwd()
+    cwd = os.getcwd()
+    dev_mode = is_development_mode()
 
     # Show environment info
     if is_windows():
-        st.info("🖥️ **Development Mode**: Running on Windows")
+        st.info("🖥️ **Development Mode**: Running on Windows with git repository")
+    elif dev_mode:
+        st.info("🔧 **Development Mode**: Git repository available")
+    else:
+        st.info("🚀 **Production Mode**: Running from pip-installed package")
 
-    st.markdown(f"**Repository Path:** `{repo_root}`")
+    if dev_mode:
+        st.markdown(f"**Repository Path:** `{cwd}`")
+    else:
+        st.markdown(f"**Working Directory:** `{cwd}`")
 
     # Refresh controls
     col1, col2 = st.columns([1, 1])
@@ -280,234 +294,342 @@ def codebase_status_page():
 
     st.markdown("---")
 
-    # Get main repository status
-    main_repo = get_git_status(repo_root)
-    submodules = get_submodules_info(repo_root)
+    # Main Package/Repository Section
+    if dev_mode:
+        # Development mode: show git repository status
+        main_repo = get_git_status(cwd)
+        submodules = get_submodules_info(cwd)
 
-    # Main Repository Section
-    st.markdown("## 🏠 Main Repository")
+        st.markdown("## 🏠 Main Repository")
 
-    with st.container():
-        col1, col2 = st.columns([1, 1])
+        with st.container():
+            col1, col2 = st.columns([1, 1])
 
-        with col1:
-            # Repository Info Card
-            with st.container():
-                st.markdown("**Repository Info**")
+            with col1:
+                # Repository Info Card
+                with st.container():
+                    st.markdown("**Repository Info**")
 
-                emoji = get_status_emoji(main_repo)
-                st.markdown(f"**{emoji} thetower.lol**")
+                    emoji = get_status_emoji(main_repo)
+                    st.markdown(f"**{emoji} thetower.lol**")
 
-                if main_repo["exists"]:
-                    st.caption(f"Branch: `{main_repo['branch']}`")
+                    if main_repo["exists"]:
+                        st.caption(f"Branch: `{main_repo['branch']}`")
 
-                    # Last commit info
-                    if main_repo["last_commit"] != "unknown":
-                        commit_parts = main_repo["last_commit"].split(" - ", 1)
-                        if len(commit_parts) == 2:
-                            commit_hash, commit_msg = commit_parts
-                            st.caption(f"Last: {commit_hash} - {commit_msg[:30]}{'...' if len(commit_msg) > 30 else ''}")
+                        # Last commit info
+                        if main_repo["last_commit"] != "unknown":
+                            commit_parts = main_repo["last_commit"].split(" - ", 1)
+                            if len(commit_parts) == 2:
+                                commit_hash, commit_msg = commit_parts
+                                st.caption(f"Last: {commit_hash} - {commit_msg[:30]}{'...' if len(commit_msg) > 30 else ''}")
+                            else:
+                                st.caption(f"Last: {main_repo['last_commit']}")
+                    else:
+                        st.caption("Repository not found")
+
+            with col2:
+                # Status & Actions Card
+                with st.container():
+                    st.markdown("**Status & Actions**")
+
+                    if main_repo["error"]:
+                        st.error(f"Error: {main_repo['error']}")
+                    else:
+                        # Git status
+                        if main_repo["behind"] > 0:
+                            st.warning(f"Git Status: {main_repo['behind']} commits behind")
+                        elif main_repo["ahead"] > 0:
+                            st.info(f"Git Status: {main_repo['ahead']} commits ahead")
                         else:
-                            st.caption(f"Last: {main_repo['last_commit']}")
-                else:
-                    st.caption("Repository not found")
+                            st.success("Git Status: ✅ Up to date")
 
-        with col2:
-            # Status & Actions Card
+                        # Local changes
+                        if main_repo["has_changes"]:
+                            changes = len(main_repo["modified"]) + len(main_repo["untracked"]) + len(main_repo["staged"])
+                            st.warning(f"Local Changes: 📝 {changes} changes")
+                        else:
+                            st.success("Local Changes: No changes")
+
+                    st.markdown("")  # Add some spacing
+
+                    # Action buttons
+                    if main_repo["exists"] and not main_repo["error"]:
+                        col_a, col_b, col_c = st.columns(3)
+
+                        with col_a:
+                            if st.button("⬇️ Pull", key="pull_main_normal", help="Normal git pull"):
+                                with st.spinner("Pulling main repository..."):
+                                    success, message = pull_repository(cwd, pull_mode="normal")
+                                    if success:
+                                        st.success("✅ Main repository updated")
+                                        with st.expander("📋 Pull Output", expanded=False):
+                                            st.code(message, language="bash")
+                                        import time
+
+                                        time.sleep(1)
+                                        st.rerun()
+                                    else:
+                                        st.error("❌ Failed to pull main repository")
+                                        with st.expander("📋 Error Output", expanded=True):
+                                            st.code(message, language="bash")
+
+                        with col_b:
+                            if st.button("🔄 Rebase", key="pull_main_rebase", help="Pull with rebase (git pull --rebase)"):
+                                with st.spinner("Pulling main repository (rebase)..."):
+                                    success, message = pull_repository(cwd, pull_mode="rebase")
+                                    if success:
+                                        st.success("✅ Main repository rebased")
+                                        with st.expander("📋 Rebase Output", expanded=False):
+                                            st.code(message, language="bash")
+                                        import time
+
+                                        time.sleep(1)
+                                        st.rerun()
+                                    else:
+                                        st.error("❌ Failed to rebase main repository")
+                                        with st.expander("📋 Error Output", expanded=True):
+                                            st.code(message, language="bash")
+
+                        with col_c:
+                            if st.button("💾 Stash", key="pull_main_autostash", help="Pull with autostash (git pull --autostash)"):
+                                with st.spinner("Pulling main repository (autostash)..."):
+                                    success, message = pull_repository(cwd, pull_mode="autostash")
+                                    if success:
+                                        st.success("✅ Main repository updated (autostash)")
+                                        with st.expander("📋 Autostash Output", expanded=False):
+                                            st.code(message, language="bash")
+                                        import time
+
+                                        time.sleep(1)
+                                        st.rerun()
+                                    else:
+                                        st.error("❌ Failed to autostash pull main repository")
+                                        with st.expander("📋 Error Output", expanded=True):
+                                            st.code(message, language="bash")
+
+        # Show detailed main repo info if there are changes
+        if main_repo["exists"] and main_repo["has_changes"]:
+            with st.expander("📝 Main Repository - Local Changes", expanded=False):
+                if main_repo["staged"]:
+                    st.markdown("**Staged changes:**")
+                    for file in main_repo["staged"][:10]:  # Limit to first 10
+                        st.markdown(f"- `{file}`")
+                    if len(main_repo["staged"]) > 10:
+                        st.markdown(f"... and {len(main_repo['staged']) - 10} more")
+
+                if main_repo["modified"]:
+                    st.markdown("**Modified files:**")
+                    for file in main_repo["modified"][:10]:  # Limit to first 10
+                        st.markdown(f"- `{file}`")
+                    if len(main_repo["modified"]) > 10:
+                        st.markdown(f"... and {len(main_repo['modified']) - 10} more")
+
+                if main_repo["untracked"]:
+                    st.markdown("**Untracked files:**")
+                    for file in main_repo["untracked"][:10]:  # Limit to first 10
+                        st.markdown(f"- `{file}`")
+                    if len(main_repo["untracked"]) > 10:
+                        st.markdown(f"... and {len(main_repo['untracked']) - 10} more")
+
+        st.markdown("---")
+
+        # Submodules Section (development only)
+        if submodules:
+            st.markdown("## 📦 Submodules")
+
+            for submodule in submodules:
+                with st.container():
+                    col1, col2, col3, col4 = st.columns([3, 2, 2, 1])
+
+                    with col1:
+                        emoji = get_status_emoji(submodule)
+                        st.markdown(f"**{emoji} {submodule['submodule_path']}**")
+                        if submodule["exists"]:
+                            st.caption(f"Branch: `{submodule['branch']}`")
+                        else:
+                            st.caption("Submodule not initialized")
+
+                    with col2:
+                        if submodule["not_initialized"]:
+                            st.warning("Not initialized")
+                        elif submodule["has_conflicts"]:
+                            st.error("Has conflicts")
+                        elif submodule["needs_update"]:
+                            st.warning("Needs update")
+                        elif submodule["error"]:
+                            st.error(f"Error: {submodule['error']}")
+                        else:
+                            # Git status (remote tracking)
+                            if submodule["behind"] > 0:
+                                st.warning(f"Git status: {submodule['behind']} behind")
+                            elif submodule["ahead"] > 0:
+                                st.info(f"Git status: {submodule['ahead']} ahead")
+                            else:
+                                st.success("Git status: up to date")
+
+                            # Local changes (separate line)
+                            if submodule["has_changes"]:
+                                changes = len(submodule["modified"]) + len(submodule["untracked"]) + len(submodule["staged"])
+                                st.caption(f"Local changes: {changes} changes")
+                            else:
+                                st.caption("Local changes: none")
+
+                    with col3:
+                        if submodule["exists"] and not submodule["error"]:
+                            st.markdown("**Last commit:**")
+                            st.caption(submodule["last_commit"])
+                        else:
+                            st.markdown("—")
+
+                    with col4:
+                        if submodule["exists"] and not submodule["error"]:
+                            pull_key = f"pull_{submodule['submodule_path']}"
+                            if st.button("⬇️", key=pull_key, help=f"Pull {submodule['submodule_path']} submodule"):
+                                with st.spinner(f"Pulling {submodule['submodule_path']} submodule..."):
+                                    success, message = pull_repository(os.path.join(cwd, submodule["submodule_path"]), is_submodule=True)
+                                    if success:
+                                        st.success(f"✅ {submodule['submodule_path']} updated")
+                                        with st.expander("📋 Pull Output", expanded=False):
+                                            st.code(message, language="bash")
+                                        import time
+
+                                        time.sleep(1)
+                                        st.rerun()
+                                    else:
+                                        st.error(f"❌ Failed to pull {submodule['submodule_path']}")
+                                        with st.expander("📋 Error Output", expanded=True):
+                                            st.code(message, language="bash")
+
+                # Show detailed submodule info if there are changes
+                if submodule["exists"] and submodule["has_changes"]:
+                    with st.expander(f"📝 {submodule['submodule_path']} - Local Changes", expanded=False):
+                        if submodule["staged"]:
+                            st.markdown("**Staged changes:**")
+                            for file in submodule["staged"][:5]:  # Limit to first 5 for submodules
+                                st.markdown(f"- `{file}`")
+                            if len(submodule["staged"]) > 5:
+                                st.markdown(f"... and {len(submodule['staged']) - 5} more")
+
+                        if submodule["modified"]:
+                            st.markdown("**Modified files:**")
+                            for file in submodule["modified"][:5]:
+                                st.markdown(f"- `{file}`")
+                            if len(submodule["modified"]) > 5:
+                                st.markdown(f"... and {len(submodule['modified']) - 5} more")
+
+                        if submodule["untracked"]:
+                            st.markdown("**Untracked files:**")
+                            for file in submodule["untracked"][:5]:
+                                st.markdown(f"- `{file}`")
+                            if len(submodule["untracked"]) > 5:
+                                st.markdown(f"... and {len(submodule['untracked']) - 5} more")
+
+                st.markdown("---")
+
+        st.markdown("---")
+
+    else:
+        # Production mode: show pip package status for main thetower package
+        st.markdown("## 🏠 Main Package (thetower)")
+
+        # Get thetower packages (will include the main package)
+        all_packages = get_thetower_packages()
+        main_pkg = next((pkg for pkg in all_packages if pkg["name"] == "thetower"), None)
+
+        if not main_pkg:
+            st.warning("⚠️ Main thetower package not found. Is it installed?")
+        else:
             with st.container():
-                st.markdown("**Status & Actions**")
-
-                if main_repo["error"]:
-                    st.error(f"Error: {main_repo['error']}")
-                else:
-                    # Git status
-                    if main_repo["behind"] > 0:
-                        st.warning(f"Git Status: {main_repo['behind']} commits behind")
-                    elif main_repo["ahead"] > 0:
-                        st.info(f"Git Status: {main_repo['ahead']} commits ahead")
-                    else:
-                        st.success("Git Status: ✅ Up to date")
-
-                    # Local changes
-                    if main_repo["has_changes"]:
-                        changes = len(main_repo["modified"]) + len(main_repo["untracked"]) + len(main_repo["staged"])
-                        st.warning(f"Local Changes: 📝 {changes} changes")
-                    else:
-                        st.success("Local Changes: No changes")
-
-                st.markdown("")  # Add some spacing
-
-                # Action buttons
-                if main_repo["exists"] and not main_repo["error"]:
-                    col_a, col_b, col_c = st.columns(3)
-
-                    with col_a:
-                        if st.button("⬇️ Pull", key="pull_main_normal", help="Normal git pull"):
-                            with st.spinner("Pulling main repository..."):
-                                success, message = pull_repository(repo_root, pull_mode="normal")
-                                if success:
-                                    st.success("✅ Main repository updated")
-                                    with st.expander("📋 Pull Output", expanded=False):
-                                        st.code(message, language="bash")
-                                    import time
-
-                                    time.sleep(1)
-                                    st.rerun()
-                                else:
-                                    st.error("❌ Failed to pull main repository")
-                                    with st.expander("📋 Error Output", expanded=True):
-                                        st.code(message, language="bash")
-
-                    with col_b:
-                        if st.button("🔄 Rebase", key="pull_main_rebase", help="Pull with rebase (git pull --rebase)"):
-                            with st.spinner("Pulling main repository (rebase)..."):
-                                success, message = pull_repository(repo_root, pull_mode="rebase")
-                                if success:
-                                    st.success("✅ Main repository rebased")
-                                    with st.expander("📋 Rebase Output", expanded=False):
-                                        st.code(message, language="bash")
-                                    import time
-
-                                    time.sleep(1)
-                                    st.rerun()
-                                else:
-                                    st.error("❌ Failed to rebase main repository")
-                                    with st.expander("📋 Error Output", expanded=True):
-                                        st.code(message, language="bash")
-
-                    with col_c:
-                        if st.button("💾 Stash", key="pull_main_autostash", help="Pull with autostash (git pull --autostash)"):
-                            with st.spinner("Pulling main repository (autostash)..."):
-                                success, message = pull_repository(repo_root, pull_mode="autostash")
-                                if success:
-                                    st.success("✅ Main repository updated (autostash)")
-                                    with st.expander("📋 Autostash Output", expanded=False):
-                                        st.code(message, language="bash")
-                                    import time
-
-                                    time.sleep(1)
-                                    st.rerun()
-                                else:
-                                    st.error("❌ Failed to autostash pull main repository")
-                                    with st.expander("📋 Error Output", expanded=True):
-                                        st.code(message, language="bash")  # Show detailed main repo info if there are changes
-    if main_repo["exists"] and main_repo["has_changes"]:
-        with st.expander("📝 Main Repository - Local Changes", expanded=False):
-            if main_repo["staged"]:
-                st.markdown("**Staged changes:**")
-                for file in main_repo["staged"][:10]:  # Limit to first 10
-                    st.markdown(f"- `{file}`")
-                if len(main_repo["staged"]) > 10:
-                    st.markdown(f"... and {len(main_repo['staged']) - 10} more")
-
-            if main_repo["modified"]:
-                st.markdown("**Modified files:**")
-                for file in main_repo["modified"][:10]:  # Limit to first 10
-                    st.markdown(f"- `{file}`")
-                if len(main_repo["modified"]) > 10:
-                    st.markdown(f"... and {len(main_repo['modified']) - 10} more")
-
-            if main_repo["untracked"]:
-                st.markdown("**Untracked files:**")
-                for file in main_repo["untracked"][:10]:  # Limit to first 10
-                    st.markdown(f"- `{file}`")
-                if len(main_repo["untracked"]) > 10:
-                    st.markdown(f"... and {len(main_repo['untracked']) - 10} more")
-
-    st.markdown("---")
-
-    # Submodules Section
-    if submodules:
-        st.markdown("## 📦 Submodules")
-
-        for submodule in submodules:
-            with st.container():
-                col1, col2, col3, col4 = st.columns([3, 2, 2, 1])
+                col1, col2 = st.columns([1, 1])
 
                 with col1:
-                    emoji = get_status_emoji(submodule)
-                    st.markdown(f"**{emoji} {submodule['submodule_path']}**")
-                    if submodule["exists"]:
-                        st.caption(f"Branch: `{submodule['branch']}`")
-                    else:
-                        st.caption("Submodule not initialized")
+                    # Package Info Card
+                    with st.container():
+                        st.markdown("**Package Info**")
+
+                        # Install type badge
+                        install_badge = "📝 Editable" if main_pkg.get("install_type") == "editable" else "📦 Regular"
+
+                        st.markdown(f"**🏠 {main_pkg['name']}**")
+                        st.caption(f"Type: Main Package | Install: {install_badge}")
+                        st.caption(f"Version: v{main_pkg['version']}")
+
+                        if main_pkg["repository_url"]:
+                            # Convert SSH URLs to GitHub HTTPS URLs for display
+                            repo_display = main_pkg["repository_url"]
+                            if "git@" in repo_display or repo_display.startswith("ssh://"):
+                                # ssh://git@alias/owner/repo.git → https://github.com/owner/repo
+                                parts = repo_display.rstrip("/").replace(".git", "").split("/")
+                                if len(parts) >= 2:
+                                    owner_repo = "/".join(parts[-2:])
+                                else:
+                                    owner_repo = parts[-1]
+                                repo_display = f"https://github.com/{owner_repo}"
+                            st.caption(f"Repository: {repo_display}")
 
                 with col2:
-                    if submodule["not_initialized"]:
-                        st.warning("Not initialized")
-                    elif submodule["has_conflicts"]:
-                        st.error("Has conflicts")
-                    elif submodule["needs_update"]:
-                        st.warning("Needs update")
-                    elif submodule["error"]:
-                        st.error(f"Error: {submodule['error']}")
-                    else:
-                        # Git status (remote tracking)
-                        if submodule["behind"] > 0:
-                            st.warning(f"Git status: {submodule['behind']} behind")
-                        elif submodule["ahead"] > 0:
-                            st.info(f"Git status: {submodule['ahead']} ahead")
+                    # Status & Actions Card
+                    with st.container():
+                        st.markdown("**Status & Actions**")
+
+                        if main_pkg["repository_url"]:
+                            # Check for updates
+                            update_info = check_package_updates_sync(main_pkg["name"], main_pkg["repository_url"])
+
+                            if update_info.get("error"):
+                                st.warning(f"Status: ⚠️ {update_info['error'][:50]}...")
+                            elif update_info["update_available"]:
+                                st.warning(f"Status: 🔄 Update available ({update_info['latest_version']})")
+                            else:
+                                st.success("Status: ✅ Up to date")
+
+                            st.info("⚠️ Service restart required after updating")
+                            st.caption("Streamlit pages will be re-extracted automatically")
+
+                            st.markdown("")  # Add spacing
+
+                            # Action buttons
+                            col_a, col_b = st.columns(2)
+
+                            with col_a:
+                                if st.button("🔄 Update", key="update_main_package", help="Update main thetower package to latest version"):
+                                    with st.spinner("Updating main thetower package..."):
+                                        result = update_package_sync(main_pkg["name"], repo_url=main_pkg["repository_url"])
+                                        if result["success"]:
+                                            st.success(f"✅ {main_pkg['name']} updated to {result['new_version']}")
+                                            st.info("🔄 Please restart services for changes to take effect")
+                                            with st.expander("📋 Update Output", expanded=False):
+                                                st.code(result["message"], language="bash")
+                                            import time
+
+                                            time.sleep(2)
+                                            st.rerun()
+                                        else:
+                                            st.error(f"❌ Failed to update {main_pkg['name']}")
+                                            with st.expander("📋 Error Output", expanded=True):
+                                                st.code(result["message"], language="bash")
+
+                            with col_b:
+                                if st.button("⚡ Force", key="force_main_package", help="Force reinstall main package from HEAD"):
+                                    with st.spinner("Force installing main thetower package..."):
+                                        result = update_package_sync(main_pkg["name"], target_version="HEAD", repo_url=main_pkg["repository_url"])
+                                        if result["success"]:
+                                            st.success(f"✅ {main_pkg['name']} force installed")
+                                            st.info("🔄 Please restart services for changes to take effect")
+                                            with st.expander("📋 Force Install Output", expanded=False):
+                                                st.code(result["message"], language="bash")
+                                            import time
+
+                                            time.sleep(2)
+                                            st.rerun()
+                                        else:
+                                            st.error(f"❌ Failed to force install {main_pkg['name']}")
+                                            with st.expander("📋 Error Output", expanded=True):
+                                                st.code(result["message"], language="bash")
                         else:
-                            st.success("Git status: up to date")
+                            st.info("Status: ℹ️ No repository URL configured")
 
-                        # Local changes (separate line)
-                        if submodule["has_changes"]:
-                            changes = len(submodule["modified"]) + len(submodule["untracked"]) + len(submodule["staged"])
-                            st.caption(f"Local changes: {changes} changes")
-                        else:
-                            st.caption("Local changes: none")
-
-                with col3:
-                    if submodule["exists"] and not submodule["error"]:
-                        st.markdown("**Last commit:**")
-                        st.caption(submodule["last_commit"])
-                    else:
-                        st.markdown("—")
-
-                with col4:
-                    if submodule["exists"] and not submodule["error"]:
-                        pull_key = f"pull_{submodule['submodule_path']}"
-                        if st.button("⬇️", key=pull_key, help=f"Pull {submodule['submodule_path']} submodule"):
-                            with st.spinner(f"Pulling {submodule['submodule_path']} submodule..."):
-                                success, message = pull_repository(os.path.join(repo_root, submodule["submodule_path"]), is_submodule=True)
-                                if success:
-                                    st.success(f"✅ {submodule['submodule_path']} updated")
-                                    with st.expander("📋 Pull Output", expanded=False):
-                                        st.code(message, language="bash")
-                                    import time
-
-                                    time.sleep(1)
-                                    st.rerun()
-                                else:
-                                    st.error(f"❌ Failed to pull {submodule['submodule_path']}")
-                                    with st.expander("📋 Error Output", expanded=True):
-                                        st.code(message, language="bash")
-
-            # Show detailed submodule info if there are changes
-            if submodule["exists"] and submodule["has_changes"]:
-                with st.expander(f"📝 {submodule['submodule_path']} - Local Changes", expanded=False):
-                    if submodule["staged"]:
-                        st.markdown("**Staged changes:**")
-                        for file in submodule["staged"][:5]:  # Limit to first 5 for submodules
-                            st.markdown(f"- `{file}`")
-                        if len(submodule["staged"]) > 5:
-                            st.markdown(f"... and {len(submodule['staged']) - 5} more")
-
-                    if submodule["modified"]:
-                        st.markdown("**Modified files:**")
-                        for file in submodule["modified"][:5]:
-                            st.markdown(f"- `{file}`")
-                        if len(submodule["modified"]) > 5:
-                            st.markdown(f"... and {len(submodule['modified']) - 5} more")
-
-                    if submodule["untracked"]:
-                        st.markdown("**Untracked files:**")
-                        for file in submodule["untracked"][:5]:
-                            st.markdown(f"- `{file}`")
-                        if len(submodule["untracked"]) > 5:
-                            st.markdown(f"... and {len(submodule['untracked']) - 5} more")
-
-            st.markdown("---")
+        st.markdown("---")
 
     # External Packages Section
     st.markdown("## 📦 External Packages")
@@ -625,12 +747,26 @@ def codebase_status_page():
     with st.expander("ℹ️ About Codebase Status"):
         st.markdown(
             """
-        **Codebase Status Display:**
-        - **Git status**: Shows synchronization with remote (ahead/behind/up to date)
-        - **Local changes**: Shows number of uncommitted local changes
-        - Both statuses are displayed independently for clear visibility
+        **Environment Detection:**
+        - **Development Mode**: Detects git repository, shows git status and controls
+        - **Production Mode**: Pip-installed package, shows version and pip update controls
+        - Mode is automatically detected based on presence of .git directory
 
-        **Repository Status Indicators:**
+        **Development Mode (Git-based):**
+        - Shows git status: synchronization with remote (ahead/behind/up to date)
+        - Shows local changes: uncommitted modifications, additions, deletions
+        - Git pull operations: normal, rebase, autostash
+        - Submodule detection and individual updates
+        - Status indicators: ✅ up to date | ⬇️ behind | ⬆️ ahead | 📝 changes | ⚠️ error
+
+        **Production Mode (Pip-based):**
+        - Shows installed package version
+        - Checks for updates from git repository tags
+        - Update to latest tagged version or force install from HEAD
+        - ⚠️ Service restart required after main package updates
+        - Streamlit pages are automatically re-extracted via `thetower-init-streamlit`
+
+        **Repository Status Indicators (Development Mode):**
         - ✅ **Up to date**: Repository is up to date with remote
         - ⬇️ **Behind**: Local repository is behind remote (can pull updates)
         - ⬆️ **Ahead**: Local repository has unpushed commits
@@ -639,28 +775,12 @@ def codebase_status_page():
         - ⚠️ **Error**: There's an issue with the repository
         - ❌ **Not found**: Repository directory doesn't exist
 
-        **Display Format:**
-        - Git status and local changes are shown as separate, clear indicators
-        - Click the expandable "Local Changes" sections to see detailed file lists
-        - This helps distinguish between remote sync status and local work progress
-
-        **Pull Options:**
+        **Pull Options (Development Mode):**
         - ⬇️ **Pull**: Normal `git pull` - merges remote changes
         - 🔄 **Rebase**: `git pull --rebase` - replays local commits on top of remote
         - 💾 **Autostash**: `git pull --autostash` - temporarily stashes uncommitted changes
 
-        **Console Output:**
-        - All git commands show their console output in expandable sections
-        - Successful operations show output collapsed by default
-        - Failed operations show error output expanded by default
-        - This helps with debugging and understanding what happened
-
-        **Submodules:**
-        - The page automatically detects and monitors git submodules
-        - Submodule updates use `git submodule update --remote --merge`
-        - Each submodule can be updated individually or as part of bulk operations
-
-        **External Packages:**
+        **External Packages (Both Modes):**
         - Shows status of all installed packages with `Private::thetower-project` classifier
         - Automatically detects package type (cog/module/main) from classifiers
         - Version checking and updates handled via git repository tags
@@ -681,10 +801,17 @@ def codebase_status_page():
         - Works with SSH URLs via configured deploy keys in ~/.ssh/config
         - Preserves existing dependencies (uses --no-deps)
 
+        **Console Output:**
+        - All commands show their console output in expandable sections
+        - Successful operations show output collapsed by default
+        - Failed operations show error output expanded by default
+        - This helps with debugging and understanding what happened
+
         **Safety Notes:**
-        - Console output helps diagnose issues
         - Always review changes before pulling in production environments
-        - External package updates may require bot/service restart to take effect
+        - Package updates may require service restart to take effect
+        - In production, main package updates require restarting all services (bot, web, workers)
+        - External cog packages require bot restart or cog reload
         """
         )
 

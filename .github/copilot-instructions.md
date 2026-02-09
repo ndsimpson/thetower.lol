@@ -179,8 +179,9 @@ pip install -e ".[dev]"   # pytest, black, isort, flake8
 pip install -e ".[bot]"   # Discord bot only
 pip install -e ".[web]"   # Streamlit only
 
-# Install battle conditions predictor (requires repo access)
-python src\thetower\scripts\install_towerbcs.py --auto
+# Optional: Install battle conditions predictor (separate package, requires repo access)
+pip install -e ../towerbcs  # If available in workspace
+# OR: pip install git+<towerbcs-repo-url>
 
 # Centralized bytecode caching (recommended - keeps __pycache__ out of git)
 python scripts\manage_bytecode.py setup
@@ -210,9 +211,21 @@ python -m thetower.backend.tourney_results.get_live_results
 
 ### Production Deployment
 
-Services run via systemd on Linux:
+Production uses **pip-based deployment** (no git checkout):
 
-**Service files**:
+**Installation**:
+```bash
+# Install main package from git repository
+pip install git+https://github.com/ndsimpson/thetower.lol.git
+
+# Or install specific version/tag
+pip install git+https://github.com/ndsimpson/thetower.lol.git@v1.2.3
+
+# Extract Streamlit pages to /opt/thetower/ (runs automatically via systemd ExecStartPre)
+thetower-init-streamlit
+```
+
+**Service files** (located in `/data/services/`):
 
 - Web: `tower-public_site.service`, `tower-admin_site.service`, `tower-hidden_site.service`
 - Bot: `discord_bot.service` (unified bot, replaces old fish_bot/validation_bot)
@@ -226,7 +239,6 @@ Services run via systemd on Linux:
 - `HIDDEN_FEATURES=true` (enables admin features)
 - `BASE_URL=hidden.thetower.lol` (for bot URL generation)
 - `ANTHROPIC_API_KEY` (for AI features)
-- `TOWERBCS_REPO_URL` (for battle conditions predictor updates)
 
 **Paths**:
 
@@ -234,9 +246,9 @@ Services run via systemd on Linux:
 - Uploads: `/data/uploads/`
 - Static files: `/data/static/`
 - Bot config: `/data/` (guild configs, data persistence)
-- Working directory: `/tourney` (most services) or `/tourney/src` (Django module execution)
+- Streamlit working directory: `/opt/thetower/` (extracted from installed package via `thetower-init-streamlit`)
 
-**Deployment**: Code deployments are automated through the web admin interface - git pull and service restarts are handled programmatically (see [src/thetower/web/admin/](../src/thetower/web/admin/) for deployment tools).
+**Deployment**: Code deployments are automated through the web admin interface (hidden.thetower.lol) - package updates and service restarts are handled through the UI (see [src/thetower/web/admin/](../src/thetower/web/admin/) for deployment tools).
 
 ## Project-Specific Conventions
 
@@ -353,8 +365,8 @@ Services run via systemd on Linux:
 - `src/thetower/backend/towerdb/settings.py`: Django configuration
 - `../docs/cog_design.md`: Detailed cog architecture guide (read for complex bot features)
 - `scripts/manage_bytecode.py`: Centralized bytecode cache management (run `setup` first)
-- `/data/Services/UPDATE_CHECKLIST.md`: Production deployment procedures
-- `pyproject.toml`: All dependencies, build config, and tool settings (black, pytest, isort, flake8)
+- `pyproject.toml`: All dependencies, build config, entry points, and tool settings (black, pytest, isort, flake8)
+- `src/thetower/scripts/setup_streamlit.py`: Script to extract Streamlit pages for production deployment
 
 ## Windows PowerShell Environment
 
