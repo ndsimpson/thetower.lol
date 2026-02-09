@@ -4,7 +4,7 @@ Setup script to extract Streamlit pages from installed thetower package.
 
 This script copies the src/thetower/web/ directory from the installed package
 to /opt/thetower/, ensuring Streamlit services have access to pages.py and
-related files. Safe to run multiple times (overwrites existing files).
+related files. Idempotent: skips extraction if version hasn't changed.
 """
 import logging
 import shutil
@@ -18,12 +18,36 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 STREAMLIT_TARGET_DIR = Path("/opt/thetower")
+VERSION_MARKER = STREAMLIT_TARGET_DIR / ".thetower_version"
 
 
 def setup_streamlit():
-    """Extract Streamlit pages from package to /opt/thetower/."""
+    """Extract Streamlit pages from package to /opt/thetower/ if version changed."""
     try:
         import thetower
+
+        # Get the installed thetower version
+        try:
+            # Try to get version from package
+            installed_version = thetower.__version__
+        except AttributeError:
+            # Fallback: use pkg_resources or importlib.metadata
+            try:
+                from importlib.metadata import version
+                installed_version = version("thetower")
+            except Exception:
+                # If all else fails, use a timestamp-based marker
+                installed_version = "unknown"
+
+        # Check if we already extracted this version
+        if VERSION_MARKER.exists():
+            existing_version = VERSION_MARKER.read_text().strip()
+            if existing_version == installed_version:
+                logger.info(
+                    f"Streamlit pages already up-to-date "
+                    f"(version {installed_version})"
+                )
+                return 0
 
         # Get the thetower package location
         thetower_path = Path(thetower.__file__).parent
@@ -38,7 +62,9 @@ def setup_streamlit():
         # Target: /opt/thetower/src/thetower/web
         web_dst = STREAMLIT_TARGET_DIR / "src" / "thetower" / "web"
 
-        logger.info(f"Setting up Streamlit pages from {web_src} to {web_dst}")
+        logger.info(f"Extracting Streamlit pages (version {installed_version})")
+        logger.info(f"  Source: {web_src}")
+        logger.info(f"  Target: {web_dst}")
 
         # Create parent directories
         web_dst.parent.mkdir(parents=True, exist_ok=True)
@@ -51,7 +77,10 @@ def setup_streamlit():
         # Copy web directory
         shutil.copytree(web_src, web_dst)
 
-        logger.info(f"✓ Streamlit pages extracted successfully to {web_dst}")
+        # Write version marker
+        VERSION_MARKER.write_text(installed_version)
+
+        logger.info("✓ Streamlit pages extracted successfully")
         return 0
 
     except Exception as e:
