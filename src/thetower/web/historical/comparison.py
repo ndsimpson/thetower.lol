@@ -47,6 +47,8 @@ def compute_comparison(player_id=None, canvas=st):
 
     with st.sidebar:
         show_legend = st.checkbox("Show legend", key="show_legend", value=True)
+        is_mobile = st.session_state.get("mobile_view", False)
+        st.checkbox("Mobile view", value=is_mobile, key="mobile_view")
 
     css_path = Path(__file__).parent.parent / "static" / "styles" / "style.css"
     with open(css_path, "r") as infile:
@@ -215,40 +217,67 @@ def compute_comparison(player_id=None, canvas=st):
 
     pd_datas = pd_datas.drop_duplicates()
 
-    fig = px.line(pd_datas, x="date", y="wave", color="real_name", markers=True, custom_data=["bcs", "position"])
-    fig.update_layout(showlegend=show_legend)
-    fig.update_yaxes(title_text=None)
-    fig.update_layout(margin=dict(l=20))
-    fig.update_traces(hovertemplate="%{y}<br>Postion: %{customdata[1]}")
-    fig.update_layout(hovermode="x unified")
+    # Build the main plot (wave over time)
+    wave_fig = px.line(pd_datas, x="date", y="wave", color="real_name", markers=True, custom_data=["bcs", "position"])
+    wave_fig.update_layout(showlegend=show_legend)
+    wave_fig.update_yaxes(title_text=None)
+    wave_fig.update_layout(margin=dict(l=20))
+    wave_fig.update_traces(hovertemplate="%{y}<br>Postion: %{customdata[1]}")
+    wave_fig.update_layout(hovermode="x unified")
 
     min_ = min(pd_datas.wave)
     max_ = max(pd_datas.wave)
 
-    enrich_plot(fig, max_, min_, pd_datas)
+    enrich_plot(wave_fig, max_, min_, pd_datas)
 
-    canvas.plotly_chart(fig, use_container_width=True)
-
+    # Placement plot (lower is better)
     placement_datas = pd_datas[pd_datas.position >= 1].copy()  # exclude sus
+    placement_fig = px.line(placement_datas, x="date", y="position", color="real_name", markers=True)
+    placement_fig.update_layout(showlegend=show_legend)
+    placement_fig.update_yaxes(title_text=None)
+    placement_fig.update_layout(margin=dict(l=20))
+    placement_fig.update_yaxes(range=[max(pd_datas.position), min(pd_datas.position)])
 
-    fig = px.line(placement_datas, x="date", y="position", color="real_name", markers=True)
-    fig.update_layout(showlegend=show_legend)
-    fig.update_yaxes(title_text=None)
-    fig.update_layout(margin=dict(l=20))
-    fig.update_yaxes(range=[max(pd_datas.position), min(pd_datas.position)])
-    canvas.plotly_chart(fig, use_container_width=True)
+    # Respect mobile view: render sequentially when mobile, else show tabs
+    is_mobile = st.session_state.get("mobile_view", False)
 
-    if st.session_state.options.links_toggle:
-        to_be_displayed = summary.style.format(make_player_url, subset=["Search term"]).to_html(escape=False)
-        canvas.write(to_be_displayed, unsafe_allow_html=True)
+    if is_mobile:
+        canvas.plotly_chart(wave_fig, use_container_width=True)
+
+        if st.session_state.options.links_toggle:
+            to_be_displayed = summary.style.format(make_player_url, subset=["Search term"]).to_html(escape=False)
+            canvas.write(to_be_displayed, unsafe_allow_html=True)
+        else:
+            canvas.dataframe(summary, use_container_width=True, hide_index=True)
+
+        canvas.plotly_chart(placement_fig, use_container_width=True)
+
+        if st.session_state.options.links_toggle:
+            to_be_displayed = last_results.format(make_player_url, subset=["id"]).to_html(escape=False)
+            canvas.write(to_be_displayed, unsafe_allow_html=True)
+        else:
+            canvas.dataframe(last_results, use_container_width=True, hide_index=True)
     else:
-        canvas.dataframe(summary, use_container_width=True, hide_index=True)
+        # Present each chart + its supporting table in its own tab under the filters
+        tab1, tab2 = canvas.tabs(["Wave", "Placement"])
 
-    if st.session_state.options.links_toggle:
-        to_be_displayed = last_results.format(make_player_url, subset=["id"]).to_html(escape=False)
-        canvas.write(to_be_displayed, unsafe_allow_html=True)
-    else:
-        canvas.dataframe(last_results, use_container_width=True, hide_index=True)
+        with tab1:
+            canvas.plotly_chart(wave_fig, use_container_width=True)
+
+            if st.session_state.options.links_toggle:
+                to_be_displayed = summary.style.format(make_player_url, subset=["Search term"]).to_html(escape=False)
+                canvas.write(to_be_displayed, unsafe_allow_html=True)
+            else:
+                canvas.dataframe(summary, use_container_width=True, hide_index=True)
+
+        with tab2:
+            canvas.plotly_chart(placement_fig, use_container_width=True)
+
+            if st.session_state.options.links_toggle:
+                to_be_displayed = last_results.format(make_player_url, subset=["id"]).to_html(escape=False)
+                canvas.write(to_be_displayed, unsafe_allow_html=True)
+            else:
+                canvas.dataframe(last_results, use_container_width=True, hide_index=True)
 
     if not player_id:
         with canvas.expander("Debug data..."):
