@@ -47,7 +47,10 @@ DATABASES = {
 
 
 # SECURITY WARNING: keep the secret key used in production secret!
-with open(BASE_DIR.parent.parent.parent / "SECRET_KEY", "r") as infile:
+from thetower.backend.env_config import get_django_data
+
+SECRET_KEY_PATH = get_django_data() / "SECRET_KEY"
+with open(SECRET_KEY_PATH, "r") as infile:
     SECRET_KEY = infile.read().strip()
 
 
