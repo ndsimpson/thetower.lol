@@ -43,6 +43,8 @@ logging.info(f"Resolved LIVE_BASE: {LIVE_BASE}")
 CACHE_BASE = LIVE_BASE
 # Cache schema versioning: bump when the on-disk JSON structure changes
 SCHEMA_VERSION = 2  # v2 introduces precomputed quantile_data
+# Tourney grouping: snapshots > 42 hours apart indicate a new tourney
+GAP_HOURS = 42
 
 
 def atomic_write(path: Path, data: dict):
