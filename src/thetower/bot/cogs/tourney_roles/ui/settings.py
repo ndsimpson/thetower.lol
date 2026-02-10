@@ -561,7 +561,7 @@ class TournamentRolesSettingsView(BaseSettingsView):
     def _get_mode_settings_text(self) -> str:
         """Get mode settings text."""
         dry_run = self.core.is_dry_run_enabled(self.guild_id)
-        pause = self.cog.get_setting("pause", False, guild_id=self.guild_id)
+        pause = self.cog.get_setting("paused", False, guild_id=self.guild_id)
         debug_logging = self.cog.get_setting("debug_logging", False, guild_id=self.guild_id)
 
         lines = []
@@ -1012,9 +1012,9 @@ class ModeSettingsView(ui.View):
         embed = discord.Embed(title="Operation Modes", description="Configure operational modes and debugging", color=discord.Color.blue())
 
         dry_run = self.core.is_dry_run_enabled(self.guild_id)
-        pause = self.cog.get_setting("pause", False, guild_id=self.guild_id)
+        pause = self.cog.get_setting("paused", False, guild_id=self.guild_id)
         debug_logging = self.cog.get_setting("debug_logging", False, guild_id=self.guild_id)
-        global_pause = self.cog.get_global_setting("pause", False)
+        global_pause = self.cog.get_global_setting("paused", False)
 
         embed.add_field(
             name="Dry Run Mode", value="Enabled - No actual changes will be made" if dry_run else "Disabled - Changes will be applied", inline=False
@@ -1056,8 +1056,8 @@ class ModeSettingsView(ui.View):
     @ui.button(label="Toggle Server Pause", style=discord.ButtonStyle.secondary, emoji="⏸️", row=0)
     async def toggle_pause(self, interaction: discord.Interaction, button: ui.Button):
         """Toggle update pause for this server."""
-        current = self.cog.get_setting("pause", False, guild_id=self.guild_id)
-        self.cog.set_setting("pause", not current, guild_id=self.guild_id)
+        current = self.cog.get_setting("paused", False, guild_id=self.guild_id)
+        self.cog.set_setting("paused", not current, guild_id=self.guild_id)
 
         status = "paused" if not current else "resumed"
         await interaction.response.send_message(f"✅ Automatic updates {status} for this server", ephemeral=True)
@@ -1073,8 +1073,8 @@ class ModeSettingsView(ui.View):
             await interaction.response.send_message("❌ Only the bot owner can control global pause", ephemeral=True)
             return
 
-        current = self.cog.get_global_setting("pause", False)
-        self.cog.set_global_setting("pause", not current)
+        current = self.cog.get_global_setting("paused", False)
+        self.cog.set_global_setting("paused", not current)
 
         status = "paused globally" if not current else "resumed globally"
         impact = "All role updates across ALL servers are now paused" if not current else "Role updates are now active across all servers"

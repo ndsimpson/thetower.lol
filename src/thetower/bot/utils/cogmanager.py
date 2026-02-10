@@ -369,26 +369,6 @@ class CogManager:
         parts = filename.split("_")
         return "".join(word.capitalize() for word in parts)
 
-    def class_name_to_filename(self, class_name: str) -> str:
-        """Convert a cog class name to its filename.
-
-        Examples:
-            BattleConditions -> battle_conditions
-            KnownPlayers -> known_players
-            TourneyRoles -> tourney_roles
-
-        Args:
-            class_name: The cog class name in PascalCase
-
-        Returns:
-            The expected filename in snake_case
-        """
-        # Insert underscore before uppercase letters (except first)
-        import re
-
-        snake = re.sub("([a-z0-9])([A-Z])", r"\1_\2", class_name)
-        return snake.lower()
-
     def get_cog_by_filename(self, filename: str):
         """Get a loaded cog by its filename.
 
@@ -1133,17 +1113,6 @@ class CogManager:
             if removed_count > 0:
                 logger.debug(f"Removed {removed_count} UI extensions from '{source_cog}' for target cog '{target_cog}'")
 
-    def get_ui_extension_sources(self, target_cog: str) -> list[str]:
-        """Get list of source cogs that have registered UI extensions for a target cog.
-
-        Args:
-            target_cog: The name of the target cog
-
-        Returns:
-            List of source cog names
-        """
-        return [source for source, provider in self.ui_extension_registry.get(target_cog, [])]
-
     # Info Extension Registry Methods
 
     def register_info_extension(self, target_cog: str, source_cog: str, provider_func: callable) -> None:
@@ -1196,13 +1165,3 @@ class CogManager:
             if removed_count > 0:
                 logger.debug(f"Removed {removed_count} info extensions from '{source_cog}' for target cog '{target_cog}'")
 
-    def get_info_extension_sources(self, target_cog: str) -> list[str]:
-        """Get list of source cogs that have registered info extensions for a target cog.
-
-        Args:
-            target_cog: The name of the target cog
-
-        Returns:
-            List of source cog names
-        """
-        return [source for source, provider in self.info_extension_registry.get(target_cog, [])]

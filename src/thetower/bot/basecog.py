@@ -65,7 +65,6 @@ class BaseCog(commands.Cog):
         self._has_errors = False  # Track if the cog has errors
         self._last_operation = None  # Track the last operation time
         self._operation_count = 0  # Track the number of operations
-        self._is_paused = False  # Track if the cog is paused
 
         # Just get the logger, inheriting parent configuration
         self._logger = logging.getLogger(f"thetower.bot.{self.__class__.__name__}")
@@ -160,7 +159,7 @@ class BaseCog(commands.Cog):
     @property
     def is_paused(self) -> bool:
         """Check if the cog is currently paused."""
-        return self._is_paused
+        return self.get_setting("paused", False)
 
     async def _on_ready(self):
         """Internal handler for bot ready event."""
@@ -699,24 +698,6 @@ class BaseCog(commands.Cog):
         # Fetch fresh permissions each time for immediate propagation
         return await self._fetch_user_permissions(user)
 
-    async def check_user_groups(self, user: discord.User, required_groups: List[str], require_all: bool = False) -> bool:
-        """
-        Check if a user has specific Django groups.
-
-        Args:
-            user: The Discord user to check
-            required_groups: List of Django group names required
-            require_all: If True, user must have ALL groups; if False, user must have ANY group
-
-        Returns:
-            bool: True if user has the required group(s), False otherwise
-        """
-        permissions = await self.get_user_permissions(user)
-
-        if require_all:
-            return permissions.has_all_groups(required_groups)
-        else:
-            return permissions.has_any_group(required_groups)
 
     async def _fetch_user_permissions(self, user: discord.User) -> PermissionContext:
         """

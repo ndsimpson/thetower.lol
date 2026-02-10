@@ -95,7 +95,7 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
             "process_delay": 5,
             "error_retry_delay": 300,
             "league_hierarchy": ["Legend", "Champion", "Platinum", "Gold", "Silver", "Copper"],
-            "pause": False,  # Global pause - bot owner can pause all role updates
+            "paused": False,  # Global pause - bot owner can pause all role updates
             "correction_delay_seconds": 3.0,  # Wait time before correcting wrong roles (allows changes to settle)
         }
 
@@ -105,7 +105,7 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
             "verified_role_id": None,
             "log_channel_id": None,
             "dry_run_log_channel_id": None,  # Separate log channel for dry run mode (optional)
-            "pause": False,
+            "paused": False,
             "immediate_logging": True,
             "bulk_batch_size": 45,  # Concurrent operations per batch
             "bulk_batch_delay": 0.1,  # Delay between batches
@@ -1318,7 +1318,7 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
             )
 
             # Check global pause setting
-            if self.get_global_setting("pause", False):
+            if self.get_global_setting("paused", False):
                 self.logger.info("Role updates are globally paused, ignoring tournament data refresh")
                 return
 
@@ -1428,7 +1428,7 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
 
                     for guild in enabled_guilds:
                         # Check guild-level pause
-                        if self.get_setting("pause", default=False, guild_id=guild.id):
+                        if self.get_setting("paused", default=False, guild_id=guild.id):
                             self.logger.info(f"Guild {guild.name} has paused role updates, skipping")
                             continue
 
