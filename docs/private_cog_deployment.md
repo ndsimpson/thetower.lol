@@ -314,15 +314,15 @@ sudo systemctl restart discord_bot.service
 
 ## Quick Reference
 
-| Task                | Command                                                                                                |
-| ------------------- | ------------------------------------------------------------------------------------------------------ |
-| **Automated setup**   | `python scripts/setup_private_package.py <name> <url>`                                                 |
-| Generate deploy key   | `ssh-keygen -t ed25519 -C "description" -f ~/.ssh/keyname`                                             |
-| Show public key       | `cat ~/.ssh/keyname.pub`                                                                               |
-| Add key to agent      | `ssh-add ~/.ssh/keyname`                                                                               |
-| List loaded keys      | `ssh-add -l`                                                                                           |
-| Test SSH connection   | `ssh -T git@github-tower-<name>`                                                                       |
-| Install private pkg   | `pip install git+ssh://git@github-tower-<name>/user/repo.git`                                          |
-| Update private pkg    | `pip install --upgrade --force-reinstall --no-deps git+ssh://git@github-tower-<name>/user/repo.git`    |
-| Restart bot         | `sudo systemctl restart discord_bot.service`                                                           |
-| Check bot logs      | `sudo journalctl -u discord_bot.service -f`                                                            |
+| Task                | Command                                                                                             |
+| ------------------- | --------------------------------------------------------------------------------------------------- |
+| **Automated setup** | `python scripts/setup_private_package.py <name> <url>`                                              |
+| Generate deploy key | `ssh-keygen -t ed25519 -C "description" -f ~/.ssh/keyname`                                          |
+| Show public key     | `cat ~/.ssh/keyname.pub`                                                                            |
+| Add key to agent    | `ssh-add ~/.ssh/keyname`                                                                            |
+| List loaded keys    | `ssh-add -l`                                                                                        |
+| Test SSH connection | `ssh -T git@github-tower-<name>`                                                                    |
+| Install private pkg | `pip install git+ssh://git@github-tower-<name>/user/repo.git`                                       |
+| Update private pkg  | `pip install --upgrade --force-reinstall --no-deps git+ssh://git@github-tower-<name>/user/repo.git` |
+| Restart bot         | `sudo systemctl restart discord_bot.service`                                                        |
+| Check bot logs      | `sudo journalctl -u discord_bot.service -f`                                                         |
