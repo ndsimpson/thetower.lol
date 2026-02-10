@@ -148,85 +148,33 @@ def get_git_status(repo_path: str) -> Dict[str, any]:
     return status_info
 
 
-def get_submodules_info(repo_path: str) -> List[Dict[str, any]]:
-    """
-    Get information about all submodules.
-
-    Returns:
-        list: List of submodule information dictionaries
-    """
-    submodules = []
-
-    # Get submodule status
-    success, submodule_status, _ = run_git_command(["git", "submodule", "status"], repo_path)
-    if not success:
-        return submodules
-
-    for line in submodule_status.split("\n"):
-        if not line.strip():
-            continue
-
-        # Parse submodule status line
-        # Format: " commit_hash path (describe_output)"
-        # Status prefixes: space=up-to-date, +=needs-update, -=not-initialized, U=merge-conflicts
-        status_char = line[0] if line else " "
-        parts = line[1:].split(" ", 2)
-        if len(parts) >= 2:
-            commit_hash = parts[0]
-            submodule_path = parts[1]
-            describe = parts[2] if len(parts) > 2 else ""
-
-            # Get full status for this submodule
-            full_path = os.path.join(repo_path, submodule_path)
-            submodule_info = get_git_status(full_path)
-            submodule_info["submodule_path"] = submodule_path
-            submodule_info["submodule_commit"] = commit_hash
-            submodule_info["submodule_describe"] = describe.strip("()")
-            submodule_info["submodule_status"] = status_char
-            submodule_info["needs_update"] = status_char == "+"
-            submodule_info["not_initialized"] = status_char == "-"
-            submodule_info["has_conflicts"] = status_char == "U"
-
-            submodules.append(submodule_info)
-
-    return submodules
-
-
-def pull_repository(repo_path: str, is_submodule: bool = False, pull_mode: str = "normal") -> Tuple[bool, str]:
+def pull_repository(repo_path: str, pull_mode: str = "normal") -> Tuple[bool, str]:
     """
     Pull updates for a repository with different strategies.
 
     Args:
         repo_path: Path to the repository
-        is_submodule: Whether this is a submodule
         pull_mode: "normal", "rebase", "autostash", or "force"
 
     Returns:
         tuple: (success, message)
     """
-    if is_submodule:
-        # For submodules, use git submodule update
-        parent_path = os.path.dirname(repo_path)
-        submodule_name = os.path.basename(repo_path)
-        success, stdout, stderr = run_git_command(["git", "submodule", "update", "--remote", "--merge", submodule_name], parent_path)
-    else:
-        # For main repo, use different pull strategies
-        if pull_mode == "rebase":
-            success, stdout, stderr = run_git_command(["git", "pull", "--rebase"], repo_path)
-        elif pull_mode == "autostash":
-            success, stdout, stderr = run_git_command(["git", "pull", "--autostash"], repo_path)
-        elif pull_mode == "force":
-            # Force pull by resetting to remote
-            # First fetch to get latest remote refs
-            success1, stdout1, stderr1 = run_git_command(["git", "fetch", "origin"], repo_path)
-            if success1:
-                success, stdout2, stderr2 = run_git_command(["git", "reset", "--hard", "origin/HEAD"], repo_path)
-                stdout = f"Fetch:\n{stdout1}\n\nReset:\n{stdout2}"
-                stderr = f"{stderr1}\n{stderr2}".strip()
-            else:
-                success, stdout, stderr = success1, stdout1, stderr1
-        else:  # normal
-            success, stdout, stderr = run_git_command(["git", "pull"], repo_path)
+    if pull_mode == "rebase":
+        success, stdout, stderr = run_git_command(["git", "pull", "--rebase"], repo_path)
+    elif pull_mode == "autostash":
+        success, stdout, stderr = run_git_command(["git", "pull", "--autostash"], repo_path)
+    elif pull_mode == "force":
+        # Force pull by resetting to remote
+        # First fetch to get latest remote refs
+        success1, stdout1, stderr1 = run_git_command(["git", "fetch", "origin"], repo_path)
+        if success1:
+            success, stdout2, stderr2 = run_git_command(["git", "reset", "--hard", "origin/HEAD"], repo_path)
+            stdout = f"Fetch:\n{stdout1}\n\nReset:\n{stdout2}"
+            stderr = f"{stderr1}\n{stderr2}".strip()
+        else:
+            success, stdout, stderr = success1, stdout1, stderr1
+    else:  # normal
+        success, stdout, stderr = run_git_command(["git", "pull"], repo_path)
 
     if success:
         return True, stdout if stdout else "Pull completed successfully"
@@ -240,10 +188,6 @@ def get_status_emoji(repo_info: Dict[str, any]) -> str:
         return "❌"
     elif repo_info["error"]:
         return "⚠️"
-    elif repo_info.get("has_conflicts"):
-        return "🔴"
-    elif repo_info.get("needs_update"):
-        return "🟡"
     elif repo_info["behind"] > 0:
         return "⬇️"
     elif repo_info["ahead"] > 0:
@@ -298,7 +242,6 @@ def codebase_status_page():
     if dev_mode:
         # Development mode: show git repository status
         main_repo = get_git_status(cwd)
-        submodules = get_submodules_info(cwd)
 
         st.markdown("## 🏠 Main Repository")
 
@@ -430,101 +373,6 @@ def codebase_status_page():
                         st.markdown(f"- `{file}`")
                     if len(main_repo["untracked"]) > 10:
                         st.markdown(f"... and {len(main_repo['untracked']) - 10} more")
-
-        st.markdown("---")
-
-        # Submodules Section (development only)
-        if submodules:
-            st.markdown("## 📦 Submodules")
-
-            for submodule in submodules:
-                with st.container():
-                    col1, col2, col3, col4 = st.columns([3, 2, 2, 1])
-
-                    with col1:
-                        emoji = get_status_emoji(submodule)
-                        st.markdown(f"**{emoji} {submodule['submodule_path']}**")
-                        if submodule["exists"]:
-                            st.caption(f"Branch: `{submodule['branch']}`")
-                        else:
-                            st.caption("Submodule not initialized")
-
-                    with col2:
-                        if submodule["not_initialized"]:
-                            st.warning("Not initialized")
-                        elif submodule["has_conflicts"]:
-                            st.error("Has conflicts")
-                        elif submodule["needs_update"]:
-                            st.warning("Needs update")
-                        elif submodule["error"]:
-                            st.error(f"Error: {submodule['error']}")
-                        else:
-                            # Git status (remote tracking)
-                            if submodule["behind"] > 0:
-                                st.warning(f"Git status: {submodule['behind']} behind")
-                            elif submodule["ahead"] > 0:
-                                st.info(f"Git status: {submodule['ahead']} ahead")
-                            else:
-                                st.success("Git status: up to date")
-
-                            # Local changes (separate line)
-                            if submodule["has_changes"]:
-                                changes = len(submodule["modified"]) + len(submodule["untracked"]) + len(submodule["staged"])
-                                st.caption(f"Local changes: {changes} changes")
-                            else:
-                                st.caption("Local changes: none")
-
-                    with col3:
-                        if submodule["exists"] and not submodule["error"]:
-                            st.markdown("**Last commit:**")
-                            st.caption(submodule["last_commit"])
-                        else:
-                            st.markdown("—")
-
-                    with col4:
-                        if submodule["exists"] and not submodule["error"]:
-                            pull_key = f"pull_{submodule['submodule_path']}"
-                            if st.button("⬇️", key=pull_key, help=f"Pull {submodule['submodule_path']} submodule"):
-                                with st.spinner(f"Pulling {submodule['submodule_path']} submodule..."):
-                                    success, message = pull_repository(os.path.join(cwd, submodule["submodule_path"]), is_submodule=True)
-                                    if success:
-                                        st.success(f"✅ {submodule['submodule_path']} updated")
-                                        with st.expander("📋 Pull Output", expanded=False):
-                                            st.code(message, language="bash")
-                                        import time
-
-                                        time.sleep(1)
-                                        st.rerun()
-                                    else:
-                                        st.error(f"❌ Failed to pull {submodule['submodule_path']}")
-                                        with st.expander("📋 Error Output", expanded=True):
-                                            st.code(message, language="bash")
-
-                # Show detailed submodule info if there are changes
-                if submodule["exists"] and submodule["has_changes"]:
-                    with st.expander(f"📝 {submodule['submodule_path']} - Local Changes", expanded=False):
-                        if submodule["staged"]:
-                            st.markdown("**Staged changes:**")
-                            for file in submodule["staged"][:5]:  # Limit to first 5 for submodules
-                                st.markdown(f"- `{file}`")
-                            if len(submodule["staged"]) > 5:
-                                st.markdown(f"... and {len(submodule['staged']) - 5} more")
-
-                        if submodule["modified"]:
-                            st.markdown("**Modified files:**")
-                            for file in submodule["modified"][:5]:
-                                st.markdown(f"- `{file}`")
-                            if len(submodule["modified"]) > 5:
-                                st.markdown(f"... and {len(submodule['modified']) - 5} more")
-
-                        if submodule["untracked"]:
-                            st.markdown("**Untracked files:**")
-                            for file in submodule["untracked"][:5]:
-                                st.markdown(f"- `{file}`")
-                            if len(submodule["untracked"]) > 5:
-                                st.markdown(f"... and {len(submodule['untracked']) - 5} more")
-
-                st.markdown("---")
 
         st.markdown("---")
 
@@ -756,7 +604,6 @@ def codebase_status_page():
         - Shows git status: synchronization with remote (ahead/behind/up to date)
         - Shows local changes: uncommitted modifications, additions, deletions
         - Git pull operations: normal, rebase, autostash
-        - Submodule detection and individual updates
         - Status indicators: ✅ up to date | ⬇️ behind | ⬆️ ahead | 📝 changes | ⚠️ error
 
         **Production Mode (Pip-based):**
@@ -771,7 +618,6 @@ def codebase_status_page():
         - ⬇️ **Behind**: Local repository is behind remote (can pull updates)
         - ⬆️ **Ahead**: Local repository has unpushed commits
         - 📝 **Changes**: Local repository has uncommitted changes (shown in expandable sections)
-        - 🟡 **Needs update**: Submodule needs to be updated
         - ⚠️ **Error**: There's an issue with the repository
         - ❌ **Not found**: Repository directory doesn't exist
 
