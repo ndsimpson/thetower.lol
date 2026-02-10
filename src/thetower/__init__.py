@@ -5,10 +5,12 @@ A unified package for managing The Tower tournament data, providing web interfac
 Discord bot functionality, and data analysis tools.
 """
 
-__version__ = "1.0.0"
+try:
+    from importlib.metadata import version
 
-# Import main components for easy access
-# TODO: Add imports as we migrate components
+    __version__ = version("thetower")
+except Exception:
+    __version__ = "unknown"
 
 __all__ = [
     "__version__",
