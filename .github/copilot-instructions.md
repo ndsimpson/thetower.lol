@@ -214,6 +214,7 @@ python -m thetower.backend.tourney_results.get_live_results
 Production uses **pip-based deployment** (no git checkout):
 
 **Installation**:
+
 ```bash
 # Install main package from git repository
 pip install git+https://github.com/ndsimpson/thetower.lol.git
