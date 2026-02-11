@@ -75,13 +75,9 @@ def main() -> None:
                 # some Streamlit builds don't expose experimental_rerun; update a
                 # query param to force a rerun instead
                 try:
-                    # Use the stable query params API instead of the deprecated
-                    # experimental_get_query_params(). `st.query_params` is a
-                    # mapping of str->[str], so convert to a plain dict for
-                    # manipulation.
-                    params = dict(st.query_params) if st.query_params is not None else {}
-                    params["_shun_admin_r"] = [str(time.time())]
-                    st.experimental_set_query_params(**params)
+                    # Use the stable query params API: st.query_params is a
+                    # writable mapping that can be updated directly
+                    st.query_params["_shun_admin_r"] = str(time.time())
                 except Exception:
                     # Last resort: no-op; the page will reflect new state on next run
                     pass
@@ -95,9 +91,7 @@ def main() -> None:
                 st.experimental_rerun()
             except Exception:
                 try:
-                    params = dict(st.query_params) if st.query_params is not None else {}
-                    params["_shun_admin_r"] = [str(time.time())]
-                    st.experimental_set_query_params(**params)
+                    st.query_params["_shun_admin_r"] = str(time.time())
                 except Exception:
                     pass
 
