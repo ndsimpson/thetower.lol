@@ -66,6 +66,7 @@ def compute_comparison(player_id=None, canvas=st):
         st.session_state.counter = st.session_state.counter + 1 if st.session_state.get("counter") else 1
 
     def search_for_new():
+        st.query_params.clear()
         st.session_state.pop("display_comparison", None)
         st.session_state.counter = st.session_state.counter + 1 if st.session_state.get("counter") else 1
 

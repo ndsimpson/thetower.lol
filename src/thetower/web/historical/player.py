@@ -47,6 +47,7 @@ def compute_player_lookup():
     hidden_features = os.environ.get("HIDDEN_FEATURES")
 
     def search_for_new():
+        st.query_params.clear()
         if "player_id" in st.session_state:
             st.session_state.pop("player_id")
 
