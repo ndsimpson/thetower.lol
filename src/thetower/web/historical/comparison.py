@@ -68,6 +68,9 @@ def compute_comparison(player_id=None, canvas=st):
     def search_for_new():
         st.query_params.clear()
         st.session_state.pop("display_comparison", None)
+        st.session_state.options.compare_players = []
+        st.session_state.options.current_player = None
+        st.session_state.options.current_player_id = None
         st.session_state.counter = st.session_state.counter + 1 if st.session_state.get("counter") else 1
 
     if (currently := st.session_state.get("comparison", [])) and st.session_state.get("display_comparison") is not True:

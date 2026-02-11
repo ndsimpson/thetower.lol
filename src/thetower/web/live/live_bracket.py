@@ -73,6 +73,8 @@ def live_bracket():
     # Function to clear selection and search again
     def search_for_new():
         st.query_params.clear()
+        st.session_state.options.current_player = None
+        st.session_state.options.current_player_id = None
         if "player_id" in st.session_state:
             st.session_state.pop("player_id")
         if "player_search_term" in st.session_state:

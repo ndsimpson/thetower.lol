@@ -267,7 +267,7 @@ def compute_search(player=False, comparison=False):
                 "Add to comparison", on_click=add_to_comparison, args=(datum["player_id"], datum["nicknames"]), key=f'{datum["player_id"]}comp'
             )
 
-    if not data_to_be_shown:
+    if not data_to_be_shown and search_term:
         st.info("No results found")
 
     return data_to_be_shown
