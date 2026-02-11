@@ -16,6 +16,20 @@ import streamlit as st
 from thetower.web.admin.package_updates import check_package_updates_sync, get_thetower_packages, update_package_sync
 
 
+@st.dialog("Operation Result", width="large")
+def show_operation_result(success: bool, title: str, message: str):
+    """Display operation result in a modal dialog."""
+    if success:
+        st.success(title)
+    else:
+        st.error(title)
+
+    st.code(message, language="bash")
+
+    if st.button("✅ Close & Refresh", use_container_width=True, type="primary"):
+        st.rerun()
+
+
 def is_windows() -> bool:
     """Check if running on Windows."""
     return platform.system().lower() == "windows"
@@ -303,52 +317,31 @@ def codebase_status_page():
                             if st.button("⬇️ Pull", key="pull_main_normal", help="Normal git pull"):
                                 with st.spinner("Pulling main repository..."):
                                     success, message = pull_repository(cwd, pull_mode="normal")
-                                    if success:
-                                        st.success("✅ Main repository updated")
-                                        with st.expander("📋 Pull Output", expanded=False):
-                                            st.code(message, language="bash")
-                                        import time
-
-                                        time.sleep(1)
-                                        st.rerun()
-                                    else:
-                                        st.error("❌ Failed to pull main repository")
-                                        with st.expander("📋 Error Output", expanded=True):
-                                            st.code(message, language="bash")
+                                    show_operation_result(
+                                        success=success,
+                                        title="✅ Main repository updated" if success else "❌ Failed to pull main repository",
+                                        message=message,
+                                    )
 
                         with col_b:
                             if st.button("🔄 Rebase", key="pull_main_rebase", help="Pull with rebase (git pull --rebase)"):
                                 with st.spinner("Pulling main repository (rebase)..."):
                                     success, message = pull_repository(cwd, pull_mode="rebase")
-                                    if success:
-                                        st.success("✅ Main repository rebased")
-                                        with st.expander("📋 Rebase Output", expanded=False):
-                                            st.code(message, language="bash")
-                                        import time
-
-                                        time.sleep(1)
-                                        st.rerun()
-                                    else:
-                                        st.error("❌ Failed to rebase main repository")
-                                        with st.expander("📋 Error Output", expanded=True):
-                                            st.code(message, language="bash")
+                                    show_operation_result(
+                                        success=success,
+                                        title="✅ Main repository rebased" if success else "❌ Failed to rebase main repository",
+                                        message=message,
+                                    )
 
                         with col_c:
                             if st.button("💾 Stash", key="pull_main_autostash", help="Pull with autostash (git pull --autostash)"):
                                 with st.spinner("Pulling main repository (autostash)..."):
                                     success, message = pull_repository(cwd, pull_mode="autostash")
-                                    if success:
-                                        st.success("✅ Main repository updated (autostash)")
-                                        with st.expander("📋 Autostash Output", expanded=False):
-                                            st.code(message, language="bash")
-                                        import time
-
-                                        time.sleep(1)
-                                        st.rerun()
-                                    else:
-                                        st.error("❌ Failed to autostash pull main repository")
-                                        with st.expander("📋 Error Output", expanded=True):
-                                            st.code(message, language="bash")
+                                    show_operation_result(
+                                        success=success,
+                                        title="✅ Main repository updated (autostash)" if success else "❌ Failed to autostash pull main repository",
+                                        message=message,
+                                    )
 
         # Show detailed main repo info if there are changes
         if main_repo["exists"] and main_repo["has_changes"]:
@@ -443,37 +436,23 @@ def codebase_status_page():
                                 if st.button("🔄 Update", key="update_main_package", help="Update main thetower package to latest version"):
                                     with st.spinner("Updating main thetower package..."):
                                         result = update_package_sync(main_pkg["name"], repo_url=main_pkg["repository_url"])
-                                        if result["success"]:
-                                            st.success(f"✅ {main_pkg['name']} updated to {result['new_version']}")
-                                            st.info("🔄 Please restart services for changes to take effect")
-                                            with st.expander("📋 Update Output", expanded=False):
-                                                st.code(result["message"], language="bash")
-                                            import time
-
-                                            time.sleep(2)
-                                            st.rerun()
-                                        else:
-                                            st.error(f"❌ Failed to update {main_pkg['name']}")
-                                            with st.expander("📋 Error Output", expanded=True):
-                                                st.code(result["message"], language="bash")
+                                        title = (
+                                            f"✅ {main_pkg['name']} updated to {result['new_version']}\n🔄 Please restart services for changes to take effect"
+                                            if result["success"]
+                                            else f"❌ Failed to update {main_pkg['name']}"
+                                        )
+                                        show_operation_result(success=result["success"], title=title, message=result["message"])
 
                             with col_b:
                                 if st.button("⚡ Force", key="force_main_package", help="Force reinstall main package from main branch"):
                                     with st.spinner("Force installing main thetower package..."):
                                         result = update_package_sync(main_pkg["name"], target_version="main", repo_url=main_pkg["repository_url"])
-                                        if result["success"]:
-                                            st.success(f"✅ {main_pkg['name']} force installed")
-                                            st.info("🔄 Please restart services for changes to take effect")
-                                            with st.expander("📋 Force Install Output", expanded=False):
-                                                st.code(result["message"], language="bash")
-                                            import time
-
-                                            time.sleep(2)
-                                            st.rerun()
-                                        else:
-                                            st.error(f"❌ Failed to force install {main_pkg['name']}")
-                                            with st.expander("📋 Error Output", expanded=True):
-                                                st.code(result["message"], language="bash")
+                                        title = (
+                                            f"✅ {main_pkg['name']} force installed\n🔄 Please restart services for changes to take effect"
+                                            if result["success"]
+                                            else f"❌ Failed to force install {main_pkg['name']}"
+                                        )
+                                        show_operation_result(success=result["success"], title=title, message=result["message"])
                         else:
                             st.info("Status: ℹ️ No repository URL configured")
 
@@ -557,18 +536,12 @@ def codebase_status_page():
                                 if st.button("🔄 Update", key=update_key, help=f"Update {pkg['name']} to latest version"):
                                     with st.spinner(f"Updating {pkg['name']}..."):
                                         result = update_package_sync(pkg["name"], repo_url=pkg["repository_url"])
-                                        if result["success"]:
-                                            st.success(f"✅ {pkg['name']} updated to {result['new_version']}")
-                                            with st.expander("📋 Update Output", expanded=False):
-                                                st.code(result["message"], language="bash")
-                                            import time
-
-                                            time.sleep(1)
-                                            st.rerun()
-                                        else:
-                                            st.error(f"❌ Failed to update {pkg['name']}")
-                                            with st.expander("📋 Error Output", expanded=True):
-                                                st.code(result["message"], language="bash")
+                                        title = (
+                                            f"✅ {pkg['name']} updated to {result['new_version']}"
+                                            if result["success"]
+                                            else f"❌ Failed to update {pkg['name']}"
+                                        )
+                                        show_operation_result(success=result["success"], title=title, message=result["message"])
 
                             with col_b:
                                 force_key = f"force_{idx}_{pkg['name'].replace('-', '_')}"
@@ -576,18 +549,10 @@ def codebase_status_page():
                                     with st.spinner(f"Force installing {pkg['name']}..."):
                                         # Force install uses main branch instead of a tag
                                         result = update_package_sync(pkg["name"], target_version="main", repo_url=pkg["repository_url"])
-                                        if result["success"]:
-                                            st.success(f"✅ {pkg['name']} force installed")
-                                            with st.expander("📋 Force Install Output", expanded=False):
-                                                st.code(result["message"], language="bash")
-                                            import time
-
-                                            time.sleep(1)
-                                            st.rerun()
-                                        else:
-                                            st.error(f"❌ Failed to force install {pkg['name']}")
-                                            with st.expander("📋 Error Output", expanded=True):
-                                                st.code(result["message"], language="bash")
+                                        title = (
+                                            f"✅ {pkg['name']} force installed" if result["success"] else f"❌ Failed to force install {pkg['name']}"
+                                        )
+                                        show_operation_result(success=result["success"], title=title, message=result["message"])
 
                 st.markdown("---")
 
