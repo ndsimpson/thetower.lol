@@ -33,12 +33,12 @@ def get_service_status(service_name: str) -> Tuple[str, str, str]:
         return ("not-available", "unknown", "windows-dev")
 
     try:
-        result = subprocess.run(["/usr/bin/sudo", "/usr/bin/systemctl", "is-active", service_name], capture_output=True, text=True, timeout=5)
+        result = subprocess.run(["systemctl", "is-active", service_name], capture_output=True, text=True, timeout=5)
         active_state = result.stdout.strip()
 
         # Get more detailed status
         result = subprocess.run(
-            ["/usr/bin/sudo", "/usr/bin/systemctl", "show", service_name, "--property=SubState,ActiveState,LoadState"],
+            ["systemctl", "show", service_name, "--property=SubState,ActiveState,LoadState"],
             capture_output=True,
             text=True,
             timeout=5,
@@ -70,7 +70,7 @@ def get_service_start_time(service_name: str) -> Optional[str]:
     try:
         # Get service start time using systemctl show
         result = subprocess.run(
-            ["/usr/bin/sudo", "/usr/bin/systemctl", "show", service_name, "--property=ActiveEnterTimestamp"],
+            ["systemctl", "show", service_name, "--property=ActiveEnterTimestamp"],
             capture_output=True,
             text=True,
             timeout=5,
@@ -222,7 +222,6 @@ def restart_service(service_name: str) -> bool:
         result = subprocess.run(["/usr/bin/sudo", "/usr/bin/systemctl", "restart", service_name], capture_output=True, text=True, timeout=30)
         if result.returncode != 0:
             logger.error(f"Failed to restart {service_name}: {result.stderr}")
-            st.error(f"Error: {result.stderr}")
         return result.returncode == 0
     except (subprocess.TimeoutExpired, subprocess.CalledProcessError) as e:
         logger.error(f"Exception restarting {service_name}: {e}")
@@ -244,7 +243,6 @@ def start_service(service_name: str) -> bool:
         result = subprocess.run(["/usr/bin/sudo", "/usr/bin/systemctl", "start", service_name], capture_output=True, text=True, timeout=30)
         if result.returncode != 0:
             logger.error(f"Failed to start {service_name}: {result.stderr}")
-            st.error(f"Error: {result.stderr}")
         return result.returncode == 0
     except (subprocess.TimeoutExpired, subprocess.CalledProcessError) as e:
         logger.error(f"Exception starting {service_name}: {e}")
