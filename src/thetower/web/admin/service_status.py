@@ -33,13 +33,15 @@ def get_service_status(service_name: str) -> Tuple[str, str, str]:
         return ("not-available", "unknown", "windows-dev")
 
     try:
-        # Get service status
-        result = subprocess.run(["sudo", "systemctl", "is-active", service_name], capture_output=True, text=True, timeout=5)
+        result = subprocess.run(["/usr/bin/sudo", "/usr/bin/systemctl", "is-active", service_name], capture_output=True, text=True, timeout=5)
         active_state = result.stdout.strip()
 
         # Get more detailed status
         result = subprocess.run(
-            ["sudo", "systemctl", "show", service_name, "--property=SubState,ActiveState,LoadState"], capture_output=True, text=True, timeout=5
+            ["/usr/bin/sudo", "/usr/bin/systemctl", "show", service_name, "--property=SubState,ActiveState,LoadState"],
+            capture_output=True,
+            text=True,
+            timeout=5,
         )
 
         properties = {}
@@ -68,7 +70,10 @@ def get_service_start_time(service_name: str) -> Optional[str]:
     try:
         # Get service start time using systemctl show
         result = subprocess.run(
-            ["sudo", "systemctl", "show", service_name, "--property=ActiveEnterTimestamp"], capture_output=True, text=True, timeout=5
+            ["/usr/bin/sudo", "/usr/bin/systemctl", "show", service_name, "--property=ActiveEnterTimestamp"],
+            capture_output=True,
+            text=True,
+            timeout=5,
         )
 
         for line in result.stdout.strip().split("\n"):
@@ -214,7 +219,7 @@ def restart_service(service_name: str) -> bool:
         return True
 
     try:
-        result = subprocess.run(["sudo", "systemctl", "restart", service_name], capture_output=True, text=True, timeout=30)
+        result = subprocess.run(["/usr/bin/sudo", "/usr/bin/systemctl", "restart", service_name], capture_output=True, text=True, timeout=30)
         if result.returncode != 0:
             logger.error(f"Failed to restart {service_name}: {result.stderr}")
             st.error(f"Error: {result.stderr}")
@@ -236,7 +241,7 @@ def start_service(service_name: str) -> bool:
         return True
 
     try:
-        result = subprocess.run(["sudo", "systemctl", "start", service_name], capture_output=True, text=True, timeout=30)
+        result = subprocess.run(["/usr/bin/sudo", "/usr/bin/systemctl", "start", service_name], capture_output=True, text=True, timeout=30)
         if result.returncode != 0:
             logger.error(f"Failed to start {service_name}: {result.stderr}")
             st.error(f"Error: {result.stderr}")
