@@ -458,9 +458,9 @@ def codebase_status_page():
                                                 st.code(result["message"], language="bash")
 
                             with col_b:
-                                if st.button("⚡ Force", key="force_main_package", help="Force reinstall main package from HEAD"):
+                                if st.button("⚡ Force", key="force_main_package", help="Force reinstall main package from main branch"):
                                     with st.spinner("Force installing main thetower package..."):
-                                        result = update_package_sync(main_pkg["name"], target_version="HEAD", repo_url=main_pkg["repository_url"])
+                                        result = update_package_sync(main_pkg["name"], target_version="main", repo_url=main_pkg["repository_url"])
                                         if result["success"]:
                                             st.success(f"✅ {main_pkg['name']} force installed")
                                             st.info("🔄 Please restart services for changes to take effect")
@@ -572,10 +572,10 @@ def codebase_status_page():
 
                             with col_b:
                                 force_key = f"force_{idx}_{pkg['name'].replace('-', '_')}"
-                                if st.button("⚡ Force", key=force_key, help=f"Force reinstall {pkg['name']} (HEAD)"):
+                                if st.button("⚡ Force", key=force_key, help=f"Force reinstall {pkg['name']} (main branch)"):
                                     with st.spinner(f"Force installing {pkg['name']}..."):
-                                        # Force install uses HEAD instead of a tag
-                                        result = update_package_sync(pkg["name"], target_version="HEAD", repo_url=pkg["repository_url"])
+                                        # Force install uses main branch instead of a tag
+                                        result = update_package_sync(pkg["name"], target_version="main", repo_url=pkg["repository_url"])
                                         if result["success"]:
                                             st.success(f"✅ {pkg['name']} force installed")
                                             with st.expander("📋 Force Install Output", expanded=False):
