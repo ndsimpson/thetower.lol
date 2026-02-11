@@ -38,10 +38,6 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
         """Scan for orphaned advertisement posts and add them to pending deletions if not already tracked."""
         await self._send_debug_message("Starting orphaned post scan.")
 
-        # Skip if paused
-        if self.is_paused:
-            return
-
         try:
             # Scan each guild's advertisement channel
             for guild in self.bot.guilds:
@@ -52,6 +48,10 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
                     continue
 
                 self._ensure_guild_initialized(guild_id)
+
+                # Skip if this guild is paused
+                if self.get_setting("paused", default=False, guild_id=guild_id):
+                    continue
 
                 advertise_channel_id = self._get_advertise_channel_id(guild_id)
                 if not advertise_channel_id:
@@ -337,15 +337,15 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
     @tasks.loop(minutes=1)  # Check for threads to delete every minute
     async def check_deletions(self) -> None:
         """Check for threads that need to be deleted."""
-        # Skip if paused
-        if self.is_paused:
-            return
-
         async with self.task_tracker.task_context("Advertisement Deletion Check"):
             current_time = datetime.datetime.now()
             to_remove = []  # Track entries to remove
 
             for thread_id, deletion_time, author_id, notify, guild_id, thread_name, author_name in self.pending_deletions:
+                # Skip if this guild is paused
+                if self.get_setting("paused", default=False, guild_id=guild_id):
+                    continue
+
                 if current_time >= deletion_time:
                     try:
                         # Try to get the thread

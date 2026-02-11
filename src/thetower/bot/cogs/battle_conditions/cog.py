@@ -189,11 +189,6 @@ class BattleConditions(BaseCog, name="Battle Conditions"):
         await self.bot.wait_until_ready()
         await self.wait_until_ready()
 
-        # Check global pause setting
-        if self.is_paused:
-            self.logger.debug("Battle conditions announcements are globally paused")
-            return
-
         async with self.task_tracker.task_context("Battle Conditions Check"):
             try:
                 self._active_process = "Battle Conditions Check"
@@ -222,6 +217,10 @@ class BattleConditions(BaseCog, name="Battle Conditions"):
 
                 for guild in self.bot.guilds:
                     guild_id = guild.id
+
+                    # Skip if this guild is paused
+                    if self.get_setting("paused", default=False, guild_id=guild_id):
+                        continue
 
                     # Get schedules for this guild
                     schedules = self.get_setting("destination_schedules", [], guild_id=guild_id)
