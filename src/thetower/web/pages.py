@@ -1,5 +1,6 @@
 # Standard library imports
 import os
+from importlib.metadata import version
 from pathlib import Path
 
 # Third-party imports
@@ -40,6 +41,20 @@ with st.sidebar:
         </div>""",
         unsafe_allow_html=True,
     )
+
+    # Show package version on hidden site
+    if hidden_features:
+        try:
+            pkg_version = version("thetower")
+            st.markdown(
+                f'<div style="text-align:center; font-size:0.75em; color:#888888; margin-bottom:0.5em;">🔧 Version: {pkg_version}</div>',
+                unsafe_allow_html=True,
+            )
+        except Exception:
+            st.markdown(
+                '<div style="text-align:center; font-size:0.75em; color:#888888; margin-bottom:0.5em;">🔧 Version: Unknown</div>',
+                unsafe_allow_html=True,
+            )
 
 options = Options(links_toggle=True, default_graph=Graph.last_16.value, average_foreground=True)
 
