@@ -257,9 +257,9 @@ class EditGuildAdvertisementForm(Modal, title="Edit Guild Advertisement"):
         success = await self.cog.update_advertisement(interaction, self.thread_id, self.message_id, embed, thread_title)
 
         if success:
-            await interaction.followup.send("✅ Your advertisement has been updated successfully!", ephemeral=True)
+            await interaction.edit_original_response(content="✅ Your advertisement has been updated successfully!")
         else:
-            await interaction.followup.send("❌ Failed to update advertisement. It may have been deleted.", ephemeral=True)
+            await interaction.edit_original_response(content="❌ Failed to update advertisement. It may have been deleted.")
 
     async def on_timeout(self) -> None:
         """Handle form timeout."""
@@ -360,9 +360,9 @@ class EditMemberAdvertisementForm(Modal, title="Edit Member Advertisement"):
         success = await self.cog.update_advertisement(interaction, self.thread_id, self.message_id, embed, thread_title)
 
         if success:
-            await interaction.followup.send("✅ Your advertisement has been updated successfully!", ephemeral=True)
+            await interaction.edit_original_response(content="✅ Your advertisement has been updated successfully!")
         else:
-            await interaction.followup.send("❌ Failed to update advertisement. It may have been deleted.", ephemeral=True)
+            await interaction.edit_original_response(content="❌ Failed to update advertisement. It may have been deleted.")
 
     async def on_timeout(self) -> None:
         """Handle form timeout."""
