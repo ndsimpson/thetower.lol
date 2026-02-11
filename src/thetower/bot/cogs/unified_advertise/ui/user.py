@@ -71,6 +71,11 @@ class AdManagementView(View):
         self.clear_items()
 
         if user_ads:
+            # Add edit button if user has ads
+            edit_btn = Button(label="Edit Advertisement", style=discord.ButtonStyle.primary, emoji="✏️")
+            edit_btn.callback = self.edit_advertisement
+            self.add_item(edit_btn)
+
             # Add delete button if user has ads
             delete_btn = Button(label="Delete Advertisement", style=discord.ButtonStyle.danger, emoji="🗑️")
             delete_btn.callback = self.delete_advertisement
@@ -80,9 +85,8 @@ class AdManagementView(View):
             toggle_btn = Button(label="Toggle Notifications", style=discord.ButtonStyle.secondary, emoji="🔔")
             toggle_btn.callback = self.toggle_notifications
             self.add_item(toggle_btn)
-
-        if not on_cooldown:
-            # Add create new ad button
+        elif not on_cooldown:
+            # Add create new ad button only if no ads and not on cooldown
             create_btn = Button(label="Create Advertisement", style=discord.ButtonStyle.success, emoji="✨")
             create_btn.callback = self.create_advertisement
             self.add_item(create_btn)
@@ -93,6 +97,89 @@ class AdManagementView(View):
         self.add_item(refresh_btn)
 
         return embed
+
+    async def edit_advertisement(self, interaction: discord.Interaction):
+        """Handle editing an advertisement."""
+        # Get user's ads
+        user_ads = []
+        for thread_id, deletion_time, author_id, notify, ad_guild_id, thread_name, author_name in self.cog.pending_deletions:
+            if author_id == self.user_id and ad_guild_id == self.guild_id:
+                user_ads.append((thread_id, thread_name))
+
+        if len(user_ads) == 1:
+            # Only one ad, edit it directly
+            thread_id = user_ads[0][0]
+            await self._edit_ad(interaction, thread_id)
+        else:
+            # Multiple ads, show selection dropdown
+            options = [discord.SelectOption(label=name[:100], value=str(tid)) for tid, name in user_ads]
+            select = Select(placeholder="Select advertisement to edit", options=options)
+
+            async def select_callback(select_interaction: discord.Interaction):
+                thread_id = int(select.values[0])
+                await self._edit_ad(select_interaction, thread_id)
+
+            select.callback = select_callback
+            view = View()
+            view.add_item(select)
+            await interaction.response.send_message("Select the advertisement you want to edit:", view=view, ephemeral=True)
+
+    async def _edit_ad(self, interaction: discord.Interaction, thread_id: int):
+        """Edit a specific advertisement."""
+        try:
+            # Fetch the thread
+            thread = await self.cog.bot.fetch_channel(thread_id)
+
+            # Get the starter message
+            starter_message = thread.starter_message
+            if not starter_message:
+                # If starter_message is not cached, fetch it
+                async for message in thread.history(limit=1, oldest_first=True):
+                    starter_message = message
+                    break
+
+            if not starter_message or not starter_message.embeds:
+                await interaction.response.send_message("❌ Could not find the advertisement message. It may have been deleted.", ephemeral=True)
+                return
+
+            # Get the embed and determine ad type
+            embed = starter_message.embeds[0]
+            thread_name = thread.name
+
+            # Determine ad type from thread name
+            if thread_name.startswith("[Guild]"):
+                ad_type = "guild"
+            elif thread_name.startswith("[Member]"):
+                ad_type = "member"
+            else:
+                await interaction.response.send_message("❌ Could not determine advertisement type.", ephemeral=True)
+                return
+
+            # Show the edit form with current data
+            from thetower.bot.ui.context import SettingsViewContext
+
+            from .core import EditGuildAdvertisementForm, EditMemberAdvertisementForm
+
+            context = SettingsViewContext(guild_id=self.guild_id, cog_instance=self.cog, interaction=interaction, is_bot_owner=False)
+
+            if ad_type == "guild":
+                form = EditGuildAdvertisementForm(context, thread_id, starter_message.id, embed)
+            else:
+                form = EditMemberAdvertisementForm(context, thread_id, starter_message.id, embed)
+
+            await interaction.response.send_modal(form)
+
+        except discord.NotFound:
+            await interaction.response.send_message("❌ Advertisement not found. It may have been deleted.", ephemeral=True)
+        except Exception as e:
+            self.cog.logger.error(f"Error editing advertisement: {e}", exc_info=True)
+            try:
+                if not interaction.response.is_done():
+                    await interaction.response.send_message("❌ Failed to edit advertisement.", ephemeral=True)
+                else:
+                    await interaction.followup.send("❌ Failed to edit advertisement.", ephemeral=True)
+            except Exception:
+                pass
 
     async def delete_advertisement(self, interaction: discord.Interaction):
         """Handle deleting an advertisement."""

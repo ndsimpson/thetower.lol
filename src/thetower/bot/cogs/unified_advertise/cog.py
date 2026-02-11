@@ -998,6 +998,50 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
             except Exception as response_error:
                 await self._send_debug_message(f"❌ Failed to send error response to user {interaction.user.id}: {str(response_error)}")
 
+    async def update_advertisement(
+        self, interaction: discord.Interaction, thread_id: int, message_id: int, embed: discord.Embed, thread_title: str
+    ) -> bool:
+        """Update an existing advertisement.
+
+        Args:
+            interaction: Discord interaction object
+            thread_id: The thread ID of the advertisement
+            message_id: The message ID of the starter message
+            embed: Updated embed
+            thread_title: Updated thread title
+
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        try:
+            # Fetch the thread
+            thread = await self.bot.fetch_channel(thread_id)
+
+            # Fetch the message
+            message = await thread.fetch_message(message_id)
+
+            # Update the message embed
+            await message.edit(embed=embed)
+
+            # Update thread title if it changed
+            if thread.name != thread_title:
+                await thread.edit(name=thread_title)
+
+            await self._send_debug_message(f"✅ Updated advertisement thread: {thread_id} for user {interaction.user.id} ({interaction.user.name})")
+            self._operation_count += 1
+            self._last_operation_time = datetime.datetime.now()
+
+            return True
+
+        except discord.NotFound:
+            await self._send_debug_message(f"❌ Advertisement not found for thread {thread_id}, message {message_id}")
+            return False
+        except Exception as e:
+            await self._send_debug_message(f"❌ Error updating advertisement for thread {thread_id}: {str(e)}")
+            self.logger.error(f"Error updating advertisement: {e}", exc_info=True)
+            self._has_errors = True
+            return False
+
     async def _check_and_remove_duplicates(self, threads: list, guild_id: int) -> None:
         """Check for duplicate posts and remove all but the oldest one.
 
