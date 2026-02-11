@@ -5,12 +5,15 @@ Shows the status of various systemd services used by the Tower system.
 Gracefully handles Windows development environments.
 """
 
+import logging
 import platform
 import subprocess
 from datetime import datetime, timezone
 from typing import Optional, Tuple
 
 import streamlit as st
+
+logger = logging.getLogger(__name__)
 
 
 def is_windows() -> bool:
@@ -212,8 +215,12 @@ def restart_service(service_name: str) -> bool:
 
     try:
         result = subprocess.run(["sudo", "systemctl", "restart", service_name], capture_output=True, text=True, timeout=30)
+        if result.returncode != 0:
+            logger.error(f"Failed to restart {service_name}: {result.stderr}")
+            st.error(f"Error: {result.stderr}")
         return result.returncode == 0
-    except (subprocess.TimeoutExpired, subprocess.CalledProcessError):
+    except (subprocess.TimeoutExpired, subprocess.CalledProcessError) as e:
+        logger.error(f"Exception restarting {service_name}: {e}")
         return False
 
 
@@ -230,8 +237,12 @@ def start_service(service_name: str) -> bool:
 
     try:
         result = subprocess.run(["sudo", "systemctl", "start", service_name], capture_output=True, text=True, timeout=30)
+        if result.returncode != 0:
+            logger.error(f"Failed to start {service_name}: {result.stderr}")
+            st.error(f"Error: {result.stderr}")
         return result.returncode == 0
-    except (subprocess.TimeoutExpired, subprocess.CalledProcessError):
+    except (subprocess.TimeoutExpired, subprocess.CalledProcessError) as e:
+        logger.error(f"Exception starting {service_name}: {e}")
         return False
 
 
