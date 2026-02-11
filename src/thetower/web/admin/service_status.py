@@ -31,12 +31,12 @@ def get_service_status(service_name: str) -> Tuple[str, str, str]:
 
     try:
         # Get service status
-        result = subprocess.run(["systemctl", "is-active", service_name], capture_output=True, text=True, timeout=5)
+        result = subprocess.run(["sudo", "systemctl", "is-active", service_name], capture_output=True, text=True, timeout=5)
         active_state = result.stdout.strip()
 
         # Get more detailed status
         result = subprocess.run(
-            ["systemctl", "show", service_name, "--property=SubState,ActiveState,LoadState"], capture_output=True, text=True, timeout=5
+            ["sudo", "systemctl", "show", service_name, "--property=SubState,ActiveState,LoadState"], capture_output=True, text=True, timeout=5
         )
 
         properties = {}
@@ -64,7 +64,9 @@ def get_service_start_time(service_name: str) -> Optional[str]:
 
     try:
         # Get service start time using systemctl show
-        result = subprocess.run(["systemctl", "show", service_name, "--property=ActiveEnterTimestamp"], capture_output=True, text=True, timeout=5)
+        result = subprocess.run(
+            ["sudo", "systemctl", "show", service_name, "--property=ActiveEnterTimestamp"], capture_output=True, text=True, timeout=5
+        )
 
         for line in result.stdout.strip().split("\n"):
             if line.startswith("ActiveEnterTimestamp="):
@@ -209,7 +211,7 @@ def restart_service(service_name: str) -> bool:
         return True
 
     try:
-        result = subprocess.run(["systemctl", "restart", service_name], capture_output=True, text=True, timeout=30)
+        result = subprocess.run(["sudo", "systemctl", "restart", service_name], capture_output=True, text=True, timeout=30)
         return result.returncode == 0
     except (subprocess.TimeoutExpired, subprocess.CalledProcessError):
         return False
@@ -227,7 +229,7 @@ def start_service(service_name: str) -> bool:
         return True
 
     try:
-        result = subprocess.run(["systemctl", "start", service_name], capture_output=True, text=True, timeout=30)
+        result = subprocess.run(["sudo", "systemctl", "start", service_name], capture_output=True, text=True, timeout=30)
         return result.returncode == 0
     except (subprocess.TimeoutExpired, subprocess.CalledProcessError):
         return False
@@ -531,29 +533,19 @@ def service_status_page():
             from thetower.backend.sus.models import ModerationRecord
 
             # Get queue statistics
-            pending_count = ModerationRecord.objects.filter(
-                needs_zendesk_ticket=True,
-                zendesk_ticket_id__isnull=True
-            ).count()
+            pending_count = ModerationRecord.objects.filter(needs_zendesk_ticket=True, zendesk_ticket_id__isnull=True).count()
 
             # Get failed count (max retries reached, typically 3)
             failed_count = ModerationRecord.objects.filter(
-                needs_zendesk_ticket=True,
-                zendesk_ticket_id__isnull=True,
-                zendesk_retry_count__gte=3
+                needs_zendesk_ticket=True, zendesk_ticket_id__isnull=True, zendesk_retry_count__gte=3
             ).count()
 
             # Get successfully created tickets (last 24h)
             yesterday = dj_timezone.now() - timedelta(days=1)
-            recent_created = ModerationRecord.objects.filter(
-                zendesk_ticket_id__isnull=False,
-                zendesk_last_attempt__gte=yesterday
-            ).count()
+            recent_created = ModerationRecord.objects.filter(zendesk_ticket_id__isnull=False, zendesk_last_attempt__gte=yesterday).count()
 
             # Get total tickets ever created
-            total_created = ModerationRecord.objects.filter(
-                zendesk_ticket_id__isnull=False
-            ).count()
+            total_created = ModerationRecord.objects.filter(zendesk_ticket_id__isnull=False).count()
 
             col1, col2, col3, col4 = st.columns(4)
             with col1:
