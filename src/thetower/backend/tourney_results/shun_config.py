@@ -2,22 +2,17 @@ import json
 import logging
 import threading
 import time
-from pathlib import Path
 from typing import Any, Dict
+
+from thetower.backend.env_config import get_django_data
 
 _CACHE: Dict[str, Any] = {"mapping": None, "expiry": 0.0}
 _LOCK = threading.Lock()
 
 
-def _repo_root() -> Path:
-    # Project root is four parents up from this file, matching other utilities
-    return Path(__file__).resolve().parents[4]
-
-
 def _load_mapping_from_disk() -> Dict[str, Any]:
-    repo_root = _repo_root()
-    json_path = repo_root / "include_shun.json"
-    legacy_marker = repo_root / "include_shun"
+    django_data = get_django_data()
+    json_path = django_data / "include_shun.json"
 
     if json_path.exists():
         try:
@@ -45,9 +40,6 @@ def _load_mapping_from_disk() -> Dict[str, Any]:
         except Exception:
             logging.exception("Failed to read/parse include_shun.json; treating as empty mapping")
             return {"pages": {}, "default": False}
-    elif legacy_marker.exists():
-        # Back-compat: legacy marker file means global true default
-        return {"pages": {}, "default": True}
     else:
         return {"pages": {}, "default": False}
 
@@ -55,9 +47,8 @@ def _load_mapping_from_disk() -> Dict[str, Any]:
 def include_shun_enabled_for(page: str, ttl_seconds: int = 300) -> bool:
     """Return whether shunned players should be included for the given page.
 
-    The mapping is read from `include_shun.json` at the repository root and cached
-    in-process for `ttl_seconds` (default 300s). If the JSON file is missing but
-    a legacy `include_shun` file exists, the default is True (backwards-compat).
+    The mapping is read from `include_shun.json` in the DJANGO_DATA directory and cached
+    in-process for `ttl_seconds` (default 300s).
 
     Args:
         page: page key, e.g. 'live_bracket' or 'comparison'
