@@ -27,6 +27,10 @@ DATA_DIR = get_django_data()
 STATIC_URL = "static/"
 STATIC_ROOT = os.path.join(str(DATA_DIR), "static")
 
+# Media files (User uploads)
+MEDIA_URL = "/"
+MEDIA_ROOT = str(DATA_DIR)
+
 
 # Database
 # https://docs.djangoproject.com/en/4.2/ref/settings/#databases
