@@ -1499,8 +1499,8 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
         This allows TourneyRoles to invalidate and recalculate roles for the player
         without requiring direct coupling between validation and tourney_roles cogs.
 
-        Processes ALL guilds where the player is a member and TourneyRoles is enabled,
-        not just the guild where verification occurred.
+        Processes ALL guilds where the player is a member, not just the guild where
+        verification occurred.
 
         Args:
             guild_id: Guild where verification occurred (for logging)
@@ -1513,20 +1513,16 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
                 f"Player verified event: origin_guild={guild_id}, discord_id={discord_id}, " f"new={primary_player_id}, old={old_primary_player_id}"
             )
 
-            # Find all guilds where this Discord user is a member AND TourneyRoles is enabled
+            # Find all guilds where this Discord user is a member
             target_guilds = []
             for guild in self.bot.guilds:
-                # Check if cog is enabled for this guild
-                if not self.is_cog_enabled_for_guild(guild.id):
-                    continue
-
                 # Check if the Discord user is a member of this guild
                 member = guild.get_member(int(discord_id))
                 if member:
                     target_guilds.append(guild.id)
 
             if not target_guilds:
-                self.logger.debug(f"Discord user {discord_id} not found in any guilds with TourneyRoles enabled")
+                self.logger.debug(f"Discord user {discord_id} not found in any guilds")
                 return
 
             self.logger.info(f"Processing verification for {len(target_guilds)} guild(s): {target_guilds}")
