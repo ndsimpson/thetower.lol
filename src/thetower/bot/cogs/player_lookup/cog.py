@@ -128,22 +128,32 @@ class PlayerLookup(BaseCog, name="Player Lookup", description="Universal player 
             self.logger.error(f"Error getting player by player ID {player_id}: {e}")
             return None
 
-    async def get_player_by_discord_id(self, discord_id: str) -> Optional[KnownPlayer]:
-        """Get a player by their Discord ID"""
+    async def get_player_by_discord_id(self, discord_id: str, include_inactive: bool = False) -> Optional[KnownPlayer]:
+        """Get a player by their Discord ID.
+
+        Args:
+            discord_id: Discord user ID to look up
+            include_inactive: If True, include retired/inactive accounts (requires manage_retired_accounts permission)
+
+        Returns:
+            KnownPlayer if found, None otherwise
+        """
         await self.wait_until_ready()
         try:
             from thetower.backend.sus.models import LinkedAccount
 
             # Ensure discord_id is a string for database lookup
             discord_id_str = str(discord_id)
-            self.logger.debug(f"Querying LinkedAccount for Discord ID: {discord_id_str}")
+            self.logger.debug(f"Querying LinkedAccount for Discord ID: {discord_id_str} (include_inactive={include_inactive})")
+
+            # Build query - conditionally filter by active status
+            query = LinkedAccount.objects.filter(platform=LinkedAccount.Platform.DISCORD, account_id=discord_id_str)
+            if not include_inactive:
+                query = query.filter(active=True)
+            query = query.select_related("player__django_user")
 
             # Query database for the LinkedAccount, then get player
-            linked_account = await sync_to_async(
-                LinkedAccount.objects.filter(platform=LinkedAccount.Platform.DISCORD, account_id=discord_id_str)
-                .select_related("player__django_user")
-                .first
-            )()
+            linked_account = await sync_to_async(query.first)()
 
             if linked_account:
                 self.logger.debug(f"Found LinkedAccount for Discord ID {discord_id_str}, returning player: {linked_account.player.name}")
@@ -166,8 +176,16 @@ class PlayerLookup(BaseCog, name="Player Lookup", description="Universal player 
             self.logger.error(f"Error getting player by name {name}: {e}")
             return None
 
-    async def get_player_by_any(self, identifier: str) -> Optional[KnownPlayer]:
-        """Get a player by any identifier (name, Discord ID, or player ID)"""
+    async def get_player_by_any(self, identifier: str, include_inactive: bool = False) -> Optional[KnownPlayer]:
+        """Get a player by any identifier (name, Discord ID, or player ID).
+
+        Args:
+            identifier: Player name, Discord ID, or player ID
+            include_inactive: If True, include retired/inactive Discord accounts
+
+        Returns:
+            KnownPlayer if found, None otherwise
+        """
         await self.wait_until_ready()
 
         # Try direct lookups in order of specificity
@@ -176,7 +194,7 @@ class PlayerLookup(BaseCog, name="Player Lookup", description="Universal player 
         # Try Discord ID first (most specific)
         if identifier.isdigit() and len(identifier) >= 15:  # Discord IDs are long numbers
             self.logger.debug(f"Attempting Discord ID lookup for: {identifier}")
-            player = await self.get_player_by_discord_id(identifier)
+            player = await self.get_player_by_discord_id(identifier, include_inactive=include_inactive)
             if player:
                 self.logger.debug(f"Found player by Discord ID: {player.name}")
 
@@ -340,12 +358,13 @@ class PlayerLookup(BaseCog, name="Player Lookup", description="Universal player 
         """Check if posting publicly is allowed in all channels for a guild."""
         return self.get_setting("allow_post_publicly_everywhere", False, guild_id=guild_id)
 
-    async def search_player(self, search_term: str) -> List[KnownPlayer]:
+    async def search_player(self, search_term: str, include_inactive: bool = False) -> List[KnownPlayer]:
         """
         Search for players by name, ID, or Discord info across all data sources
 
         Args:
             search_term: Name, player ID, or Discord ID/name to search for
+            include_inactive: If True, include retired/inactive Discord accounts
 
         Returns:
             List of matching KnownPlayer objects and UnverifiedPlayer objects
@@ -384,10 +403,10 @@ class PlayerLookup(BaseCog, name="Player Lookup", description="Universal player 
             results = []
 
             # Check verified players first (try both original and uppercase for player IDs)
-            verified_player = await self.get_player_by_any(search_term)
+            verified_player = await self.get_player_by_any(search_term, include_inactive=include_inactive)
             if not verified_player and search_term != search_term_upper:
                 # Try uppercase version for player IDs
-                verified_player = await self.get_player_by_any(search_term_upper)
+                verified_player = await self.get_player_by_any(search_term_upper, include_inactive=include_inactive)
             if verified_player:
                 results.append(verified_player)
 
@@ -436,12 +455,16 @@ class PlayerLookup(BaseCog, name="Player Lookup", description="Universal player 
             # Search by Discord ID in LinkedAccount
             from thetower.backend.sus.models import LinkedAccount
 
-            linked_account_results = await sync_to_async(list)(
-                KnownPlayer.objects.filter(
-                    linked_accounts__platform=LinkedAccount.Platform.DISCORD,
-                    linked_accounts__account_id__icontains=search_term,
-                ).distinct()
+            # Build query for linked accounts, conditionally filter by active status
+            linked_account_query = KnownPlayer.objects.filter(
+                linked_accounts__platform=LinkedAccount.Platform.DISCORD,
+                linked_accounts__account_id__icontains=search_term,
             )
+            if not include_inactive:
+                linked_account_query = linked_account_query.filter(linked_accounts__active=True)
+            linked_account_query = linked_account_query.distinct()
+
+            linked_account_results = await sync_to_async(list)(linked_account_query)
             results.extend([r for r in linked_account_results if r not in results])
 
             # Search by tower_id in ModerationRecord for unverified players (use uppercase)

@@ -474,7 +474,7 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
 
         def get_gameinstance_id():
             linked_account = (
-                LinkedAccount.objects.filter(platform=LinkedAccount.Platform.DISCORD, account_id=str(discord_id))
+                LinkedAccount.objects.filter(platform=LinkedAccount.Platform.DISCORD, account_id=str(discord_id), active=True)
                 .select_related("role_source_instance")
                 .first()
             )

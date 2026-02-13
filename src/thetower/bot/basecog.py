@@ -698,7 +698,6 @@ class BaseCog(commands.Cog):
         # Fetch fresh permissions each time for immediate propagation
         return await self._fetch_user_permissions(user)
 
-
     async def _fetch_user_permissions(self, user: discord.User) -> PermissionContext:
         """
         Fetch user permissions from Django database.
@@ -716,9 +715,9 @@ class BaseCog(commands.Cog):
             try:
                 from thetower.backend.sus.models import LinkedAccount
 
-                # Get the LinkedAccount for this Discord user
+                # Get the active LinkedAccount for this Discord user
                 linked_account = (
-                    LinkedAccount.objects.filter(platform=LinkedAccount.Platform.DISCORD, account_id=str(user.id))
+                    LinkedAccount.objects.filter(platform=LinkedAccount.Platform.DISCORD, account_id=str(user.id), active=True)
                     .select_related("player__django_user")
                     .first()
                 )

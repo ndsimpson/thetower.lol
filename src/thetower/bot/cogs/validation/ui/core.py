@@ -429,7 +429,7 @@ class CancelAltLinkButton(discord.ui.Button):
                     from thetower.bot.cogs.player_lookup.ui.user import get_player_details
 
                     linked_account = await sync_to_async(
-                        LinkedAccount.objects.filter(platform=LinkedAccount.Platform.DISCORD, account_id=self.current_discord_id)
+                        LinkedAccount.objects.filter(platform=LinkedAccount.Platform.DISCORD, account_id=self.current_discord_id, active=True)
                         .select_related("player")
                         .first
                     )()
@@ -988,7 +988,12 @@ class PlayerIdChangeReasonSelect(discord.ui.Select):
                 description="The game assigned me a new ID, but I have results on my old ID too.",
                 emoji="🎮",
             ),
-            discord.SelectOption(label="I typed the wrong ID", value="typo", description="I entered the wrong ID when verifying. My old ID has no data on it.", emoji="✏️"),
+            discord.SelectOption(
+                label="I typed the wrong ID",
+                value="typo",
+                description="I entered the wrong ID when verifying. My old ID has no data on it.",
+                emoji="✏️",
+            ),
         ]
         super().__init__(placeholder="Select reason for change...", options=options, row=0)
         self.cog = cog
@@ -2301,3 +2306,202 @@ class CancelDetailViewButton(discord.ui.Button):
         for item in self.children:
             item.disabled = True
         await interaction.message.edit(view=self)
+
+
+class ManageDiscordAccountsButton(discord.ui.Button):
+    """Button for mods to manage Discord accounts (mark as active/retired)."""
+
+    def __init__(self, cog, player_id: int, guild_id: int):
+        super().__init__(label="Manage Discord Account(s)", style=discord.ButtonStyle.secondary, emoji="⚙️", row=2)
+        self.cog = cog
+        self.player_id = player_id
+        self.guild_id = guild_id
+
+    async def callback(self, interaction: discord.Interaction):
+        """Open the Discord account management view."""
+        await interaction.response.defer(ephemeral=True)
+
+        def get_discord_accounts():
+            try:
+                from thetower.backend.sus.models import KnownPlayer, LinkedAccount
+
+                player = KnownPlayer.objects.filter(id=self.player_id).first()
+                if not player:
+                    return None, "Player not found"
+
+                # Get all Discord LinkedAccounts for this player (including inactive)
+                accounts = list(
+                    LinkedAccount.objects.filter(player=player, platform=LinkedAccount.Platform.DISCORD)
+                    .order_by("-verified", "-primary", "account_id")
+                    .values("id", "account_id", "display_name", "verified", "primary", "active", "verified_at")
+                )
+
+                return accounts, None
+            except Exception as e:
+                return None, str(e)
+
+        accounts, error = await sync_to_async(get_discord_accounts)()
+
+        if error:
+            await interaction.followup.send(f"❌ Error loading Discord accounts: {error}", ephemeral=True)
+            return
+
+        if not accounts:
+            await interaction.followup.send("❌ No Discord accounts found for this player.", ephemeral=True)
+            return
+
+        view = ManageDiscordAccountsView(self.cog, self.player_id, accounts, self.guild_id)
+        embed = view.create_embed()
+        await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+
+
+class ManageDiscordAccountsView(discord.ui.View):
+    """View for managing Discord account active/retired status."""
+
+    def __init__(self, cog, player_id: int, accounts: list, guild_id: int):
+        super().__init__(timeout=600)
+        self.cog = cog
+        self.player_id = player_id
+        self.accounts = accounts
+        self.guild_id = guild_id
+
+        # Add toggle buttons for each account
+        for account in accounts:
+            self.add_item(ToggleAccountActiveButton(self.cog, account, self.player_id, self.accounts, self.guild_id))
+
+        # Add refresh button
+        self.add_item(RefreshAccountsButton(self.cog, self.player_id, self.guild_id))
+
+    def create_embed(self) -> discord.Embed:
+        """Create embed showing all Discord accounts."""
+        embed = discord.Embed(
+            title="🔧 Manage Discord Accounts",
+            description=f"Player ID: `{self.player_id}`\n\nClick a button below to toggle active/retired status.",
+            color=discord.Color.blue(),
+        )
+
+        for account in self.accounts:
+            account_id = account["account_id"]
+            display_name = account["display_name"]
+            verified = account["verified"]
+            primary = account["primary"]
+            active = account["active"]
+            verified_at = account["verified_at"]
+
+            # Build status indicators
+            status_emoji = "✅" if verified else "⏳"
+            primary_marker = " 🌟" if primary else ""
+            active_status = "🟢 Active" if active else "🔴 Retired"
+            name_str = f" ({display_name})" if display_name else ""
+
+            # Build verification timestamp
+            verified_text = ""
+            if verified and verified_at:
+                if hasattr(verified_at, "timestamp"):
+                    unix_timestamp = int(verified_at.timestamp())
+                    if unix_timestamp == 1577836800:  # Historical placeholder date
+                        verified_text = " • Verified: _Unknown date_"
+                    else:
+                        verified_text = f" • Verified: <t:{unix_timestamp}:R>"
+
+            field_value = f"{status_emoji} <@{account_id}>{name_str}{primary_marker}\n**Status:** {active_status}{verified_text}"
+            embed.add_field(name=f"Account {account_id[:8]}...", value=field_value, inline=False)
+
+        embed.set_footer(text="Retired accounts are hidden from regular users but visible to mods.")
+        return embed
+
+
+class ToggleAccountActiveButton(discord.ui.Button):
+    """Button to toggle a Discord account's active status."""
+
+    def __init__(self, cog, account: dict, player_id: int, all_accounts: list, guild_id: int):
+        account_id = account["account_id"]
+        active = account["active"]
+        label = f"Mark {account_id[:8]}... as {'Retired' if active else 'Active'}"
+        style = discord.ButtonStyle.danger if active else discord.ButtonStyle.success
+        emoji = "🔴" if active else "🟢"
+
+        super().__init__(label=label, style=style, emoji=emoji)
+        self.cog = cog
+        self.account = account
+        self.player_id = player_id
+        self.all_accounts = all_accounts
+        self.guild_id = guild_id
+
+    async def callback(self, interaction: discord.Interaction):
+        """Toggle the account's active status."""
+        await interaction.response.defer(ephemeral=True)
+
+        account_id = self.account["account_id"]
+        linked_account_id = self.account["id"]
+        current_active = self.account["active"]
+        new_active = not current_active
+
+        def toggle_active():
+            try:
+                from thetower.backend.sus.models import LinkedAccount
+
+                linked_account = LinkedAccount.objects.get(id=linked_account_id)
+                linked_account.active = new_active
+                linked_account.save()
+                return True, None
+            except Exception as e:
+                return False, str(e)
+
+        success, error = await sync_to_async(toggle_active)()
+
+        if not success:
+            await interaction.followup.send(f"❌ Error updating account: {error}", ephemeral=True)
+            return
+
+        # Update local account data
+        self.account["active"] = new_active
+
+        # Refresh the view
+        view = ManageDiscordAccountsView(self.cog, self.player_id, self.all_accounts, self.guild_id)
+        embed = view.create_embed()
+
+        status_msg = f"✅ Account <@{account_id}> marked as **{'Active' if new_active else 'Retired'}**"
+        await interaction.edit_original_response(content=status_msg, embed=embed, view=view)
+
+
+class RefreshAccountsButton(discord.ui.Button):
+    """Button to refresh the Discord accounts list."""
+
+    def __init__(self, cog, player_id: int, guild_id: int):
+        super().__init__(label="Refresh", style=discord.ButtonStyle.primary, emoji="🔄", row=4)
+        self.cog = cog
+        self.player_id = player_id
+        self.guild_id = guild_id
+
+    async def callback(self, interaction: discord.Interaction):
+        """Refresh the accounts list."""
+        await interaction.response.defer(ephemeral=True)
+
+        def get_discord_accounts():
+            try:
+                from thetower.backend.sus.models import KnownPlayer, LinkedAccount
+
+                player = KnownPlayer.objects.filter(id=self.player_id).first()
+                if not player:
+                    return None, "Player not found"
+
+                accounts = list(
+                    LinkedAccount.objects.filter(player=player, platform=LinkedAccount.Platform.DISCORD)
+                    .order_by("-verified", "-primary", "account_id")
+                    .values("id", "account_id", "display_name", "verified", "primary", "active", "verified_at")
+                )
+
+                return accounts, None
+            except Exception as e:
+                return None, str(e)
+
+        accounts, error = await sync_to_async(get_discord_accounts)()
+
+        if error:
+            await interaction.followup.send(f"❌ Error loading Discord accounts: {error}", ephemeral=True)
+            return
+
+        view = ManageDiscordAccountsView(self.cog, self.player_id, accounts, self.guild_id)
+        embed = view.create_embed()
+        await interaction.edit_original_response(embed=embed, view=view)

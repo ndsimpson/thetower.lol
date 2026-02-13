@@ -68,7 +68,7 @@ class KnownPlayer(models.Model):
     @classmethod
     def get_by_discord_id(cls, discord_id):
         """Backward compat helper: lookup by discord ID via LinkedAccount."""
-        linked_account = LinkedAccount.objects.filter(platform=LinkedAccount.Platform.DISCORD, account_id=str(discord_id)).first()
+        linked_account = LinkedAccount.objects.filter(platform=LinkedAccount.Platform.DISCORD, account_id=str(discord_id), active=True).first()
         return linked_account.player if linked_account else None
 
     def get_primary_discord_accounts(self):
@@ -109,6 +109,9 @@ class LinkedAccount(models.Model):
     verified = models.BooleanField(default=False, help_text="Has this account link been verified?")
     verified_at = models.DateTimeField(null=True, blank=True, default=timezone.now, help_text="When this account was verified")
     primary = models.BooleanField(default=False, help_text="Is this the primary account for this platform? (only one per player per platform)")
+    active = models.BooleanField(
+        default=True, help_text="Is this account link active? Inactive accounts are retired/disabled and hidden from regular users."
+    )
     role_source_instance = models.ForeignKey(
         "GameInstance",
         null=True,

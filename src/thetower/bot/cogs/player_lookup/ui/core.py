@@ -421,7 +421,7 @@ async def _get_player_by_discord_id_async(discord_id: str) -> Optional[KnownPlay
     from thetower.backend.sus.models import LinkedAccount
 
     linked_account = await sync_to_async(
-        LinkedAccount.objects.filter(platform=LinkedAccount.Platform.DISCORD, account_id=discord_id).select_related("player").first
+        LinkedAccount.objects.filter(platform=LinkedAccount.Platform.DISCORD, account_id=discord_id, active=True).select_related("player").first
     )()
     return linked_account.player if linked_account else None
 

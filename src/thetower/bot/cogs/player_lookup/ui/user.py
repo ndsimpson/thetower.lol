@@ -377,7 +377,7 @@ class UserInteractions:
 
         def check_user_verified():
             # Ensure we're checking with the Discord ID as a string
-            return LinkedAccount.objects.filter(platform=LinkedAccount.Platform.DISCORD, account_id=str(user_discord_id)).exists()
+            return LinkedAccount.objects.filter(platform=LinkedAccount.Platform.DISCORD, account_id=str(user_discord_id), active=True).exists()
 
         is_user_verified = await sync_to_async(check_user_verified)()
 
@@ -425,8 +425,16 @@ class UserInteractions:
         identifier = identifier.strip()
         # Parse Discord mentions to extract user ID
         identifier = self.parse_discord_mention(identifier)
+
+        # Check if user has permission to view retired accounts
+        include_inactive = False
+        if hasattr(self.cog.bot, "validation"):
+            validation_cog = self.cog.bot.validation
+            if hasattr(validation_cog, "check_manage_retired_accounts_permission"):
+                include_inactive = await validation_cog.check_manage_retired_accounts_permission(interaction.user)
+
         # Normalize case: uppercase for potential player IDs, but search handles this internally
-        results = await self.cog.search_player(identifier)
+        results = await self.cog.search_player(identifier, include_inactive=include_inactive)
 
         if not results:
             # Check if this looks like a player ID format (hexadecimal 0-9A-F, 12-16 chars)
@@ -456,7 +464,7 @@ class UserInteractions:
 
                         def get_player_and_groups():
                             linked_account = (
-                                LinkedAccount.objects.filter(platform=LinkedAccount.Platform.DISCORD, account_id=discord_id)
+                                LinkedAccount.objects.filter(platform=LinkedAccount.Platform.DISCORD, account_id=discord_id, active=True)
                                 .select_related("player__django_user")
                                 .first()
                             )

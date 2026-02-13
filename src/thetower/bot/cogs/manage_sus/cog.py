@@ -265,14 +265,14 @@ class ManageSus(BaseCog, name="Manage Sus"):
             from thetower.backend.sus.models import LinkedAccount
 
             def _check_permissions_sync():
-                # Get the LinkedAccount for this Discord user
+                # Get the active LinkedAccount for this Discord user
                 linked_account = (
-                    LinkedAccount.objects.filter(platform=LinkedAccount.Platform.DISCORD, account_id=str(user.id))
+                    LinkedAccount.objects.filter(platform=LinkedAccount.Platform.DISCORD, account_id=str(user.id), active=True)
                     .select_related("player__django_user")
                     .first()
                 )
                 if not linked_account:
-                    return False, "No LinkedAccount found"
+                    return False, "No active LinkedAccount found"
 
                 # Check if the player has a django_user linked
                 player = linked_account.player
@@ -317,14 +317,14 @@ class ManageSus(BaseCog, name="Manage Sus"):
             from thetower.backend.sus.models import LinkedAccount
 
             def _check_permissions_sync():
-                # Get the LinkedAccount for this Discord user
+                # Get the active LinkedAccount for this Discord user
                 linked_account = (
-                    LinkedAccount.objects.filter(platform=LinkedAccount.Platform.DISCORD, account_id=str(user.id))
+                    LinkedAccount.objects.filter(platform=LinkedAccount.Platform.DISCORD, account_id=str(user.id), active=True)
                     .select_related("player__django_user")
                     .first()
                 )
                 if not linked_account:
-                    return False, "No LinkedAccount found"
+                    return False, "No active LinkedAccount found"
 
                 # Check if the player has a django_user linked
                 player = linked_account.player
@@ -369,14 +369,14 @@ class ManageSus(BaseCog, name="Manage Sus"):
             from thetower.backend.sus.models import LinkedAccount
 
             def _check_permissions_sync():
-                # Get the LinkedAccount for this Discord user
+                # Get the active LinkedAccount for this Discord user
                 linked_account = (
-                    LinkedAccount.objects.filter(platform=LinkedAccount.Platform.DISCORD, account_id=str(user.id))
+                    LinkedAccount.objects.filter(platform=LinkedAccount.Platform.DISCORD, account_id=str(user.id), active=True)
                     .select_related("player__django_user")
                     .first()
                 )
                 if not linked_account:
-                    return False, "No LinkedAccount found"
+                    return False, "No active LinkedAccount found"
 
                 # Check if the player has a django_user linked
                 player = linked_account.player
@@ -421,14 +421,14 @@ class ManageSus(BaseCog, name="Manage Sus"):
             from thetower.backend.sus.models import LinkedAccount
 
             def _check_permissions_sync():
-                # Get the LinkedAccount for this Discord user
+                # Get the active LinkedAccount for this Discord user
                 linked_account = (
-                    LinkedAccount.objects.filter(platform=LinkedAccount.Platform.DISCORD, account_id=str(user.id))
+                    LinkedAccount.objects.filter(platform=LinkedAccount.Platform.DISCORD, account_id=str(user.id), active=True)
                     .select_related("player__django_user")
                     .first()
                 )
                 if not linked_account:
-                    return False, "No LinkedAccount found"
+                    return False, "No active LinkedAccount found"
 
                 # Check if the player has a django_user linked
                 player = linked_account.player

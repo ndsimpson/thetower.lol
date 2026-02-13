@@ -1,6 +1,7 @@
 import asyncio
 import datetime
 import logging
+from typing import Optional
 
 import discord
 from asgiref.sync import sync_to_async
@@ -36,6 +37,7 @@ class Validation(BaseCog, name="Validation"):
             "approved_manage_alt_links_groups": [],  # List of Django group names that can manage alt links for any user
             "mod_notification_channel_id": None,  # Optional channel ID for moderator notifications (bot-wide)
             "approved_id_change_moderator_groups": [],  # List of Django group names that can moderate player ID changes
+            "manage_retired_accounts_groups": [],  # List of Django group names that can view/manage retired Discord accounts
         }
 
         # Guild-specific settings
@@ -128,8 +130,10 @@ class Validation(BaseCog, name="Validation"):
             if existing_player_id and existing_player_id.game_instance:
                 # Get the KnownPlayer for this tower ID
                 existing_player = existing_player_id.game_instance.player
-                # Check if this player is already linked to a different Discord account
-                existing_linked_account = LinkedAccount.objects.filter(player=existing_player, platform=LinkedAccount.Platform.DISCORD).first()
+                # Check if this player is already linked to a different ACTIVE Discord account
+                existing_linked_account = LinkedAccount.objects.filter(
+                    player=existing_player, platform=LinkedAccount.Platform.DISCORD, active=True
+                ).first()
                 if existing_linked_account and existing_linked_account.account_id != discord_id_str:
                     # Player ID is already linked to a different Discord account
                     return {
@@ -138,9 +142,11 @@ class Validation(BaseCog, name="Validation"):
                         "existing_player_name": existing_player.name,
                     }
 
-            # Try to find existing player by Discord account
+            # Try to find existing player by Discord account (only active accounts)
             linked_account = (
-                LinkedAccount.objects.filter(platform=LinkedAccount.Platform.DISCORD, account_id=discord_id_str).select_related("player").first()
+                LinkedAccount.objects.filter(platform=LinkedAccount.Platform.DISCORD, account_id=discord_id_str, active=True)
+                .select_related("player")
+                .first()
             )
 
             if linked_account:
@@ -270,24 +276,38 @@ class Validation(BaseCog, name="Validation"):
             if not discord_id_str:
                 return []
 
+            # Check if user has permission to view retired accounts
+            can_view_retired = await self.check_manage_retired_accounts_permission(requesting_user)
+
             # Get all LinkedAccounts for this player
-            def get_all_discord_accounts(discord_id: str):
+            def get_all_discord_accounts(discord_id: str, include_retired: bool = False):
                 try:
                     linked_account = (
-                        LinkedAccount.objects.filter(platform=LinkedAccount.Platform.DISCORD, account_id=discord_id, verified=True)
+                        LinkedAccount.objects.filter(platform=LinkedAccount.Platform.DISCORD, account_id=discord_id, verified=True, active=True)
                         .select_related("player")
                         .first()
                     )
 
                     if not linked_account or not linked_account.player:
-                        return [], []
+                        return [], [], []
 
-                    # Get all Discord accounts linked to this player
-                    all_accounts = list(
-                        LinkedAccount.objects.filter(player=linked_account.player, platform=LinkedAccount.Platform.DISCORD, verified=True)
+                    # Get active Discord accounts linked to this player
+                    active_accounts = list(
+                        LinkedAccount.objects.filter(
+                            player=linked_account.player, platform=LinkedAccount.Platform.DISCORD, verified=True, active=True
+                        )
                         .exclude(account_id=discord_id)
                         .order_by("verified_at")
                     )
+
+                    # Get retired accounts if user has permission
+                    retired_accounts = []
+                    if include_retired:
+                        retired_accounts = list(
+                            LinkedAccount.objects.filter(
+                                player=linked_account.player, platform=LinkedAccount.Platform.DISCORD, verified=True, active=False
+                            ).order_by("verified_at")
+                        )
 
                     # Get pending outgoing links
                     data = self.load_pending_links_data()
@@ -299,22 +319,31 @@ class Validation(BaseCog, name="Validation"):
                         if link_data.get("requester_id") == discord_id:
                             pending_outgoing.append((alt_discord_id, link_data))
 
-                    return all_accounts, pending_outgoing
+                    return active_accounts, retired_accounts, pending_outgoing
                 except Exception as e:
                     self.logger.error(f"Error getting alt accounts for {discord_id}: {e}")
-                    return [], []
+                    return [], [], []
 
-            all_accounts, pending_outgoing = await sync_to_async(get_all_discord_accounts)(discord_id_str)
+            active_accounts, retired_accounts, pending_outgoing = await sync_to_async(get_all_discord_accounts)(
+                discord_id_str, include_retired=can_view_retired
+            )
 
             # Build embed fields
             fields = []
 
-            # Show linked alt accounts
-            if all_accounts:
+            # Show linked active alt accounts
+            if active_accounts:
                 account_list = []
-                for account in all_accounts:
+                for account in active_accounts:
                     account_list.append(f"<@{account.account_id}>")
                 fields.append({"name": "🔗 Linked Alt Accounts", "value": "\n".join(account_list), "inline": False})
+
+            # Show retired accounts to authorized users
+            if retired_accounts and can_view_retired:
+                retired_list = []
+                for account in retired_accounts:
+                    retired_list.append(f"🔴 <@{account.account_id}> (Retired)")
+                fields.append({"name": "🗃️ Retired Discord Accounts", "value": "\n".join(retired_list), "inline": False})
 
             # Show pending outgoing link requests - only to authorized users
             if pending_outgoing:
@@ -351,7 +380,7 @@ class Validation(BaseCog, name="Validation"):
                 from thetower.backend.sus.models import LinkedAccount
 
                 linked_account = (
-                    LinkedAccount.objects.filter(platform=LinkedAccount.Platform.DISCORD, account_id=str(user.id))
+                    LinkedAccount.objects.filter(platform=LinkedAccount.Platform.DISCORD, account_id=str(user.id), active=True)
                     .select_related("player__django_user")
                     .first()
                 )
@@ -385,7 +414,7 @@ class Validation(BaseCog, name="Validation"):
                 from thetower.backend.sus.models import LinkedAccount
 
                 linked_account = (
-                    LinkedAccount.objects.filter(platform=LinkedAccount.Platform.DISCORD, account_id=str(user.id))
+                    LinkedAccount.objects.filter(platform=LinkedAccount.Platform.DISCORD, account_id=str(user.id), active=True)
                     .select_related("player__django_user")
                     .first()
                 )
@@ -398,6 +427,76 @@ class Validation(BaseCog, name="Validation"):
 
         user_groups = await sync_to_async(get_user_groups)()
         return any(group in approved_groups for group in user_groups)
+
+    async def check_manage_retired_accounts_permission(self, user: discord.User) -> bool:
+        """Check if a user has permission to view and manage retired Discord accounts.
+
+        Args:
+            user: The Discord user to check
+
+        Returns:
+            bool: True if user can manage retired accounts, False otherwise
+        """
+        from asgiref.sync import sync_to_async
+
+        approved_groups = self.config.get_global_cog_setting("validation", "manage_retired_accounts_groups", [])
+        if not approved_groups:
+            return False
+
+        def get_user_groups():
+            try:
+                from thetower.backend.sus.models import LinkedAccount
+
+                linked_account = (
+                    LinkedAccount.objects.filter(platform=LinkedAccount.Platform.DISCORD, account_id=str(user.id), active=True)
+                    .select_related("player__django_user")
+                    .first()
+                )
+                if not linked_account or not linked_account.player.django_user:
+                    return []
+
+                return [group.name for group in linked_account.player.django_user.groups.all()]
+            except Exception:
+                return []
+
+        user_groups = await sync_to_async(get_user_groups)()
+        return any(group in approved_groups for group in user_groups)
+
+    def get_manage_discord_accounts_button_for_player(
+        self, details: dict, requesting_user: discord.User, guild_id: int, permission_context
+    ) -> Optional[discord.ui.Button]:
+        """Get a manage Discord accounts button for a player.
+
+        This method is called by the player_lookup cog to extend /lookup and /profile functionality.
+        Returns a button that allows authorized users to manage Discord accounts (mark as active/retired).
+
+        Args:
+            details: Player details dictionary
+            requesting_user: The Discord user requesting the info
+            guild_id: Guild ID where the lookup is being performed
+            permission_context: Permission context for the requesting user
+
+        Returns:
+            Button if user has manage_retired_accounts permission, None otherwise
+        """
+        # Check if user has permission to manage retired accounts
+        approved_groups = self.config.get_global_cog_setting("validation", "manage_retired_accounts_groups", [])
+        if not approved_groups:
+            return None
+
+        # Check if user is in approved group
+        if not permission_context.has_any_group(approved_groups):
+            return None
+
+        # Get player_id from details
+        player_id = details.get("player_id")
+        if not player_id:
+            return None
+
+        # Import button class
+        from .ui.core import ManageDiscordAccountsButton
+
+        return ManageDiscordAccountsButton(self, player_id, guild_id)
 
     async def cancel_pending_link(self, discord_id: str) -> int:
         """Cancel any pending link requests where the given Discord ID is the requester.
@@ -755,9 +854,11 @@ class Validation(BaseCog, name="Validation"):
         def get_verification_info():
             """Get comprehensive verification information for this Discord user."""
             try:
-                # Check if this Discord account has a LinkedAccount
+                # Check if this Discord account has an active LinkedAccount
                 linked_account = (
-                    LinkedAccount.objects.filter(platform=LinkedAccount.Platform.DISCORD, account_id=discord_id_str).select_related("player").first()
+                    LinkedAccount.objects.filter(platform=LinkedAccount.Platform.DISCORD, account_id=discord_id_str, active=True)
+                    .select_related("player")
+                    .first()
                 )
 
                 if not linked_account:
@@ -1028,6 +1129,13 @@ class Validation(BaseCog, name="Validation"):
                     target_cog="player_lookup", source_cog="validation", provider_func=self.provide_alt_account_info
                 )
 
+                # Register UI extension for player lookup (manage Discord accounts button)
+                self.logger.debug("Registering player lookup UI extension")
+                tracker.update_status("Registering UI extensions")
+                self.bot.cog_manager.register_ui_extension(
+                    target_cog="player_lookup", source_cog="validation", provider_func=self.get_manage_discord_accounts_button_for_player
+                )
+
                 # Run startup reconciliation to fix any role issues that occurred while bot was offline
                 tracker.update_status("Running startup reconciliation")
                 await self._startup_reconciliation()
@@ -1095,7 +1203,7 @@ class Validation(BaseCog, name="Validation"):
                         async def get_startup_verification_status():
                             try:
                                 linked_account = await sync_to_async(
-                                    LinkedAccount.objects.filter(platform=LinkedAccount.Platform.DISCORD, account_id=discord_id_str)
+                                    LinkedAccount.objects.filter(platform=LinkedAccount.Platform.DISCORD, account_id=discord_id_str, active=True)
                                     .select_related("player")
                                     .first
                                 )()
@@ -1156,7 +1264,7 @@ class Validation(BaseCog, name="Validation"):
             def get_player_id():
                 try:
                     linked_account = (
-                        LinkedAccount.objects.filter(platform=LinkedAccount.Platform.DISCORD, account_id=discord_id_str)
+                        LinkedAccount.objects.filter(platform=LinkedAccount.Platform.DISCORD, account_id=discord_id_str, active=True)
                         .select_related("player")
                         .first()
                     )
@@ -1250,7 +1358,7 @@ class Validation(BaseCog, name="Validation"):
             def get_player_id():
                 try:
                     linked_account = (
-                        LinkedAccount.objects.filter(platform=LinkedAccount.Platform.DISCORD, account_id=discord_id_str)
+                        LinkedAccount.objects.filter(platform=LinkedAccount.Platform.DISCORD, account_id=discord_id_str, active=True)
                         .select_related("player")
                         .first()
                     )
@@ -1461,7 +1569,7 @@ class Validation(BaseCog, name="Validation"):
             def should_have_verified_role():
                 try:
                     linked_account = (
-                        LinkedAccount.objects.filter(platform=LinkedAccount.Platform.DISCORD, account_id=discord_id_str)
+                        LinkedAccount.objects.filter(platform=LinkedAccount.Platform.DISCORD, account_id=discord_id_str, active=True)
                         .select_related("player")
                         .first()
                     )
@@ -1520,7 +1628,7 @@ class Validation(BaseCog, name="Validation"):
             def get_verification_status():
                 try:
                     linked_account = (
-                        LinkedAccount.objects.filter(platform=LinkedAccount.Platform.DISCORD, account_id=discord_id_str)
+                        LinkedAccount.objects.filter(platform=LinkedAccount.Platform.DISCORD, account_id=discord_id_str, active=True)
                         .select_related("player")
                         .first()
                     )
@@ -1567,7 +1675,7 @@ class Validation(BaseCog, name="Validation"):
                         from thetower.backend.sus.models import LinkedAccount
 
                         linked_account = (
-                            LinkedAccount.objects.filter(platform=LinkedAccount.Platform.DISCORD, account_id=discord_id_str)
+                            LinkedAccount.objects.filter(platform=LinkedAccount.Platform.DISCORD, account_id=discord_id_str, active=True)
                             .select_related("player")
                             .first()
                         )
