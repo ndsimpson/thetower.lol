@@ -191,7 +191,6 @@ class UserInteractions:
 
         # Loop through all game instances (equal treatment)
         for instance in game_instances:
-            instance_name = instance["name"]
             is_primary = instance["primary"]
             discord_accounts = instance["discord_accounts_receiving_roles"]
             primary_player_id = instance["primary_player_id"]
@@ -535,7 +534,7 @@ class UserInteractions:
                 await interaction.followup.send(embed=embed, view=view, ephemeral=True)
             else:
                 # Handle verified player
-                details = await get_player_details(player)
+                details = await get_player_details(player, requesting_user=interaction.user, cog=self.cog)
                 # Add is_verified flag for extensions
                 details["is_verified"] = True
                 embed = await self.create_lookup_embed(player, details, interaction.user)
@@ -557,7 +556,7 @@ class UserInteractions:
             if len(verified_results) == 1 and not unverified_results:
                 # Only one verified result
                 player = verified_results[0]
-                details = await get_player_details(player)
+                details = await get_player_details(player, requesting_user=interaction.user, cog=self.cog)
                 details = self._build_standardized_details(player, details)
                 embed = await self.create_lookup_embed(player, details, interaction.user)
                 # Create view with post publicly button (permissions are now handled automatically)

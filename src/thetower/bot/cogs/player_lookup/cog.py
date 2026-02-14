@@ -117,6 +117,58 @@ class PlayerLookup(BaseCog, name="Player Lookup", description="Universal player 
         # Fallback: deny access if manage_sus is not available
         return False
 
+    async def check_can_view_banned_instances(self, discord_user: discord.User) -> bool:
+        """Check if a Discord user can view game instances with banned player IDs.
+
+        Users with manage_sus permissions can view banned instances.
+        If manage_sus cog is not available, default is to hide banned instances.
+
+        Args:
+            discord_user: The Discord user to check permissions for
+
+        Returns:
+            True if user can view banned instances, False otherwise
+        """
+        # Check if manage_sus cog is available
+        manage_sus_cog = self.bot.get_cog("Manage Sus")
+        if not manage_sus_cog:
+            # No manage_sus cog - default to hiding banned instances
+            return False
+
+        # Check if user has permission to view moderation records
+        # Use the same permission check as provide_player_lookup_info
+        from thetower.backend.sus.models import LinkedAccount
+
+        async def check_user_groups():
+            try:
+                discord_id = str(discord_user.id)
+                linked_account = (
+                    LinkedAccount.objects.filter(platform=LinkedAccount.Platform.DISCORD, account_id=discord_id, active=True)
+                    .select_related("player__django_user")
+                    .first()
+                )
+
+                if not linked_account or not linked_account.player or not linked_account.player.django_user:
+                    return False
+
+                user_groups = list(linked_account.player.django_user.groups.values_list("name", flat=True))
+
+                # Get allowed groups from manage_sus config
+                view_groups = manage_sus_cog.config.get_global_cog_setting("manage_sus", "view_groups", manage_sus_cog.global_settings["view_groups"])
+                privileged_groups = manage_sus_cog.config.get_global_cog_setting(
+                    "manage_sus",
+                    "privileged_groups_for_moderation_records",
+                    manage_sus_cog.global_settings["privileged_groups_for_moderation_records"],
+                )
+                allowed_groups = view_groups + privileged_groups
+
+                return any(group in allowed_groups for group in user_groups)
+            except Exception as e:
+                self.logger.error(f"Error checking banned instance view permission: {e}")
+                return False
+
+        return await check_user_groups()
+
     async def get_player_by_player_id(self, player_id: str) -> Optional[KnownPlayer]:
         """Get a player by their Tower player id"""
         await self.wait_until_ready()

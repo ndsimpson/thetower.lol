@@ -355,8 +355,17 @@ class PostPubliclyButton(discord.ui.Button):
 # Business Logic Functions
 
 
-async def get_player_details(player: KnownPlayer) -> Dict[str, Any]:
-    """Get detailed information about a player with GameInstance structure."""
+async def get_player_details(player: KnownPlayer, requesting_user: discord.User = None, cog=None) -> Dict[str, Any]:
+    """Get detailed information about a player with GameInstance structure.
+
+    Args:
+        player: The KnownPlayer to get details for
+        requesting_user: Optional Discord user requesting the info (for permission checks)
+        cog: Optional PlayerLookup cog instance (for permission checks)
+
+    Returns:
+        Dictionary with player details including filtered game instances
+    """
     from asgiref.sync import sync_to_async
 
     from thetower.backend.sus.models import GameInstance, LinkedAccount
@@ -366,12 +375,35 @@ async def get_player_details(player: KnownPlayer) -> Dict[str, Any]:
         GameInstance.objects.filter(player=player).prefetch_related("player_ids", "linked_accounts_receiving_roles").order_by("-primary", "id")
     )
 
+    # Check if user can view banned instances
+    # Default to False (don't show banned instances) unless user has permission
+    can_view_banned = False
+    if requesting_user and cog:
+        can_view_banned = await cog.check_can_view_banned_instances(requesting_user)
+
+    # Get banned player IDs if we need to filter
+    banned_player_ids = set()
+    if not can_view_banned and cog:
+        # User cannot view banned instances - need to filter them out
+        from thetower.backend.sus.models import ModerationRecord
+
+        def get_banned_ids():
+            return ModerationRecord.get_active_moderation_ids("ban")
+
+        banned_player_ids = await sync_to_async(get_banned_ids)()
+
     # Build game instances data
     game_instances_data = []
     for instance in game_instances:
         # Get player IDs for this instance
         player_ids = await sync_to_async(list)(instance.player_ids.all())
         primary_player_id = next((pid.id for pid in player_ids if pid.primary), None)
+
+        # Skip this instance if it contains any banned player IDs and user can't view banned
+        if not can_view_banned and banned_player_ids:
+            instance_player_ids = {pid.id for pid in player_ids}
+            if instance_player_ids & banned_player_ids:  # If any overlap with banned IDs
+                continue  # Skip this game instance
 
         # Get Discord accounts receiving roles from this instance
         discord_accounts_receiving_roles = await sync_to_async(list)(

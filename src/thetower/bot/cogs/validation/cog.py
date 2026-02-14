@@ -176,6 +176,12 @@ class Validation(BaseCog, name="Validation"):
                 player_id_obj, player_id_created = PlayerId.objects.update_or_create(
                     id=player_id, defaults=dict(game_instance=primary_instance, primary=True)
                 )
+
+                # Update role_source_instance to primary instance (ensures roles come from new clean ID)
+                # This is especially important if they were previously using a banned ID for roles
+                if linked_account.role_source_instance != primary_instance:
+                    linked_account.role_source_instance = primary_instance
+                    linked_account.save()
             else:
                 # New player verification
                 player = KnownPlayer.objects.create(name=author_name, approved=True)
@@ -823,33 +829,9 @@ class Validation(BaseCog, name="Validation"):
         # Check user's current verification status
         discord_id_str = str(interaction.user.id)
 
-        # Block verification if user has an active ban moderation
-        try:
-            if await self._has_active_ban(discord_id_str):
-                # Log the blocked attempt to the verification log channel for moderator awareness
-                try:
-                    await self._log_detailed_verification(
-                        interaction.guild.id,
-                        interaction.user,
-                        player_id=None,
-                        reason="Verification blocked due to active ban",
-                        success=False,
-                    )
-                except Exception as log_exc:
-                    self.logger.error(f"Failed to log blocked verification attempt for {interaction.user.id}: {log_exc}")
-
-                await interaction.response.send_message(
-                    "⚠️ Unable to complete verification at this time. Please contact a server moderator for assistance.",
-                    ephemeral=True,
-                )
-                return
-        except Exception as exc:
-            self.logger.error(f"Error checking active ban for {interaction.user.id}: {exc}")
-            await interaction.response.send_message(
-                "❌ Verification could not proceed due to an internal error. Please contact a moderator.",
-                ephemeral=True,
-            )
-            return
+        # NOTE: We no longer block verification pre-emptively if user has ANY banned player ID.
+        # Instead, we check the specific NEW player ID they submit in the modal.
+        # This allows users to verify with a clean player ID even if they have a previously banned ID.
 
         def get_verification_info():
             """Get comprehensive verification information for this Discord user."""

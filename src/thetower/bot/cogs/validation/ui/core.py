@@ -79,6 +79,61 @@ class VerificationModal(ui.Modal, title="Player Verification"):
             await interaction.edit_original_response(content="❌ Please upload a screenshot showing your player ID.")
             return
 
+        # Check if the NEW player ID being submitted is banned
+        from thetower.backend.sus.models import ModerationRecord
+
+        def check_player_id_banned(pid: str):
+            """Check if a specific player ID is actively banned."""
+            ban_ids = ModerationRecord.get_active_moderation_ids("ban")
+            return pid in ban_ids
+
+        is_new_id_banned = await sync_to_async(check_player_id_banned)(player_id)
+        if is_new_id_banned:
+            await self._log_verification_attempt(
+                interaction,
+                player_id,
+                verification_time,
+                timestamp_unix,
+                image_filename,
+                success=False,
+                error_message="Player ID is actively banned",
+            )
+            await interaction.edit_original_response(
+                content="⚠️ Unable to complete verification with this player ID. Please contact a server moderator for assistance."
+            )
+            return
+
+        # Check if user has any OTHER previously banned player IDs (from existing linked account)
+        discord_id_str = str(interaction.user.id)
+
+        def get_previously_banned_ids(discord_id: str, new_player_id: str):
+            """Get list of previously banned player IDs for this Discord user (excluding the new one)."""
+            from thetower.backend.sus.models import LinkedAccount
+
+            try:
+                linked_account = (
+                    LinkedAccount.objects.filter(platform=LinkedAccount.Platform.DISCORD, account_id=discord_id, active=True)
+                    .select_related("player")
+                    .first()
+                )
+                if not linked_account:
+                    return []
+
+                player = linked_account.player
+                ban_ids = ModerationRecord.get_active_moderation_ids("ban")
+
+                # Get all tower IDs across all game instances, excluding the new one
+                player_tower_ids = [
+                    pid.id for instance in player.game_instances.all() for pid in instance.player_ids.all() if pid.id != new_player_id
+                ]
+
+                # Return only the banned ones
+                return [pid for pid in player_tower_ids if pid in ban_ids]
+            except Exception:
+                return []
+
+        previously_banned_ids = await sync_to_async(get_previously_banned_ids)(discord_id_str, player_id)
+
         try:
             # Create or update player
             result = await sync_to_async(self.cog._create_or_update_player, thread_sensitive=True)(
@@ -154,17 +209,39 @@ class VerificationModal(ui.Modal, title="Player Verification"):
                         role_assigned = True
 
                         # Log successful verification (inside try block so cleanup happens after logging)
-                        await self._log_verification_attempt(
-                            interaction, player_id, verification_time, timestamp_unix, image_filename, success=True, role_assigned=role_assigned
+                        log_message = await self._log_verification_attempt(
+                            interaction,
+                            player_id,
+                            verification_time,
+                            timestamp_unix,
+                            image_filename,
+                            success=True,
+                            role_assigned=role_assigned,
+                            previously_banned_ids=previously_banned_ids,
                         )
+
+                        # Send mod notification if user has previously banned IDs
+                        if previously_banned_ids and log_message:
+                            await self._send_mod_notification_for_banned_history(interaction, player_id, previously_banned_ids, log_message)
                     finally:
                         # Cleanup after logging completes (matching tourney_role_colors pattern)
                         self.cog._bot_role_changes.discard((member.id, guild.id))
             else:
                 # No role to assign, but still log the verification
-                await self._log_verification_attempt(
-                    interaction, player_id, verification_time, timestamp_unix, image_filename, success=True, role_assigned=role_assigned
+                log_message = await self._log_verification_attempt(
+                    interaction,
+                    player_id,
+                    verification_time,
+                    timestamp_unix,
+                    image_filename,
+                    success=True,
+                    role_assigned=role_assigned,
+                    previously_banned_ids=previously_banned_ids,
                 )
+
+                # Send mod notification if user has previously banned IDs
+                if previously_banned_ids and log_message:
+                    await self._send_mod_notification_for_banned_history(interaction, player_id, previously_banned_ids, log_message)
 
             # Create success message with role mention
             success_message = "✅ Verification successful!"
@@ -217,6 +294,7 @@ class VerificationModal(ui.Modal, title="Player Verification"):
         success: bool = False,
         role_assigned: bool = False,
         error_message: str = None,
+        previously_banned_ids: list = None,
     ):
         """Log a verification attempt to the configured log channel."""
         log_channel_id = self.cog.get_setting("verification_log_channel_id", guild_id=interaction.guild.id)
@@ -248,6 +326,17 @@ class VerificationModal(ui.Modal, title="Player Verification"):
         embed.add_field(name="Discord ID", value=f"`{interaction.user.id}`", inline=True)
         embed.add_field(name="Player ID", value=f"`{player_id}`", inline=True)
 
+        # Add warning if user has previously banned IDs
+        if success and previously_banned_ids:
+            banned_ids_str = ", ".join(f"`{pid}`" for pid in previously_banned_ids)
+            embed.add_field(
+                name="⚠️ Previously Banned IDs",
+                value=f"User has previously banned player ID(s): {banned_ids_str}",
+                inline=False,
+            )
+            # Change embed color to orange to highlight this
+            embed.color = discord.Color.orange()
+
         # Add role assignment info for successful verifications
         if success and role_assigned:
             verified_role_id = self.cog.get_setting("verified_role_id", guild_id=interaction.guild.id)
@@ -265,11 +354,13 @@ class VerificationModal(ui.Modal, title="Player Verification"):
             file = discord.File(self.cog.data_directory / image_filename, filename=image_filename)
             embed.set_image(url=f"attachment://{image_filename}")
 
+        log_message = None
         try:
             if file:
-                await log_channel.send(embed=embed, file=file)
+                log_message = await log_channel.send(embed=embed, file=file)
             else:
-                await log_channel.send(embed=embed)
+                log_message = await log_channel.send(embed=embed)
+            return log_message
         except discord.Forbidden as forbidden_exc:
             # Try plain text if embed fails due to permissions
             self.cog.logger.warning(f"Missing embed permission in verification log channel {log_channel_id}: {forbidden_exc}")
@@ -281,6 +372,9 @@ class VerificationModal(ui.Modal, title="Player Verification"):
                     f"**Discord ID:** `{interaction.user.id}`\n"
                     f"**Player ID:** `{player_id}`\n"
                 )
+                if success and previously_banned_ids:
+                    banned_ids_str = ", ".join(f"`{pid}`" for pid in previously_banned_ids)
+                    text_message += f"**⚠️ Previously Banned IDs:** {banned_ids_str}\n"
                 if success and role_assigned:
                     verified_role_id = self.cog.get_setting("verified_role_id", guild_id=interaction.guild.id)
                     if verified_role_id:
@@ -296,13 +390,54 @@ class VerificationModal(ui.Modal, title="Player Verification"):
                     new_file = discord.File(self.cog.data_directory / image_filename, filename=image_filename)
 
                 if new_file:
-                    await log_channel.send(content=text_message, file=new_file)
+                    log_message = await log_channel.send(content=text_message, file=new_file)
                 else:
-                    await log_channel.send(content=text_message)
+                    log_message = await log_channel.send(content=text_message)
+                return log_message
             except Exception as fallback_exc:
                 self.cog.logger.error(f"Failed to send plain text verification log: {fallback_exc}")
+                return None
         except Exception as log_exc:
             self.cog.logger.error(f"Failed to log verification to channel {log_channel_id}: {log_exc}")
+            return None
+
+    async def _send_mod_notification_for_banned_history(
+        self, interaction: discord.Interaction, new_player_id: str, previously_banned_ids: list, log_message: discord.Message
+    ):
+        """Send a brief notification to the mod channel when a user verifies with a clean ID but has previously banned IDs.
+
+        Args:
+            interaction: The interaction context
+            new_player_id: The new clean player ID they just verified with
+            previously_banned_ids: List of their previously banned player IDs
+            log_message: The log channel message to link to
+        """
+        mod_channel_id = self.cog.get_global_setting("mod_notification_channel_id")
+        if not mod_channel_id:
+            return
+
+        try:
+            mod_channel = self.cog.bot.get_channel(mod_channel_id)
+            if not mod_channel:
+                self.cog.logger.warning(f"Mod notification channel {mod_channel_id} not found")
+                return
+
+            # Create brief notification with link to full log
+            banned_ids_str = ", ".join(f"`{pid}`" for pid in previously_banned_ids)
+            log_link = log_message.jump_url
+
+            notification_text = (
+                f"⚠️ {interaction.user.mention} just verified with player ID `{new_player_id}` "
+                f"but has previously banned player ID(s): {banned_ids_str}\n\n"
+                f"[View full verification log]({log_link})"
+            )
+
+            await mod_channel.send(notification_text)
+
+        except discord.Forbidden:
+            self.cog.logger.error(f"Missing permission to send to mod notification channel {mod_channel_id}")
+        except Exception as e:
+            self.cog.logger.error(f"Failed to send mod notification: {e}")
 
 
 class VerificationStatusView(discord.ui.View):
@@ -435,7 +570,7 @@ class CancelAltLinkButton(discord.ui.Button):
                     )()
                     if linked_account:
                         player = linked_account.player
-                        details = await get_player_details(player)
+                        details = await get_player_details(player, requesting_user=interaction.user, cog=player_lookup_cog)
                         details["is_verified"] = True
 
                         embed = await player_lookup_cog.user_interactions.create_lookup_embed(player, details, interaction.user)
@@ -621,7 +756,7 @@ class AltAccountUserSelect(discord.ui.UserSelect):
                     from thetower.bot.cogs.player_lookup.ui.core import PlayerView
                     from thetower.bot.cogs.player_lookup.ui.user import get_player_details
 
-                    details = await get_player_details(player)
+                    details = await get_player_details(player, requesting_user=interaction.user, cog=player_lookup_cog)
                     details["is_verified"] = True
 
                     embed = await player_lookup_cog.user_interactions.create_lookup_embed(player, details, interaction.user)
@@ -745,7 +880,7 @@ class AltAccountUserSelect(discord.ui.UserSelect):
                     # Rebuild as PlayerView instead of VerificationStatusView
                     from thetower.bot.cogs.player_lookup.ui.user import get_player_details
 
-                    details = await get_player_details(player)
+                    details = await get_player_details(player, requesting_user=interaction.user, cog=player_lookup_cog)
                     details["is_verified"] = True
 
                     # Build updated embed
