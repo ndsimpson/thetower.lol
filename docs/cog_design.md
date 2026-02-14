@@ -34,23 +34,32 @@ class MyCog(BaseCog, name="My Feature"):
     # Settings view class for global /settings integration
     settings_view_class = MySettingsView
 
+    # Define default settings as class attributes (automatically loaded by BaseCog)
+    guild_settings = {
+        "enabled": True,
+        "notification_channel": None,
+        "timeout_seconds": 60
+    }
+
+    global_settings = {
+        "approved_admin_groups": ["Moderators", "Admins"]
+    }
+
     def __init__(self, bot):
         super().__init__(bot)
-        # Initialize guild-specific default settings
-        self.guild_settings = {
-            "enabled": True,
-            "notification_channel": None,
-            "timeout_seconds": 60
-        }
-        # Initialize global (bot owner) default settings
-        self.global_settings = {
-            "approved_admin_groups": ["Moderators", "Admins"]
-        }
+        # BaseCog automatically:
+        # - Registers cog on bot (bot.my_cog = self)
+        # - Loads settings from class attributes
+        # - Registers settings view with CogManager
+        # - Registers UI/info extensions
+        # - Sets up ready state tracking
 ```
 
 **Inherited Capabilities:**
 
+- **Automatic Registration**: Cogs are automatically registered on the bot (`bot.cog_name = cog_instance`)
 - **Settings Management**: `get_setting()`, `set_setting()`, `ensure_settings_initialized()`
+    - Settings declared as class attributes (`guild_settings`, `global_settings`)
     - Automatic guild context detection from `ctx` or `interaction`
     - Per-guild settings stored in `config.json` under `guilds/{guild_id}/{cog_name}/`
     - Global settings via `get_global_setting()`, `set_global_setting()`
@@ -106,10 +115,9 @@ async def configure_slash(self, interaction: discord.Interaction) -> None:
 Global settings apply bot-wide and are typically restricted to bot owner access:
 
 ```python
-# In cog initialization
-def __init__(self, bot):
-    super().__init__(bot)
-    self.global_settings = {
+class MyCog(BaseCog, name="My Feature"):
+    # Define global settings as class attributes
+    global_settings = {
         "approved_admin_groups": ["Moderators", "Admins"],
         "api_endpoint": "https://api.example.com"
     }
@@ -271,33 +279,33 @@ class MySettingsView(discord.ui.View):
 class MyCog(BaseCog, name="My Feature"):
     settings_view_class = MySettingsView
 
+    # Define default settings as class attributes (automatically loaded by BaseCog)
+    guild_settings = {
+        "enabled": True,
+        "notification_channel": None,
+        "timeout_seconds": 60,
+        "max_items": 10
+    }
+
+    global_settings = {
+        "api_key": None,
+        "approved_admin_groups": []
+    }
+
     def __init__(self, bot):
         super().__init__(bot)
-
-        # Define default settings for guilds
-        self.guild_settings = {
-            "enabled": True,
-            "notification_channel": None,
-            "timeout_seconds": 60,
-            "max_items": 10
-        }
-
-        # Define default global settings (bot owner level)
-        self.global_settings = {
-            "api_key": None,
-            "approved_admin_groups": []
-        }
+        # BaseCog automatically:
+        # - Registers cog on bot (bot.my_cog = self)
+        # - Loads settings from class attributes
+        # - Registers settings view with CogManager
+        # - Registers UI/info extensions
+        # - Sets up ready state tracking
 
         # Initialize cog-specific data structures
         self.cache = {}  # Guild-specific caches
 
-    async def cog_load(self):
-        """Called when cog is loaded into bot."""
-        await super().cog_load()
-        # Perform any async setup here
-
-    async def cog_initialize(self):
-        """Called when bot is ready (after on_ready)."""
+    async def _initialize_cog_specific(self, tracker) -> None:
+        """Initialize cog-specific functionality (called automatically by BaseCog)."""
         # Initialize guild settings for all guilds
         for guild in self.bot.guilds:
             self.ensure_settings_initialized(
@@ -351,8 +359,10 @@ def __init__(self, bot):
     super().__init__(bot)
     self.data_manager = DataManager()
 
-async def cog_initialize(self):
+async def _initialize_cog_specific(self, tracker) -> None:
+    """Initialize cog-specific functionality."""
     # Load persistent data from disk
+    tracker.update_status("Loading data")
     data = await self.load_data()
     if data:
         self.cache = data.get("cache", {})
@@ -401,7 +411,7 @@ async def sync_data(self) -> None:
 
 **Task Lifecycle Management:**
 
-- Start tasks in `cog_initialize()` after bot and cog are ready
+- Start tasks in `_initialize_cog_specific()` after bot and cog are ready
 - Use `@task.before_loop` to wait for `bot.wait_until_ready()` and `self.ready.wait()`
 - Cancel tasks in `cog_unload()`
 - Wrap task bodies in `task_tracker.task_context()` for monitoring
@@ -492,8 +502,9 @@ def _process_guild_data(self, guild_id: int):
 Initialize settings on cog load and when guilds join:
 
 ```python
-async def cog_initialize(self):
-    """Initialize settings for all current guilds."""
+async def _initialize_cog_specific(self, tracker) -> None:
+    """Initialize cog-specific functionality."""
+    # Initialize settings for all current guilds
     for guild in self.bot.guilds:
         self.ensure_settings_initialized(
             guild_id=guild.id,
@@ -571,8 +582,9 @@ def _ensure_guild_data(self, guild_id: int) -> None:
 **Proper Task Management:**
 
 ```python
-async def cog_initialize(self) -> None:
-    """Start background tasks after cog is ready."""
+async def _initialize_cog_specific(self, tracker) -> None:
+    """Initialize cog-specific functionality."""
+    # Start background tasks after cog is ready
     if not self.periodic_task.is_running():
         self.periodic_task.start()
 
@@ -635,25 +647,31 @@ class MyCog(BaseCog, name="My Feature"):
 
     settings_view_class = MySettingsView
 
+    # Define default settings as class attributes (automatically loaded by BaseCog)
+    guild_settings = {
+        "enabled": True,
+        "channel_id": None,
+        "timeout": 60
+    }
+
+    global_settings = {
+        "admin_groups": []
+    }
+
     def __init__(self, bot):
         super().__init__(bot)
-
-        # Define default settings
-        self.guild_settings = {
-            "enabled": True,
-            "channel_id": None,
-            "timeout": 60
-        }
-
-        self.global_settings = {
-            "admin_groups": []
-        }
+        # BaseCog automatically handles:
+        # - Cog registration on bot (bot.my_cog = self)
+        # - Settings loading from class attributes
+        # - Settings view registration
+        # - UI/info extension registration
+        # - Ready state setup
 
         # Initialize data structures
         self.data = {}  # {guild_id: guild_data}
 
-    async def cog_initialize(self):
-        """Called when bot is ready."""
+    async def _initialize_cog_specific(self, tracker) -> None:
+        """Initialize cog-specific functionality (called automatically by BaseCog)."""
         # Initialize all guilds
         for guild in self.bot.guilds:
             self.ensure_settings_initialized(
@@ -801,8 +819,8 @@ Once bot owner enables and authorizes, guild owners can enable via `/settings`:
 **DO:**
 
 - Use `interaction=interaction` or `ctx=ctx` for automatic guild detection
-- Initialize settings in `cog_initialize()` and `on_guild_join()`
-- Define defaults in `self.guild_settings` and `self.global_settings`
+- Initialize settings in `_initialize_cog_specific()` and `on_guild_join()`
+- Define defaults in `guild_settings` and `global_settings` class attributes
 - Use descriptive setting names (`notification_channel` not `channel`)
 
 **DON'T:**
@@ -910,8 +928,8 @@ async def before_my_task(self):
     await self.bot.wait_until_ready()
     await self.ready.wait()
 
-# ✅ Start in cog_initialize
-async def cog_initialize(self):
+# ✅ Start in _initialize_cog_specific
+async def _initialize_cog_specific(self, tracker) -> None:
     if not self.my_task.is_running():
         self.my_task.start()
 ```

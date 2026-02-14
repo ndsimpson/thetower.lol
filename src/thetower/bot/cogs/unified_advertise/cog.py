@@ -131,26 +131,22 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
         except Exception as e:
             await self._send_debug_message(f"Orphan scan: Error: {e}")
 
+    # Global settings (bot-wide) - none for this cog currently
+    global_settings = {}
+
+    # Guild-specific settings
+    guild_settings = {
+        "cooldown_hours": 24,
+        "advertise_channel_id": None,
+        "mod_channel_id": None,
+        "guild_tag_id": None,
+        "member_tag_id": None,
+        "testing_channel_id": None,
+        "debug_enabled": False,
+    }
+
     def __init__(self, bot: commands.Bot) -> None:
         super().__init__(bot)
-        self.logger.info("Initializing UnifiedAdvertise")
-
-        # Store a reference to this cog
-        self.bot.unified_advertise = self
-
-        # Global settings (bot-wide) - none for this cog currently
-        self.global_settings = {}
-
-        # Guild-specific settings
-        self.guild_settings = {
-            "cooldown_hours": 24,
-            "advertise_channel_id": None,
-            "mod_channel_id": None,
-            "guild_tag_id": None,
-            "member_tag_id": None,
-            "testing_channel_id": None,
-            "debug_enabled": False,
-        }
 
         # Multi-guild data structures (will be populated in cog_initialize)
         # Format: {guild_id: {"users": {}, "guilds": {}}}
@@ -197,49 +193,31 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
         """Get cooldown filename for a guild."""
         return f"advertisement_cooldowns_{guild_id}.json"
 
-    async def cog_initialize(self) -> None:
-        """Initialize the cog - called by BaseCog during ready process."""
-        self.logger.info("Initializing Advertisement module...")
+    async def _initialize_cog_specific(self, tracker) -> None:
+        """Initialize cog-specific functionality."""
+        # 1. Load data (multi-guild support will load for all configured guilds)
+        self.logger.debug("Loading cached data")
+        tracker.update_status("Loading data")
+        await self._load_all_guild_data()
 
-        try:
-            async with self.task_tracker.task_context("Initialization") as tracker:
-                # Initialize parent
-                self.logger.debug("Initializing parent cog")
-                tracker.update_status("Loading data")
-                await super().cog_initialize()
+        # Clean up non-existent threads from pending deletions
+        self.logger.debug("Cleaning up non-existent threads")
+        tracker.update_status("Cleaning up threads")
+        await self._cleanup_nonexistent_threads()
 
-                # 1. Load data (multi-guild support will load for all configured guilds)
-                self.logger.debug("Loading cached data")
-                tracker.update_status("Loading data")
-                await self._load_all_guild_data()
+        # 2. Start scheduled tasks
+        self.logger.debug("Starting scheduled tasks")
+        tracker.update_status("Starting tasks")
+        if not self.check_deletions.is_running():
+            self.check_deletions.start()
+        if not self.weekly_cleanup.is_running():
+            self.weekly_cleanup.start()
+        if not hasattr(self, "orphaned_post_scan") or not self.orphaned_post_scan.is_running():
+            self.orphaned_post_scan.start()
 
-                # Clean up non-existent threads from pending deletions
-                self.logger.debug("Cleaning up non-existent threads")
-                tracker.update_status("Cleaning up threads")
-                await self._cleanup_nonexistent_threads()
-
-                # 2. Start scheduled tasks
-                self.logger.debug("Starting scheduled tasks")
-                tracker.update_status("Starting tasks")
-                if not self.check_deletions.is_running():
-                    self.check_deletions.start()
-                if not self.weekly_cleanup.is_running():
-                    self.weekly_cleanup.start()
-                if not hasattr(self, "orphaned_post_scan") or not self.orphaned_post_scan.is_running():
-                    self.orphaned_post_scan.start()
-
-                # 3. Update status variables
-                self._last_operation_time = datetime.datetime.utcnow()
-                self._operation_count = 0
-
-                # 4. Mark as ready
-                self.set_ready(True)
-                self.logger.info("Advertisement initialization complete")
-
-        except Exception as e:
-            self._has_errors = True
-            self.logger.error(f"Failed to initialize Advertisement module: {e}", exc_info=True)
-            raise
+        # 3. Update status variables
+        self._last_operation_time = datetime.datetime.utcnow()
+        self._operation_count = 0
 
     async def cog_unload(self) -> None:
         """Clean up when cog is unloaded."""

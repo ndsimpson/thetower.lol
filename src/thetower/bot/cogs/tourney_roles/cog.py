@@ -37,12 +37,36 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
     # Settings view class for the cog manager
     settings_view_class = TournamentRolesSettingsView
 
+    # Global settings (bot owner only)
+    global_settings = {
+        "update_interval": 2 * 60 * 60,  # 2 hours instead of 6
+        "update_on_startup": True,
+        "dry_run": False,
+        "debug_logging": False,
+        "log_batch_size": 10,
+        "process_batch_size": 50,
+        "process_delay": 5,
+        "error_retry_delay": 300,
+        "league_hierarchy": ["Legend", "Champion", "Platinum", "Gold", "Silver", "Copper"],
+        "paused": False,  # Global pause - bot owner can pause all role updates
+        "correction_delay_seconds": 3.0,  # Wait time before correcting wrong roles (allows changes to settle)
+    }
+
+    # Guild-specific settings
+    guild_settings = {
+        "roles_config": {},
+        "verified_role_id": None,
+        "log_channel_id": None,
+        "dry_run_log_channel_id": None,  # Separate log channel for dry run mode (optional)
+        "paused": False,
+        "immediate_logging": True,
+        "bulk_batch_size": 45,  # Concurrent operations per batch
+        "bulk_batch_delay": 0.1,  # Delay between batches
+        "authorized_refresh_groups": [],  # List of Django group names that can refresh tournament roles for others
+    }
+
     def __init__(self, bot):
         super().__init__(bot)
-        self.logger.info("Initializing TourneyRoles")
-
-        # Store reference on bot
-        self.bot.tourney_roles = self
 
         # Initialize core instance variables with descriptions
         self.member_roles = {}  # {guild_id: {user_id: roles}}
@@ -82,35 +106,6 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
         # UI components (no longer separate cogs)
         # self.user_ui = UserTournamentRoles(self)
         # self.admin_ui = AdminTournamentRoles(self)
-
-        # Default settings - separated into global and guild-specific
-        # Global settings (bot owner only)
-        self.global_settings = {
-            "update_interval": 2 * 60 * 60,  # 2 hours instead of 6
-            "update_on_startup": True,
-            "dry_run": False,
-            "debug_logging": False,
-            "log_batch_size": 10,
-            "process_batch_size": 50,
-            "process_delay": 5,
-            "error_retry_delay": 300,
-            "league_hierarchy": ["Legend", "Champion", "Platinum", "Gold", "Silver", "Copper"],
-            "paused": False,  # Global pause - bot owner can pause all role updates
-            "correction_delay_seconds": 3.0,  # Wait time before correcting wrong roles (allows changes to settle)
-        }
-
-        # Guild-specific settings
-        self.guild_settings = {
-            "roles_config": {},
-            "verified_role_id": None,
-            "log_channel_id": None,
-            "dry_run_log_channel_id": None,  # Separate log channel for dry run mode (optional)
-            "paused": False,
-            "immediate_logging": True,
-            "bulk_batch_size": 45,  # Concurrent operations per batch
-            "bulk_batch_delay": 0.1,  # Delay between batches
-            "authorized_refresh_groups": [],  # List of Django group names that can refresh tournament roles for others
-        }
 
         # Hardcoded cache filename (not configurable)
         self.roles_cache_filename = "tourney_roles.json"
@@ -912,95 +907,81 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
         except Exception as e:
             self.logger.error(f"Error sending role log batch: {e}", exc_info=True)
 
-    async def cog_initialize(self) -> None:
-        """Initialize the TourneyRoles cog."""
-        self.logger.info("Initializing TourneyRoles cog")
-        try:
-            self.logger.info("Starting TourneyRoles initialization")
+    async def _initialize_cog_specific(self, tracker) -> None:
+        """Initialize cog-specific functionality."""
+        # Set cache file path
+        self.cache_file = self.data_directory / self.roles_cache_filename
 
-            async with self.task_tracker.task_context("Initialization") as tracker:
-                # Set cache file path
-                self.cache_file = self.data_directory / self.roles_cache_filename
+        # 1. Verify settings
+        self.logger.debug("Loading settings")
+        tracker.update_status("Verifying settings")
+        await self._load_settings()
 
-                # 1. Verify settings
-                self.logger.debug("Loading settings")
-                tracker.update_status("Verifying settings")
-                await self._load_settings()
+        # 2. Load saved data
+        self.logger.debug("Loading saved data")
+        tracker.update_status("Loading saved data")
+        if await self.load_data():
+            self.logger.info("Loaded saved tournament role data")
+        else:
+            self.logger.info("No saved tournament role data found, using defaults")
 
-                # 2. Load saved data
-                self.logger.debug("Loading saved data")
-                tracker.update_status("Loading saved data")
-                if await self.load_data():
-                    self.logger.info("Loaded saved tournament role data")
-                else:
-                    self.logger.info("No saved tournament role data found, using defaults")
+        # 3. Check for newer tournament data on startup
+        self.logger.debug("Checking for tournament data updates")
+        tracker.update_status("Checking tournament data")
 
-                # 3. Check for newer tournament data on startup
-                self.logger.debug("Checking for tournament data updates")
-                tracker.update_status("Checking tournament data")
+        tourney_stats_cog = await self.get_tourney_stats_cog()
+        if tourney_stats_cog:
+            # Wait for tourney_stats to be ready to avoid race condition
+            if hasattr(tourney_stats_cog, "ready"):
+                self.logger.debug("Waiting for TourneyStats cog to be ready...")
+                await tourney_stats_cog.ready.wait()
 
-                tourney_stats_cog = await self.get_tourney_stats_cog()
-                if tourney_stats_cog:
-                    # Wait for tourney_stats to be ready to avoid race condition
-                    if hasattr(tourney_stats_cog, "ready"):
-                        self.logger.debug("Waiting for TourneyStats cog to be ready...")
-                        await tourney_stats_cog.ready.wait()
+            # Get latest tournament date and refresh time from TourneyStats cog
+            latest_tourney_date = tourney_stats_cog.latest_tournament_date
+            source_refreshed_at = tourney_stats_cog.last_updated
 
-                    # Get latest tournament date and refresh time from TourneyStats cog
-                    latest_tourney_date = tourney_stats_cog.latest_tournament_date
-                    source_refreshed_at = tourney_stats_cog.last_updated
+            if latest_tourney_date:
+                self.logger.info(f"Latest tournament date in database: {latest_tourney_date}")
+                if source_refreshed_at:
+                    self.logger.info(f"Source data last refreshed at: {source_refreshed_at}")
 
-                    if latest_tourney_date:
-                        self.logger.info(f"Latest tournament date in database: {latest_tourney_date}")
-                        if source_refreshed_at:
-                            self.logger.info(f"Source data last refreshed at: {source_refreshed_at}")
+                # Compare with cached data
+                if self.cache_latest_tourney_date:
+                    # Check if tournament date is newer
+                    tourney_date_newer = latest_tourney_date > self.cache_latest_tourney_date
 
-                        # Compare with cached data
-                        if self.cache_latest_tourney_date:
-                            # Check if tournament date is newer
-                            tourney_date_newer = latest_tourney_date > self.cache_latest_tourney_date
+                    # Check if source was refreshed after our cache was built
+                    source_newer = False
+                    if source_refreshed_at and self.cache_source_refreshed_at:
+                        source_newer = source_refreshed_at > self.cache_source_refreshed_at
 
-                            # Check if source was refreshed after our cache was built
-                            source_newer = False
-                            if source_refreshed_at and self.cache_source_refreshed_at:
-                                source_newer = source_refreshed_at > self.cache_source_refreshed_at
-
-                            if tourney_date_newer:
-                                self.logger.info(
-                                    f"Newer tournament data available: {latest_tourney_date} > {self.cache_latest_tourney_date}. "
-                                    "Cache will be rebuilt on next full update."
-                                )
-                            elif source_newer:
-                                self.logger.info(
-                                    f"Source data was refreshed ({source_refreshed_at} > {self.cache_source_refreshed_at}). "
-                                    "Cache will be rebuilt on next full update."
-                                )
-                            else:
-                                self.logger.info(
-                                    f"Cache is up to date (tournament date: {self.cache_latest_tourney_date}, "
-                                    f"source refreshed: {self.cache_source_refreshed_at})"
-                                )
-                        else:
-                            self.logger.info("No cached tournament date found - cache will be built on first update")
+                    if tourney_date_newer:
+                        self.logger.info(
+                            f"Newer tournament data available: {latest_tourney_date} > {self.cache_latest_tourney_date}. "
+                            "Cache will be rebuilt on next full update."
+                        )
+                    elif source_newer:
+                        self.logger.info(
+                            f"Source data was refreshed ({source_refreshed_at} > {self.cache_source_refreshed_at}). "
+                            "Cache will be rebuilt on next full update."
+                        )
                     else:
-                        self.logger.warning("TourneyStats cog ready but has no tournament date loaded yet")
+                        self.logger.info(
+                            f"Cache is up to date (tournament date: {self.cache_latest_tourney_date}, "
+                            f"source refreshed: {self.cache_source_refreshed_at})"
+                        )
                 else:
-                    self.logger.warning("TourneyStats cog not available for tournament date check")
+                    self.logger.info("No cached tournament date found - cache will be built on first update")
+            else:
+                self.logger.warning("TourneyStats cog ready but has no tournament date loaded yet")
+        else:
+            self.logger.warning("TourneyStats cog not available for tournament date check")
 
-                # 4. Run startup role update if enabled
-                if self.get_global_setting("update_on_startup", True):
-                    self.logger.debug("Running startup role update")
-                    tracker.update_status("Running startup role update")
-                    # TODO: Implement a loop to check all discord accounts.
-
-                # 5. Mark as ready and complete initialization
-                self.set_ready(True)
-                self.logger.info("TourneyRoles initialization complete")
-
-        except Exception as e:
-            self.logger.error(f"Error during TourneyRoles initialization: {e}", exc_info=True)
-            self._has_errors = True
-            raise
+        # 4. Run startup role update if enabled
+        if self.get_global_setting("update_on_startup", True):
+            self.logger.debug("Running startup role update")
+            tracker.update_status("Running startup role update")
+            # TODO: Implement a loop to check all discord accounts.
 
     def register_ui_extensions(self) -> None:
         """Register UI extensions that this cog provides to other cogs."""

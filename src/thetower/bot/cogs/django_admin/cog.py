@@ -27,41 +27,19 @@ class DjangoAdmin(BaseCog, name="Django Admin"):
     # Settings view class for the cog manager - only accessible to bot owner
     settings_view_class = DjangoAdminSettingsView
 
+    # Global settings (bot-wide) - this cog is bot owner only
+    global_settings = {
+        "allowed_bot_owners": [],  # Additional Discord user IDs that can use admin commands
+    }
+
     def __init__(self, bot: commands.Bot) -> None:
         super().__init__(bot)
-        self.logger.info("Initializing DjangoAdmin")
 
-        # Store a reference to this cog
-        self.bot.django_admin = self
-
-        # Global settings (bot-wide) - this cog is bot owner only
-        self.global_settings = {
-            "allowed_bot_owners": [],  # Additional Discord user IDs that can use admin commands
-        }
-
-    async def cog_initialize(self) -> None:
-        """Initialize the cog - called by BaseCog during ready process."""
-        self.logger.info("Initializing Django Admin module...")
-
-        try:
-            async with self.task_tracker.task_context("Initialization") as tracker:
-                # Initialize parent
-                self.logger.debug("Initializing parent cog")
-                tracker.update_status("Loading data")
-                await super().cog_initialize()
-
-                # Update status variables
-                self._last_operation_time = datetime.datetime.utcnow()
-                self._operation_count = 0
-
-                # Mark as ready
-                self.set_ready(True)
-                self.logger.info("Django Admin initialization complete")
-
-        except Exception as e:
-            self._has_errors = True
-            self.logger.error(f"Failed to initialize Django Admin module: {e}", exc_info=True)
-            raise
+    async def _initialize_cog_specific(self, tracker) -> None:
+        """Initialize cog-specific functionality."""
+        # Update status variables
+        self._last_operation_time = datetime.datetime.utcnow()
+        self._operation_count = 0
 
     async def _check_additional_interaction_permissions(self, interaction: discord.Interaction) -> bool:
         """Override to enforce bot owner only access."""

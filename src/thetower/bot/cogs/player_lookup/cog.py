@@ -39,28 +39,24 @@ class PlayerLookup(BaseCog, name="Player Lookup", description="Universal player 
     # Make UnverifiedPlayer accessible as a class attribute
     UnverifiedPlayer = UnverifiedPlayer
 
+    # Define default global settings
+    global_settings = {
+        "results_per_page": 5,
+        "allow_partial_matches": True,
+        "case_sensitive": False,
+        # Security settings
+        "restrict_lookups_to_known_users": True,
+        "creator_code_required_role_id": None,  # Role ID required to set creator code
+    }
+
+    # Define default guild-specific settings
+    guild_settings = {
+        "profile_post_channels": [],
+        "allow_post_publicly_everywhere": False,
+    }
+
     def __init__(self, bot):
         super().__init__(bot)
-        self.logger.info("Initializing PlayerLookup")
-
-        # Store reference on bot
-        self.bot.player_lookup = self
-
-        # Define default global settings
-        self.global_settings = {
-            "results_per_page": 5,
-            "allow_partial_matches": True,
-            "case_sensitive": False,
-            # Security settings
-            "restrict_lookups_to_known_users": True,
-            "creator_code_required_role_id": None,  # Role ID required to set creator code
-        }
-
-        # Define default guild-specific settings
-        self.guild_settings = {
-            "profile_post_channels": [],
-            "allow_post_publicly_everywhere": False,
-        }
 
         # Initialize UI interactions
         self.user_interactions = UserInteractions(self)
@@ -593,30 +589,12 @@ class PlayerLookup(BaseCog, name="Player Lookup", description="Universal player 
         """Look up a player by various identifiers."""
         await self.user_interactions.handle_lookup_command(interaction, identifier)
 
-    async def cog_initialize(self) -> None:
-        """Initialize the Player Lookup cog."""
-        self.logger.info("Initializing PlayerLookup cog")
-        try:
-            self.logger.info("Starting Player Lookup initialization")
-
-            async with self.task_tracker.task_context("Initialization") as tracker:
-                # Initialize parent
-                self.logger.debug("Initializing parent cog")
-                await super().cog_initialize()
-
-                # Load settings
-                self.logger.debug("Loading settings")
-                tracker.update_status("Loading settings")
-                await self._load_settings()
-
-                # Mark as ready and complete initialization
-                self.set_ready(True)
-                self.logger.info("Player Lookup initialization complete")
-
-        except Exception as e:
-            self.logger.error(f"Player Lookup initialization failed: {e}", exc_info=True)
-            self._has_errors = True
-            raise
+    async def _initialize_cog_specific(self, tracker) -> None:
+        """Initialize cog-specific functionality."""
+        # Load settings
+        self.logger.debug("Loading settings")
+        tracker.update_status("Loading settings")
+        await self._load_settings()
 
     def _validate_creator_code(self, creator_code: str) -> tuple[bool, str]:
         """Validate creator code format.

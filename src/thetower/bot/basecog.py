@@ -56,7 +56,15 @@ class BaseCog(commands.Cog):
     - Ready state tracking
     - Task status tracking
     - Logging
+
+    Cogs can declare default settings as class attributes:
+    - global_settings: Dict of bot-wide settings
+    - guild_settings: Dict of per-guild settings
     """
+
+    # Default settings that cogs can override
+    global_settings = {}
+    guild_settings = {}
 
     def __init__(self, bot):
         super().__init__()  # Initialize commands.Cog
@@ -82,6 +90,13 @@ class BaseCog(commands.Cog):
 
         # Initialize task tracker with the cog's logger
         self._task_tracker = TaskTracker(logger=self._logger, history_size=10)
+
+        # Initialize settings from class attributes
+        self._initialize_settings_from_class()
+
+        # Automatically register cog on bot for easy access
+        setattr(self.bot, self.cog_name, self)
+        self.logger.debug(f"Registered cog as bot.{self.cog_name}")
 
         # Register for the reconnect event to clear the guild cache
         self.logger.debug(f"Registering listeners for {self.__class__.__name__}")
@@ -188,11 +203,20 @@ class BaseCog(commands.Cog):
             # Don't set ready event on error
 
     async def cog_initialize(self) -> None:
-        """Initialize cog-specific resources after bot is ready.
+        """Standard initialization with logging, task tracking, and error handling."""
+        cog_name = self.__class__.__name__
+        self.logger.info(f"Initializing {cog_name}")
 
-        This method should be overridden by cogs to perform async initialization.
-        """
-        # Cogs can override this for custom initialization
+        try:
+            async with self.task_tracker.task_context("Initialization") as tracker:
+                # Call cog-specific initialization if it exists
+                if hasattr(self, "_initialize_cog_specific"):
+                    await self._initialize_cog_specific(tracker)
+
+        except Exception as e:
+            self._has_errors = True
+            self.logger.error(f"Failed to initialize {cog_name}: {e}", exc_info=True)
+            raise
         pass
 
     async def wait_until_ready(self, timeout: Optional[float] = None) -> bool:
@@ -251,6 +275,12 @@ class BaseCog(commands.Cog):
         if self._cog_data_directory is None:
             self._cog_data_directory = self.config.get_cog_data_directory(self.cog_name)
         return self._cog_data_directory
+
+    def _initialize_settings_from_class(self) -> None:
+        """Initialize settings from class attributes, allowing cogs to override defaults."""
+        # Get settings from class, falling back to empty dicts
+        self.global_settings = getattr(self.__class__, "global_settings", {}).copy()
+        self.guild_settings = getattr(self.__class__, "guild_settings", {}).copy()
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         """Check permissions for slash commands - always includes cog authorization."""
@@ -652,8 +682,14 @@ class BaseCog(commands.Cog):
         else:
             return f"{int(seconds // 86400)} days ago"
 
+    async def cog_load(self):
+        """Called when the cog is loaded. Default implementation provides logging."""
+        self.logger.info(f"{self.__class__.__name__} cog loaded")
+
     async def cog_unload(self):
         """Clean up resources when cog is unloaded."""
+        self.logger.info(f"{self.__class__.__name__} cog unloaded")
+
         # Cancel periodic save tasks
         self.cancel_save_tasks()
 

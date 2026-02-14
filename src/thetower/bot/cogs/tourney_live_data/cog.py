@@ -19,20 +19,16 @@ class TourneyLiveData(BaseCog, name="Tourney Live Data", description="Commands f
     Provides commands to check player participation in live tournaments.
     """
 
+    # Global settings
+    global_settings = {
+        "enabled": True,
+    }
+
     def __init__(self, bot):
         super().__init__(bot)
-        self.logger.info("Initializing TourneyLiveData")
-
-        # Store reference on bot
-        self.bot.tourney_live_data = self
 
         # Re-export for convenient access by other cogs
         self.TourneyState = TourneyState
-
-        # Define default global settings
-        self.global_settings = {
-            "enabled": True,
-        }
 
     @property
     def tourney_state(self) -> TourneyState:
@@ -145,30 +141,12 @@ class TourneyLiveData(BaseCog, name="Tourney Live Data", description="Commands f
             player_name = details.get("name", "Unknown")
             self.logger.error(f"Error getting tourney join status for player {player_name}: {e}")
 
-    async def cog_initialize(self) -> None:
-        """Initialize the Tourney Live Data cog."""
-        self.logger.info("Initializing TourneyLiveData cog")
-        try:
-            self.logger.info("Starting Tourney Live Data initialization")
-
-            async with self.task_tracker.task_context("Initialization") as tracker:
-                # Initialize parent
-                self.logger.debug("Initializing parent cog")
-                await super().cog_initialize()
-
-                # Register info extension for player lookup
-                self.logger.debug("Registering player lookup info extension")
-                tracker.update_status("Registering extensions")
-                self.bot.cog_manager.register_info_extension(
-                    target_cog="player_lookup", source_cog="tourney_live_data", provider_func=self.provide_player_lookup_info
-                )
-                self.logger.info("TourneyLiveData: Info extension registered successfully")
-
-                # Mark as ready and complete initialization
-                self.set_ready(True)
-                self.logger.info("Tourney Live Data initialization complete")
-
-        except Exception as e:
-            self.logger.error(f"Tourney Live Data initialization failed: {e}", exc_info=True)
-            self._has_errors = True
-            raise
+    async def _initialize_cog_specific(self, tracker) -> None:
+        """Initialize cog-specific functionality."""
+        # Register info extension for player lookup
+        self.logger.debug("Registering player lookup info extension")
+        tracker.update_status("Registering extensions")
+        self.bot.cog_manager.register_info_extension(
+            target_cog="player_lookup", source_cog="tourney_live_data", provider_func=self.provide_player_lookup_info
+        )
+        self.logger.info("TourneyLiveData: Info extension registered successfully")

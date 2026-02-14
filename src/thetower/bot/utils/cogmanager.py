@@ -1164,4 +1164,3 @@ class CogManager:
             removed_count = original_count - len(self.info_extension_registry[target_cog])
             if removed_count > 0:
                 logger.debug(f"Removed {removed_count} info extensions from '{source_cog}' for target cog '{target_cog}'")
-

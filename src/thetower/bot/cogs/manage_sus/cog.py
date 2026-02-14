@@ -25,51 +25,26 @@ class ManageSus(BaseCog, name="Manage Sus"):
     # Settings view class for the cog manager
     settings_view_class = ManageSusSettingsView
 
+    # Global settings (bot-wide)
+    global_settings = {
+        "view_groups": [],  # Django groups that can view moderation records
+        "manage_groups": [],  # Django groups that can create/update moderation records
+        "privileged_groups_for_full_ids": [],  # Django groups that can see all player IDs
+        "show_moderation_records_in_profiles": True,  # Whether to show moderation records in profiles
+        "privileged_groups_for_moderation_records": [],  # Django groups that can see moderation records in profiles
+    }
+
+    # Guild-specific settings (none for this cog currently)
+    guild_settings = {}
+
     def __init__(self, bot: commands.Bot) -> None:
         super().__init__(bot)
-        self.logger.info("Initializing ManageSus")
 
-        # Store a reference to this cog
-        self.bot.manage_sus = self
-
-        # Global settings (bot-wide)
-        self.global_settings = {
-            "view_groups": [],  # Django groups that can view moderation records
-            "manage_groups": [],  # Django groups that can create/update moderation records
-            "privileged_groups_for_full_ids": [],  # Django groups that can see all player IDs
-            "show_moderation_records_in_profiles": True,  # Whether to show moderation records in profiles
-            "privileged_groups_for_moderation_records": [],  # Django groups that can see moderation records in profiles
-        }
-
-        # Guild-specific settings (none for this cog currently)
-        self.guild_settings = {}
-
-    async def cog_initialize(self) -> None:
-        """Initialize the cog - called by BaseCog during ready process."""
-        self.logger.info("Initializing Manage Sus module...")
-
-        try:
-            async with self.task_tracker.task_context("Initialization") as tracker:
-                # Initialize parent
-                self.logger.debug("Initializing parent cog")
-                tracker.update_status("Loading data")
-                await super().cog_initialize()
-
-                # UI extensions are registered automatically by BaseCog.__init__
-                # No need to call register_ui_extensions() here
-
-                # Update status variables
-                self._last_operation_time = datetime.datetime.utcnow()
-                self._operation_count = 0
-
-                # Mark as ready
-                self.set_ready(True)
-                self.logger.info("Manage Sus initialization complete")
-
-        except Exception as e:
-            self._has_errors = True
-            self.logger.error(f"Failed to initialize Manage Sus module: {e}", exc_info=True)
-            raise
+    async def _initialize_cog_specific(self, tracker) -> None:
+        """Initialize cog-specific functionality."""
+        # Update status variables
+        self._last_operation_time = datetime.datetime.utcnow()
+        self._operation_count = 0
 
     def register_ui_extensions(self) -> None:
         """Register UI extensions that this cog provides to other cogs."""

@@ -28,9 +28,20 @@ class TourneyRoleColors(BaseCog, name="Tourney Role Colors"):
     # Register the settings view class for the modular settings system
     settings_view_class = TourneyRoleColorsSettingsView
 
+    # Global settings (bot owner only)
+    global_settings = {
+        "debounce_seconds": 15,  # Wait time before enforcing prerequisite changes
+    }
+
+    # Guild-specific settings
+    guild_settings = {
+        "categories": [],
+        "auto_enforce_prerequisites": True,  # Auto-demote when prereqs lost
+        "notify_on_demotion": False,  # DM users when auto-demoted
+    }
+
     def __init__(self, bot: commands.Bot) -> None:
         super().__init__(bot)
-        self.logger.info("Initializing TourneyRoleColors")
 
         # Track members being updated to prevent feedback loops
         self.updating_members: Set[Tuple[int, int]] = set()
@@ -84,36 +95,19 @@ class TourneyRoleColors(BaseCog, name="Tourney Role Colors"):
             "notify_on_demotion": False,  # DM users when auto-demoted
         }
 
-    async def cog_initialize(self) -> None:
-        """Initialize the cog - called by BaseCog during ready process."""
-        self.logger.info("Initializing Tourney Role Colors module")
+    async def _initialize_cog_specific(self, tracker) -> None:
+        """Initialize cog-specific functionality."""
+        # Register UI extensions
+        tracker.update_status("Registering UI extensions")
+        self.register_ui_extensions()
 
-        try:
-            async with self.task_tracker.task_context("Initialization") as tracker:
-                # Initialize parent
-                self.logger.debug("Initializing parent cog")
-                await super().cog_initialize()
-
-                # Register UI extensions
-                tracker.update_status("Registering UI extensions")
-                self.register_ui_extensions()
-
-                # Run startup audit if enabled (defaults to False)
-                # Check setting for each guild since this is a per-guild setting
-                tracker.update_status("Checking startup audit settings")
-                for guild in self.bot.guilds:
-                    if self.get_setting("enable_startup_audit", False, guild_id=guild.id):
-                        tracker.update_status(f"Auditing color roles for {guild.name}")
-                        await self.audit_guild_color_roles(guild)
-
-                tracker.update_status("Marking ready")
-                self.set_ready(True)
-                self.logger.info("Tourney role colors initialization complete")
-
-        except Exception as e:
-            self.logger.error(f"Error during Tourney Role Colors initialization: {e}", exc_info=True)
-            self._has_errors = True
-            raise
+        # Run startup audit if enabled (defaults to False)
+        # Check setting for each guild since this is a per-guild setting
+        tracker.update_status("Checking startup audit settings")
+        for guild in self.bot.guilds:
+            if self.get_setting("enable_startup_audit", False, guild_id=guild.id):
+                tracker.update_status(f"Auditing color roles for {guild.name}")
+                await self.audit_guild_color_roles(guild)
 
     def register_ui_extensions(self) -> None:
         """Register UI extensions that this cog provides to other cogs."""

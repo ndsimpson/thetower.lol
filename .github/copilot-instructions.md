@@ -85,14 +85,19 @@ Example cog structure (see [../docs/cog_design.md](../docs/cog_design.md) for de
 class MyCog(BaseCog, name="My Feature"):
     settings_view_class = MySettingsView  # For global settings integration
 
+    # Define default settings as class attributes (automatically loaded by BaseCog)
+    guild_settings = {"enabled": True, "channel_id": None}
+    global_settings = {"admin_groups": ["Moderators"]}
+
     def __init__(self, bot):
         super().__init__(bot)
-        self.guild_settings = {"enabled": True, "channel_id": None}
-        self.global_settings = {"admin_groups": ["Moderators"]}
+        # BaseCog automatically registers cog on bot and handles initialization
 
-    async def cog_load(self):
-        await super().cog_load()
+    async def _initialize_cog_specific(self, tracker) -> None:
+        """Initialize cog-specific functionality."""
         # Load cog-specific data
+        tracker.update_status("Loading data")
+        await self.load_data()
 
     @app_commands.command(name="mycommand")
     async def my_slash(self, interaction: discord.Interaction):

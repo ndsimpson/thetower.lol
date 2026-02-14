@@ -22,30 +22,27 @@ class Validation(BaseCog, name="Validation"):
     # Settings view class for the cog manager
     settings_view_class = ValidationSettingsView
 
+    # Global settings (bot-wide) - declared as class attributes
+    global_settings = {
+        "approved_unverify_groups": [],  # List of Django group names that can un-verify players
+        "approved_manage_alt_links_groups": [],  # List of Django group names that can manage alt links for any user
+        "mod_notification_channel_id": None,  # Optional channel ID for moderator notifications (bot-wide)
+        "approved_id_change_moderator_groups": [],  # List of Django group names that can moderate player ID changes
+        "manage_retired_accounts_groups": [],  # List of Django group names that can view/manage retired Discord accounts
+    }
+
+    # Guild-specific settings - declared as class attributes
+    guild_settings = {
+        "verified_role_id": None,  # Role ID for verified users
+        "verification_log_channel_id": None,  # Channel ID for logging verifications
+        "verification_enabled": True,  # Whether verification is enabled for this guild
+    }
+
     def __init__(self, bot):
         super().__init__(bot)
 
-        # Store reference on bot
-        self.bot.validation = self
-
         # Track bot-initiated role changes to prevent feedback loops
         self._bot_role_changes = set()  # Set of (member_id, guild_id) tuples
-
-        # Global settings (bot-wide)
-        self.global_settings = {
-            "approved_unverify_groups": [],  # List of Django group names that can un-verify players
-            "approved_manage_alt_links_groups": [],  # List of Django group names that can manage alt links for any user
-            "mod_notification_channel_id": None,  # Optional channel ID for moderator notifications (bot-wide)
-            "approved_id_change_moderator_groups": [],  # List of Django group names that can moderate player ID changes
-            "manage_retired_accounts_groups": [],  # List of Django group names that can view/manage retired Discord accounts
-        }
-
-        # Guild-specific settings
-        self.guild_settings = {
-            "verified_role_id": None,  # Role ID for verified users
-            "verification_log_channel_id": None,  # Channel ID for logging verifications
-            "verification_enabled": True,  # Whether verification is enabled for this guild
-        }
 
     async def cog_load(self):
         """Called when cog is loaded - restore persistent views."""
@@ -1103,46 +1100,23 @@ class Validation(BaseCog, name="Validation"):
         # Allow /pending_id_changes in any channel
         return True
 
-    async def cog_initialize(self) -> None:
-        """Initialize the cog - called by BaseCog during ready process."""
-        self.logger.info("Initializing Validation module...")
+    async def _initialize_cog_specific(self, tracker) -> None:
+        """Initialize cog-specific functionality."""
+        # Register info extension for player lookup (alt account info)
+        self.logger.debug("Registering player lookup info extension")
+        tracker.update_status("Registering info extensions")
+        self.bot.cog_manager.register_info_extension(target_cog="player_lookup", source_cog="validation", provider_func=self.provide_alt_account_info)
 
-        try:
-            async with self.task_tracker.task_context("Initialization") as tracker:
-                # Initialize parent
-                self.logger.debug("Initializing parent cog")
-                tracker.update_status("Loading settings")
-                await super().cog_initialize()
+        # Register UI extension for player lookup (manage Discord accounts button)
+        self.logger.debug("Registering player lookup UI extension")
+        tracker.update_status("Registering UI extensions")
+        self.bot.cog_manager.register_ui_extension(
+            target_cog="player_lookup", source_cog="validation", provider_func=self.get_manage_discord_accounts_button_for_player
+        )
 
-                # UI extensions are registered automatically by BaseCog.__init__
-                # No need to call register_ui_extensions() here
-
-                # Register info extension for player lookup (alt account info)
-                self.logger.debug("Registering player lookup info extension")
-                tracker.update_status("Registering info extensions")
-                self.bot.cog_manager.register_info_extension(
-                    target_cog="player_lookup", source_cog="validation", provider_func=self.provide_alt_account_info
-                )
-
-                # Register UI extension for player lookup (manage Discord accounts button)
-                self.logger.debug("Registering player lookup UI extension")
-                tracker.update_status("Registering UI extensions")
-                self.bot.cog_manager.register_ui_extension(
-                    target_cog="player_lookup", source_cog="validation", provider_func=self.get_manage_discord_accounts_button_for_player
-                )
-
-                # Run startup reconciliation to fix any role issues that occurred while bot was offline
-                tracker.update_status("Running startup reconciliation")
-                await self._startup_reconciliation()
-
-                # Mark as ready
-                self.set_ready(True)
-                self.logger.info("Validation initialization complete")
-
-        except Exception as e:
-            self._has_errors = True
-            self.logger.error(f"Failed to initialize Validation module: {e}", exc_info=True)
-            raise
+        # Run startup reconciliation to fix any role issues that occurred while bot was offline
+        tracker.update_status("Running startup reconciliation")
+        await self._startup_reconciliation()
 
     async def _startup_reconciliation(self) -> None:
         """Reconcile verified roles with KnownPlayers on startup."""

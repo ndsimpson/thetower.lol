@@ -28,19 +28,19 @@ class VerificationBackfill(BaseCog, name="Verification Backfill"):
 
     settings_view_class = VerificationBackfillSettingsView
 
+    # Bot owner only settings
+    global_settings = {
+        "enabled": True,
+        "public": False,  # Only bot owner can use this
+        "global_log_channel_id": None,  # Global log channel for all backfill operations
+    }
+
     def __init__(self, bot):
         super().__init__(bot)
 
         # Track running backfill tasks
         self.backfill_tasks = {}  # {guild_id: asyncio.Task}
         self.backfill_cancelled = {}  # {guild_id: bool}
-
-        # Bot owner only settings
-        self.global_settings = {
-            "enabled": True,
-            "public": False,  # Only bot owner can use this
-            "global_log_channel_id": None,  # Global log channel for all backfill operations
-        }
 
     async def cog_load(self):
         """Load saved backfill state on cog load."""

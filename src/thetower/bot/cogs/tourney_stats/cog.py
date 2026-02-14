@@ -33,12 +33,19 @@ class TourneyStats(BaseCog, name="Tourney Stats"):
     # Settings view class for the cog manager - only accessible to bot owner
     settings_view_class = TourneyStatsSettingsView
 
+    # Global settings (bot-wide)
+    global_settings = {
+        "cache_filename": "tourney_stats_data.pkl",
+        "cache_check_interval": 5 * 60,  # Check every 5 minutes for new tournaments
+        "update_error_retry_interval": 30 * 60,
+        "recent_tournaments_display_count": 3,
+    }
+
+    # Guild-specific settings (none for this cog currently)
+    guild_settings = {}
+
     def __init__(self, bot):
         super().__init__(bot)
-        self.logger.info("Initializing TourneyStats")
-
-        # Store reference on bot
-        self.bot.tourney_stats = self
 
         # Initialize data storage variables
         self.league_dfs = {}
@@ -48,17 +55,6 @@ class TourneyStats(BaseCog, name="Tourney Stats"):
         self.last_checked = None
         self.tournament_counts = {}
         self.total_tournaments = 0
-
-        # Global settings (bot-wide)
-        self.global_settings = {
-            "cache_filename": "tourney_stats_data.pkl",
-            "cache_check_interval": 5 * 60,  # Check every 5 minutes for new tournaments
-            "update_error_retry_interval": 30 * 60,
-            "recent_tournaments_display_count": 3,
-        }
-
-        # Guild-specific settings (none for this cog currently)
-        self.guild_settings = {}
 
     @property
     def cache_file(self) -> Path:
@@ -71,38 +67,20 @@ class TourneyStats(BaseCog, name="Tourney Stats"):
         """Get the cache check interval from settings"""
         return self.get_setting("cache_check_interval", self.global_settings["cache_check_interval"])
 
-    async def cog_initialize(self) -> None:
-        """Initialize the cog - called by BaseCog during ready process"""
-        self.logger.info("Initializing TourneyStats module...")
+    async def _initialize_cog_specific(self, tracker) -> None:
+        """Initialize cog-specific functionality."""
+        # Load saved data first
+        tracker.update_status("Loading tournament data")
+        await self.load_data()
 
-        try:
-            async with self.task_tracker.task_context("Initialization") as tracker:
-                # Initialize parent
-                self.logger.debug("Initializing parent cog")
-                tracker.update_status("Loading saved data")
-                await super().cog_initialize()
+        # Refresh if needed
+        if not self.league_dfs:
+            tracker.update_status("Refreshing tournament data")
+            await self.get_tournament_data(refresh=True)
 
-                # Load saved data first
-                tracker.update_status("Loading tournament data")
-                await self.load_data()
-
-                # Refresh if needed
-                if not self.league_dfs:
-                    tracker.update_status("Refreshing tournament data")
-                    await self.get_tournament_data(refresh=True)
-
-                # Start the update check task
-                tracker.update_status("Starting background tasks")
-                self.periodic_update_check.start()
-
-                # Mark the cog as ready
-                self.set_ready(True)
-                self.logger.info("TourneyStats initialization complete")
-
-        except Exception as e:
-            self._has_errors = True
-            self.logger.error(f"Failed to initialize TourneyStats module: {e}", exc_info=True)
-            raise
+        # Start the update check task
+        tracker.update_status("Starting background tasks")
+        self.periodic_update_check.start()
 
     @tasks.loop(seconds=None)  # Will set interval in before_loop
     async def periodic_update_check(self):

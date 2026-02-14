@@ -24,29 +24,25 @@ class BattleConditions(BaseCog, name="Battle Conditions"):
     # Register the settings view class for the modular settings system
     settings_view_class = BattleConditionsSettingsView
 
+    # Global settings (bot-wide)
+    global_settings = {
+        "bc_view_window_days": None,  # None = always available, or number of days before tourney
+        "enabled_leagues": [],
+    }
+
+    # Guild-specific settings
+    guild_settings = {
+        # Time Settings
+        "notification_hour": 0,
+        "notification_minute": 0,
+        "days_before_notification": 1,
+        # Schedule Settings
+        "destination_schedules": [],
+    }
+
     # === Core Methods ===
     def __init__(self, bot: commands.Bot) -> None:
         super().__init__(bot)
-        self.logger.info("Initializing BattleConditions")
-
-        # Store reference on bot
-        self.bot.battle_conditions = self
-
-        # Global settings (bot-wide)
-        self.global_settings = {
-            "bc_view_window_days": None,  # None = always available, or number of days before tourney
-            "enabled_leagues": [],
-        }
-
-        # Guild-specific settings
-        self.guild_settings = {
-            # Time Settings
-            "notification_hour": 0,
-            "notification_minute": 0,
-            "days_before_notification": 1,
-            # Schedule Settings
-            "destination_schedules": [],
-        }
 
     async def _check_additional_interaction_permissions(self, interaction: discord.Interaction) -> bool:
         """Override additional interaction permissions for slash commands.
@@ -58,37 +54,15 @@ class BattleConditions(BaseCog, name="Battle Conditions"):
         # Allow all slash commands through - permissions checked in button callbacks
         return True
 
-    async def cog_initialize(self) -> None:
-        """Initialize the cog - called by BaseCog during ready process."""
-        self.logger.info("Initializing Battle Conditions module")
+    async def _initialize_cog_specific(self, tracker) -> None:
+        """Initialize cog-specific functionality."""
+        # 1. Start scheduled task
+        self.logger.debug("Starting scheduled task")
+        tracker.update_status("Starting tasks")
+        self.scheduled_bc_messages.start()
 
-        # Check if towerbcs is available
-        if not TOWERBCS_AVAILABLE:
-            self.logger.warning("towerbcs package not available - battle conditions functionality will be limited")
-            self._has_errors = True
-
-        try:
-            async with self.task_tracker.task_context("Initialization") as tracker:
-                # Initialize parent
-                self.logger.debug("Initializing parent cog")
-                await super().cog_initialize()
-
-                # 1. Start scheduled task
-                self.logger.debug("Starting scheduled task")
-                tracker.update_status("Starting tasks")
-                self.scheduled_bc_messages.start()
-
-                # 2. Initialize state
-                self._last_operation_time = datetime.datetime.utcnow()
-
-                # 3. Mark as ready
-                self.set_ready(True)
-                self.logger.info("Battle conditions initialization complete")
-
-        except Exception as e:
-            self.logger.error(f"Error during Battle Conditions initialization: {e}", exc_info=True)
-            self._has_errors = True
-            raise
+        # 2. Initialize state
+        self._last_operation_time = datetime.datetime.utcnow()
 
     async def cog_unload(self) -> None:
         """Clean up when cog is unloaded."""
