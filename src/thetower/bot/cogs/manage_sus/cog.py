@@ -122,6 +122,10 @@ class ManageSus(BaseCog, name="Manage Sus"):
         #         if str(requesting_user.id) in [str(did) for did in discord_accounts]:
         #             return None  # User viewing own profile
 
+        # Bot owner can always see the button
+        if permission_context.is_bot_owner:
+            return ManageSusButton(self, details, requesting_user, guild_id)
+
         # Check if user has permission to view/manage moderation records using the permission context
         # Get allowed groups from settings
         view_groups = self.config.get_global_cog_setting("manage_sus", "view_groups", self.global_settings["view_groups"])

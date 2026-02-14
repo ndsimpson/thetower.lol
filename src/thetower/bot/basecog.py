@@ -29,6 +29,7 @@ class PermissionContext:
     user_id: int
     django_groups: List[str]
     discord_roles: List[int]
+    is_bot_owner: bool = False
 
     def has_any_group(self, groups: List[str]) -> bool:
         """Check if user has any of the required Django groups."""
@@ -743,7 +744,10 @@ class BaseCog(commands.Cog):
         # For now, just get basic user info
         discord_roles = []
 
-        return PermissionContext(user_id=user.id, django_groups=django_groups, discord_roles=discord_roles)
+        # Check if user is bot owner
+        is_bot_owner = await self.bot.is_owner(user)
+
+        return PermissionContext(user_id=user.id, django_groups=django_groups, discord_roles=discord_roles, is_bot_owner=is_bot_owner)
 
     # ====================
     # Slash Command Permission Helpers

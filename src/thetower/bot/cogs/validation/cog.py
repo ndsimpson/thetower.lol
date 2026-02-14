@@ -483,16 +483,38 @@ class Validation(BaseCog, name="Validation"):
             permission_context: Permission context for the requesting user
 
         Returns:
-            Button if user has manage_retired_accounts permission, None otherwise
+            Button if user has manage_retired_accounts permission or is bot owner, None otherwise
         """
+        self.logger.info(
+            f"get_manage_discord_accounts_button_for_player: user={requesting_user.id}, "
+            f"is_bot_owner={permission_context.is_bot_owner}, "
+            f"django_groups={permission_context.django_groups}"
+        )
+
+        # Bot owner can always see the button
+        if permission_context.is_bot_owner:
+            self.logger.info("Showing button for bot owner")
+            player_id = details.get("player_id")
+            if player_id:
+                from .ui.core import ManageDiscordAccountsButton
+
+                return ManageDiscordAccountsButton(self, player_id, guild_id)
+            return None
+
         # Check if user has permission to manage retired accounts
         approved_groups = self.config.get_global_cog_setting("validation", "manage_retired_accounts_groups", [])
+        self.logger.info(f"manage_retired_accounts_groups configured: {approved_groups}")
+
         if not approved_groups:
+            self.logger.info("No approved groups configured - button hidden")
             return None
 
         # Check if user is in approved group
         if not permission_context.has_any_group(approved_groups):
+            self.logger.info("User not in approved groups - button hidden")
             return None
+
+        self.logger.info("User has permission - showing button")
 
         # Get player_id from details
         player_id = details.get("player_id")
