@@ -4,9 +4,8 @@ Django Migrations Management for Streamlit Admin.
 This page provides a safe interface for checking and applying Django migrations.
 """
 
+import io
 import os
-import subprocess
-import sys
 from datetime import datetime, timezone
 
 import streamlit as st
@@ -20,31 +19,29 @@ def get_django_migrations_status():
         dict: Migration status by app with applied/unapplied migrations
     """
     try:
-        # Add Django backend to Python path
-        backend_path = os.path.join(os.path.dirname(__file__), "..", "..", "backend")
-        if backend_path not in sys.path:
-            sys.path.insert(0, backend_path)
-
         # Set Django settings
         os.environ.setdefault("DJANGO_SETTINGS_MODULE", "thetower.backend.towerdb.settings")
 
-        # Run showmigrations command (without --plan for easier parsing)
-        result = subprocess.run(
-            [sys.executable, "manage.py", "showmigrations"],
-            cwd=backend_path,
-            capture_output=True,
-            text=True,
-            timeout=30
-        )
+        # Import Django and setup
+        import django
 
-        if result.returncode != 0:
-            return {"error": f"Migration check failed: {result.stderr}"}
+        django.setup()
+
+        from django.core.management import call_command
+
+        # Capture showmigrations output
+        output_buffer = io.StringIO()
+        try:
+            call_command("showmigrations", stdout=output_buffer)
+            output = output_buffer.getvalue()
+        except Exception as cmd_error:
+            return {"error": f"Migration check failed: {str(cmd_error)}"}
 
         # Parse the output
         migrations = {}
         current_app = None
 
-        for line in result.stdout.strip().split('\n'):
+        for line in output.strip().split("\n"):
             line_stripped = line.strip()
 
             # Skip empty lines
@@ -52,29 +49,24 @@ def get_django_migrations_status():
                 continue
 
             # App header (no leading spaces, no [X] or [ ] prefix)
-            if not line.startswith(' '):
+            if not line.startswith(" "):
                 current_app = line_stripped
                 if current_app not in migrations:
-                    migrations[current_app] = {
-                        'applied': [],
-                        'unapplied': []
-                    }
+                    migrations[current_app] = {"applied": [], "unapplied": []}
             else:
                 # Migration entry (starts with space, then [X] or [ ])
-                if current_app and line.startswith(' ['):
-                    is_applied = '[X]' in line
+                if current_app and line.startswith(" ["):
+                    is_applied = "[X]" in line
                     # Extract migration name after the [X] or [ ] marker
-                    migration_name = line.split('] ')[1].strip()
+                    migration_name = line.split("] ")[1].strip()
 
                     if is_applied:
-                        migrations[current_app]['applied'].append(migration_name)
+                        migrations[current_app]["applied"].append(migration_name)
                     else:
-                        migrations[current_app]['unapplied'].append(migration_name)
+                        migrations[current_app]["unapplied"].append(migration_name)
 
         return migrations
 
-    except subprocess.TimeoutExpired:
-        return {"error": "Migration check timed out"}
     except Exception as e:
         return {"error": f"Error checking migrations: {str(e)}"}
 
@@ -91,41 +83,42 @@ def apply_migrations(app_name=None, migration_name=None):
         dict: Result of migration operation
     """
     try:
-        backend_path = os.path.join(os.path.dirname(__file__), "..", "..", "backend")
+        # Set Django settings
+        os.environ.setdefault("DJANGO_SETTINGS_MODULE", "thetower.backend.towerdb.settings")
 
-        # Build migrate command
-        cmd = [sys.executable, "manage.py", "migrate"]
+        # Import Django and setup
+        import django
+
+        django.setup()
+
+        from django.core.management import call_command
+
+        # Build command args
+        args = []
         if app_name:
-            cmd.append(app_name)
+            args.append(app_name)
             if migration_name:
-                cmd.append(migration_name)
+                args.append(migration_name)
 
-        # Run migration
-        result = subprocess.run(
-            cmd,
-            cwd=backend_path,
-            capture_output=True,
-            text=True,
-            timeout=300  # 5 minutes timeout for migrations
-        )
+        # Capture output
+        output_buffer = io.StringIO()
+        error_buffer = io.StringIO()
 
-        return {
-            "success": result.returncode == 0,
-            "stdout": result.stdout,
-            "stderr": result.stderr,
-            "command": " ".join(cmd)
-        }
+        try:
+            # Run migration command
+            call_command("migrate", *args, stdout=output_buffer, stderr=error_buffer)
 
-    except subprocess.TimeoutExpired:
-        return {
-            "success": False,
-            "error": "Migration timed out after 5 minutes"
-        }
+            return {"success": True, "stdout": output_buffer.getvalue(), "stderr": error_buffer.getvalue(), "command": f"migrate {' '.join(args)}"}
+        except Exception as cmd_error:
+            return {
+                "success": False,
+                "stdout": output_buffer.getvalue(),
+                "stderr": error_buffer.getvalue() or str(cmd_error),
+                "command": f"migrate {' '.join(args)}",
+            }
+
     except Exception as e:
-        return {
-            "success": False,
-            "error": f"Error applying migrations: {str(e)}"
-        }
+        return {"success": False, "error": f"Error applying migrations: {str(e)}"}
 
 
 def migrations_page():
@@ -133,10 +126,7 @@ def migrations_page():
     st.title("🔄 Django Migrations Management")
 
     # Warning about migrations
-    st.warning(
-        "⚠️ **Important**: Migrations modify the database structure. "
-        "Always backup the database before applying migrations in production!"
-    )
+    st.warning("⚠️ **Important**: Migrations modify the database structure. " "Always backup the database before applying migrations in production!")
 
     # Refresh button
     col1, col2 = st.columns([1, 3])
@@ -159,8 +149,8 @@ def migrations_page():
         return
 
     # Calculate summary stats
-    total_unapplied = sum(len(app_data.get('unapplied', [])) for app_data in migrations_status.values())
-    total_applied = sum(len(app_data.get('applied', [])) for app_data in migrations_status.values())
+    total_unapplied = sum(len(app_data.get("unapplied", [])) for app_data in migrations_status.values())
+    total_applied = sum(len(app_data.get("applied", [])) for app_data in migrations_status.values())
 
     # Summary metrics
     st.markdown("### 📊 Migration Summary")
@@ -170,7 +160,7 @@ def migrations_page():
     with col2:
         st.metric("⏳ Pending Migrations", total_unapplied)
     with col3:
-        apps_with_pending = sum(1 for app_data in migrations_status.values() if app_data.get('unapplied'))
+        apps_with_pending = sum(1 for app_data in migrations_status.values() if app_data.get("unapplied"))
         st.metric("📦 Apps with Pending", apps_with_pending)
 
     # Show status
@@ -214,8 +204,8 @@ def migrations_page():
     st.markdown("### 📱 Per-App Migration Status")
 
     for app_name, app_migrations in migrations_status.items():
-        applied = app_migrations.get('applied', [])
-        unapplied = app_migrations.get('unapplied', [])
+        applied = app_migrations.get("applied", [])
+        unapplied = app_migrations.get("unapplied", [])
 
         # Skip apps with no migrations
         if not applied and not unapplied:
@@ -276,7 +266,8 @@ def migrations_page():
     # Instructions
     st.markdown("---")
     with st.expander("ℹ️ About Django Migrations"):
-        st.markdown("""
+        st.markdown(
+            """
         **Migration Management:**
         - **Apply All**: Runs `python manage.py migrate` to apply all pending migrations
         - **Per-App Apply**: Runs `python manage.py migrate <app_name>` for specific apps
@@ -299,7 +290,8 @@ def migrations_page():
         - `auth`: Django authentication system
         - `contenttypes`: Django content types framework
         - `sessions`: Django session management
-        """)
+        """
+        )
 
 
 if __name__ == "__main__":
