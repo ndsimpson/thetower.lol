@@ -11,6 +11,13 @@ import re
 import sys
 from typing import Dict, List, Optional
 
+try:
+    from packaging.version import parse as parse_version
+except ImportError:
+    # Fallback if packaging is not available
+    def parse_version(v):
+        return tuple(map(int, v.lstrip('v').split('.')))
+
 
 def get_thetower_packages() -> List[Dict[str, any]]:
     """
@@ -94,7 +101,7 @@ def get_thetower_packages() -> List[Dict[str, any]]:
                     }
                 )
 
-        except Exception as e:
+        except Exception:
             # Skip packages with metadata issues
             continue
 
@@ -159,16 +166,18 @@ async def check_package_updates(package_name: str, repo_url: Optional[str] = Non
             result["error"] = "No version tags found in repository"
             return result
 
-        # Sort tags to find latest (simple string sort works for semantic versions)
-        latest_tag = sorted(tags)[-1]
+        # Sort tags to find latest using semantic version sorting
+        latest_tag = max(tags, key=parse_version)
         result["latest_version"] = latest_tag
 
-        # Compare versions (strip 'v' prefix and compare)
-        current_clean = re.match(r"^(\d+\.\d+(?:\.\d+)?)", current_version)
-        if current_clean:
-            current_clean = current_clean.group(1)
-            latest_clean = latest_tag.lstrip("v")
-            result["update_available"] = current_clean != latest_clean
+        # Compare versions using semantic version comparison
+        try:
+            current_ver = parse_version(current_version.lstrip("v"))
+            latest_ver = parse_version(latest_tag.lstrip("v"))
+            result["update_available"] = latest_ver > current_ver
+        except Exception:
+            # Fallback to string comparison if parsing fails
+            result["update_available"] = latest_tag.lstrip("v") != current_version.lstrip("v")
 
     except Exception as e:
         result["error"] = str(e)
