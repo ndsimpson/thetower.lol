@@ -156,29 +156,20 @@ class Validation(BaseCog, name="Validation"):
                     player.approved = True
                     player.save()
 
-                # Get the primary game instance
-                primary_instance = player.game_instances.filter(primary=True).first()
-                if not primary_instance:
-                    # Create a primary instance if somehow missing
-                    primary_instance = GameInstance.objects.create(player=player, name="Instance 1", primary=True)
+                # Create a new primary game instance for the new player ID
+                # Set all existing instances to non-primary
+                player.game_instances.update(primary=False)
 
-                # Capture old primary player ID before changing it (for cache invalidation)
-                old_primary_player_id_obj = PlayerId.objects.filter(game_instance=primary_instance, primary=True).first()
-                old_primary_player_id = old_primary_player_id_obj.id if old_primary_player_id_obj else None
+                # Create new primary instance
+                primary_instance = GameInstance.objects.create(player=player, name=f"Instance {player.game_instances.count() + 1}", primary=True)
 
-                # Set all existing PlayerIds for this instance to non-primary
-                PlayerId.objects.filter(game_instance=primary_instance).update(primary=False)
+                # Create the new PlayerID as primary in the new instance
+                PlayerId.objects.create(id=player_id, game_instance=primary_instance, primary=True)
+                old_primary_player_id = None  # New instance, no old primary in this instance
 
-                # Create/update the new PlayerID as primary
-                player_id_obj, player_id_created = PlayerId.objects.update_or_create(
-                    id=player_id, defaults=dict(game_instance=primary_instance, primary=True)
-                )
-
-                # Update role_source_instance to primary instance (ensures roles come from new clean ID)
-                # This is especially important if they were previously using a banned ID for roles
-                if linked_account.role_source_instance != primary_instance:
-                    linked_account.role_source_instance = primary_instance
-                    linked_account.save()
+                # Update role_source_instance to the new primary instance
+                linked_account.role_source_instance = primary_instance
+                linked_account.save()
             else:
                 # New player verification
                 player = KnownPlayer.objects.create(name=author_name, approved=True)
@@ -656,11 +647,30 @@ class Validation(BaseCog, name="Validation"):
                     tower_ids = [{"id": pid["id"], "primary": pid["primary"]} for pid in instance.player_ids.values("id", "primary")]
                     game_instances.append({"id": instance.id, "name": instance.name, "primary": instance.primary, "tower_ids": tower_ids})
 
+                # Determine verification status based on having a linked, non-banned game instance
+                from thetower.backend.sus.models import ModerationRecord
+
+                ban_ids = ModerationRecord.get_active_moderation_ids("ban")
+
+                # Check if player has at least one non-banned primary player ID
+                has_valid_verification = False
+                for instance in game_instances:
+                    for tid in instance["tower_ids"]:
+                        if tid["primary"] and tid["id"] not in ban_ids:
+                            has_valid_verification = True
+                            break
+                    if has_valid_verification:
+                        break
+
+                # Update verified status for all accounts based on validity
+                for account in all_discord_accounts:
+                    account["verified"] = has_valid_verification
+
                 return {
-                    "status": "verified",
+                    "status": "verified" if has_valid_verification else "pending",
                     "player_id": player.id,
                     "player_name": player.name,
-                    "verified": linked_account.verified,
+                    "verified": has_valid_verification,
                     "verified_at": linked_account.verified_at,
                     "all_discord_accounts": all_discord_accounts,
                     "game_instances": game_instances,
@@ -829,11 +839,28 @@ class Validation(BaseCog, name="Validation"):
                     tower_ids = [{"id": pid["id"], "primary": pid["primary"]} for pid in instance.player_ids.values("id", "primary")]
                     game_instances.append({"id": instance.id, "name": instance.name, "primary": instance.primary, "tower_ids": tower_ids})
 
+                # Determine verification status based on having a linked, non-banned game instance
+                from thetower.backend.sus.models import ModerationRecord
+
+                ban_ids = ModerationRecord.get_active_moderation_ids("ban")
+
+                # Check if player has at least one non-banned primary player ID
+                has_valid_verification = False
+                for instance in game_instances:
+                    for tid in instance["tower_ids"]:
+                        if tid["primary"] and tid["id"] not in ban_ids:
+                            has_valid_verification = True
+                            break
+                    if has_valid_verification:
+                        break
+
+                status = "verified" if has_valid_verification else "pending"
+
                 return {
-                    "status": "verified" if linked_account.verified else "pending",
+                    "status": status,
                     "player_name": player.name,
                     "player_id": player.id,
-                    "verified": linked_account.verified,
+                    "verified": has_valid_verification,  # Update to reflect actual verification state
                     "verified_at": linked_account.verified_at,
                     "all_discord_accounts": all_linked_accounts,
                     "game_instances": game_instances,
