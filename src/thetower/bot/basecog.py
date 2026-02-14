@@ -935,7 +935,7 @@ class BaseCog(commands.Cog):
 
     async def get_linked_account_by_discord_id(
         self, discord_id: str, active_only: bool = True, select_related: bool = True
-    ) -> Optional[LinkedAccount]:
+    ) -> Optional["LinkedAccount"]:
         """
         Get LinkedAccount by Discord ID.
 
@@ -964,7 +964,7 @@ class BaseCog(commands.Cog):
 
         return await query_linked_account()
 
-    async def get_player_by_discord_id(self, discord_id: str, active_only: bool = True) -> Optional[KnownPlayer]:
+    async def get_player_by_discord_id(self, discord_id: str, active_only: bool = True) -> Optional["KnownPlayer"]:
         """
         Get KnownPlayer by Discord ID.
 
@@ -1005,7 +1005,7 @@ class BaseCog(commands.Cog):
 
         return await query_linked_accounts()
 
-    async def get_primary_linked_account(self, player: KnownPlayer, platform: str = "DISCORD") -> Optional[LinkedAccount]:
+    async def get_primary_linked_account(self, player: "KnownPlayer", platform: str = "DISCORD") -> Optional["LinkedAccount"]:
         """
         Get the primary LinkedAccount for a player.
 
@@ -1026,7 +1026,7 @@ class BaseCog(commands.Cog):
 
         return await query_primary_account()
 
-    async def get_player_by_player_id(self, player_id: str) -> Optional[KnownPlayer]:
+    async def get_player_by_player_id(self, player_id: str) -> Optional["KnownPlayer"]:
         """
         Get KnownPlayer by Tower player ID.
 
@@ -1046,7 +1046,7 @@ class BaseCog(commands.Cog):
 
         return await query_player()
 
-    async def get_player_by_name(self, name: str, case_sensitive: bool = False) -> Optional[KnownPlayer]:
+    async def get_player_by_name(self, name: str, case_sensitive: bool = False) -> Optional["KnownPlayer"]:
         """
         Get KnownPlayer by name.
 
