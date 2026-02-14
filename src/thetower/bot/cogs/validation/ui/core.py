@@ -2560,14 +2560,15 @@ class ManageDiscordAccountsView(discord.ui.View):
             verified_at = account["verified_at"]
             instance = account.get("instance")
 
-            # Build field name: emoji mention (display_name) primary_marker
+            # Build field name: emoji @display_name primary_marker
             verified_emoji = "✅" if verified else "❓"
             primary_marker = " 🌟" if primary else ""
 
             if display_name:
-                field_name = f"{verified_emoji} <@{account_id}> ({display_name}){primary_marker}"
+                field_name = f"{verified_emoji} @{display_name}{primary_marker}"
             else:
-                field_name = f"{verified_emoji} <@{account_id}>{primary_marker}"
+                # Fallback: use mention format which will render in field values but show ID in field names
+                field_name = f"{verified_emoji} Discord ID {account_id[:12]}...{primary_marker}"
 
             # Build status and verification on same line
             active_status = "🟢 Active" if active else "🔴 Retired"
@@ -2584,15 +2585,14 @@ class ManageDiscordAccountsView(discord.ui.View):
             else:
                 verified_text = "Not verified"
 
-            # Build instance info
+            # Build instance info - just show player ID
             instance_text = ""
             if instance:
-                instance_name = instance["name"]
                 instance_primary_id = instance["primary_id"]
                 if instance_primary_id:
-                    instance_text = f"\nRoles from: {instance_name} (`{instance_primary_id}`)"
+                    instance_text = f"\nRoles from: `{instance_primary_id}`"
                 else:
-                    instance_text = f"\nRoles from: {instance_name}"
+                    instance_text = "\nRoles from: _Not assigned_"
             else:
                 instance_text = "\nRoles from: _Not assigned_"
 
@@ -2698,12 +2698,11 @@ class AccountConfirmationView(discord.ui.View):
         info_text = f"**Discord:** {account_display}\n**Current Status:** {status}\n**Verification:** {verified_status}"
 
         if instance:
-            instance_name = instance["name"]
             instance_primary_id = instance["primary_id"]
             if instance_primary_id:
-                info_text += f"\n**Roles from:** {instance_name} (`{instance_primary_id}`)"
+                info_text += f"\n**Roles from:** `{instance_primary_id}`"
             else:
-                info_text += f"\n**Roles from:** {instance_name}"
+                info_text += "\n**Roles from:** _Not assigned_"
         else:
             info_text += "\n**Roles from:** _Not assigned_"
 
