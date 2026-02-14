@@ -1810,3 +1810,69 @@ class Validation(BaseCog, name="Validation"):
 
         except Exception as e:
             self.logger.error(f"Error handling member moderation event: {e}")
+
+    @commands.Cog.listener()
+    async def on_discord_account_status_changed(self, account_id: str, guild_id: int, linked_account):
+        """Handle Discord account status changes - add/remove verified role when accounts are enabled/disabled.
+
+        Args:
+            account_id: The Discord account ID
+            guild_id: The guild where the change was made
+            linked_account: The LinkedAccount object (with active=True or active=False)
+        """
+        try:
+            self.logger.info(
+                f"Discord account status changed: account_id={account_id}, guild_id={guild_id}, active={linked_account.active}, verified={linked_account.verified}"
+            )
+
+            # Get the guild and member
+            guild = self.bot.get_guild(guild_id)
+            if not guild:
+                self.logger.warning(f"Guild {guild_id} not found for Discord account status change")
+                return
+
+            try:
+                discord_id = int(account_id)
+            except (ValueError, TypeError):
+                self.logger.error(f"Invalid Discord account ID: {account_id}")
+                return
+
+            member = guild.get_member(discord_id)
+            if not member:
+                self.logger.info(f"Member {account_id} not found in guild {guild.name} - skipping role reconciliation")
+                return
+
+            # Get verified role for this guild
+            verified_role_id = self.get_setting("verified_role_id", guild_id=guild_id)
+            if not verified_role_id:
+                self.logger.info(f"No verified role configured for guild {guild.name} - skipping role reconciliation")
+                return
+
+            verified_role = guild.get_role(verified_role_id)
+            if not verified_role:
+                self.logger.warning(f"Verified role {verified_role_id} not found in guild {guild.name}")
+                return
+
+            # Determine if member should have verified role
+            should_have_role = linked_account.active and linked_account.verified
+
+            # Check for active ban
+            if should_have_role and await self._has_active_ban(account_id):
+                should_have_role = False
+                self.logger.info(f"Member {account_id} has active ban - will not add verified role")
+
+            # Add or remove role based on status
+            has_role = verified_role in member.roles
+
+            if should_have_role and not has_role:
+                await self._add_verified_role(member, verified_role, "account enabled")
+                self.logger.info(f"Added verified role to {member} ({member.id}) in guild {guild.name}")
+            elif not should_have_role and has_role:
+                reason = "account disabled" if not linked_account.active else "account not verified"
+                await self._remove_verified_role(member, verified_role, reason)
+                self.logger.info(f"Removed verified role from {member} ({member.id}) in guild {guild.name}: {reason}")
+            else:
+                self.logger.info(f"No role change needed for {member} ({member.id}) in guild {guild.name}")
+
+        except Exception as e:
+            self.logger.error(f"Error handling Discord account status change event: {e}", exc_info=True)

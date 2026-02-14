@@ -2443,6 +2443,62 @@ class CancelDetailViewButton(discord.ui.Button):
         await interaction.message.edit(view=self)
 
 
+async def _fetch_discord_accounts(player_id: int):
+    """Helper function to fetch Discord accounts for a player.
+
+    Args:
+        player_id: The KnownPlayer database ID
+
+    Returns:
+        Tuple of (accounts_list, error_message)
+    """
+
+    def get_discord_accounts():
+        try:
+            from thetower.backend.sus.models import KnownPlayer, LinkedAccount
+
+            player = KnownPlayer.objects.filter(id=player_id).first()
+            if not player:
+                return None, "Player not found"
+
+            # Get all Discord LinkedAccounts for this player (including inactive)
+            accounts_qs = (
+                LinkedAccount.objects.filter(player=player, platform=LinkedAccount.Platform.DISCORD)
+                .select_related("role_source_instance")
+                .order_by("-verified", "-primary", "account_id")
+            )
+
+            accounts = []
+            for acc in accounts_qs:
+                # Get primary player ID from the role source instance if it exists
+                instance_info = None
+                if acc.role_source_instance:
+                    primary_pid = acc.role_source_instance.player_ids.filter(primary=True).first()
+                    instance_info = {
+                        "name": acc.role_source_instance.name,
+                        "primary_id": primary_pid.id if primary_pid else None,
+                    }
+
+                accounts.append(
+                    {
+                        "id": acc.id,
+                        "account_id": acc.account_id,
+                        "display_name": acc.display_name,
+                        "verified": acc.verified,
+                        "primary": acc.primary,
+                        "active": acc.active,
+                        "verified_at": acc.verified_at,
+                        "instance": instance_info,
+                    }
+                )
+
+            return accounts, None
+        except Exception as e:
+            return None, str(e)
+
+    return await sync_to_async(get_discord_accounts)()
+
+
 class ManageDiscordAccountsButton(discord.ui.Button):
     """Button for mods to manage Discord accounts (mark as active/retired)."""
 
@@ -2456,26 +2512,7 @@ class ManageDiscordAccountsButton(discord.ui.Button):
         """Open the Discord account management view."""
         await interaction.response.defer(ephemeral=True)
 
-        def get_discord_accounts():
-            try:
-                from thetower.backend.sus.models import KnownPlayer, LinkedAccount
-
-                player = KnownPlayer.objects.filter(id=self.player_id).first()
-                if not player:
-                    return None, "Player not found"
-
-                # Get all Discord LinkedAccounts for this player (including inactive)
-                accounts = list(
-                    LinkedAccount.objects.filter(player=player, platform=LinkedAccount.Platform.DISCORD)
-                    .order_by("-verified", "-primary", "account_id")
-                    .values("id", "account_id", "display_name", "verified", "primary", "active", "verified_at")
-                )
-
-                return accounts, None
-            except Exception as e:
-                return None, str(e)
-
-        accounts, error = await sync_to_async(get_discord_accounts)()
+        accounts, error = await _fetch_discord_accounts(self.player_id)
 
         if error:
             await interaction.followup.send(f"❌ Error loading Discord accounts: {error}", ephemeral=True)
@@ -2491,7 +2528,7 @@ class ManageDiscordAccountsButton(discord.ui.Button):
 
 
 class ManageDiscordAccountsView(discord.ui.View):
-    """View for managing Discord account active/retired status."""
+    """View for selecting a Discord account to manage."""
 
     def __init__(self, cog, player_id: int, accounts: list, guild_id: int):
         super().__init__(timeout=600)
@@ -2500,9 +2537,8 @@ class ManageDiscordAccountsView(discord.ui.View):
         self.accounts = accounts
         self.guild_id = guild_id
 
-        # Add toggle buttons for each account
-        for account in accounts:
-            self.add_item(ToggleAccountActiveButton(self.cog, account, self.player_id, self.accounts, self.guild_id))
+        # Add account selection dropdown
+        self.add_item(AccountSelectDropdown(self.cog, self.player_id, self.accounts, self.guild_id))
 
         # Add refresh button
         self.add_item(RefreshAccountsButton(self.cog, self.player_id, self.guild_id))
@@ -2511,7 +2547,7 @@ class ManageDiscordAccountsView(discord.ui.View):
         """Create embed showing all Discord accounts."""
         embed = discord.Embed(
             title="🔧 Manage Discord Accounts",
-            description=f"Player ID: `{self.player_id}`\n\nClick a button below to toggle active/retired status.",
+            description="Select a Discord account from the dropdown to enable or disable it.",
             color=discord.Color.blue(),
         )
 
@@ -2522,49 +2558,178 @@ class ManageDiscordAccountsView(discord.ui.View):
             primary = account["primary"]
             active = account["active"]
             verified_at = account["verified_at"]
+            instance = account.get("instance")
 
-            # Build status indicators
-            status_emoji = "✅" if verified else "⏳"
+            # Build field name: emoji mention (display_name) primary_marker
+            verified_emoji = "✅" if verified else "❓"
             primary_marker = " 🌟" if primary else ""
-            active_status = "🟢 Active" if active else "🔴 Retired"
-            name_str = f" ({display_name})" if display_name else ""
 
-            # Build verification timestamp
-            verified_text = ""
+            if display_name:
+                field_name = f"{verified_emoji} <@{account_id}> ({display_name}){primary_marker}"
+            else:
+                field_name = f"{verified_emoji} <@{account_id}>{primary_marker}"
+
+            # Build status and verification on same line
+            active_status = "🟢 Active" if active else "🔴 Retired"
+
             if verified and verified_at:
                 if hasattr(verified_at, "timestamp"):
                     unix_timestamp = int(verified_at.timestamp())
                     if unix_timestamp == 1577836800:  # Historical placeholder date
-                        verified_text = " • Verified: _Unknown date_"
+                        verified_text = "Unknown date"
                     else:
-                        verified_text = f" • Verified: <t:{unix_timestamp}:R>"
+                        verified_text = f"<t:{unix_timestamp}:R>"
+                else:
+                    verified_text = "Unknown date"
+            else:
+                verified_text = "Not verified"
 
-            field_value = f"{status_emoji} <@{account_id}>{name_str}{primary_marker}\n**Status:** {active_status}{verified_text}"
-            embed.add_field(name=f"Account {account_id[:8]}...", value=field_value, inline=False)
+            # Build instance info
+            instance_text = ""
+            if instance:
+                instance_name = instance["name"]
+                instance_primary_id = instance["primary_id"]
+                if instance_primary_id:
+                    instance_text = f"\nRoles from: {instance_name} (`{instance_primary_id}`)"
+                else:
+                    instance_text = f"\nRoles from: {instance_name}"
+            else:
+                instance_text = "\nRoles from: _Not assigned_"
+
+            field_value = f"Status: {active_status} • Verified: {verified_text}{instance_text}"
+            embed.add_field(name=field_name, value=field_value, inline=False)
 
         embed.set_footer(text="Retired accounts are hidden from regular users but visible to mods.")
         return embed
 
 
-class ToggleAccountActiveButton(discord.ui.Button):
-    """Button to toggle a Discord account's active status."""
+class AccountSelectDropdown(discord.ui.Select):
+    """Dropdown to select a Discord account to manage."""
 
-    def __init__(self, cog, account: dict, player_id: int, all_accounts: list, guild_id: int):
-        account_id = account["account_id"]
+    def __init__(self, cog, player_id: int, accounts: list, guild_id: int):
+        self.cog = cog
+        self.player_id = player_id
+        self.accounts = accounts
+        self.guild_id = guild_id
+
+        # Build options for dropdown
+        options = []
+        for account in accounts:
+            account_id = account["account_id"]
+            display_name = account["display_name"]
+            active = account["active"]
+            primary = account["primary"]
+
+            # Build label
+            label = display_name if display_name else f"Discord ID {account_id[:12]}..."
+            if primary:
+                label += " 🌟"
+
+            # Build description
+            status = "Active" if active else "Retired"
+            description = f"Status: {status}"
+
+            # Add emoji
+            emoji = "🟢" if active else "🔴"
+
+            options.append(discord.SelectOption(label=label, value=str(account["id"]), description=description, emoji=emoji))
+
+        super().__init__(placeholder="Select a Discord account to manage...", options=options, row=0)
+
+    async def callback(self, interaction: discord.Interaction):
+        """Handle account selection."""
+        selected_id = int(self.values[0])
+        selected_account = next((acc for acc in self.accounts if acc["id"] == selected_id), None)
+
+        if not selected_account:
+            await interaction.response.send_message("❌ Account not found.", ephemeral=True)
+            return
+
+        # Show confirmation view
+        view = AccountConfirmationView(self.cog, self.player_id, selected_account, self.accounts, self.guild_id)
+        embed = view.create_embed()
+        await interaction.response.edit_message(embed=embed, view=view)
+
+
+class AccountConfirmationView(discord.ui.View):
+    """View for confirming enable/disable of a Discord account."""
+
+    def __init__(self, cog, player_id: int, account: dict, all_accounts: list, guild_id: int):
+        super().__init__(timeout=600)
+        self.cog = cog
+        self.player_id = player_id
+        self.account = account
+        self.all_accounts = all_accounts
+        self.guild_id = guild_id
+
+        # Add toggle button
+        self.add_item(ConfirmToggleButton(self.cog, self.player_id, self.account, self.all_accounts, self.guild_id))
+
+        # Add cancel button
+        self.add_item(CancelButton(self.cog, self.player_id, self.all_accounts, self.guild_id))
+
+    def create_embed(self) -> discord.Embed:
+        """Create confirmation embed."""
+        account_id = self.account["account_id"]
+        display_name = self.account["display_name"]
+        active = self.account["active"]
+        verified = self.account["verified"]
+        instance = self.account.get("instance")
+
+        # Use display name or mention
+        account_display = display_name if display_name else f"<@{account_id}>"
+
+        # Determine action
+        if active:
+            action = "Disable"
+            color = discord.Color.orange()
+            description = "⚠️ **This account will be disabled.**\n\nThe Discord user will lose:\n• Verification role\n• Tournament roles\n• Access to verified channels"
+        else:
+            action = "Enable"
+            color = discord.Color.green()
+            description = "✅ **This account will be enabled.**\n\nThe Discord user will gain:\n• Verification role\n• Tournament roles\n• Access to verified channels"
+
+        embed = discord.Embed(title=f"{action} Discord Account", description=description, color=color)
+
+        # Add account info
+        status = "🟢 Active" if active else "🔴 Retired"
+        verified_status = "✅ Verified" if verified else "⏳ Not verified"
+
+        info_text = f"**Discord:** {account_display}\n**Current Status:** {status}\n**Verification:** {verified_status}"
+
+        if instance:
+            instance_name = instance["name"]
+            instance_primary_id = instance["primary_id"]
+            if instance_primary_id:
+                info_text += f"\n**Roles from:** {instance_name} (`{instance_primary_id}`)"
+            else:
+                info_text += f"\n**Roles from:** {instance_name}"
+        else:
+            info_text += "\n**Roles from:** _Not assigned_"
+
+        embed.add_field(name="Account Information", value=info_text, inline=False)
+
+        return embed
+
+
+class ConfirmToggleButton(discord.ui.Button):
+    """Button to confirm the toggle action."""
+
+    def __init__(self, cog, player_id: int, account: dict, all_accounts: list, guild_id: int):
         active = account["active"]
-        label = f"Mark {account_id[:8]}... as {'Retired' if active else 'Active'}"
+        label = "Disable Account" if active else "Enable Account"
         style = discord.ButtonStyle.danger if active else discord.ButtonStyle.success
         emoji = "🔴" if active else "🟢"
 
-        super().__init__(label=label, style=style, emoji=emoji)
+        super().__init__(label=label, style=style, emoji=emoji, row=0)
         self.cog = cog
-        self.account = account
         self.player_id = player_id
+        self.account = account
         self.all_accounts = all_accounts
         self.guild_id = guild_id
 
     async def callback(self, interaction: discord.Interaction):
-        """Toggle the account's active status."""
+        """Execute the toggle action."""
         await interaction.response.defer(ephemeral=True)
 
         account_id = self.account["account_id"]
@@ -2579,25 +2744,52 @@ class ToggleAccountActiveButton(discord.ui.Button):
                 linked_account = LinkedAccount.objects.get(id=linked_account_id)
                 linked_account.active = new_active
                 linked_account.save()
-                return True, None
+                return True, None, linked_account
             except Exception as e:
-                return False, str(e)
+                return False, str(e), None
 
-        success, error = await sync_to_async(toggle_active)()
+        success, error, linked_account = await sync_to_async(toggle_active)()
 
         if not success:
             await interaction.followup.send(f"❌ Error updating account: {error}", ephemeral=True)
             return
 
-        # Update local account data
-        self.account["active"] = new_active
+        # Update local account data in all_accounts
+        for acc in self.all_accounts:
+            if acc["id"] == linked_account_id:
+                acc["active"] = new_active
+                break
 
-        # Refresh the view
+        # Dispatch custom event for validation cog to listen to
+        # Pass the Discord account ID (as string) and the guild ID
+        self.cog.bot.dispatch("discord_account_status_changed", account_id, self.guild_id, linked_account)
+
+        # Return to main view
         view = ManageDiscordAccountsView(self.cog, self.player_id, self.all_accounts, self.guild_id)
         embed = view.create_embed()
 
-        status_msg = f"✅ Account <@{account_id}> marked as **{'Active' if new_active else 'Retired'}**"
+        display_name = self.account["display_name"]
+        account_display = display_name if display_name else f"<@{account_id}>"
+        status_msg = f"✅ Account **{account_display}** has been **{'enabled' if new_active else 'disabled'}**."
+
         await interaction.edit_original_response(content=status_msg, embed=embed, view=view)
+
+
+class CancelButton(discord.ui.Button):
+    """Button to cancel and return to account list."""
+
+    def __init__(self, cog, player_id: int, all_accounts: list, guild_id: int):
+        super().__init__(label="Cancel", style=discord.ButtonStyle.secondary, emoji="❌", row=0)
+        self.cog = cog
+        self.player_id = player_id
+        self.all_accounts = all_accounts
+        self.guild_id = guild_id
+
+    async def callback(self, interaction: discord.Interaction):
+        """Return to main account list."""
+        view = ManageDiscordAccountsView(self.cog, self.player_id, self.all_accounts, self.guild_id)
+        embed = view.create_embed()
+        await interaction.response.edit_message(content=None, embed=embed, view=view)
 
 
 class RefreshAccountsButton(discord.ui.Button):
@@ -2613,25 +2805,7 @@ class RefreshAccountsButton(discord.ui.Button):
         """Refresh the accounts list."""
         await interaction.response.defer(ephemeral=True)
 
-        def get_discord_accounts():
-            try:
-                from thetower.backend.sus.models import KnownPlayer, LinkedAccount
-
-                player = KnownPlayer.objects.filter(id=self.player_id).first()
-                if not player:
-                    return None, "Player not found"
-
-                accounts = list(
-                    LinkedAccount.objects.filter(player=player, platform=LinkedAccount.Platform.DISCORD)
-                    .order_by("-verified", "-primary", "account_id")
-                    .values("id", "account_id", "display_name", "verified", "primary", "active", "verified_at")
-                )
-
-                return accounts, None
-            except Exception as e:
-                return None, str(e)
-
-        accounts, error = await sync_to_async(get_discord_accounts)()
+        accounts, error = await _fetch_discord_accounts(self.player_id)
 
         if error:
             await interaction.followup.send(f"❌ Error loading Discord accounts: {error}", ephemeral=True)
