@@ -2,6 +2,7 @@
 import re
 
 import discord
+from asgiref.sync import sync_to_async
 
 # Local
 from thetower.backend.tourney_results.formatting import BASE_URL
@@ -368,17 +369,8 @@ class UserInteractions:
         await interaction.response.defer(ephemeral=True)
 
         # Check if calling user is verified (required to use lookup commands)
-        from asgiref.sync import sync_to_async
-
-        from thetower.backend.sus.models import LinkedAccount
-
         user_discord_id = str(interaction.user.id)
-
-        def check_user_verified():
-            # Ensure we're checking with the Discord ID as a string
-            return LinkedAccount.objects.filter(platform=LinkedAccount.Platform.DISCORD, account_id=str(user_discord_id), active=True).exists()
-
-        is_user_verified = await sync_to_async(check_user_verified)()
+        is_user_verified = await self.cog.check_discord_account_exists(user_discord_id)
 
         if not is_user_verified:
             # User is not verified - check if validation cog is available

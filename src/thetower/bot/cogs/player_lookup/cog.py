@@ -154,9 +154,7 @@ class PlayerLookup(BaseCog, name="Player Lookup", description="Universal player 
         """Get a player by their Tower player id"""
         await self.wait_until_ready()
         try:
-            # Query database directly for the player via game_instances
-            player = await sync_to_async(KnownPlayer.objects.filter(game_instances__player_ids__id=player_id).select_related("django_user").first)()
-            return player
+            return await super().get_player_by_player_id(player_id)
         except Exception as e:
             self.logger.error(f"Error getting player by player ID {player_id}: {e}")
             return None
@@ -173,27 +171,16 @@ class PlayerLookup(BaseCog, name="Player Lookup", description="Universal player 
         """
         await self.wait_until_ready()
         try:
-            from thetower.backend.sus.models import LinkedAccount
+            self.logger.debug(f"Querying player for Discord ID: {discord_id} (include_inactive={include_inactive})")
 
-            # Ensure discord_id is a string for database lookup
-            discord_id_str = str(discord_id)
-            self.logger.debug(f"Querying LinkedAccount for Discord ID: {discord_id_str} (include_inactive={include_inactive})")
+            player = await super().get_player_by_discord_id(discord_id, active_only=not include_inactive)
 
-            # Build query - conditionally filter by active status
-            query = LinkedAccount.objects.filter(platform=LinkedAccount.Platform.DISCORD, account_id=discord_id_str)
-            if not include_inactive:
-                query = query.filter(active=True)
-            query = query.select_related("player__django_user")
+            if player:
+                self.logger.debug(f"Found player for Discord ID {discord_id}: {player.name}")
+            else:
+                self.logger.debug(f"No player found for Discord ID: {discord_id}")
 
-            # Query database for the LinkedAccount, then get player
-            linked_account = await sync_to_async(query.first)()
-
-            if linked_account:
-                self.logger.debug(f"Found LinkedAccount for Discord ID {discord_id_str}, returning player: {linked_account.player.name}")
-                return linked_account.player
-
-            self.logger.debug(f"No LinkedAccount found for Discord ID: {discord_id_str}")
-            return None
+            return player
         except Exception as e:
             self.logger.error(f"Error getting player by Discord ID {discord_id}: {e}")
             return None
@@ -202,9 +189,7 @@ class PlayerLookup(BaseCog, name="Player Lookup", description="Universal player 
         """Get a player by their name (case insensitive)"""
         await self.wait_until_ready()
         try:
-            # Query database directly for the player (case insensitive)
-            player = await sync_to_async(KnownPlayer.objects.filter(name__iexact=name).select_related("django_user").first)()
-            return player
+            return await super().get_player_by_name(name, case_sensitive=False)
         except Exception as e:
             self.logger.error(f"Error getting player by name {name}: {e}")
             return None
@@ -257,16 +242,7 @@ class PlayerLookup(BaseCog, name="Player Lookup", description="Universal player 
         if discord_id is not None:
             # Single user lookup
             try:
-                from thetower.backend.sus.models import LinkedAccount
-
-                # Ensure discord_id is a string for database lookup
-                discord_id_str = str(discord_id)
-
-                linked_account = await sync_to_async(
-                    LinkedAccount.objects.filter(platform=LinkedAccount.Platform.DISCORD, account_id=discord_id_str)
-                    .select_related("player__django_user")
-                    .first
-                )()
+                linked_account = await self.get_linked_account_by_discord_id(str(discord_id), active_only=False)
 
                 if not linked_account:
                     return {}

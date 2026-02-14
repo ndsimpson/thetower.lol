@@ -6,7 +6,10 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any, Dict, List, Optional, Union
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
+
+if TYPE_CHECKING:
+    from thetower.backend.sus.models import KnownPlayer, LinkedAccount
 
 # Third-party imports
 import discord
@@ -925,3 +928,168 @@ class BaseCog(commands.Cog):
             permissions["target_channel"] = target_channel
 
         self.set_setting(config_key, permissions, guild_id=guild_id)
+
+    # ====================
+    # Django ORM Query Helpers
+    # ====================
+
+    async def get_linked_account_by_discord_id(
+        self, discord_id: str, active_only: bool = True, select_related: bool = True
+    ) -> Optional[LinkedAccount]:
+        """
+        Get LinkedAccount by Discord ID.
+
+        This is a centralized method for LinkedAccount queries to avoid code duplication.
+
+        Args:
+            discord_id: Discord user ID as string
+            active_only: If True, only return active accounts
+            select_related: If True, select_related player and django_user
+
+        Returns:
+            LinkedAccount if found, None otherwise
+        """
+        from asgiref.sync import sync_to_async
+
+        from thetower.backend.sus.models import LinkedAccount
+
+        @sync_to_async
+        def query_linked_account():
+            query = LinkedAccount.objects.filter(platform=LinkedAccount.Platform.DISCORD, account_id=str(discord_id))
+            if active_only:
+                query = query.filter(active=True)
+            if select_related:
+                query = query.select_related("player__django_user")
+            return query.first()
+
+        return await query_linked_account()
+
+    async def get_player_by_discord_id(self, discord_id: str, active_only: bool = True) -> Optional[KnownPlayer]:
+        """
+        Get KnownPlayer by Discord ID.
+
+        Args:
+            discord_id: Discord user ID as string
+            active_only: If True, only consider active LinkedAccounts
+
+        Returns:
+            KnownPlayer if found, None otherwise
+        """
+        linked_account = await self.get_linked_account_by_discord_id(discord_id, active_only=active_only)
+        return linked_account.player if linked_account else None
+
+    async def get_linked_accounts_by_player(self, player: "KnownPlayer", platform: str = None, active_only: bool = True) -> List["LinkedAccount"]:
+        """
+        Get all LinkedAccounts for a player.
+
+        Args:
+            player: KnownPlayer instance
+            platform: Optional platform filter (e.g., 'DISCORD')
+            active_only: If True, only return active accounts
+
+        Returns:
+            List of LinkedAccount objects
+        """
+        from asgiref.sync import sync_to_async
+
+        from thetower.backend.sus.models import LinkedAccount
+
+        @sync_to_async
+        def query_linked_accounts():
+            query = LinkedAccount.objects.filter(player=player)
+            if platform:
+                query = query.filter(platform=platform)
+            if active_only:
+                query = query.filter(active=True)
+            return list(query)
+
+        return await query_linked_accounts()
+
+    async def get_primary_linked_account(self, player: KnownPlayer, platform: str = "DISCORD") -> Optional[LinkedAccount]:
+        """
+        Get the primary LinkedAccount for a player.
+
+        Args:
+            player: KnownPlayer instance
+            platform: Platform to filter by (default: DISCORD)
+
+        Returns:
+            Primary LinkedAccount if found, None otherwise
+        """
+        from asgiref.sync import sync_to_async
+
+        from thetower.backend.sus.models import LinkedAccount
+
+        @sync_to_async
+        def query_primary_account():
+            return LinkedAccount.objects.filter(player=player, platform=platform, primary=True).first()
+
+        return await query_primary_account()
+
+    async def get_player_by_player_id(self, player_id: str) -> Optional[KnownPlayer]:
+        """
+        Get KnownPlayer by Tower player ID.
+
+        Args:
+            player_id: Tower player ID
+
+        Returns:
+            KnownPlayer if found, None otherwise
+        """
+        from asgiref.sync import sync_to_async
+
+        from thetower.backend.sus.models import KnownPlayer
+
+        @sync_to_async
+        def query_player():
+            return KnownPlayer.objects.filter(game_instances__player_ids__id=player_id).select_related("django_user").first()
+
+        return await query_player()
+
+    async def get_player_by_name(self, name: str, case_sensitive: bool = False) -> Optional[KnownPlayer]:
+        """
+        Get KnownPlayer by name.
+
+        Args:
+            name: Player name
+            case_sensitive: If True, use exact case matching
+
+        Returns:
+            KnownPlayer if found, None otherwise
+        """
+        from asgiref.sync import sync_to_async
+
+        from thetower.backend.sus.models import KnownPlayer
+
+        @sync_to_async
+        def query_player():
+            if case_sensitive:
+                return KnownPlayer.objects.filter(name=name).select_related("django_user").first()
+            else:
+                return KnownPlayer.objects.filter(name__iexact=name).select_related("django_user").first()
+
+        return await query_player()
+
+    async def check_discord_account_exists(self, discord_id: str, active_only: bool = True) -> bool:
+        """
+        Check if a Discord account exists in the database.
+
+        Args:
+            discord_id: Discord user ID as string
+            active_only: If True, only check active accounts
+
+        Returns:
+            True if account exists, False otherwise
+        """
+        from asgiref.sync import sync_to_async
+
+        from thetower.backend.sus.models import LinkedAccount
+
+        @sync_to_async
+        def check_exists():
+            query = LinkedAccount.objects.filter(platform=LinkedAccount.Platform.DISCORD, account_id=str(discord_id))
+            if active_only:
+                query = query.filter(active=True)
+            return query.exists()
+
+        return await check_exists()

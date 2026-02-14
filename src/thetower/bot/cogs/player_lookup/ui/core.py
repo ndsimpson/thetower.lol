@@ -51,7 +51,7 @@ class CreatorCodeModal(discord.ui.Modal, title="Set Creator Code"):
 
         try:
             # Find the player by Discord ID
-            player = await _get_player_by_discord_id_async(discord_id)
+            player = await _get_player_by_discord_id_async(self.cog, discord_id)
 
             if not player:
                 embed = discord.Embed(
@@ -447,16 +447,9 @@ async def _get_player_ids_async(player: KnownPlayer) -> List:
     return await sync_to_async(list)(PlayerId.objects.filter(game_instance__player=player))
 
 
-async def _get_player_by_discord_id_async(discord_id: str) -> Optional[KnownPlayer]:
+async def _get_player_by_discord_id_async(cog, discord_id: str) -> Optional[KnownPlayer]:
     """Async wrapper for finding player by Discord ID"""
-    from asgiref.sync import sync_to_async
-
-    from thetower.backend.sus.models import LinkedAccount
-
-    linked_account = await sync_to_async(
-        LinkedAccount.objects.filter(platform=LinkedAccount.Platform.DISCORD, account_id=discord_id, active=True).select_related("player").first
-    )()
-    return linked_account.player if linked_account else None
+    return await cog.get_player_by_discord_id(discord_id)
 
 
 async def _save_player_async(player: KnownPlayer) -> None:
