@@ -1162,9 +1162,9 @@ class Validation(BaseCog, name="Validation"):
 
                 # Get all KnownPlayers with verified Discord LinkedAccounts and approved=True
                 def get_known_players():
-                    # Get all LinkedAccounts with Discord platform and verified=True
+                    # Get all LinkedAccounts with Discord platform, verified=True, active=True
                     linked_accounts = (
-                        LinkedAccount.objects.filter(platform=LinkedAccount.Platform.DISCORD, verified=True, player__approved=True)
+                        LinkedAccount.objects.filter(platform=LinkedAccount.Platform.DISCORD, verified=True, active=True, player__approved=True)
                         .select_related("player")
                         .distinct()
                     )
@@ -1284,8 +1284,19 @@ class Validation(BaseCog, name="Validation"):
 
             player_id = await sync_to_async(get_player_id)()
 
-            # Log detailed verification event
-            await self._log_detailed_verification(member.guild.id, member, player_id=player_id, reason=reason, success=True)
+            # Determine if this is an administrative action or actual verification
+            is_administrative = any(
+                keyword in reason.lower()
+                for keyword in ["startup reconciliation", "account enabled", "account disabled", "member update", "member join"]
+            )
+
+            # Log with appropriate title based on context
+            if is_administrative:
+                # Log as administrative role assignment
+                await self._log_role_assignment(member.guild.id, member, role, player_id=player_id, reason=reason, added=True)
+            else:
+                # Log as verification event
+                await self._log_detailed_verification(member.guild.id, member, player_id=player_id, reason=reason, success=True)
 
             # Dispatch custom event for member verification
             self.bot.dispatch("member_verified", member, player_id, reason)
@@ -1378,39 +1389,22 @@ class Validation(BaseCog, name="Validation"):
 
             player_id = await sync_to_async(get_player_id)()
 
-            # Determine if this is a moderation-related removal or a verification failure
+            # Determine the type of removal
             is_moderation_removal = "moderation" in reason.lower() or "ban" in reason.lower()
+            is_administrative = any(
+                keyword in reason.lower()
+                for keyword in ["startup reconciliation", "account disabled", "account enabled", "member update", "not verified"]
+            )
 
-            # Log detailed verification event (success=False for failures, but moderation removals use different logging)
+            # Log based on context
             if is_moderation_removal:
-                # For moderation removals, log in the same structured format as verification logs
-                log_channel_id = self.get_setting("verification_log_channel_id", guild_id=member.guild.id)
-                if log_channel_id:
-                    log_channel = member.guild.get_channel(log_channel_id)
-                    if log_channel:
-                        embed = discord.Embed(
-                            title="🔨 Role Removed (Moderation)",
-                            color=discord.Color.orange(),
-                            timestamp=discord.utils.utcnow(),
-                        )
-
-                        embed.add_field(name="Discord User", value=f"{member.mention}\n`{member.name}`", inline=True)
-                        embed.add_field(name="Discord ID", value=f"`{member.id}`", inline=True)
-                        if player_id:
-                            embed.add_field(name="Player ID", value=f"`{player_id}`", inline=True)
-
-                        embed.add_field(name="Role Removed", value=role.mention, inline=True)
-                        if reason:
-                            embed.add_field(name="Reason", value=reason, inline=False)
-
-                        embed.set_thumbnail(url=member.display_avatar.url)
-
-                        try:
-                            await log_channel.send(embed=embed)
-                        except Exception as log_exc:
-                            self.logger.error(f"Failed to log moderation role removal to channel {log_channel_id}: {log_exc}")
+                # For moderation removals, log with moderation-specific format
+                await self._log_role_assignment(member.guild.id, member, role, player_id=player_id, reason=reason, added=False, is_moderation=True)
+            elif is_administrative:
+                # For administrative removals, log with administrative format
+                await self._log_role_assignment(member.guild.id, member, role, player_id=player_id, reason=reason, added=False)
             else:
-                # For actual verification failures/removals, log as unsuccessful verification
+                # For actual verification failures, log as unsuccessful verification
                 await self._log_detailed_verification(member.guild.id, member, player_id=player_id, reason=reason, success=False)
 
             # Dispatch custom event for member unverification
@@ -1426,6 +1420,88 @@ class Validation(BaseCog, name="Validation"):
             # Remove from tracking set after a short delay to allow event to fire
             await asyncio.sleep(1)
             self._bot_role_changes.discard((member.id, member.guild.id))
+
+    async def _log_role_assignment(
+        self,
+        guild_id: int,
+        member: discord.Member,
+        role: discord.Role,
+        player_id: str = None,
+        reason: str = None,
+        added: bool = True,
+        is_moderation: bool = False,
+    ) -> None:
+        """Log a role assignment/removal event (administrative or moderation).
+
+        Args:
+            guild_id: The guild ID
+            member: The Discord member
+            role: The role that was added/removed
+            player_id: The player's ID (optional)
+            reason: Reason for the role change
+            added: Whether the role was added (True) or removed (False)
+            is_moderation: Whether this is a moderation action
+        """
+        log_channel_id = self.get_setting("verification_log_channel_id", guild_id=guild_id)
+        if not log_channel_id:
+            return
+
+        guild = self.bot.get_guild(guild_id)
+        if not guild:
+            return
+
+        log_channel = guild.get_channel(log_channel_id)
+        if not log_channel:
+            return
+
+        # Determine title and color based on context
+        if is_moderation:
+            title = "🔨 Role Removed (Moderation)" if not added else "🔨 Role Assigned (Moderation)"
+            color = discord.Color.orange()
+        else:
+            if added:
+                title = "✅ Verified Role Assigned"
+                color = discord.Color.green()
+            else:
+                title = "❌ Verified Role Removed"
+                color = discord.Color.red()
+
+        embed = discord.Embed(title=title, color=color, timestamp=discord.utils.utcnow())
+
+        # Add user information fields
+        embed.add_field(name="Discord User", value=f"{member.mention}\n`{member.name}`", inline=True)
+        embed.add_field(name="Discord ID", value=f"`{member.id}`", inline=True)
+        if player_id:
+            embed.add_field(name="Player ID", value=f"`{player_id}`", inline=True)
+
+        # Add role info
+        role_field_name = "Role Assigned" if added else "Role Removed"
+        embed.add_field(name=role_field_name, value=role.mention, inline=True)
+
+        # Add reason if provided
+        if reason:
+            embed.add_field(name="Reason", value=reason, inline=False)
+
+        # Set user avatar
+        embed.set_thumbnail(url=member.display_avatar.url)
+
+        try:
+            await log_channel.send(embed=embed)
+        except discord.Forbidden:
+            # Try plain text if embed fails
+            self.logger.warning(f"Missing embed permission in verification log channel {log_channel_id}")
+            try:
+                text_message = f"{title}\n" f"**Discord User:** {member.mention} (`{member.name}`)\n" f"**Discord ID:** `{member.id}`\n"
+                if player_id:
+                    text_message += f"**Player ID:** `{player_id}`\n"
+                text_message += f"**{role_field_name}:** {role.mention}\n"
+                if reason:
+                    text_message += f"**Reason:** {reason}\n"
+                await log_channel.send(content=text_message)
+            except Exception as fallback_exc:
+                self.logger.error(f"Failed to send plain text role assignment log: {fallback_exc}")
+        except Exception as log_exc:
+            self.logger.error(f"Failed to log role assignment to channel {log_channel_id}: {log_exc}")
 
     async def _log_detailed_verification(
         self, guild_id: int, member: discord.Member, player_id: str = None, reason: str = None, image_filename: str = None, success: bool = True
