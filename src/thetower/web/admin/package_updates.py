@@ -11,12 +11,7 @@ import re
 import sys
 from typing import Dict, List, Optional
 
-try:
-    from packaging.version import parse as parse_version
-except ImportError:
-    # Fallback if packaging is not available
-    def parse_version(v):
-        return tuple(map(int, v.lstrip('v').split('.')))
+from packaging.version import parse as parse_version
 
 
 def get_thetower_packages() -> List[Dict[str, any]]:
@@ -158,8 +153,8 @@ async def check_package_updates(package_name: str, repo_url: Optional[str] = Non
         for line in stdout.decode().splitlines():
             if "\trefs/tags/" in line:
                 tag = line.split("\trefs/tags/")[1]
-                # Filter out non-version tags (only keep v*.*.* format)
-                if re.match(r"v\d+\.\d+", tag):
+                # Filter out non-version tags (only keep *.*.* format)
+                if re.match(r"\d+\.\d+", tag):
                     tags.append(tag)
 
         if not tags:
@@ -286,4 +281,5 @@ def update_package_sync(package_name: str, target_version: Optional[str] = None,
         loop.close()
         return result
     except Exception as e:
+        return {"success": False, "message": str(e), "new_version": None}
         return {"success": False, "message": str(e), "new_version": None}
