@@ -2037,7 +2037,7 @@ class TourneyRolesRefreshButton(discord.ui.Button):
 
             # Check if user is in approved groups
             def get_user_groups():
-                return [group.name for group in django_user.groups.all()]
+                return list(django_user.groups.values_list("name", flat=True))
 
             user_groups = await sync_to_async(get_user_groups)()
             has_permission = any(group in authorized_groups for group in user_groups)

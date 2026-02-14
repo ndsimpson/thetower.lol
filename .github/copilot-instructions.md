@@ -77,7 +77,8 @@ All bot features extend `BaseCog` (`src/thetower/bot/basecog.py` - 1000+ lines):
 - **Task tracking**: `async with self.task_tracker.task_context("task_name"):` for background tasks
 - **Ready state**: Wait for `await self.ready.wait()` before accessing guild data
 - **Settings UI**: Each cog defines `settings_view_class` for `CogManager` to integrate into global `/settings` command
-- **Permission context**: `PermissionContext` dataclass with `.has_any_group()`, `.has_all_groups()`, `.has_discord_role()`
+- **Permission context**: `PermissionContext` dataclass with `.has_any_group()`, `.has_all_groups()`, `.has_django_group()`, `.has_discord_role()`
+- **Django permissions**: `self.get_user_django_groups(user)` for centralized Django group checking
 
 Example cog structure (see [../docs/cog_design.md](../docs/cog_design.md) for detailed architecture guide):
 

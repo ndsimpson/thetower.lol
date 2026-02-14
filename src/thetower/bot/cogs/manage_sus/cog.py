@@ -235,38 +235,8 @@ class ManageSus(BaseCog, name="Manage Sus"):
         """Check if a Discord user can view moderation records based on their Django groups."""
         self.logger.info(f"Checking view permissions for user {user.id} ({user.name})")
         try:
-            from asgiref.sync import sync_to_async
-
-            from thetower.backend.sus.models import LinkedAccount
-
-            def _check_permissions_sync():
-                # Get the active LinkedAccount for this Discord user
-                linked_account = (
-                    LinkedAccount.objects.filter(platform=LinkedAccount.Platform.DISCORD, account_id=str(user.id), active=True)
-                    .select_related("player__django_user")
-                    .first()
-                )
-                if not linked_account:
-                    return False, "No active LinkedAccount found"
-
-                # Check if the player has a django_user linked
-                player = linked_account.player
-                django_user = player.django_user if player else None
-                if not django_user:
-                    return False, "No django_user linked"
-
-                # Get user's Django groups
-                user_groups = list(django_user.groups.values_list("name", flat=True))
-
-                return True, user_groups
-
-            success, result = await sync_to_async(_check_permissions_sync)()
-
-            if not success:
-                self.logger.info(f"Permission check failed: {result}")
-                return False
-
-            user_groups = result
+            # Get user's Django groups using centralized method
+            user_groups = await self.get_user_django_groups(user)
             self.logger.info(f"User groups: {user_groups}")
 
             # Get allowed view groups from settings
@@ -287,38 +257,8 @@ class ManageSus(BaseCog, name="Manage Sus"):
         """Check if a Discord user can manage moderation records based on their Django groups."""
         self.logger.info(f"Checking manage permissions for user {user.id} ({user.name})")
         try:
-            from asgiref.sync import sync_to_async
-
-            from thetower.backend.sus.models import LinkedAccount
-
-            def _check_permissions_sync():
-                # Get the active LinkedAccount for this Discord user
-                linked_account = (
-                    LinkedAccount.objects.filter(platform=LinkedAccount.Platform.DISCORD, account_id=str(user.id), active=True)
-                    .select_related("player__django_user")
-                    .first()
-                )
-                if not linked_account:
-                    return False, "No active LinkedAccount found"
-
-                # Check if the player has a django_user linked
-                player = linked_account.player
-                django_user = player.django_user if player else None
-                if not django_user:
-                    return False, "No django_user linked"
-
-                # Get user's Django groups
-                user_groups = list(django_user.groups.values_list("name", flat=True))
-
-                return True, user_groups
-
-            success, result = await sync_to_async(_check_permissions_sync)()
-
-            if not success:
-                self.logger.info(f"Permission check failed: {result}")
-                return False
-
-            user_groups = result
+            # Get user's Django groups using centralized method
+            user_groups = await self.get_user_django_groups(user)
             self.logger.info(f"User groups: {user_groups}")
 
             # Get allowed manage groups from settings
@@ -339,38 +279,8 @@ class ManageSus(BaseCog, name="Manage Sus"):
         """Check if a Discord user can see all player IDs based on their Django groups."""
         self.logger.info(f"Checking full IDs permissions for user {user.id} ({user.name})")
         try:
-            from asgiref.sync import sync_to_async
-
-            from thetower.backend.sus.models import LinkedAccount
-
-            def _check_permissions_sync():
-                # Get the active LinkedAccount for this Discord user
-                linked_account = (
-                    LinkedAccount.objects.filter(platform=LinkedAccount.Platform.DISCORD, account_id=str(user.id), active=True)
-                    .select_related("player__django_user")
-                    .first()
-                )
-                if not linked_account:
-                    return False, "No active LinkedAccount found"
-
-                # Check if the player has a django_user linked
-                player = linked_account.player
-                django_user = player.django_user if player else None
-                if not django_user:
-                    return False, "No django_user linked"
-
-                # Get user's Django groups
-                user_groups = list(django_user.groups.values_list("name", flat=True))
-
-                return True, user_groups
-
-            success, result = await sync_to_async(_check_permissions_sync)()
-
-            if not success:
-                self.logger.info(f"Permission check failed: {result}")
-                return False
-
-            user_groups = result
+            # Get user's Django groups using centralized method
+            user_groups = await self.get_user_django_groups(user)
             self.logger.info(f"User groups: {user_groups}")
 
             # Get allowed privileged groups from settings
@@ -391,38 +301,8 @@ class ManageSus(BaseCog, name="Manage Sus"):
         """Check if a Discord user can see moderation records in profiles based on their Django groups."""
         self.logger.info(f"Checking moderation records in profiles permissions for user {user.id} ({user.name})")
         try:
-            from asgiref.sync import sync_to_async
-
-            from thetower.backend.sus.models import LinkedAccount
-
-            def _check_permissions_sync():
-                # Get the active LinkedAccount for this Discord user
-                linked_account = (
-                    LinkedAccount.objects.filter(platform=LinkedAccount.Platform.DISCORD, account_id=str(user.id), active=True)
-                    .select_related("player__django_user")
-                    .first()
-                )
-                if not linked_account:
-                    return False, "No active LinkedAccount found"
-
-                # Check if the player has a django_user linked
-                player = linked_account.player
-                django_user = player.django_user if player else None
-                if not django_user:
-                    return False, "No django_user linked"
-
-                # Get user's Django groups
-                user_groups = list(django_user.groups.values_list("name", flat=True))
-
-                return True, user_groups
-
-            success, result = await sync_to_async(_check_permissions_sync)()
-
-            if not success:
-                self.logger.info(f"Permission check failed: {result}")
-                return False
-
-            user_groups = result
+            # Get user's Django groups using centralized method
+            user_groups = await self.get_user_django_groups(user)
             self.logger.info(f"User groups: {user_groups}")
 
             # Get allowed privileged groups from settings

@@ -465,7 +465,34 @@ async def admin_slash(self, interaction: discord.Interaction) -> None:
 - Override `_check_additional_interaction_permissions()` for custom checks
 - Use `PermissionManager` for channel/user authorization
 - Bot owner checks via `await self.bot.is_owner(user)`
-- Django group checks via `KnownPlayer` model integration
+- Django group checks via `self.get_user_django_groups(user)` and `PermissionContext.has_django_group()`
+
+### Django Permission Checking
+
+BaseCog provides centralized methods for checking Django user groups to avoid code duplication:
+
+```python
+# Get all Django groups for a user (centralized method)
+user_groups = await self.get_user_django_groups(interaction.user)
+
+# Check specific group membership
+if "Moderators" in user_groups:
+    # User is a moderator
+    pass
+
+# Or use PermissionContext for efficient checking
+permission_ctx = await self._fetch_user_permissions(interaction.user, interaction.guild)
+if permission_ctx.has_django_group("Moderators"):
+    # User has moderator permissions
+    pass
+```
+
+**Available Methods:**
+
+- `self.get_user_django_groups(user)`: Returns `List[str]` of Django group names for the user
+- `PermissionContext.has_django_group(group_name)`: Check if user has specific Django group
+- `PermissionContext.has_any_group(group_list)`: Check if user has any of the listed groups
+- `PermissionContext.has_all_groups(group_list)`: Check if user has all of the listed groups
 
 ## Key Design Patterns
 

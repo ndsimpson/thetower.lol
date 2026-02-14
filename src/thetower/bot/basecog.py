@@ -39,6 +39,10 @@ class PermissionContext:
         """Check if user has all of the required Django groups."""
         return all(group in self.django_groups for group in groups)
 
+    def has_django_group(self, group: str) -> bool:
+        """Check if user has a specific Django group."""
+        return group in self.django_groups
+
     def has_discord_role(self, role_id: int) -> bool:
         """Check if user has a specific Discord role."""
         return role_id in self.discord_roles
@@ -718,32 +722,18 @@ class BaseCog(commands.Cog):
     # Permission System Methods
     # ====================
 
-    async def get_user_permissions(self, user: discord.User) -> PermissionContext:
+    async def get_user_django_groups(self, user: discord.User) -> List[str]:
         """
-        Get permission context for a user by fetching from Django.
+        Get Django groups for a Discord user.
 
-        This method provides a centralized way to get user permissions that all cogs
-        can use. It fetches fresh permissions each time to ensure immediate
-        propagation of permission changes from Django admin.
+        This is a centralized method for fetching Django user groups that can be reused
+        across all cogs to avoid code duplication.
 
         Args:
-            user: The Discord user to get permissions for
+            user: The Discord user to get groups for
 
         Returns:
-            PermissionContext: Context containing user's Django groups and Discord roles
-        """
-        # Fetch fresh permissions each time for immediate propagation
-        return await self._fetch_user_permissions(user)
-
-    async def _fetch_user_permissions(self, user: discord.User) -> PermissionContext:
-        """
-        Fetch user permissions from Django database.
-
-        Args:
-            user: The Discord user to fetch permissions for
-
-        Returns:
-            PermissionContext: Fresh permission context for the user
+            List of Django group names the user belongs to
         """
         from asgiref.sync import sync_to_async
 
@@ -773,8 +763,37 @@ class BaseCog(commands.Cog):
             except Exception:
                 return []
 
-        # Get Django groups
-        django_groups = await get_django_user_groups()
+        return await get_django_user_groups()
+
+    async def get_user_permissions(self, user: discord.User) -> PermissionContext:
+        """
+        Get permission context for a user by fetching from Django.
+
+        This method provides a centralized way to get user permissions that all cogs
+        can use. It fetches fresh permissions each time to ensure immediate
+        propagation of permission changes from Django admin.
+
+        Args:
+            user: The Discord user to get permissions for
+
+        Returns:
+            PermissionContext: Context containing user's Django groups and Discord roles
+        """
+        # Fetch fresh permissions each time for immediate propagation
+        return await self._fetch_user_permissions(user)
+
+    async def _fetch_user_permissions(self, user: discord.User) -> PermissionContext:
+        """
+        Fetch user permissions from Django database.
+
+        Args:
+            user: The Discord user to fetch permissions for
+
+        Returns:
+            PermissionContext: Fresh permission context for the user
+        """
+        # Get Django groups using the centralized method
+        django_groups = await self.get_user_django_groups(user)
 
         # Get Discord roles (if user is in a guild context, we'll need to handle this differently)
         # For now, just get basic user info

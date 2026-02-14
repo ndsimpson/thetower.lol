@@ -372,29 +372,11 @@ class Validation(BaseCog, name="Validation"):
         Returns:
             bool: True if user can manage alt links, False otherwise
         """
-        from asgiref.sync import sync_to_async
-
         approved_groups = self.config.get_global_cog_setting("validation", "approved_manage_alt_links_groups", [])
         if not approved_groups:
             return False
 
-        def get_user_groups():
-            try:
-                from thetower.backend.sus.models import LinkedAccount
-
-                linked_account = (
-                    LinkedAccount.objects.filter(platform=LinkedAccount.Platform.DISCORD, account_id=str(user.id), active=True)
-                    .select_related("player__django_user")
-                    .first()
-                )
-                if not linked_account or not linked_account.player.django_user:
-                    return []
-
-                return [group.name for group in linked_account.player.django_user.groups.all()]
-            except Exception:
-                return []
-
-        user_groups = await sync_to_async(get_user_groups)()
+        user_groups = await self.get_user_django_groups(user)
         return any(group in approved_groups for group in user_groups)
 
     async def check_id_change_moderator_permission(self, user: discord.User) -> bool:
@@ -406,29 +388,11 @@ class Validation(BaseCog, name="Validation"):
         Returns:
             bool: True if user can moderate ID changes, False otherwise
         """
-        from asgiref.sync import sync_to_async
-
         approved_groups = self.config.get_global_cog_setting("validation", "approved_id_change_moderator_groups", [])
         if not approved_groups:
             return False
 
-        def get_user_groups():
-            try:
-                from thetower.backend.sus.models import LinkedAccount
-
-                linked_account = (
-                    LinkedAccount.objects.filter(platform=LinkedAccount.Platform.DISCORD, account_id=str(user.id), active=True)
-                    .select_related("player__django_user")
-                    .first()
-                )
-                if not linked_account or not linked_account.player.django_user:
-                    return []
-
-                return [group.name for group in linked_account.player.django_user.groups.all()]
-            except Exception:
-                return []
-
-        user_groups = await sync_to_async(get_user_groups)()
+        user_groups = await self.get_user_django_groups(user)
         return any(group in approved_groups for group in user_groups)
 
     async def check_manage_retired_accounts_permission(self, user: discord.User) -> bool:
@@ -440,29 +404,11 @@ class Validation(BaseCog, name="Validation"):
         Returns:
             bool: True if user can manage retired accounts, False otherwise
         """
-        from asgiref.sync import sync_to_async
-
         approved_groups = self.config.get_global_cog_setting("validation", "manage_retired_accounts_groups", [])
         if not approved_groups:
             return False
 
-        def get_user_groups():
-            try:
-                from thetower.backend.sus.models import LinkedAccount
-
-                linked_account = (
-                    LinkedAccount.objects.filter(platform=LinkedAccount.Platform.DISCORD, account_id=str(user.id), active=True)
-                    .select_related("player__django_user")
-                    .first()
-                )
-                if not linked_account or not linked_account.player.django_user:
-                    return []
-
-                return [group.name for group in linked_account.player.django_user.groups.all()]
-            except Exception:
-                return []
-
-        user_groups = await sync_to_async(get_user_groups)()
+        user_groups = await self.get_user_django_groups(user)
         return any(group in approved_groups for group in user_groups)
 
     def get_manage_discord_accounts_button_for_player(
