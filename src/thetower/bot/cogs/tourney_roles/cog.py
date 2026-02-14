@@ -292,6 +292,29 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
         if not tourney_stats_cog:
             return discord.Embed(title="❌ Error", description="Tournament stats not available", color=discord.Color.red())
 
+        # Filter out banned game instances from tower_ids
+        # Only show career history for not-banned game instances
+        from asgiref.sync import sync_to_async
+
+        from thetower.backend.sus.models import ModerationRecord
+
+        @sync_to_async
+        def get_non_banned_player_ids(player_ids):
+            """Filter out player IDs that belong to banned game instances."""
+            banned_ids = ModerationRecord.get_active_moderation_ids("ban")
+            return [pid for pid in player_ids if pid not in banned_ids]
+
+        tower_ids = await get_non_banned_player_ids(tower_ids)
+
+        if not tower_ids:
+            # All IDs were banned - return empty stats embed with generic message (don't reveal moderation status)
+            embed = discord.Embed(
+                title=f"📊 Tournament Stats - {player_name}",
+                description="No tournament data available",
+                color=discord.Color.orange(),
+            )
+            return embed
+
         # Get stats via unified batch path
         batch_stats = await tourney_stats_cog.get_batch_player_stats(set(tower_ids))
         player_stats = await self.core._aggregate_player_stats(tower_ids, batch_stats)
