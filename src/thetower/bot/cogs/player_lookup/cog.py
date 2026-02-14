@@ -583,4 +583,3 @@ class PlayerLookup(BaseCog, name="Player Lookup", description="Universal player 
         """Clean up when cog is unloaded"""
         # Call parent unload
         await super().cog_unload()
-        self.logger.info("Player Lookup cog unloaded")

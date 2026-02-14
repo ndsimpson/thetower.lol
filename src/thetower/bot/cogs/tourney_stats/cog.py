@@ -618,8 +618,6 @@ class TourneyStats(BaseCog, name="Tourney Stats"):
         # checking if data is modified and saving it appropriately
         await super().cog_unload()
 
-        self.logger.info("Player tournament stats unloaded, data saved.")
-
 
 async def setup(bot) -> None:
     await bot.add_cog(TourneyStats(bot))

@@ -126,7 +126,6 @@ class TourneyRoleColors(BaseCog, name="Tourney Role Colors"):
 
         # Call parent implementation for data saving
         await super().cog_unload()
-        self.logger.info("Tourney role colors cog unloaded")
 
     def get_role_selection_button_for_profile(
         self, details: dict, requesting_user: discord.User, guild_id: int, permission_context

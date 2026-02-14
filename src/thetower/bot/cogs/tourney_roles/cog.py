@@ -1088,7 +1088,6 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
         if self.update_task:
             self.update_task.cancel()
         await super().cog_unload()
-        self.logger.info("Tournament roles cog unloaded")
 
     async def _delayed_correction(self, guild_id: int, user_id: int, expected_role_id: int):
         """Apply role correction after delay if state is still wrong.

@@ -72,7 +72,6 @@ class BattleConditions(BaseCog, name="Battle Conditions"):
 
         # Call parent implementation for data saving
         await super().cog_unload()
-        self.logger.info("Battle conditions cog unloaded")
 
     # === Slash Commands ===
     @app_commands.command(name="battleconditions", description="View and manage battle conditions")
