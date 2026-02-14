@@ -137,9 +137,12 @@ class PlayerLookup(BaseCog, name="Player Lookup", description="Universal player 
 
         # Check if user has permission to view moderation records
         # Use the same permission check as provide_player_lookup_info
+        from asgiref.sync import sync_to_async
+
         from thetower.backend.sus.models import LinkedAccount
 
-        async def check_user_groups():
+        @sync_to_async
+        def check_user_groups():
             try:
                 discord_id = str(discord_user.id)
                 linked_account = (
