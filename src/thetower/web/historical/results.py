@@ -23,7 +23,18 @@ from thetower.web.util import escape_df_html, get_league_selection, get_options
 
 class Results:
     def __init__(self, options: Options, league: Optional[str] = None) -> None:
-        self.league = league
+        # Support league selection via query string (?league=Legend, etc)
+        query_league = None
+        if hasattr(st, "query_params"):
+            query_league = st.query_params.get("league")
+            if query_league:
+                query_league = query_league.capitalize()
+                # Set sidebar radio to this league and clear query string
+                import streamlit as stmod
+
+                st.session_state.selected_league = query_league
+                stmod.query_params.clear()
+        self.league = st.session_state.get("selected_league") or query_league or league
         self.options = options
         self.hidden_features = os.environ.get("HIDDEN_FEATURES")
         self.sus_ids = get_sus_ids()
