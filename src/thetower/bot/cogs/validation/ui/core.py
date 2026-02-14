@@ -1506,18 +1506,23 @@ class ApprovePlayerIdChangeButton(discord.ui.Button):
 
         await sync_to_async(remove_pending)()
 
-        # Update the log channel message embed
-        embed = interaction.message.embeds[0] if interaction.message.embeds else None
-        if embed:
-            # Update status field
-            for idx, field in enumerate(embed.fields):
-                if field.name == "Status":
-                    embed.set_field_at(idx, name="Status", value=f"✅ Approved by {interaction.user.mention}", inline=True)
-                    break
-            embed.color = discord.Color.green()
-
-            # Remove buttons
-            await interaction.message.edit(embed=embed, view=None)
+        # Update the log channel message
+        if pending.get("log_message_id") and pending.get("log_channel_id"):
+            try:
+                log_channel = self.cog.bot.get_channel(pending["log_channel_id"])
+                if log_channel:
+                    log_message = await log_channel.fetch_message(pending["log_message_id"])
+                    if log_message and log_message.embeds:
+                        embed = log_message.embeds[0]
+                        # Update status field
+                        for idx, field in enumerate(embed.fields):
+                            if field.name == "Status":
+                                embed.set_field_at(idx, name="Status", value=f"✅ Approved by {interaction.user.mention}", inline=True)
+                                break
+                        embed.color = discord.Color.green()
+                        await log_message.edit(embed=embed, view=None)
+            except Exception as e:
+                self.cog.logger.warning(f"Could not update log message: {e}")
 
         # Update the mod notification message if it exists
         if pending.get("mod_message_id") and pending.get("mod_channel_id"):
@@ -1525,17 +1530,10 @@ class ApprovePlayerIdChangeButton(discord.ui.Button):
                 mod_channel = self.cog.bot.get_channel(pending["mod_channel_id"])
                 if mod_channel:
                     mod_message = await mod_channel.fetch_message(pending["mod_message_id"])
-                    if mod_message and mod_message.embeds:
-                        mod_embed = mod_message.embeds[0]
-                        # Update status field
-                        for idx, field in enumerate(mod_embed.fields):
-                            if field.name == "Status":
-                                mod_embed.set_field_at(idx, name="Status", value=f"✅ Approved by {interaction.user.mention}", inline=True)
-                                break
-                        mod_embed.color = discord.Color.green()
-                        await mod_message.edit(embed=mod_embed, view=None)
+                    if mod_message:
+                        await mod_message.delete()
             except Exception as e:
-                self.cog.logger.warning(f"Could not update mod notification message: {e}")
+                self.cog.logger.warning(f"Could not delete mod notification message: {e}")
 
         # Notify user
         try:
@@ -1590,18 +1588,23 @@ class DenyPlayerIdChangeButton(discord.ui.Button):
             await interaction.followup.send("❌ Pending change request not found.", ephemeral=True)
             return
 
-        # Update the log channel message embed
-        embed = interaction.message.embeds[0] if interaction.message.embeds else None
-        if embed:
-            # Update status field
-            for idx, field in enumerate(embed.fields):
-                if field.name == "Status":
-                    embed.set_field_at(idx, name="Status", value=f"❌ Denied by {interaction.user.mention}", inline=True)
-                    break
-            embed.color = discord.Color.red()
-
-            # Remove buttons
-            await interaction.message.edit(embed=embed, view=None)
+        # Update the log channel message
+        if pending.get("log_message_id") and pending.get("log_channel_id"):
+            try:
+                log_channel = self.cog.bot.get_channel(pending["log_channel_id"])
+                if log_channel:
+                    log_message = await log_channel.fetch_message(pending["log_message_id"])
+                    if log_message and log_message.embeds:
+                        embed = log_message.embeds[0]
+                        # Update status field
+                        for idx, field in enumerate(embed.fields):
+                            if field.name == "Status":
+                                embed.set_field_at(idx, name="Status", value=f"❌ Denied by {interaction.user.mention}", inline=True)
+                                break
+                        embed.color = discord.Color.red()
+                        await log_message.edit(embed=embed, view=None)
+            except Exception as e:
+                self.cog.logger.warning(f"Could not update log message: {e}")
 
         # Update the mod notification message if it exists
         if pending.get("mod_message_id") and pending.get("mod_channel_id"):
@@ -1609,17 +1612,10 @@ class DenyPlayerIdChangeButton(discord.ui.Button):
                 mod_channel = self.cog.bot.get_channel(pending["mod_channel_id"])
                 if mod_channel:
                     mod_message = await mod_channel.fetch_message(pending["mod_message_id"])
-                    if mod_message and mod_message.embeds:
-                        mod_embed = mod_message.embeds[0]
-                        # Update status field
-                        for idx, field in enumerate(mod_embed.fields):
-                            if field.name == "Status":
-                                mod_embed.set_field_at(idx, name="Status", value=f"❌ Denied by {interaction.user.mention}", inline=True)
-                                break
-                        mod_embed.color = discord.Color.red()
-                        await mod_message.edit(embed=mod_embed, view=None)
+                    if mod_message:
+                        await mod_message.delete()
             except Exception as e:
-                self.cog.logger.warning(f"Could not update mod notification message: {e}")
+                self.cog.logger.warning(f"Could not delete mod notification message: {e}")
 
         # Notify user
         try:
