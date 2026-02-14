@@ -506,16 +506,16 @@ class Validation(BaseCog, name="Validation"):
 
         self.logger.info("User has permission - showing button")
 
-        # Get player_id from details
-        player_id = details.get("primary_id")
-        if not player_id:
-            self.logger.warning(f"No primary_id in details for authorized user. Keys: {list(details.keys())}")
+        # Get the KnownPlayer database ID
+        player_db_id = details.get("player_db_id")
+        if not player_db_id:
+            self.logger.warning(f"No player_db_id in details for authorized user. Keys: {list(details.keys())}")
             return None
 
         # Import button class
         from .ui.core import ManageDiscordAccountsButton
 
-        return ManageDiscordAccountsButton(self, player_id, guild_id)
+        return ManageDiscordAccountsButton(self, player_db_id, guild_id)
 
     async def cancel_pending_link(self, discord_id: str) -> int:
         """Cancel any pending link requests where the given Discord ID is the requester.

@@ -429,6 +429,7 @@ async def get_player_details(player: KnownPlayer, requesting_user: discord.User 
     )
 
     return {
+        "player_db_id": player.id,
         "account_name": player.name,
         "creator_code": player.creator_code,
         "approved": player.approved,
