@@ -491,16 +491,6 @@ class Validation(BaseCog, name="Validation"):
             f"django_groups={permission_context.django_groups}"
         )
 
-        # Bot owner can always see the button
-        if permission_context.is_bot_owner:
-            self.logger.info("Showing button for bot owner")
-            player_id = details.get("player_id")
-            if player_id:
-                from .ui.core import ManageDiscordAccountsButton
-
-                return ManageDiscordAccountsButton(self, player_id, guild_id)
-            return None
-
         # Check if user has permission to manage retired accounts
         approved_groups = self.config.get_global_cog_setting("validation", "manage_retired_accounts_groups", [])
         self.logger.info(f"manage_retired_accounts_groups configured: {approved_groups}")
@@ -517,8 +507,9 @@ class Validation(BaseCog, name="Validation"):
         self.logger.info("User has permission - showing button")
 
         # Get player_id from details
-        player_id = details.get("player_id")
+        player_id = details.get("primary_id")
         if not player_id:
+            self.logger.warning(f"No primary_id in details for authorized user. Keys: {list(details.keys())}")
             return None
 
         # Import button class
