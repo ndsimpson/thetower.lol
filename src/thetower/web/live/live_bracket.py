@@ -55,7 +55,7 @@ def live_bracket():
         include_shun = include_shun_enabled_for("live_bracket")
         df = get_live_data(league, include_shun)
         bracket_order, fullish_brackets = get_bracket_data(df)
-        df = df[df.bracket.isin(fullish_brackets)].copy()  # no sniping
+        df_filtered = df[df.bracket.isin(fullish_brackets)].copy()  # no sniping
 
     except (IndexError, ValueError):
         if options.current_player_id:
@@ -67,8 +67,21 @@ def live_bracket():
             st.error("No tournament data available.")
         return
 
+    # Check if requested player exists and handle anti-snipe protection
+    if options.current_player_id:
+        player_in_filtered_data = options.current_player_id in df_filtered.player_id.values
+
+        if not player_in_filtered_data:
+            # Player either doesn't exist or is in a partial bracket during entry period
+            # Don't disclose which to prevent sniping
+            lookup = get_player_id_lookup()
+            known_name = lookup.get(options.current_player_id, options.current_player_id)
+            st.error(f"{known_name} ({options.current_player_id}) hasn't participated in this tournament.")
+            return
+
+    # Now use filtered data for display
+    df = df_filtered
     bracket_order, fullish_brackets = get_bracket_data(df)
-    df = df[df.bracket.isin(fullish_brackets)].copy()  # no sniping
 
     # Function to clear selection and search again
     def search_for_new():
