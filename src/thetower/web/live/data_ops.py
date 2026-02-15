@@ -123,9 +123,11 @@ def get_bracket_data(df: pd.DataFrame):
         - bracket_order: List of brackets ordered by creation time
         - fullish_brackets: List of brackets (filtered based on tournament state)
     """
+    # TEMPORARILY DISABLE ANTI-SNIPE PROTECTION FOR TESTING
     # Check tournament state - only apply anti-snipe protection during ENTRY_OPEN
-    tourney_state = get_tourney_state()
-    anti_snipe = tourney_state.name == "ENTRY_OPEN"
+    # tourney_state = get_tourney_state()
+    # anti_snipe = tourney_state.name == "ENTRY_OPEN"
+    anti_snipe = False  # Temporarily show all brackets
 
     return get_full_brackets(df, anti_snipe=anti_snipe)
 
