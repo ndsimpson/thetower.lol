@@ -407,22 +407,27 @@ def get_live_df(league: str, shun: bool = False) -> pd.DataFrame:
     return df
 
 
-def get_full_brackets(df: pd.DataFrame) -> tuple[list[str], list[str]]:
+def get_full_brackets(df: pd.DataFrame, anti_snipe: bool = True) -> tuple[list[str], list[str]]:
     """Get bracket information from tournament data.
 
     Args:
         df: DataFrame containing tournament data
+        anti_snipe: If True, only return brackets with >= 28 players (anti-snipe protection).
+                    If False, return all brackets.
 
     Returns:
         Tuple containing:
         - bracket_order: List of brackets ordered by creation time
-        - fullish_brackets: List of brackets with >= 28 players
+        - fullish_brackets: List of brackets (filtered by anti_snipe if enabled)
     """
     df["datetime"] = pd.to_datetime(df["datetime"])
     bracket_order = df.groupby("bracket")["datetime"].min().sort_values().index.tolist()
 
-    bracket_counts = dict(df.groupby("bracket").player_id.unique().map(lambda player_ids: len(player_ids)))
-    fullish_brackets = [bracket for bracket, count in bracket_counts.items() if count >= 28]
+    if anti_snipe:
+        bracket_counts = dict(df.groupby("bracket").player_id.unique().map(lambda player_ids: len(player_ids)))
+        fullish_brackets = [bracket for bracket, count in bracket_counts.items() if count >= 28]
+    else:
+        fullish_brackets = bracket_order  # All brackets
 
     return bracket_order, fullish_brackets
 

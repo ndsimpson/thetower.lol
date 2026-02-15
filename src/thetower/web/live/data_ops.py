@@ -14,6 +14,7 @@ from thetower.backend.tourney_results.tourney_utils import (
     get_latest_live_df,
     get_live_df,
     get_time,
+    get_tourney_state,
 )
 
 # Cache configuration
@@ -120,9 +121,13 @@ def get_bracket_data(df: pd.DataFrame):
     Returns:
         Tuple containing:
         - bracket_order: List of brackets ordered by creation time
-        - fullish_brackets: List of brackets with >= 28 players
+        - fullish_brackets: List of brackets (filtered based on tournament state)
     """
-    return get_full_brackets(df)
+    # Check tournament state - only apply anti-snipe protection during ENTRY_OPEN
+    tourney_state = get_tourney_state()
+    anti_snipe = tourney_state.name == "ENTRY_OPEN"
+
+    return get_full_brackets(df, anti_snipe=anti_snipe)
 
 
 def process_display_names(df: pd.DataFrame) -> pd.DataFrame:
