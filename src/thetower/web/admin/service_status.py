@@ -16,6 +16,30 @@ import streamlit as st
 logger = logging.getLogger(__name__)
 
 
+@st.dialog("Service Logs", width="large")
+def show_service_logs(service_name: str, logs: str):
+    """Display service logs in a modal dialog."""
+    st.markdown(f"**{service_name}** - Recent Logs")
+    st.code(logs, language="bash")
+
+    if st.button("✅ Close", use_container_width=True, type="primary"):
+        st.rerun()
+
+
+@st.dialog("Operation Result", width="large")
+def show_operation_result(success: bool, title: str, message: str):
+    """Display operation result in a modal dialog."""
+    if success:
+        st.success(title)
+    else:
+        st.error(title)
+
+    st.code(message, language="bash")
+
+    if st.button("✅ Close & Refresh", use_container_width=True, type="primary"):
+        st.rerun()
+
+
 def is_windows() -> bool:
     """Check if running on Windows."""
     return platform.system().lower() == "windows"
@@ -437,25 +461,22 @@ def service_status_page():
                                 if success:
                                     past_tense = f"{action_text}ed" if action_text.endswith("t") else f"{action_text}ed"
                                     sim_text = f" ({action_text} simulated)" if is_windows() else f" {past_tense}"
-                                    msg = f"✅ {config['name']}{sim_text} successfully!"
-                                    st.success(msg)
-                                    # Small delay to let service start, then refresh
-                                    import time
-
-                                    time.sleep(1 if is_windows() else 2)
-                                    st.rerun()
+                                    title = f"✅ {config['name']}{sim_text} successfully!"
+                                    message = f"Service {action_text} operation completed."
                                 else:
-                                    st.error(f"❌ Failed to {action_text} {config['name']}")
+                                    title = f"❌ Failed to {action_text} {config['name']}"
+                                    message = f"Service {action_text} operation failed. Check logs for details."
 
-        # Show recent console logs in an expander
-        try:
-            logs = get_service_logs(config["service"], lines=log_lines)
-        except Exception:
-            logs = "Logs unavailable"
+                                show_operation_result(success, title, message)
 
-        with st.expander(f"📝 Recent logs ({config['name']})"):
-            # Use code block for preserved formatting
-            st.code(logs)
+        # Show recent console logs button
+        logs_key = f"logs_{service_id}"
+        if st.button(f"📝 View Logs ({config['name']})", key=logs_key):
+            try:
+                logs = get_service_logs(config["service"], lines=log_lines)
+            except Exception:
+                logs = "Logs unavailable"
+            show_service_logs(config["name"], logs)
 
         st.markdown("---")
 
