@@ -219,9 +219,10 @@ class UserInteractions:
             bracket_url = f"https://{BASE_URL}/livebracketview?player_id={primary_player_id}"
             comparison_url = f"https://{BASE_URL}/comparison?bracket_player={primary_player_id}"
             placement_url = f"https://{BASE_URL}/liveplacement?player_id={primary_player_id}"
+            quantile_url = f"https://{BASE_URL}/livequantile?player_id={primary_player_id}"
             player_history_url = f"https://{BASE_URL}/player?player={primary_player_id}"
 
-            links = f"[History]({player_history_url}) • [Bracket]({bracket_url}) • [Comparison]({comparison_url}) • [Placement]({placement_url})"
+            links = f"[History]({player_history_url}) • [Bracket]({bracket_url}) • [Comparison]({comparison_url}) • [Placement]({placement_url}) • [Quantile]({quantile_url})"
             instance_lines.append(links)
 
             # Call extension providers for this specific instance
