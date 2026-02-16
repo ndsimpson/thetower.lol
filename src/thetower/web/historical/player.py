@@ -286,6 +286,7 @@ def draw_info_tab(info_tab, user, player_id, player_df, hidden_features):
     bracket_url = f"https://{BASE_URL}/livebracketview?" + urlencode({"player_id": player_id}, doseq=True)
     comparison_url = f"https://{BASE_URL}/comparison?bracket_player={player_id}"
     placement_url = f"https://{BASE_URL}/liveplacement?player_id={player_id}"
+    quantile_url = f"https://{BASE_URL}/livequantile?player_id={player_id}"
 
     # Continue with the rest of the info tab content
     handle_sus_or_banned_ids(info_tab, player_id)
@@ -350,7 +351,7 @@ def draw_info_tab(info_tab, user, player_id, player_df, hidden_features):
 
     # Show live links only if player joined the recent tourney
     if check_all_live_entry(player_df.iloc[0].id):
-        live_col1, live_col2, live_col3 = info_tab.columns(3)
+        live_col1, live_col2, live_col3, live_col4 = info_tab.columns(4)
 
         button_style = "display: inline-block; padding: 8px 16px; background-color: #FF4B4B; color: white; text-align: center; text-decoration: none; border-radius: 4px; font-weight: 500;"
         center_style = "text-align: center; margin-bottom: 1rem;"
@@ -363,6 +364,9 @@ def draw_info_tab(info_tab, user, player_id, player_df, hidden_features):
         )
         live_col3.markdown(
             f'<div style="{center_style}"><a href="{placement_url}" style="{button_style}">Placement Analysis</a></div>', unsafe_allow_html=True
+        )
+        live_col4.markdown(
+            f'<div style="{center_style}"><a href="{quantile_url}" style="{button_style}">Quantile Analysis</a></div>', unsafe_allow_html=True
         )
 
 

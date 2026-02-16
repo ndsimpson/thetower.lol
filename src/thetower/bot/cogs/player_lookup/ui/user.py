@@ -151,11 +151,12 @@ class UserInteractions:
         bracket_url = f"https://{BASE_URL}/livebracketview?player_id={primary_id}"
         comparison_url = f"https://{BASE_URL}/comparison?bracket_player={primary_id}"
         placement_url = f"https://{BASE_URL}/liveplacement?player_id={primary_id}"
+        quantile_url = f"https://{BASE_URL}/livequantile?player_id={primary_id}"
         player_history_url = f"https://{BASE_URL}/player?player={primary_id}"
 
         links_value = (
             f"[Player History]({player_history_url})\n"
-            f"[Bracket View]({bracket_url}) • [Comparison]({comparison_url}) • [Live Placement Analysis]({placement_url})"
+            f"[Bracket View]({bracket_url}) • [Comparison]({comparison_url}) • [Live Placement Analysis]({placement_url}) • [Quantile Analysis]({quantile_url})"
         )
         embed.add_field(name="Player Links", value=links_value, inline=False)
 
