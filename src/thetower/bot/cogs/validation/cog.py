@@ -1129,7 +1129,7 @@ class Validation(BaseCog, name="Validation"):
                         member = guild.get_member(discord_id)
 
                         if member:
-                            # Member is in guild - should have verified role if not banned
+                            # Member is in guild - should have verified role if not all game instances are banned
                             if not await self._has_active_ban(str(discord_id)):
                                 if verified_role not in member.roles:
                                     await self._add_verified_role(member, verified_role, "startup reconciliation")
@@ -1260,7 +1260,11 @@ class Validation(BaseCog, name="Validation"):
             self._bot_role_changes.discard((member.id, member.guild.id))
 
     async def _has_active_ban(self, discord_id_str: str) -> bool:
-        """Check if a Discord user has any active ban moderation records."""
+        """Check if a Discord user has active ban moderation on ALL game instances.
+
+        Returns True only if every game instance has at least one banned tower ID.
+        If there's at least one unbanned game instance, returns False (user keeps verified role).
+        """
 
         from asgiref.sync import sync_to_async
 
@@ -1277,9 +1281,20 @@ class Validation(BaseCog, name="Validation"):
                 player = linked_account.player
                 ban_ids = ModerationRecord.get_active_moderation_ids("ban")
 
-                # Get all tower IDs across all game instances
-                player_tower_ids = [pid.id for instance in player.game_instances.all() for pid in instance.player_ids.all()]
-                return any(pid in ban_ids for pid in player_tower_ids)
+                # Get all game instances
+                game_instances = list(player.game_instances.all())
+                if not game_instances:
+                    return False
+
+                # Check if every game instance has at least one banned tower ID
+                for instance in game_instances:
+                    instance_tower_ids = [pid.id for pid in instance.player_ids.all()]
+                    if not any(pid in ban_ids for pid in instance_tower_ids):
+                        # This instance has no banned IDs, so user should keep role
+                        return False
+
+                # All instances have at least one ban
+                return True
             except Exception as exc:  # defensive logging; do not fail hard
                 self.logger.error(f"Error checking active ban for {discord_id_str}: {exc}")
                 return False
@@ -1319,6 +1334,20 @@ class Validation(BaseCog, name="Validation"):
                         return None
 
                     player = linked_account.player
+
+                    # Special handling for ban-related removals: show the banned player ID
+                    if "active ban moderation" in reason:
+                        from thetower.backend.sus.models import ModerationRecord
+
+                        ban_ids = ModerationRecord.get_active_moderation_ids("ban")
+                        # Get all tower IDs across all game instances
+                        player_tower_ids = [pid.id for instance in player.game_instances.all() for pid in instance.player_ids.all()]
+                        # Find the banned ID
+                        banned_ids = [pid for pid in player_tower_ids if pid in ban_ids]
+                        if banned_ids:
+                            return banned_ids[0]  # Return the first banned ID found
+
+                    # Default: get primary instance primary ID
                     primary_instance = player.game_instances.filter(primary=True).first()
                     if not primary_instance:
                         return None
