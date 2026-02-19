@@ -377,14 +377,21 @@ class ResolveModerationModal(discord.ui.Modal):
                 else:
                     self.record.reason = f"--- Resolution Notes ({timezone.now().strftime('%Y-%m-%d %H:%M UTC')}) ---\n{notes}"
 
+            # Resolve the linked Django user fully inside sync context to avoid lazy FK access in async
+            from thetower.backend.sus.models import KnownPlayer
+
+            discord_id_str = str(interaction.user.id)
+
+            def get_django_user(discord_id):
+                kp = KnownPlayer.get_by_discord_id(discord_id)
+                return kp.django_user if kp and kp.django_user_id else None
+
+            resolved_by_user = await sync_to_async(get_django_user)(discord_id_str)
+
             # Mark as resolved
             self.record.resolved_at = timezone.now()
-            self.record.resolved_by_discord_id = str(interaction.user.id)
-            # Try to set resolved_by (Django user) if linked
-            from thetower.backend.sus.models import KnownPlayer
-            known_player = await sync_to_async(KnownPlayer.get_by_discord_id)(interaction.user.id)
-            if known_player and known_player.django_user:
-                self.record.resolved_by = known_player.django_user
+            self.record.resolved_by_discord_id = discord_id_str
+            self.record.resolved_by = resolved_by_user
             await sync_to_async(self.record.save)()
 
             embed = discord.Embed(
@@ -578,6 +585,13 @@ class CreateModerationModal(discord.ui.Modal):
             from thetower.backend.sus.models import ModerationRecord, KnownPlayer
             from django.utils import timezone
 
+            discord_id_str = str(interaction.user.id)
+
+            # Resolve the linked Django user fully inside sync context to avoid lazy FK access in async
+            def get_django_user(discord_id):
+                kp = KnownPlayer.get_by_discord_id(discord_id)
+                return kp.django_user if kp and kp.django_user_id else None
+
             # Enforce only one active moderation status at a time
             existing_active = await sync_to_async(list)(
                 ModerationRecord.objects.filter(tower_id=self.tower_id, resolved_at__isnull=True)
@@ -595,28 +609,23 @@ class CreateModerationModal(discord.ui.Modal):
                 await interaction.response.send_message("❌ Player is already banned.", ephemeral=True)
                 return
 
+            # Resolve Django user once for use in both auto-resolve and creation
+            created_by_user = await sync_to_async(get_django_user)(discord_id_str)
+
             # If banning, auto-resolve sus
             if self.moderation_type == "ban" and existing_sus:
                 existing_sus.resolved_at = timezone.now()
-                existing_sus.resolved_by_discord_id = str(interaction.user.id)
-                # Try to set resolved_by (Django user) if linked
-                known_player = await sync_to_async(KnownPlayer.get_by_discord_id)(interaction.user.id)
-                if known_player and known_player.django_user:
-                    existing_sus.resolved_by = known_player.django_user
+                existing_sus.resolved_by_discord_id = discord_id_str
+                existing_sus.resolved_by = created_by_user
                 await sync_to_async(existing_sus.save)()
 
-            # Try to set created_by (Django user) if linked
-            known_player = await sync_to_async(KnownPlayer.get_by_discord_id)(interaction.user.id)
-            created_by_user = known_player.django_user if known_player and known_player.django_user else None
-
-            # Create the new moderation record
-            await sync_to_async(ModerationRecord.objects.create)(
+            # Create the new moderation record (create_for_bot handles game instance auto-linking)
+            await sync_to_async(ModerationRecord.create_for_bot)(
                 tower_id=self.tower_id,
                 moderation_type=self.moderation_type,
-                source=ModerationRecord.ModerationSource.BOT,
-                created_by_discord_id=str(interaction.user.id),
-                created_by=created_by_user,
+                discord_id=discord_id_str,
                 reason=reason,
+                created_by=created_by_user,
             )
 
             embed = discord.Embed(
