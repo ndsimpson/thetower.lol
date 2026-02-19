@@ -418,9 +418,11 @@ class ModerationRecord(models.Model):
         if "game_instance" not in kwargs:
             kwargs["game_instance"] = cls._auto_link_game_instance(tower_id)
 
-        return cls.objects.create(
+        record = cls.objects.create(
             tower_id=tower_id, moderation_type=moderation_type, source=cls.ModerationSource.MANUAL, created_by=admin_user, reason=reason, **kwargs
         )
+        record._queue_recalculation()
+        return record
 
     @classmethod
     def create_for_bot(cls, tower_id, moderation_type, discord_id, reason=None, **kwargs):
@@ -433,7 +435,7 @@ class ModerationRecord(models.Model):
         if "game_instance" not in kwargs:
             kwargs["game_instance"] = cls._auto_link_game_instance(tower_id)
 
-        return cls.objects.create(
+        record = cls.objects.create(
             tower_id=tower_id,
             moderation_type=moderation_type,
             source=cls.ModerationSource.BOT,
@@ -441,6 +443,8 @@ class ModerationRecord(models.Model):
             reason=reason,
             **kwargs,
         )
+        record._queue_recalculation()
+        return record
 
     @classmethod
     def create_for_api(cls, tower_id, moderation_type, api_key, reason=None, **kwargs):
@@ -496,6 +500,7 @@ class ModerationRecord(models.Model):
                     reason=reason,
                     **kwargs,
                 )
+                new_record._queue_recalculation()
                 return {"record": new_record, "created": True, "message": f"Created new sus record for player {tower_id}"}
 
         elif moderation_type == "ban":
@@ -545,6 +550,7 @@ class ModerationRecord(models.Model):
                     reason=reason,
                     **kwargs,
                 )
+                new_record._queue_recalculation()
 
                 message = f"Created new ban record for player {tower_id}"
                 if existing_sus:
@@ -581,6 +587,7 @@ class ModerationRecord(models.Model):
                     reason=reason,
                     **kwargs,
                 )
+                new_record._queue_recalculation()
                 return {"record": new_record, "created": True, "message": f"Created new {moderation_type} record for player {tower_id}"}
 
     @classmethod
