@@ -119,8 +119,10 @@ class PlayerModerationView(discord.ui.View):
                 )
                 return embed
 
-            # Load records
-            self.records = await self.search.search_records(tower_id=primary_id, active_only=not self.show_all_records, limit=50)
+            # Always load all records for accurate summary counts
+            all_records = await self.search.search_records(tower_id=primary_id, active_only=False, limit=50)
+            # Filter for display based on view mode
+            self.records = all_records if self.show_all_records else [r for r in all_records if r.is_active]
 
             # Create embed
             embed = discord.Embed(
@@ -137,60 +139,69 @@ class PlayerModerationView(discord.ui.View):
                 inline=False,
             )
 
-            # Add records summary
-            if self.records:
-                active_count = sum(1 for r in self.records if r.is_active)
-                resolved_count = len(self.records) - active_count
+            # Add records summary - always counts from full set
+            if all_records:
+                active_count = sum(1 for r in all_records if r.is_active)
+                resolved_count = len(all_records) - active_count
 
                 embed.add_field(
                     name="📈 Records Summary",
-                    value=f"**Total:** {len(self.records)}\n**Active:** {active_count}\n**Resolved:** {resolved_count}",
+                    value=f"**Total:** {len(all_records)}\n**Active:** {active_count}\n**Resolved:** {resolved_count}",
                     inline=True,
                 )
 
-                # Show records
-                for record in self.records[:5]:  # Show first 5 records
-                    status_emoji = "🔴" if record.is_active else "✅"
-                    status_text = "Active" if record.is_active else "Resolved"
+                # Show records from the filtered display set
+                if self.records:
+                    for record in self.records[:5]:  # Show first 5 records
+                        status_emoji = "🔴" if record.is_active else "✅"
+                        status_text = "Active" if record.is_active else "Resolved"
 
-                    # Get creator display with Discord username if available
-                    created_by = await self._get_creator_display(record)
+                        # Get creator display with Discord username if available
+                        created_by = await self._get_creator_display(record)
 
-                    record_info = (
-                        f"**Type:** {record.get_moderation_type_display()}\n"
-                        f"**Status:** {status_text}\n"
-                        f"**Created:** {record.created_at.strftime('%Y-%m-%d')}\n"
-                        f"**Created By:** {created_by}"
-                    )
+                        record_info = (
+                            f"**Type:** {record.get_moderation_type_display()}\n"
+                            f"**Status:** {status_text}\n"
+                            f"**Created:** {record.created_at.strftime('%Y-%m-%d')}\n"
+                            f"**Created By:** {created_by}"
+                        )
 
-                    if record.reason:
-                        # Truncate reason if too long
-                        reason = record.reason[:100] + "..." if len(record.reason) > 100 else record.reason
-                        record_info += f"\n**Reason:** {reason}"
+                        if record.reason:
+                            # Truncate reason if too long
+                            reason = record.reason[:100] + "..." if len(record.reason) > 100 else record.reason
+                            record_info += f"\n**Reason:** {reason}"
 
+                        embed.add_field(
+                            name=f"{status_emoji} Record #{record.id}",
+                            value=record_info,
+                            inline=False,
+                        )
+
+                    if len(self.records) > 5:
+                        embed.add_field(
+                            name="📄 More Records",
+                            value=f"... and {len(self.records) - 5} more records",
+                            inline=False,
+                        )
+                else:
                     embed.add_field(
-                        name=f"{status_emoji} Record #{record.id}",
-                        value=record_info,
-                        inline=False,
-                    )
-
-                if len(self.records) > 5:
-                    embed.add_field(
-                        name="📄 More Records",
-                        value=f"... and {len(self.records) - 5} more records",
+                        name="📭 No Active Records",
+                        value="No active moderation records. Toggle view to see resolved records.",
                         inline=False,
                     )
             else:
+                no_records_msg = "No active moderation records." if not self.show_all_records else "No moderation records found for this player."
                 embed.add_field(
                     name="📭 No Records",
-                    value="No moderation records found for this player.",
+                    value=no_records_msg,
                     inline=False,
                 )
 
             # Add active moderation actions if user has manage permissions
             can_manage = await self.cog._user_can_manage_moderation_records(self.requesting_user)
             if can_manage:
-                active_records = [r for r in self.records if r.is_active]
+                # Always derive active_records from full set so buttons are correct in any view mode
+                active_records = [r for r in all_records if r.is_active]
                 # Clear existing action buttons and add new ones
                 self.clear_items()
 
