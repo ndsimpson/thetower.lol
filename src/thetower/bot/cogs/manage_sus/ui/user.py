@@ -352,10 +352,23 @@ class ResolveModerationModal(discord.ui.Modal):
         """Handle resolution form submission."""
         try:
             notes = self.notes_input.value.strip() or None
-
-            # Resolve the record
             from asgiref.sync import sync_to_async
             from django.utils import timezone
+
+            # Restrict ban resolution to API or bot owner
+            if self.record.moderation_type == "ban":
+                # Check if API or bot owner
+                # is_api variable removed (not used)
+                is_owner = False
+                # Check API context (not available in bot UI, so only bot owner allowed)
+                bot_owner_id = getattr(self.cog.bot, "owner_id", None)
+                if bot_owner_id and str(interaction.user.id) == str(bot_owner_id):
+                    is_owner = True
+                # Optionally, check for API context if available
+                # If not API or owner, block resolution
+                if not (is_owner):
+                    await interaction.response.send_message("❌ Only the API or bot owner may resolve a ban.", ephemeral=True)
+                    return
 
             # Update the record with resolution notes
             if notes:
@@ -367,16 +380,18 @@ class ResolveModerationModal(discord.ui.Modal):
             # Mark as resolved
             self.record.resolved_at = timezone.now()
             self.record.resolved_by_discord_id = str(interaction.user.id)
-
+            # Try to set resolved_by (Django user) if linked
+            from thetower.backend.sus.models import KnownPlayer
+            known_player = await sync_to_async(KnownPlayer.get_by_discord_id)(interaction.user.id)
+            if known_player and known_player.django_user:
+                self.record.resolved_by = known_player.django_user
             await sync_to_async(self.record.save)()
 
-            # Create success embed
             embed = discord.Embed(
                 title="✅ Moderation Resolved",
                 description=f"Successfully resolved {self.record.get_moderation_type_display()} record #{self.record.id} for player {self.record.tower_id}.",
                 color=discord.Color.green(),
             )
-
             if notes:
                 embed.add_field(name="Resolution Notes", value=notes, inline=False)
 
@@ -400,9 +415,64 @@ class SusButton(discord.ui.Button):
 
     async def callback(self, interaction: discord.Interaction):
         """Handle sus button click."""
-        # Show modal to enter reason
-        modal = CreateModerationModal(self.view.cog, self.tower_id, "sus")
-        await interaction.response.send_modal(modal)
+        from asgiref.sync import sync_to_async
+        from thetower.backend.sus.models import ModerationRecord
+        # Check for existing active sus
+        existing_active = await sync_to_async(list)(
+            ModerationRecord.objects.filter(tower_id=self.tower_id, moderation_type="sus", resolved_at__isnull=True)
+        )
+        if existing_active:
+            # Show modal to add notes to existing sus
+            modal = AddSusNotesModal(self.view.cog, existing_active[0])
+            await interaction.response.send_modal(modal)
+        else:
+            # Show modal to create new sus
+            modal = CreateModerationModal(self.view.cog, self.tower_id, "sus")
+            await interaction.response.send_modal(modal)
+
+
+class AddSusNotesModal(discord.ui.Modal):
+    """Modal for adding notes to an existing sus record."""
+
+    def __init__(self, cog, record):
+        super().__init__(title=f"Add Notes to SUS for {record.tower_id}")
+        self.cog = cog
+        self.record = record
+        self.notes_input = discord.ui.TextInput(
+            label="Additional Notes",
+            placeholder="Enter additional notes...",
+            default="",
+            required=True,
+            max_length=1000,
+            style=discord.TextStyle.paragraph,
+        )
+        self.add_item(self.notes_input)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        try:
+            notes = self.notes_input.value.strip()
+            from django.utils import timezone
+            if notes:
+                timestamp = timezone.now().strftime('%Y-%m-%d %H:%M UTC')
+                if self.record.reason:
+                    self.record.reason += f"\n\n--- Additional Notes ({timestamp}) ---\n{notes}"
+                else:
+                    self.record.reason = f"--- Additional Notes ({timestamp}) ---\n{notes}"
+                from asgiref.sync import sync_to_async
+                await sync_to_async(self.record.save)()
+            embed = discord.Embed(
+                title="✅ Notes Added",
+                description=f"Notes added to SUS record #{self.record.id} for player {self.record.tower_id}.",
+                color=discord.Color.green(),
+            )
+            embed.add_field(name="Notes", value=notes, inline=False)
+            await interaction.response.send_message(embed=embed, ephemeral=True)
+            # Refresh parent view
+            embed = await self.view.update_view(interaction)
+            await interaction.followup.edit_message(embed=embed, view=self.view)
+        except Exception as e:
+            self.cog.logger.error(f"Error adding notes to sus record: {e}")
+            await interaction.response.send_message("❌ Failed to add notes. Please try again.", ephemeral=True)
 
 
 class BanButton(discord.ui.Button):
@@ -504,19 +574,51 @@ class CreateModerationModal(discord.ui.Modal):
                 await interaction.response.send_message("❌ Reason is required.", ephemeral=True)
                 return
 
-            # Create the record
             from asgiref.sync import sync_to_async
+            from thetower.backend.sus.models import ModerationRecord, KnownPlayer
+            from django.utils import timezone
 
-            from thetower.backend.sus.models import ModerationRecord
+            # Enforce only one active moderation status at a time
+            existing_active = await sync_to_async(list)(
+                ModerationRecord.objects.filter(tower_id=self.tower_id, resolved_at__isnull=True)
+            )
+            existing_sus = next((r for r in existing_active if r.moderation_type == "sus"), None)
+            existing_ban = next((r for r in existing_active if r.moderation_type == "ban"), None)
 
-            await sync_to_async(ModerationRecord.create_for_bot)(
+            # Prevent sus if banned
+            if self.moderation_type == "sus" and existing_ban:
+                await interaction.response.send_message("❌ Cannot mark as sus while banned.", ephemeral=True)
+                return
+
+            # Prevent ban if already banned
+            if self.moderation_type == "ban" and existing_ban:
+                await interaction.response.send_message("❌ Player is already banned.", ephemeral=True)
+                return
+
+            # If banning, auto-resolve sus
+            if self.moderation_type == "ban" and existing_sus:
+                existing_sus.resolved_at = timezone.now()
+                existing_sus.resolved_by_discord_id = str(interaction.user.id)
+                # Try to set resolved_by (Django user) if linked
+                known_player = await sync_to_async(KnownPlayer.get_by_discord_id)(interaction.user.id)
+                if known_player and known_player.django_user:
+                    existing_sus.resolved_by = known_player.django_user
+                await sync_to_async(existing_sus.save)()
+
+            # Try to set created_by (Django user) if linked
+            known_player = await sync_to_async(KnownPlayer.get_by_discord_id)(interaction.user.id)
+            created_by_user = known_player.django_user if known_player and known_player.django_user else None
+
+            # Create the new moderation record
+            await sync_to_async(ModerationRecord.objects.create)(
                 tower_id=self.tower_id,
                 moderation_type=self.moderation_type,
-                discord_id=str(interaction.user.id),
+                source=ModerationRecord.ModerationSource.BOT,
+                created_by_discord_id=str(interaction.user.id),
+                created_by=created_by_user,
                 reason=reason,
             )
 
-            # Create success embed
             embed = discord.Embed(
                 title="✅ Moderation Record Created",
                 description=f"Successfully created {self.moderation_type.upper()} record for player {self.tower_id}.",
