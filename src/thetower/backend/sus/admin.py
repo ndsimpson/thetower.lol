@@ -298,7 +298,7 @@ class GameInstanceAdmin(SimpleHistoryAdmin, nested_admin.NestedModelAdmin):
     list_display = ("__str__", "player", "primary", "created_at")
     list_filter = ("primary", "created_at")
     search_fields = ("name", "player__name", "player_ids__id")
-    readonly_fields = ("created_at",)
+    readonly_fields = ("player", "created_at")
     inlines = (PlayerIdInline,)
 
     def get_queryset(self, request):
