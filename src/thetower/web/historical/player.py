@@ -7,7 +7,6 @@ from urllib.parse import urlencode
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
-from natsort import natsorted
 
 from thetower.backend.sus.models import PlayerId
 from thetower.backend.tourney_results.constants import (
@@ -401,8 +400,8 @@ def write_for_each_patch(patch_tab, player_df):
             }
         )
 
-    wave_data = natsorted(wave_data, key=lambda x: x["patch"], reverse=True)
-    position_data = natsorted(position_data, key=lambda x: x["patch"], reverse=True)
+    wave_data = sorted(wave_data, key=lambda x: x["date"], reverse=True)
+    position_data = sorted(position_data, key=lambda x: x["date"], reverse=True)
 
     wave_df = pd.DataFrame(wave_data).reset_index(drop=True)
     position_df = pd.DataFrame(position_data).reset_index(drop=True)
