@@ -1,27 +1,24 @@
 import datetime
 import logging
-import os
 from time import perf_counter
 
 import pandas as pd
 import plotly.express as px
 import streamlit as st
 
-from thetower.backend.tourney_results.shun_config import include_shun_enabled_for
 from thetower.web.live.data_ops import (
     analyze_wave_placement,
     format_time_ago,
-    get_data_refresh_timestamp,
     get_placement_analysis_data,
     process_display_names,
     require_tournament_data,
 )
-from thetower.web.live.ui_components import setup_common_ui
+from thetower.web.live.ui_components import render_data_status, setup_common_ui
 from thetower.web.util import add_player_id
 
 
 @require_tournament_data
-def live_score():
+def live_placement_analysis():
     st.markdown("# Live Placement Analysis")
     logging.info("Starting live placement analysis")
     t2_start = perf_counter()
@@ -30,25 +27,7 @@ def live_score():
     options, league, is_mobile = setup_common_ui(show_league_selector=False)
 
     # Show data refresh and shun status upfront so users see it even if cache isn't ready
-    try:
-        refresh_timestamp = get_data_refresh_timestamp(league)
-        if refresh_timestamp:
-            time_ago = format_time_ago(refresh_timestamp)
-            st.caption(f"📊 Data last refreshed: {time_ago} ({refresh_timestamp.strftime('%Y-%m-%d %H:%M:%S')} UTC)")
-        else:
-            st.caption("📊 Data refresh time: Unknown")
-
-        # Indicate whether shunned players are included for this page (only on hidden site)
-        hidden_features = os.environ.get("HIDDEN_FEATURES")
-        if hidden_features:
-            try:
-                include_shun = include_shun_enabled_for("live_placement_cache")
-                st.caption(f"🔍 Including shunned players: {'Yes' if include_shun else 'No'}")
-            except Exception:
-                pass
-    except Exception:
-        # Don't break the page for display issues
-        pass
+    refresh_timestamp = render_data_status(league, "live_placement_cache")
 
     # Get placement analysis data (plus tourney start date)
     df, latest_time, bracket_creation_times, tourney_start_date = get_placement_analysis_data(league)
@@ -436,4 +415,4 @@ def live_score():
     logging.info(f"Full live_placement_analysis for {league} took {t2_stop - t2_start}")
 
 
-live_score()
+live_placement_analysis()

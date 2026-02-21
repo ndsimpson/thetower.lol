@@ -1,5 +1,4 @@
 import logging
-import os
 from time import perf_counter
 
 import pandas as pd
@@ -11,13 +10,11 @@ from thetower.backend.tourney_results.data import get_tourneys
 from thetower.backend.tourney_results.models import TourneyResult
 from thetower.backend.tourney_results.shun_config import include_shun_enabled_for
 from thetower.web.live.data_ops import (
-    format_time_ago,
-    get_data_refresh_timestamp,
     get_processed_data,
     process_display_names,
     require_tournament_data,
 )
-from thetower.web.live.ui_components import setup_common_ui
+from thetower.web.live.ui_components import render_data_status, setup_common_ui
 
 
 @require_tournament_data
@@ -29,21 +26,7 @@ def live_progress():
     # Use common UI setup
     options, league, is_mobile = setup_common_ui()
 
-    # Get data refresh timestamp
-    refresh_timestamp = get_data_refresh_timestamp(league)
-    if refresh_timestamp:
-        time_ago = format_time_ago(refresh_timestamp)
-        st.caption(f"📊 Data last refreshed: {time_ago} ({refresh_timestamp.strftime('%Y-%m-%d %H:%M:%S')} UTC)")
-        # Indicate whether shunned players are included for this page (only on hidden site)
-        hidden_features = os.environ.get("HIDDEN_FEATURES")
-        if hidden_features:
-            try:
-                include_shun = include_shun_enabled_for("live_progress")
-                st.caption(f"🔍 Including shunned players: {'Yes' if include_shun else 'No'}")
-            except Exception:
-                pass
-    else:
-        st.caption("📊 Data refresh time: Unknown")
+    render_data_status(league, "live_progress")
 
     # Get processed data
     include_shun = include_shun_enabled_for("live_progress")

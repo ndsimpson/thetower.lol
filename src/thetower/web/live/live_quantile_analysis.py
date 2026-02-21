@@ -1,5 +1,4 @@
 import logging
-import os
 from time import perf_counter
 
 import pandas as pd
@@ -8,13 +7,11 @@ import streamlit as st
 
 from thetower.backend.tourney_results.shun_config import include_shun_enabled_for
 from thetower.web.live.data_ops import (
-    format_time_ago,
-    get_data_refresh_timestamp,
     get_processed_data,
     get_quantile_analysis_data,
     require_tournament_data,
 )
-from thetower.web.live.ui_components import setup_common_ui
+from thetower.web.live.ui_components import render_data_status, setup_common_ui
 
 
 @require_tournament_data
@@ -26,22 +23,7 @@ def quantile_analysis():
     # Use common UI setup
     options, league, is_mobile = setup_common_ui()
 
-    # Get data refresh timestamp
-    refresh_timestamp = get_data_refresh_timestamp(league)
-    if refresh_timestamp:
-        time_ago = format_time_ago(refresh_timestamp)
-        st.caption(f"📊 Data last refreshed: {time_ago} ({refresh_timestamp.strftime('%Y-%m-%d %H:%M:%S')} UTC)")
-        # Indicate whether shunned players are included for this page (only on hidden site)
-        hidden_features = os.environ.get("HIDDEN_FEATURES")
-        if hidden_features:
-            try:
-                include_shun = include_shun_enabled_for("live_placement_cache")
-                st.caption(f"🔍 Including shunned players: {'Yes' if include_shun else 'No'}")
-            except Exception:
-                # Don't break the page if the shun config can't be read
-                pass
-    else:
-        st.caption("📊 Data refresh time: Unknown")
+    render_data_status(league, "live_placement_cache")
 
     # Get quantile data from cache
     quantile_df, tourney_start_date, latest_time = get_quantile_analysis_data(league)
@@ -66,8 +48,7 @@ def quantile_analysis():
     st.caption(f"Tournament start date: {tourney_start_date}")
 
     # Introduction and explanation
-    st.markdown(
-        """
+    st.markdown("""
     This analysis shows the **distribution of waves required** to achieve specific placements
     across all brackets in the current tournament. Each curve represents a different placement
     position (1st, 4th, 10th, etc.).
@@ -80,8 +61,7 @@ def quantile_analysis():
     **Example**: If the 75% quantile for 10th place shows 2500 waves, it means:
     - 75% of brackets required **2500 or fewer waves** to reach 10th place
     - 25% of brackets required **more than 2500 waves** to reach 10th place
-    """
-    )
+    """)
 
     # Display the quantile data
     if quantile_df.empty:
@@ -177,8 +157,7 @@ def quantile_analysis():
 
     # Add interpretation guidance
     with st.expander("📖 How to Use This Information"):
-        st.markdown(
-            """
+        st.markdown("""
         ### Strategic Planning:
 
         **Conservative Strategy** (75th-90th percentile):
@@ -202,8 +181,7 @@ def quantile_analysis():
         **Narrow spread** (small difference between 25th and 75th percentile):
         - Consistent requirements across brackets
         - Performance matters more than bracket luck
-        """
-        )
+        """)
 
     # Additional insights section
     st.markdown("### Bracket Variability Analysis")
@@ -236,15 +214,13 @@ def quantile_analysis():
         )
 
     with col2:
-        st.markdown(
-            """
+        st.markdown("""
         **Interquartile Range (IQR)** measures the spread of the middle 50% of brackets.
 
         - **Lower IQR**: More consistent across brackets
         - **Higher IQR**: More bracket-to-bracket variation
         - **IQR % of Median**: Normalizes variability for comparison
-        """
-        )
+        """)
 
     # Log execution time
     t2_stop = perf_counter()

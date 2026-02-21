@@ -1,6 +1,9 @@
+import os
+
 import streamlit as st
 
 from thetower.backend.tourney_results.constants import leagues
+from thetower.backend.tourney_results.shun_config import include_shun_enabled_for
 from thetower.backend.tourney_results.tourney_utils import check_live_entry
 from thetower.web.util import get_league_selection, get_options
 
@@ -41,3 +44,28 @@ def setup_common_ui(show_league_selector: bool = True):
         st.checkbox("Mobile view", value=is_mobile, key="mobile_view")
 
     return options, league, is_mobile
+
+
+def render_data_status(league: str, page_key: str):
+    """Render the data-refresh timestamp and shun-inclusion captions.
+
+    Shared by all live-data pages.  Returns the ``refresh_timestamp`` so callers
+    that need it for fallback logic (e.g. live_placement_analysis) can reuse it.
+    """
+    from thetower.web.live.data_ops import format_time_ago, get_data_refresh_timestamp
+
+    refresh_timestamp = get_data_refresh_timestamp(league)
+    if refresh_timestamp:
+        time_ago = format_time_ago(refresh_timestamp)
+        st.caption(f"📊 Data last refreshed: {time_ago} ({refresh_timestamp.strftime('%Y-%m-%d %H:%M:%S')} UTC)")
+    else:
+        st.caption("📊 Data refresh time: Unknown")
+
+    if os.environ.get("HIDDEN_FEATURES"):
+        try:
+            include_shun = include_shun_enabled_for(page_key)
+            st.caption(f"🔍Including shunned players: {'Yes' if include_shun else 'No'}")
+        except Exception:
+            pass
+
+    return refresh_timestamp
