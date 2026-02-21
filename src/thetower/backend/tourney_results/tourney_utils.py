@@ -388,10 +388,6 @@ def get_live_df(league: str, shun: bool = False) -> pd.DataFrame:
     df = df.sort_values(["datetime", "wave"], ascending=False)
     # df["bracket"] = df.bracket.map(lambda x: x.strip())  # We strip in get_live_results so we don't need to do it here.
 
-    # bracket_counts = dict(df.groupby("bracket").player_id.unique().map(lambda player_ids: len(player_ids)))
-    # fullish_brackets = [bracket for bracket, count in bracket_counts.items() if count >= 28]
-
-    # df = df[df.bracket.isin(fullish_brackets)]  # no sniping
     lookup = get_player_id_lookup()
     df["real_name"] = [lookup.get(id, name) for id, name in zip(df.player_id, df.name)]
     df["real_name"] = df["real_name"].astype(str)

@@ -64,7 +64,6 @@ def patch_to_roles(league):
         if not roles:
             if not last_patch_with_roles:
                 last_patch_with_roles = i - 1
-                # print(last_patch_with_roles)
 
             roles = patch_to_roles[patches[last_patch_with_roles]]
 
