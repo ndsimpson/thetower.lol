@@ -30,6 +30,7 @@ hidden_features = os.environ.get("HIDDEN_FEATURES")
 
 
 def compute_comparison(player_id=None, canvas=st):
+    st.markdown("# Player Comparison")
     # Check if there's a bracket_player query param to load a full bracket for comparison
     bracket_player_id = st.query_params.get("bracket_player")
 

@@ -11,6 +11,7 @@ from thetower.backend.tourney_results.models import TourneyRow
 
 
 def get_namechangers():
+    st.markdown("# Namechangers")
     css_path = Path(__file__).parent.parent / "static" / "styles" / "style.css"
     with open(css_path, "r") as infile:
         table_styling = f"<style>{infile.read()}</style>"

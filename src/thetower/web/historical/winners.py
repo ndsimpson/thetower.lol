@@ -14,6 +14,7 @@ patches = sorted([patch for patch in get_patches() if patch.version_minor], key=
 
 
 def compute_winners():
+    st.markdown("# Winners")
     selected_patches_slider = st.select_slider(
         "Limit results to a patch?",
         options=sorted([patch for patch in patches if not patch.interim], reverse=True),

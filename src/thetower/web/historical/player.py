@@ -43,6 +43,7 @@ hidden_features = os.environ.get("HIDDEN_FEATURES")
 
 def compute_player_lookup():
     print("player")
+    st.markdown("# Individual Player Stats")
     options = get_options(links=False)
     hidden_features = os.environ.get("HIDDEN_FEATURES")
 

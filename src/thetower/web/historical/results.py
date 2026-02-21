@@ -256,6 +256,7 @@ class Results:
 
 def compute_results(options: Options):
     print("results")
+    st.markdown("# League Standings")
     options = get_options(links=False)
 
     # Get currently selected patch from session state or default to latest
