@@ -3,6 +3,8 @@ from functools import partial
 from operator import ge, le
 from urllib.parse import quote
 
+import pandas as pd
+
 from .constants import (
     colors,
     colors_018,
@@ -111,3 +113,35 @@ def html_to_rgb(color_code, transparency=None):
             return f"rgb({r},{g},{b})"
     else:
         raise ValueError("Invalid HTML color code")
+
+
+def style_wave_and_position(df: pd.DataFrame, wave_col: str = "wave", position_col: str = "#") -> pd.io.formats.style.Styler:
+    """Return a Pandas Styler with wave-strata and position coloring applied.
+
+    Prefers the pre-computed ``wave_role_color`` column (present on DataFrames from
+    ``get_details()``) for wave coloring; falls back to ``color_top_18`` applied
+    directly to raw wave values when that column is absent.  Position coloring via
+    ``color_position`` is applied whenever the position column exists.
+
+    Usable on any tournament-results DataFrame — historical standings, live snapshots,
+    per-player history, etc.
+    """
+    styler = df.style
+
+    if "wave_role_color" in df.columns and wave_col in df.columns:
+
+        def _wave_color(row: pd.Series):
+            styles = [""] * len(row)
+            color = df.at[row.name, "wave_role_color"]
+            if color and wave_col in row.index:
+                styles[row.index.get_loc(wave_col)] = f"color: {color}"
+            return styles
+
+        styler = styler.apply(_wave_color, axis=1)
+    elif wave_col in df.columns:
+        styler = styler.map(color_top_18, subset=[wave_col])
+
+    if position_col in df.columns:
+        styler = styler.map(color_position, subset=[position_col])
+
+    return styler

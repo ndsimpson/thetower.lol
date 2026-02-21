@@ -13,12 +13,8 @@ from thetower.backend.sus.models import PlayerId
 from thetower.backend.tourney_results.constants import (
     Graph,
     all_relics,
-    colors_017,
-    colors_018,
     how_many_results_public_site,
     leagues,
-    stratas_boundaries,
-    stratas_boundaries_018,
 )
 from thetower.backend.tourney_results.data import (
     get_details,
@@ -462,23 +458,6 @@ def handle_start_date_loop(fig, graph_position_instead, tbdf):
             showarrow=True,
             arrowhead=1,
         )
-
-
-def handle_colors_dependant_on_patch(patch, player_df):
-    if isinstance(patch, Patch):
-        patch_df = player_df[player_df.patch == patch]
-
-        if patch.version_minor >= 18:
-            colors, stratas = colors_018, stratas_boundaries_018
-        else:
-            colors, stratas = colors_017, stratas_boundaries
-    elif patch == Graph.last_16.value:
-        patch_df = player_df[player_df.date.isin(sorted(player_df.date.unique())[-16:])]
-        colors, stratas = colors_018, stratas_boundaries_018
-    else:
-        patch_df = player_df
-        colors, stratas = colors_018, stratas_boundaries_018
-    return colors, patch_df, stratas
 
 
 def handle_sus_or_banned_ids(info_tab, player_id):
