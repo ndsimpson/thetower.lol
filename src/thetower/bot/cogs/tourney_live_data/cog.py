@@ -50,15 +50,23 @@ class TourneyLiveData(BaseCog, name="Tourney Live Data", description="Commands f
         # Check if shunned players should be included based on config
         include_shun = include_shun_enabled_for("player")
 
+        # During entry phase, restrict to full brackets to avoid snipe/incomplete-bracket artifacts.
+        # During extended or inactive (final results), rank across all participants.
+        state = get_tourney_state()
+        use_full_brackets_only = state == TourneyState.ENTRY_OPEN
+
         for league in leagues:
             try:
                 # Get live data for this league
                 # shun parameter: True means exclude only sus (include shunned), False means exclude both sus and shunned
                 df = await sync_to_async(get_live_df)(league, include_shun)
 
-                # Filter to full brackets only
-                _, fullish_brackets = await sync_to_async(get_full_brackets)(df)
-                filtered_df = df[df.bracket.isin(fullish_brackets)]
+                # Filter to full brackets during entry phase only
+                if use_full_brackets_only:
+                    _, fullish_brackets = await sync_to_async(get_full_brackets)(df)
+                    filtered_df = df[df.bracket.isin(fullish_brackets)]
+                else:
+                    filtered_df = df
 
                 # Check if player is in this league
                 player_data = filtered_df[filtered_df.player_id == player_id]
