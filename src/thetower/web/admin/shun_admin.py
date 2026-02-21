@@ -14,7 +14,6 @@ PAGE_KEYS = {
     "live_bracket",
     "comparison",
     "live_placement_cache",  # Used by live_placement_analysis and live_quantile_analysis
-    "live_score",
     "live_results",
     "live_progress",
     "live_bracket_analysis",
@@ -33,8 +32,7 @@ def _resolve_for_page(cache: Dict[str, Any], page: str) -> Any:
 def main() -> None:
     st.title("Shun configuration — Admin")
 
-    st.markdown(
-        """
+    st.markdown("""
         This page shows the on-disk `include_shun.json` mapping and the current
         in-process cache that the application uses to answer `include_shun` queries.
 
@@ -46,8 +44,7 @@ def main() -> None:
           or force a reload.
         - The key `live_placement_cache` controls shun behavior for BOTH
           "Live Placement Analysis" and "Live Quantile Analysis" pages.
-        """
-    )
+        """)
 
     # Read authoritative disk mapping (no cache side-effects)
     file_mapping = read_mapping_from_disk()
@@ -110,15 +107,13 @@ def main() -> None:
     st.subheader("Per-page values")
     st.table(rows)
 
-    st.markdown(
-        """
+    st.markdown("""
         Explanation:
         - file_value: value from the on-disk `include_shun.json` (or the legacy `include_shun` marker).
         - cache_value: value taken from the in-process cached mapping ("<not cached>" if no cache present).
         - resolved: the value returned by the public API `include_shun_enabled_for(page)`; this
           reflects the cache if present or loads the mapping on-demand.
-        """
-    )
+        """)
 
 
 if __name__ == "__main__":
