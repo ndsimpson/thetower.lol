@@ -2087,6 +2087,9 @@ class PendingIdChangeSelect(discord.ui.Select):
             await interaction.response.send_message("❌ Pending change not found.", ephemeral=True)
             return
 
+        # Defer immediately — embed construction does async DB work that can exceed the 3s window
+        await interaction.response.defer(ephemeral=False)
+
         # Create detail view
         view = PendingIdChangeDetailView(
             self.cog,
@@ -2106,11 +2109,11 @@ class PendingIdChangeSelect(discord.ui.Select):
             file = discord.File(self.cog.data_directory / image_filename, filename=image_filename)
             embed.set_image(url=f"attachment://{image_filename}")
 
-        # Update message to show detail view
+        # Update message to show detail view (must use edit_original_response after deferring)
         if file:
-            await interaction.response.edit_message(embed=embed, view=view, attachments=[file])
+            await interaction.edit_original_response(embed=embed, view=view, attachments=[file])
         else:
-            await interaction.response.edit_message(embed=embed, view=view, attachments=[])
+            await interaction.edit_original_response(embed=embed, view=view, attachments=[])
 
 
 class PendingIdChangeDetailView(discord.ui.View):
