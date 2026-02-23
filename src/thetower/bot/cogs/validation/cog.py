@@ -499,6 +499,10 @@ class Validation(BaseCog, name="Validation"):
 
         return await _query()
 
+    async def get_tourney_stats_cog(self):
+        """Return the Tourney Stats cog instance (or None if not loaded)."""
+        return self.bot.get_cog("Tourney Stats")
+
     async def _build_change_request_embed(self, discord_id: str, pending_data: dict) -> discord.Embed:
         """Construct an embed for a pending ID change request.
 
