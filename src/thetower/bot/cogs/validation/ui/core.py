@@ -2145,24 +2145,22 @@ class PendingIdChangeDetailView(discord.ui.View):
         reason_display = "Game changed my ID" if self.pending_data.get("reason") == "game_changed" else "I typed the wrong ID"
         reason_emoji = "🎮" if self.pending_data.get("reason") == "game_changed" else "✏️"
 
-        embed = discord.Embed(
-            title=f"{reason_emoji} Player ID Change Request",
-            color=discord.Color.orange(),
-        )
+        # delegate to validation cog helper to build a consistent embed
+        embed = await self.cog._build_change_request_embed(self.discord_id, {
+            "reason": self.pending_data.get("reason"),
+            "old_player_id": self.pending_data.get("old_player_id"),
+            "new_player_id": self.pending_data.get("new_player_id"),
+            "instance_id": self.pending_data.get("instance_id"),
+            "timestamp": self.pending_data.get("timestamp"),
+        })
 
-        # Try to get user mention
+        # include thumbnail if we can resolve user (helper doesn't know about `bot`)
         try:
             user = bot.get_user(int(self.discord_id))
-            user_display = f"{user.mention}\n`{user.name}`" if user else f"<@{self.discord_id}>"
+            if user:
+                embed.set_thumbnail(url=user.display_avatar.url)
         except Exception:
-            user_display = f"<@{self.discord_id}>"
-
-        embed.add_field(name="Discord User", value=user_display, inline=True)
-        embed.add_field(name="Discord ID", value=f"`{self.discord_id}`", inline=True)
-        embed.add_field(name="Reason", value=reason_display, inline=True)
-        embed.add_field(name="Old Player ID", value=f"`{self.pending_data.get('old_player_id')}`", inline=True)
-        embed.add_field(name="New Player ID", value=f"`{self.pending_data.get('new_player_id')}`", inline=True)
-        embed.add_field(name="Status", value="⏳ Pending Review", inline=True)
+            pass
 
         return embed
 
