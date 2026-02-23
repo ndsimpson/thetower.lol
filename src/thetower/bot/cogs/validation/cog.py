@@ -479,6 +479,157 @@ class Validation(BaseCog, name="Validation"):
 
         return await sync_to_async(cancel_links)()
 
+    async def get_instance_player_ids(self, instance_id: int) -> set[str]:
+        """Return all Tower IDs belonging to the given game instance.
+
+        This is a thin async wrapper around the PlayerId queryset that
+        will be useful when the bot resumes or any other background task
+        needs to know which IDs are associated with an instance without
+        having the full verification_info context.
+        """
+        from asgiref.sync import sync_to_async
+        from thetower.backend.sus.models import PlayerId
+
+        @sync_to_async
+        def _query():
+            return set(
+                PlayerId.objects.filter(game_instance_id=instance_id)
+                .values_list("id", flat=True)
+            )
+
+        return await _query()
+
+    async def _build_change_request_embed(self, discord_id: str, pending_data: dict) -> discord.Embed:
+        """Construct an embed for a pending ID change request.
+
+        This replicates the logic used when logging the initial request so
+        that we can regenerate/update the message later (e.g. on bot resume).
+        """
+        from thetower.backend.sus.models import ModerationRecord
+
+        reason = pending_data.get("reason")
+        old_player_id = pending_data.get("old_player_id")
+        new_player_id = pending_data.get("new_player_id")
+        instance_id = pending_data.get("instance_id")
+
+        # figure out timestamp for embed
+        ts_iso = pending_data.get("timestamp")
+        try:
+            timestamp = datetime.datetime.fromisoformat(ts_iso)
+        except Exception:
+            timestamp = discord.utils.utcnow()
+
+        # compute old IDs set
+        old_ids: set[str] = set()
+        if instance_id:
+            old_ids = await self.get_instance_player_ids(instance_id)
+        if not old_ids and old_player_id:
+            old_ids = {old_player_id}
+
+        # get career summaries
+        tourney_stats_cog = await self.get_tourney_stats_cog()
+        old_career = None
+        new_career = None
+        if tourney_stats_cog:
+            if old_ids:
+                old_career = await tourney_stats_cog.get_career_summary(old_ids)
+            if new_player_id:
+                new_career = await tourney_stats_cog.get_career_summary({new_player_id})
+
+        # moderation flags
+        ban_ids = ModerationRecord.get_active_moderation_ids("ban")
+        sus_ids = ModerationRecord.get_active_moderation_ids("sus")
+
+        old_mod_flags: list[str] = []
+        if old_ids & ban_ids:
+            old_mod_flags.append("🚫 Active ban")
+        if old_ids & sus_ids:
+            old_mod_flags.append("⚠️ Suspicious")
+
+        new_mod_flags: list[str] = []
+        if new_player_id in ban_ids:
+            new_mod_flags.append("🚫 Active ban")
+        if new_player_id in sus_ids:
+            new_mod_flags.append("⚠️ Suspicious")
+
+        # build user display
+        try:
+            user = self.bot.get_user(int(discord_id))
+            user_display = f"{user.mention}\n`{user.name}`" if user else f"<@{discord_id}>"
+        except Exception:
+            user_display = f"<@{discord_id}>"
+
+        reason_emoji = "🎮" if reason == "game_changed" else "✏️"
+        reason_display = "Game changed my ID" if reason == "game_changed" else "I typed the wrong ID"
+
+        embed = discord.Embed(title=f"{reason_emoji} Player ID Change Request", color=discord.Color.orange(), timestamp=timestamp)
+        embed.add_field(name="Discord User", value=user_display, inline=True)
+        embed.add_field(name="Discord ID", value=f"`{discord_id}`", inline=True)
+        embed.add_field(name="Reason", value=reason_display, inline=True)
+        embed.add_field(name="Old Player ID", value=f"`{old_player_id}`", inline=True)
+        embed.add_field(name="New Player ID", value=f"`{new_player_id}`", inline=True)
+        embed.add_field(name="Status", value="⏳ Pending Review", inline=True)
+
+        if old_mod_flags:
+            embed.add_field(name="🛑 Old ID Moderation", value="\n".join(old_mod_flags), inline=False)
+        if new_mod_flags:
+            embed.add_field(name="🛑 New ID Moderation", value="\n".join(new_mod_flags), inline=False)
+
+        def _format_career(career: dict) -> str:
+            if not career:
+                return "No tournament history"
+            lines = []
+            first = career["first_date"].strftime("%Y-%m-%d") if career.get("first_date") else "N/A"
+            last = career["last_date"].strftime("%Y-%m-%d") if career.get("last_date") else "N/A"
+            lines.append(f"**Tournaments:** {career['total_tourneys']} ({first} — {last})")
+            patches = career.get("patches", [])
+            if patches:
+                if len(patches) == 1:
+                    patches_str = patches[0]
+                else:
+                    patches_str = f"{patches[-1]} — {patches[0]}"
+                lines.append(f"**Patches:** {career['patch_count']} ({patches_str})")
+            lines.append(f"**Leagues:** {', '.join(career.get('leagues_played', []))}")
+            lines.append(f"**All-Time Peak Wave:** {career.get('peak_wave', 0):,}")
+            lines.append(f"**All-Time Best Position:** {career.get('best_position', 'N/A')}")
+            if career.get("last_league"):
+                lines.append(
+                    f"**Last Played:** {last} · {career['last_league']} · #{career['last_position']} · Wave {career['last_wave']:,}"
+                )
+            return "\n".join(lines)
+
+        if old_career is not None:
+            embed.add_field(name="📜 Old ID Career", value=_format_career(old_career), inline=False)
+        if new_career is not None:
+            embed.add_field(name="📜 New ID Career", value=_format_career(new_career), inline=False)
+
+        return embed
+
+    async def on_reconnect(self):
+        """Refresh pending player ID change messages when the bot resumes."""
+        await super().on_reconnect()
+        data = self.load_pending_player_id_changes_data()
+        pending = data.get("pending_changes", {})
+        for discord_id, pd in pending.items():
+            log_chan_id = pd.get("log_channel_id")
+            msg_id = pd.get("log_message_id")
+            mod_chan_id = pd.get("mod_channel_id")
+            for chan_id in (log_chan_id, mod_chan_id):
+                if not chan_id:
+                    continue
+                channel = self.bot.get_channel(chan_id)
+                if not channel:
+                    continue
+                try:
+                    msg = await channel.fetch_message(msg_id)
+                except Exception:
+                    continue
+                new_embed = await self._build_change_request_embed(discord_id, pd)
+                try:
+                    await msg.edit(embed=new_embed)
+                except Exception:
+                    self.logger.warning(f"Failed to refresh embed for pending id change {discord_id} in channel {chan_id}")
+
     async def create_player_id_change_request(
         self,
         interaction: discord.Interaction,
@@ -504,6 +655,42 @@ class Validation(BaseCog, name="Validation"):
         """
         from asgiref.sync import sync_to_async
 
+        # Determine old player IDs for this request (all IDs in the affected game instance)
+        old_ids: set[str] = set()
+        if instance_id:
+            # use helper we just added; it's async already
+            old_ids = await self.get_instance_player_ids(instance_id)
+        # fallback just to include the single id if something went wrong
+        if not old_ids and old_player_id:
+            old_ids = {old_player_id}
+
+        # Obtain career summaries using the TourneyStats cog helper
+        tourney_stats_cog = await self.get_tourney_stats_cog()
+        old_career = None
+        new_career = None
+        if tourney_stats_cog:
+            if old_ids:
+                old_career = await tourney_stats_cog.get_career_summary(old_ids)
+            if new_player_id:
+                new_career = await tourney_stats_cog.get_career_summary({new_player_id})
+
+        # Determine moderation status for old/new IDs
+        from thetower.backend.sus.models import ModerationRecord
+        ban_ids = ModerationRecord.get_active_moderation_ids("ban")
+        sus_ids = ModerationRecord.get_active_moderation_ids("sus")
+
+        old_mod_flags: list[str] = []
+        if old_ids & ban_ids:
+            old_mod_flags.append("🚫 Active ban")
+        if old_ids & sus_ids:
+            old_mod_flags.append("⚠️ Suspicious")
+
+        new_mod_flags: list[str] = []
+        if new_player_id in ban_ids:
+            new_mod_flags.append("🚫 Active ban")
+        if new_player_id in sus_ids:
+            new_mod_flags.append("⚠️ Suspicious")
+
         # Log to verification channel with approve/deny buttons
         log_channel_id = self.get_setting("verification_log_channel_id", guild_id=interaction.guild.id)
         if not log_channel_id:
@@ -515,18 +702,17 @@ class Validation(BaseCog, name="Validation"):
             self.logger.warning(f"Verification log channel {log_channel_id} not found in guild {interaction.guild.id}")
             return
 
-        # Create embed
-        reason_display = "Game changed my ID" if reason == "game_changed" else "I typed the wrong ID"
-        reason_emoji = "🎮" if reason == "game_changed" else "✏️"
+        # Build the embed using reusable helper so it can also be refreshed later
+        embed = await self._build_change_request_embed(discord_id, {
+            "reason": reason,
+            "old_player_id": old_player_id,
+            "new_player_id": new_player_id,
+            "instance_id": instance_id,
+            "timestamp": timestamp.isoformat(),
+        })
 
-        embed = discord.Embed(title=f"{reason_emoji} Player ID Change Request", color=discord.Color.orange(), timestamp=timestamp)
-
-        embed.add_field(name="Discord User", value=f"{interaction.user.mention}\n`{interaction.user.name}`", inline=True)
-        embed.add_field(name="Discord ID", value=f"`{discord_id}`", inline=True)
-        embed.add_field(name="Reason", value=reason_display, inline=True)
-        embed.add_field(name="Old Player ID", value=f"`{old_player_id}`", inline=True)
-        embed.add_field(name="New Player ID", value=f"`{new_player_id}`", inline=True)
-        embed.add_field(name="Status", value="⏳ Pending Review", inline=True)
+        # add thumbnail separately since helper doesn't know interaction user
+        embed.set_thumbnail(url=interaction.user.display_avatar.url)
 
         embed.set_thumbnail(url=interaction.user.display_avatar.url)
 
