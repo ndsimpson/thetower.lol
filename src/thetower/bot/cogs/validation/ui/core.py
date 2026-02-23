@@ -2097,7 +2097,7 @@ class PendingIdChangeSelect(discord.ui.Select):
         )
 
         # Create embed with details
-        embed = view.create_detail_embed(interaction.client)
+        embed = await view.create_detail_embed(interaction.client)
 
         # Attach image if available
         file = None
@@ -2140,7 +2140,7 @@ class PendingIdChangeDetailView(discord.ui.View):
         self.add_item(DenyPlayerIdChangeFromListButton(cog, discord_id, all_pending, status_message))
         self.add_item(CancelDetailViewButton(cog, all_pending, status_message))
 
-    def create_detail_embed(self, bot) -> discord.Embed:
+    async def create_detail_embed(self, bot) -> discord.Embed:
         """Create embed showing detailed change request."""
         reason_display = "Game changed my ID" if self.pending_data.get("reason") == "game_changed" else "I typed the wrong ID"
         reason_emoji = "🎮" if self.pending_data.get("reason") == "game_changed" else "✏️"
