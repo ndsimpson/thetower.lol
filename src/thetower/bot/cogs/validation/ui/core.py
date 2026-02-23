@@ -1129,6 +1129,12 @@ class PlayerIdChangeReasonSelect(discord.ui.Select):
                 description="I entered the wrong ID when verifying. My old ID has no data on it.",
                 emoji="✏️",
             ),
+            discord.SelectOption(
+                label="I'm starting over",
+                value="starting_over",
+                description="I have a fresh new ID and want to link it. My old ID still has my results.",
+                emoji="🔄",
+            ),
         ]
         super().__init__(placeholder="Select reason for change...", options=options, row=0)
         self.cog = cog
@@ -1206,7 +1212,7 @@ class PlayerIdChangeModal(ui.Modal, title="Update Player ID"):
         self.instance_id = instance_id
 
         # Update modal title based on reason
-        if reason == "game_changed":
+        if reason in ("game_changed", "starting_over"):
             self.title = "Add New Player ID"
         else:
             self.title = "Change Player ID"
@@ -1306,7 +1312,12 @@ class PlayerIdChangeModal(ui.Modal, title="Update Player ID"):
             instance_id=self.instance_id,
         )
 
-        reason_text = "the game changed your ID" if self.reason == "game_changed" else "you typed the wrong ID"
+        if self.reason == "game_changed":
+            reason_text = "the game changed your ID"
+        elif self.reason == "starting_over":
+            reason_text = "you are starting over with a new ID"
+        else:
+            reason_text = "you typed the wrong ID"
         await interaction.followup.send(
             f"✅ **Player ID change request submitted!**\n\n"
             f"Old ID: `{current_id}`\n"
@@ -1377,259 +1388,250 @@ class CancelImageUploadButton(discord.ui.Button):
         await interaction.response.edit_message(content="❌ Player ID change request cancelled.", view=None, embeds=[])
 
 
-class PlayerIdChangeApprovalView(discord.ui.View):
-    """View for moderators to approve or deny player ID change requests."""
+# ---------------------------------------------------------------------------
+# Shared helpers for ID change actions
+# ---------------------------------------------------------------------------
 
-    def __init__(self, cog, discord_id: str, old_player_id: str, new_player_id: str, reason: str, instance_id: int = None):
+# (emoji, label, ButtonStyle, embed Color) keyed by action string
+_ID_ACTION_META: dict[str, tuple] = {
+    "replace": ("🔄", "Replace ID", discord.ButtonStyle.primary, discord.Color.blue()),
+    "merge": ("🔗", "Merge ID", discord.ButtonStyle.success, discord.Color.green()),
+    "add_alt": ("➕", "Add Alt", discord.ButtonStyle.secondary, discord.Color.blurple()),
+    "reject": ("❌", "Reject", discord.ButtonStyle.danger, discord.Color.red()),
+}
+
+_ID_ACTION_PAST: dict[str, str] = {
+    "replace": "✅ Replaced",
+    "merge": "✅ Merged",
+    "add_alt": "✅ Alt Added",
+    "reject": "❌ Rejected",
+}
+
+
+def _sync_apply_id_change(action: str, old_player_id: str, new_player_id: str, instance_id, pending: dict) -> dict:
+    """Sync DB operation for an ID change action (wrap with sync_to_async before calling)."""
+    try:
+        from thetower.backend.sus.models import GameInstance, LinkedAccount, PlayerId
+
+        if instance_id:
+            game_instance = GameInstance.objects.filter(id=instance_id).first()
+            if not game_instance:
+                return {"status": "error", "message": "Could not find specified game instance"}
+        else:
+            old_obj = PlayerId.objects.filter(id=old_player_id).select_related("game_instance").first()
+            if not old_obj or not old_obj.game_instance:
+                return {"status": "error", "message": "Could not find game instance for old player ID"}
+            game_instance = old_obj.game_instance
+
+        if action == "add_alt":
+            new_instance = GameInstance.objects.create(player=game_instance.player, name="Alt Account", primary=False)
+            PlayerId.objects.create(
+                id=new_player_id,
+                game_instance=new_instance,
+                primary=True,
+                notes=f"Added as alt account via ID change request on {pending['timestamp']}",
+            )
+        else:
+            game_instance.player_ids.filter(primary=True).update(primary=False)
+            notes = {
+                "replace": f"Added via player ID change request (replaced old ID) on {pending['timestamp']}",
+                "merge": f"Added via player ID change request (merged, old ID kept) on {pending['timestamp']}",
+            }[action]
+            PlayerId.objects.create(id=new_player_id, game_instance=game_instance, primary=True, notes=notes)
+            if action == "replace":
+                PlayerId.objects.filter(id=old_player_id).delete()
+
+        discord_ids = list(
+            LinkedAccount.objects.filter(player=game_instance.player, platform=LinkedAccount.Platform.DISCORD).values_list("account_id", flat=True)
+        )
+        return {"status": "success", "player_name": game_instance.player.name, "old_primary": old_player_id, "new_primary": new_player_id, "discord_ids": discord_ids}
+    except Exception as exc:
+        return {"status": "error", "message": str(exc)}
+
+
+async def _finalize_id_change(
+    cog,
+    interaction: discord.Interaction,
+    discord_id: str,
+    old_player_id: str,
+    new_player_id: str,
+    action: str,
+    pending: dict,
+    result: dict,
+) -> None:
+    """Dispatch events, remove pending, update channel messages, and DM user after an ID change action."""
+    from asgiref.sync import sync_to_async
+
+    if result.get("discord_ids") and action != "reject":
+        for did in result["discord_ids"]:
+            cog.bot.dispatch("player_verified", interaction.guild.id if interaction.guild else None, did, result["new_primary"], result["old_primary"])
+
+    def _remove_pending():
+        data = cog.load_pending_player_id_changes_data()
+        if "pending_changes" in data and discord_id in data["pending_changes"]:
+            del data["pending_changes"][discord_id]
+            cog.save_pending_player_id_changes_data(data)
+
+    await sync_to_async(_remove_pending)()
+
+    embed_status = f"{_ID_ACTION_PAST[action]} by {interaction.user.mention}"
+    _, _, _, embed_color = _ID_ACTION_META[action]
+
+    if pending.get("log_message_id") and pending.get("log_channel_id"):
+        try:
+            log_channel = cog.bot.get_channel(pending["log_channel_id"])
+            if log_channel:
+                log_msg = await log_channel.fetch_message(pending["log_message_id"])
+                if log_msg and log_msg.embeds:
+                    emb = log_msg.embeds[0]
+                    for idx, f in enumerate(emb.fields):
+                        if f.name == "Status":
+                            emb.set_field_at(idx, name="Status", value=embed_status, inline=True)
+                            break
+                    emb.color = embed_color
+                    await log_msg.edit(embed=emb, view=None)
+        except Exception as exc:
+            cog.logger.warning(f"Could not update log message: {exc}")
+
+    if pending.get("mod_message_id") and pending.get("mod_channel_id"):
+        try:
+            mod_channel = cog.bot.get_channel(pending["mod_channel_id"])
+            if mod_channel:
+                mod_msg = await mod_channel.fetch_message(pending["mod_message_id"])
+                if mod_msg:
+                    if action == "reject" and mod_msg.embeds:
+                        emb = mod_msg.embeds[0]
+                        for idx, f in enumerate(emb.fields):
+                            if f.name == "Status":
+                                emb.set_field_at(idx, name="Status", value=embed_status, inline=True)
+                                break
+                        emb.color = embed_color
+                        await mod_msg.edit(embed=emb, view=None)
+                    else:
+                        await mod_msg.delete()
+        except Exception as exc:
+            cog.logger.warning(f"Could not update mod notification message: {exc}")
+
+    guild_name = interaction.guild.name if interaction.guild else "the server"
+    dm_texts = {
+        "replace": (
+            f"✅ **Player ID Updated**\n\nYour player ID has been changed from `{old_player_id}` to `{new_player_id}`.\n"
+            f"Your old ID was removed.\n\nActioned by {interaction.user.mention} in {guild_name}."
+        ),
+        "merge": (
+            f"✅ **Player ID Updated**\n\nYour new player ID `{new_player_id}` has been linked to your account.\n"
+            f"Your old ID `{old_player_id}` has been kept.\n\nActioned by {interaction.user.mention} in {guild_name}."
+        ),
+        "add_alt": (
+            f"✅ **Alt Account Linked**\n\nYour new player ID `{new_player_id}` has been added as an alt account.\n"
+            f"Your existing ID `{old_player_id}` is unchanged.\n\nActioned by {interaction.user.mention} in {guild_name}."
+        ),
+        "reject": (
+            f"❌ **Player ID Change Request Rejected**\n\nYour request to change from `{old_player_id}` to `{new_player_id}` was not approved.\n"
+            f"If you believe this was an error, please contact a moderator."
+        ),
+    }
+    try:
+        user = await interaction.client.fetch_user(int(discord_id))
+        await user.send(dm_texts[action])
+    except Exception as exc:
+        cog.logger.warning(f"Could not DM user {discord_id}: {exc}")
+
+
+# ---------------------------------------------------------------------------
+# Approval view (persistent, attached to log/mod channel messages)
+# ---------------------------------------------------------------------------
+
+
+class PlayerIdChangeApprovalView(discord.ui.View):
+    """View for moderators to act on a player ID change request."""
+
+    def __init__(self, cog, discord_id: str, old_player_id: str, new_player_id: str, instance_id: int = None):
         super().__init__(timeout=None)  # Persistent view
         self.cog = cog
         self.discord_id = discord_id
         self.old_player_id = old_player_id
         self.new_player_id = new_player_id
-        self.reason = reason
         self.instance_id = instance_id
 
-        self.add_item(ApprovePlayerIdChangeButton(cog, discord_id, old_player_id, new_player_id, reason, instance_id))
-        self.add_item(DenyPlayerIdChangeButton(cog, discord_id))
+        self.add_item(ReplaceIdChangeButton(cog, discord_id, old_player_id, new_player_id, instance_id))
+        self.add_item(MergeIdChangeButton(cog, discord_id, old_player_id, new_player_id, instance_id))
+        self.add_item(AddAltIdChangeButton(cog, discord_id, old_player_id, new_player_id, instance_id))
+        self.add_item(RejectIdChangeButton(cog, discord_id, old_player_id, new_player_id))
 
 
-class ApprovePlayerIdChangeButton(discord.ui.Button):
-    """Button to approve player ID change."""
+class _IdChangeActionButton(discord.ui.Button):
+    """Base class for ID change action buttons on the persistent approval view."""
 
-    def __init__(self, cog, discord_id: str, old_player_id: str, new_player_id: str, reason: str, instance_id: int = None):
-        super().__init__(
-            label="Approve",
-            style=discord.ButtonStyle.success,
-            emoji="✅",
-            custom_id=f"approve_player_id_change:{discord_id}:{old_player_id}:{new_player_id}",
-        )
+    def __init__(self, action: str, cog, discord_id: str, old_player_id: str, new_player_id: str, instance_id=None):
+        emoji, label, style, _ = _ID_ACTION_META[action]
+        prefix = {"replace": "replace_idc", "merge": "merge_idc", "add_alt": "addalt_idc", "reject": "reject_idc"}[action]
+        super().__init__(label=label, style=style, emoji=emoji, custom_id=f"{prefix}:{discord_id}:{old_player_id}:{new_player_id}")
+        self.action = action
         self.cog = cog
         self.discord_id = discord_id
         self.old_player_id = old_player_id
         self.new_player_id = new_player_id
-        self.reason = reason
         self.instance_id = instance_id
 
     async def callback(self, interaction: discord.Interaction):
-        """Approve the player ID change."""
         from asgiref.sync import sync_to_async
 
-        from thetower.backend.sus.models import PlayerId
-
-        # Check permissions
         is_bot_owner = await self.cog.bot.is_owner(interaction.user)
         is_approved_moderator = await self.cog.check_id_change_moderator_permission(interaction.user)
-
         if not (is_bot_owner or is_approved_moderator):
-            await interaction.response.send_message("❌ You need to be in an approved moderator group to approve player ID changes.", ephemeral=True)
+            await interaction.response.send_message("❌ You need to be in an approved moderator group to action player ID changes.", ephemeral=True)
             return
 
         await interaction.response.defer()
 
-        # Get pending change data
-        def get_pending_data():
+        def get_pending():
             data = self.cog.load_pending_player_id_changes_data()
             return data.get("pending_changes", {}).get(self.discord_id)
 
-        pending = await sync_to_async(get_pending_data)()
+        pending = await sync_to_async(get_pending)()
         if not pending:
             await interaction.followup.send("❌ Pending change request not found.", ephemeral=True)
             return
 
-        # Update database: Add new PlayerId and mark it primary
-        def update_player_id():
-            try:
-                from thetower.backend.sus.models import GameInstance, LinkedAccount
+        if self.action != "reject":
+            result = await sync_to_async(_sync_apply_id_change)(self.action, self.old_player_id, self.new_player_id, self.instance_id, pending)
+            if result["status"] == "error":
+                await interaction.followup.send(f"❌ Failed: {result['message']}", ephemeral=True)
+                return
+        else:
+            result = {"discord_ids": [], "old_primary": self.old_player_id, "new_primary": self.new_player_id}
 
-                # Find the GameInstance to update
-                if self.instance_id:
-                    # Use the specified instance
-                    game_instance = GameInstance.objects.filter(id=self.instance_id).first()
-                    if not game_instance:
-                        return {"status": "error", "message": "Could not find specified game instance"}
-                else:
-                    # Fallback: Find the GameInstance via the old player ID
-                    old_player_id_obj = PlayerId.objects.filter(id=self.old_player_id).select_related("game_instance").first()
-                    if not old_player_id_obj or not old_player_id_obj.game_instance:
-                        return {"status": "error", "message": "Could not find game instance for old player ID"}
-                    game_instance = old_player_id_obj.game_instance
-
-                # Unmark all existing primary IDs in this instance
-                game_instance.player_ids.filter(primary=True).update(primary=False)
-
-                # Create new PlayerId and mark as primary
-                if self.reason == "game_changed":
-                    notes = f"Added via player ID change request (game changed ID) on {pending['timestamp']}"
-                else:  # typo
-                    notes = f"Added via player ID change request (corrected typo) on {pending['timestamp']}"
-
-                PlayerId.objects.create(id=self.new_player_id, game_instance=game_instance, primary=True, notes=notes)
-
-                # If reason is typo, delete the old player ID
-                if self.reason == "typo":
-                    PlayerId.objects.filter(id=self.old_player_id).delete()
-
-                # Get Discord IDs for event dispatching
-                discord_ids = list(
-                    LinkedAccount.objects.filter(player=game_instance.player, platform=LinkedAccount.Platform.DISCORD).values_list(
-                        "account_id", flat=True
-                    )
-                )
-
-                return {
-                    "status": "success",
-                    "player_name": game_instance.player.name,
-                    "old_primary": self.old_player_id,
-                    "new_primary": self.new_player_id,
-                    "discord_ids": discord_ids,
-                }
-            except Exception as e:
-                return {"status": "error", "message": str(e)}
-
-        result = await sync_to_async(update_player_id)()
-
-        if result["status"] == "error":
-            await interaction.followup.send(f"❌ Failed to update player ID: {result['message']}", ephemeral=True)
-            return
-
-        # Dispatch player_verified event for cache invalidation across all guilds
-        if result.get("discord_ids"):
-            for discord_id in result["discord_ids"]:
-                self.cog.bot.dispatch("player_verified", interaction.guild.id, discord_id, result["new_primary"], result["old_primary"])
-
-        # Remove pending change
-        def remove_pending():
-            data = self.cog.load_pending_player_id_changes_data()
-            if "pending_changes" in data and self.discord_id in data["pending_changes"]:
-                del data["pending_changes"][self.discord_id]
-                self.cog.save_pending_player_id_changes_data(data)
-
-        await sync_to_async(remove_pending)()
-
-        # Update the log channel message
-        if pending.get("log_message_id") and pending.get("log_channel_id"):
-            try:
-                log_channel = self.cog.bot.get_channel(pending["log_channel_id"])
-                if log_channel:
-                    log_message = await log_channel.fetch_message(pending["log_message_id"])
-                    if log_message and log_message.embeds:
-                        embed = log_message.embeds[0]
-                        # Update status field
-                        for idx, field in enumerate(embed.fields):
-                            if field.name == "Status":
-                                embed.set_field_at(idx, name="Status", value=f"✅ Approved by {interaction.user.mention}", inline=True)
-                                break
-                        embed.color = discord.Color.green()
-                        await log_message.edit(embed=embed, view=None)
-            except Exception as e:
-                self.cog.logger.warning(f"Could not update log message: {e}")
-
-        # Update the mod notification message if it exists
-        if pending.get("mod_message_id") and pending.get("mod_channel_id"):
-            try:
-                mod_channel = self.cog.bot.get_channel(pending["mod_channel_id"])
-                if mod_channel:
-                    mod_message = await mod_channel.fetch_message(pending["mod_message_id"])
-                    if mod_message:
-                        await mod_message.delete()
-            except Exception as e:
-                self.cog.logger.warning(f"Could not delete mod notification message: {e}")
-
-        # Notify user
-        try:
-            user = await interaction.client.fetch_user(int(self.discord_id))
-            await user.send(
-                f"✅ **Player ID Change Approved!**\n\n"
-                f"Your player ID has been updated from `{self.old_player_id}` to `{self.new_player_id}`.\n"
-                f"Approved by {interaction.user.mention} in {interaction.guild.name}."
-            )
-        except Exception as e:
-            self.cog.logger.warning(f"Could not DM user {self.discord_id} about approval: {e}")
-
-        await interaction.followup.send("✅ Player ID change approved!", ephemeral=True)
+        await _finalize_id_change(self.cog, interaction, self.discord_id, self.old_player_id, self.new_player_id, self.action, pending, result)
+        await interaction.followup.send(f"{_ID_ACTION_PAST[self.action]}.", ephemeral=True)
 
 
-class DenyPlayerIdChangeButton(discord.ui.Button):
-    """Button to deny player ID change."""
+class ReplaceIdChangeButton(_IdChangeActionButton):
+    """Replace old ID with new ID (old ID deleted)."""
 
-    def __init__(self, cog, discord_id: str):
-        super().__init__(label="Deny", style=discord.ButtonStyle.danger, emoji="❌", custom_id=f"deny_player_id_change:{discord_id}")
-        self.cog = cog
-        self.discord_id = discord_id
+    def __init__(self, cog, discord_id: str, old_player_id: str, new_player_id: str, instance_id=None):
+        super().__init__("replace", cog, discord_id, old_player_id, new_player_id, instance_id)
 
-    async def callback(self, interaction: discord.Interaction):
-        """Deny the player ID change."""
-        from asgiref.sync import sync_to_async
 
-        # Check permissions
-        is_bot_owner = await self.cog.bot.is_owner(interaction.user)
-        is_approved_moderator = await self.cog.check_id_change_moderator_permission(interaction.user)
+class MergeIdChangeButton(_IdChangeActionButton):
+    """Add new ID as primary while keeping old ID in the same game instance."""
 
-        if not (is_bot_owner or is_approved_moderator):
-            await interaction.response.send_message("❌ You need to be in an approved moderator group to deny player ID changes.", ephemeral=True)
-            return
+    def __init__(self, cog, discord_id: str, old_player_id: str, new_player_id: str, instance_id=None):
+        super().__init__("merge", cog, discord_id, old_player_id, new_player_id, instance_id)
 
-        await interaction.response.defer()
 
-        # Remove pending change
-        def remove_pending():
-            data = self.cog.load_pending_player_id_changes_data()
-            pending = data.get("pending_changes", {}).get(self.discord_id)
-            if pending:
-                if "pending_changes" in data and self.discord_id in data["pending_changes"]:
-                    del data["pending_changes"][self.discord_id]
-                    self.cog.save_pending_player_id_changes_data(data)
-                return pending
-            return None
+class AddAltIdChangeButton(_IdChangeActionButton):
+    """Add new ID as a separate alt game instance for the same player."""
 
-        pending = await sync_to_async(remove_pending)()
+    def __init__(self, cog, discord_id: str, old_player_id: str, new_player_id: str, instance_id=None):
+        super().__init__("add_alt", cog, discord_id, old_player_id, new_player_id, instance_id)
 
-        if not pending:
-            await interaction.followup.send("❌ Pending change request not found.", ephemeral=True)
-            return
 
-        # Update the log channel message
-        if pending.get("log_message_id") and pending.get("log_channel_id"):
-            try:
-                log_channel = self.cog.bot.get_channel(pending["log_channel_id"])
-                if log_channel:
-                    log_message = await log_channel.fetch_message(pending["log_message_id"])
-                    if log_message and log_message.embeds:
-                        embed = log_message.embeds[0]
-                        # Update status field
-                        for idx, field in enumerate(embed.fields):
-                            if field.name == "Status":
-                                embed.set_field_at(idx, name="Status", value=f"❌ Denied by {interaction.user.mention}", inline=True)
-                                break
-                        embed.color = discord.Color.red()
-                        await log_message.edit(embed=embed, view=None)
-            except Exception as e:
-                self.cog.logger.warning(f"Could not update log message: {e}")
+class RejectIdChangeButton(_IdChangeActionButton):
+    """Reject the ID change request without any DB changes."""
 
-        # Update the mod notification message if it exists
-        if pending.get("mod_message_id") and pending.get("mod_channel_id"):
-            try:
-                mod_channel = self.cog.bot.get_channel(pending["mod_channel_id"])
-                if mod_channel:
-                    mod_message = await mod_channel.fetch_message(pending["mod_message_id"])
-                    if mod_message:
-                        await mod_message.delete()
-            except Exception as e:
-                self.cog.logger.warning(f"Could not delete mod notification message: {e}")
-
-        # Notify user
-        try:
-            user = await interaction.client.fetch_user(int(self.discord_id))
-            await user.send(
-                f"❌ **Player ID Change Denied**\n\n"
-                f"Your request to change from `{pending['old_player_id']}` to `{pending['new_player_id']}` was denied.\n"
-                f"Denied by {interaction.user.mention} in {interaction.guild.name}.\n\n"
-                f"If you believe this was an error, please contact a moderator."
-            )
-        except Exception as e:
-            self.cog.logger.warning(f"Could not DM user {self.discord_id} about denial: {e}")
-
-        await interaction.followup.send("❌ Player ID change denied.", ephemeral=True)
+    def __init__(self, cog, discord_id: str, old_player_id: str, new_player_id: str, instance_id=None):
+        super().__init__("reject", cog, discord_id, old_player_id, new_player_id, instance_id)
 
 
 class DiscordAccountSelect(discord.ui.Select):
@@ -2041,7 +2043,7 @@ class PendingIdChangesListView(discord.ui.View):
         for discord_id, data in self.pending_changes.items():
             old_id = data.get("old_player_id", "Unknown")
             new_id = data.get("new_player_id", "Unknown")
-            reason_emoji = "🎮" if data.get("reason") == "game_changed" else "✏️"
+            reason_emoji = "🎮" if data.get("reason") == "game_changed" else ("🔄" if data.get("reason") == "starting_over" else "✏️")
             pending_list.append(f"{reason_emoji} <@{discord_id}>: `{old_id}` → `{new_id}`")
 
         if pending_list:
@@ -2062,7 +2064,7 @@ class PendingIdChangeSelect(discord.ui.Select):
         for discord_id, data in pending_changes.items():
             old_id = data.get("old_player_id", "Unknown")
             new_id = data.get("new_player_id", "Unknown")
-            reason_emoji = "🎮" if data.get("reason") == "game_changed" else "✏️"
+            reason_emoji = "🎮" if data.get("reason") == "game_changed" else ("🔄" if data.get("reason") == "starting_over" else "✏️")
 
             options.append(
                 discord.SelectOption(
@@ -2090,6 +2092,14 @@ class PendingIdChangeSelect(discord.ui.Select):
         # Defer immediately — embed construction does async DB work that can exceed the 3s window
         await interaction.response.defer(ephemeral=False)
 
+        # Show a loading state right away so the user knows something is happening
+        loading_embed = discord.Embed(
+            title="⏳ Loading...",
+            description="Fetching player details, please wait.",
+            color=discord.Color.grayed_out(),
+        )
+        await interaction.edit_original_response(embed=loading_embed, view=None, attachments=[])
+
         # Create detail view
         view = PendingIdChangeDetailView(
             self.cog,
@@ -2109,7 +2119,7 @@ class PendingIdChangeSelect(discord.ui.Select):
             file = discord.File(self.cog.data_directory / image_filename, filename=image_filename)
             embed.set_image(url=f"attachment://{image_filename}")
 
-        # Update message to show detail view (must use edit_original_response after deferring)
+        # Update message with full detail view
         if file:
             await interaction.edit_original_response(embed=embed, view=view, attachments=[file])
         else:
@@ -2128,19 +2138,13 @@ class PendingIdChangeDetailView(discord.ui.View):
         self.status_message = status_message
 
         # Add action buttons
-        self.add_item(
-            ApprovePlayerIdChangeFromListButton(
-                cog,
-                discord_id,
-                pending_data.get("old_player_id"),
-                pending_data.get("new_player_id"),
-                pending_data.get("reason"),
-                pending_data.get("instance_id"),
-                all_pending,
-                status_message,
-            )
-        )
-        self.add_item(DenyPlayerIdChangeFromListButton(cog, discord_id, all_pending, status_message))
+        old_id = pending_data.get("old_player_id", "")
+        new_id = pending_data.get("new_player_id", "")
+        instance_id = pending_data.get("instance_id")
+        self.add_item(ReplaceIdChangeFromListButton(cog, discord_id, old_id, new_id, instance_id, all_pending, status_message))
+        self.add_item(MergeIdChangeFromListButton(cog, discord_id, old_id, new_id, instance_id, all_pending, status_message))
+        self.add_item(AddAltIdChangeFromListButton(cog, discord_id, old_id, new_id, instance_id, all_pending, status_message))
+        self.add_item(RejectIdChangeFromListButton(cog, discord_id, old_id, new_id, all_pending, status_message))
         self.add_item(CancelDetailViewButton(cog, all_pending, status_message))
 
     async def create_detail_embed(self, bot) -> discord.Embed:
@@ -2154,9 +2158,10 @@ class PendingIdChangeDetailView(discord.ui.View):
             "timestamp": self.pending_data.get("timestamp"),
         })
 
-        # include thumbnail if we can resolve user (helper doesn't know about `bot`)
+        # include thumbnail — try cache first (fetch_user in the helper may have populated it),
+        # fall back to a fetch if still missing
         try:
-            user = bot.get_user(int(self.discord_id))
+            user = bot.get_user(int(self.discord_id)) or await bot.fetch_user(int(self.discord_id))
             if user:
                 embed.set_thumbnail(url=user.display_avatar.url)
         except Exception:
@@ -2165,155 +2170,52 @@ class PendingIdChangeDetailView(discord.ui.View):
         return embed
 
 
-class ApprovePlayerIdChangeFromListButton(discord.ui.Button):
-    """Approve button that returns to list view with status."""
+# ---------------------------------------------------------------------------
+# List-view action buttons (non-persistent, navigate back to list after action)
+# ---------------------------------------------------------------------------
 
-    def __init__(
-        self, cog, discord_id: str, old_player_id: str, new_player_id: str, reason: str, instance_id: int, all_pending: dict, status_message: str
-    ):
-        super().__init__(label="Approve", style=discord.ButtonStyle.success, emoji="✅")
+
+class _IdChangeActionFromListButton(discord.ui.Button):
+    """Base class for ID change action buttons inside the list-review detail view."""
+
+    def __init__(self, action: str, cog, discord_id: str, old_player_id: str, new_player_id: str, instance_id, all_pending: dict, status_message: str):
+        emoji, label, style, _ = _ID_ACTION_META[action]
+        super().__init__(label=label, style=style, emoji=emoji)
+        self.action = action
         self.cog = cog
         self.discord_id = discord_id
         self.old_player_id = old_player_id
         self.new_player_id = new_player_id
-        self.reason = reason
         self.instance_id = instance_id
         self.all_pending = all_pending
         self.status_message = status_message
 
     async def callback(self, interaction: discord.Interaction):
-        """Approve the change and return to list."""
         from asgiref.sync import sync_to_async
-
-        from thetower.backend.sus.models import PlayerId
 
         await interaction.response.defer()
 
-        # Get pending change data
-        def get_pending_data():
+        def get_pending():
             data = self.cog.load_pending_player_id_changes_data()
             return data.get("pending_changes", {}).get(self.discord_id)
 
-        pending = await sync_to_async(get_pending_data)()
+        pending = await sync_to_async(get_pending)()
         if not pending:
             await interaction.followup.send("❌ Pending change request not found.", ephemeral=True)
             return
 
-        # Reuse existing approval logic from ApprovePlayerIdChangeButton
-        def update_player_id():
-            try:
-                from thetower.backend.sus.models import GameInstance, LinkedAccount
+        if self.action != "reject":
+            result = await sync_to_async(_sync_apply_id_change)(self.action, self.old_player_id, self.new_player_id, self.instance_id, pending)
+            if result["status"] == "error":
+                await interaction.followup.send(f"❌ Failed: {result['message']}", ephemeral=True)
+                return
+        else:
+            result = {"discord_ids": [], "old_primary": self.old_player_id, "new_primary": self.new_player_id}
 
-                if self.instance_id:
-                    game_instance = GameInstance.objects.filter(id=self.instance_id).first()
-                    if not game_instance:
-                        return {"status": "error", "message": "Could not find specified game instance"}
-                else:
-                    old_player_id_obj = PlayerId.objects.filter(id=self.old_player_id).select_related("game_instance").first()
-                    if not old_player_id_obj or not old_player_id_obj.game_instance:
-                        return {"status": "error", "message": "Could not find game instance for old player ID"}
-                    game_instance = old_player_id_obj.game_instance
+        await _finalize_id_change(self.cog, interaction, self.discord_id, self.old_player_id, self.new_player_id, self.action, pending, result)
 
-                game_instance.player_ids.filter(primary=True).update(primary=False)
-
-                if self.reason == "game_changed":
-                    notes = f"Added via player ID change request (game changed ID) on {pending['timestamp']}"
-                else:
-                    notes = f"Added via player ID change request (corrected typo) on {pending['timestamp']}"
-
-                PlayerId.objects.create(id=self.new_player_id, game_instance=game_instance, primary=True, notes=notes)
-
-                if self.reason == "typo":
-                    PlayerId.objects.filter(id=self.old_player_id).delete()
-
-                discord_ids = list(
-                    LinkedAccount.objects.filter(player=game_instance.player, platform=LinkedAccount.Platform.DISCORD).values_list(
-                        "account_id", flat=True
-                    )
-                )
-
-                return {
-                    "status": "success",
-                    "player_name": game_instance.player.name,
-                    "old_primary": self.old_player_id,
-                    "new_primary": self.new_player_id,
-                    "discord_ids": discord_ids,
-                }
-            except Exception as e:
-                return {"status": "error", "message": str(e)}
-
-        result = await sync_to_async(update_player_id)()
-
-        if result["status"] == "error":
-            await interaction.followup.send(f"❌ Failed to update player ID: {result['message']}", ephemeral=True)
-            return
-
-        # Dispatch player_verified event
-        if result.get("discord_ids"):
-            for discord_id in result["discord_ids"]:
-                self.cog.bot.dispatch("player_verified", interaction.guild.id, discord_id, result["new_primary"], result["old_primary"])
-
-        # Remove pending change and update messages
-        def remove_pending():
-            data = self.cog.load_pending_player_id_changes_data()
-            pending_data = data.get("pending_changes", {}).get(self.discord_id)
-            if "pending_changes" in data and self.discord_id in data["pending_changes"]:
-                del data["pending_changes"][self.discord_id]
-                self.cog.save_pending_player_id_changes_data(data)
-            return pending_data
-
-        removed_pending = await sync_to_async(remove_pending)()
-
-        # Update both channel messages if they exist
-        if removed_pending:
-            # Update log channel message
-            if removed_pending.get("log_message_id") and removed_pending.get("log_channel_id"):
-                try:
-                    log_channel = self.cog.bot.get_channel(removed_pending["log_channel_id"])
-                    if log_channel:
-                        log_message = await log_channel.fetch_message(removed_pending["log_message_id"])
-                        if log_message and log_message.embeds:
-                            log_embed = log_message.embeds[0]
-                            for idx, field in enumerate(log_embed.fields):
-                                if field.name == "Status":
-                                    log_embed.set_field_at(idx, name="Status", value=f"✅ Approved by {interaction.user.mention}", inline=True)
-                                    break
-                            log_embed.color = discord.Color.green()
-                            await log_message.edit(embed=log_embed, view=None)
-                except Exception as e:
-                    self.cog.logger.warning(f"Could not update log message: {e}")
-
-            # Update mod notification message
-            if removed_pending.get("mod_message_id") and removed_pending.get("mod_channel_id"):
-                try:
-                    mod_channel = self.cog.bot.get_channel(removed_pending["mod_channel_id"])
-                    if mod_channel:
-                        mod_message = await mod_channel.fetch_message(removed_pending["mod_message_id"])
-                        if mod_message and mod_message.embeds:
-                            mod_embed = mod_message.embeds[0]
-                            for idx, field in enumerate(mod_embed.fields):
-                                if field.name == "Status":
-                                    mod_embed.set_field_at(idx, name="Status", value=f"✅ Approved by {interaction.user.mention}", inline=True)
-                                    break
-                            mod_embed.color = discord.Color.green()
-                            await mod_message.edit(embed=mod_embed, view=None)
-                except Exception as e:
-                    self.cog.logger.warning(f"Could not update mod notification message: {e}")
-
-        # Notify user
-        try:
-            user = await interaction.client.fetch_user(int(self.discord_id))
-            await user.send(
-                f"✅ **Player ID Change Approved!**\n\n"
-                f"Your player ID has been updated from `{self.old_player_id}` to `{self.new_player_id}`.\n"
-                f"Approved by {interaction.user.mention}."
-            )
-        except Exception as e:
-            self.cog.logger.warning(f"Could not DM user {self.discord_id} about approval: {e}")
-
-        # Return to list view with status
         del self.all_pending[self.discord_id]
-        status_msg = f"✅ <@{self.discord_id}> ID `{self.old_player_id}` → `{self.new_player_id}` **Approved**"
+        status_msg = f"{_ID_ACTION_PAST[self.action]} <@{self.discord_id}>: `{self.old_player_id}` → `{self.new_player_id}`"
 
         if self.all_pending:
             view = PendingIdChangesListView(self.cog, self.all_pending, status_msg)
@@ -2323,98 +2225,32 @@ class ApprovePlayerIdChangeFromListButton(discord.ui.Button):
             await interaction.edit_original_response(content=f"{status_msg}\n\n✅ No more pending requests.", embed=None, view=None, attachments=[])
 
 
-class DenyPlayerIdChangeFromListButton(discord.ui.Button):
-    """Deny button that returns to list view with status."""
+class ReplaceIdChangeFromListButton(_IdChangeActionFromListButton):
+    """Replace old ID with new (old deleted). Returns to list."""
 
-    def __init__(self, cog, discord_id: str, all_pending: dict, status_message: str):
-        super().__init__(label="Deny", style=discord.ButtonStyle.danger, emoji="❌")
-        self.cog = cog
-        self.discord_id = discord_id
-        self.all_pending = all_pending
-        self.status_message = status_message
+    def __init__(self, cog, discord_id, old_player_id, new_player_id, instance_id, all_pending, status_message):
+        super().__init__("replace", cog, discord_id, old_player_id, new_player_id, instance_id, all_pending, status_message)
 
-    async def callback(self, interaction: discord.Interaction):
-        """Deny the change and return to list."""
-        from asgiref.sync import sync_to_async
 
-        await interaction.response.defer()
+class MergeIdChangeFromListButton(_IdChangeActionFromListButton):
+    """Keep old ID, add new as primary. Returns to list."""
 
-        # Remove pending change
-        def remove_pending():
-            data = self.cog.load_pending_player_id_changes_data()
-            pending = data.get("pending_changes", {}).get(self.discord_id)
-            if pending:
-                if "pending_changes" in data and self.discord_id in data["pending_changes"]:
-                    del data["pending_changes"][self.discord_id]
-                    self.cog.save_pending_player_id_changes_data(data)
-                return pending
-            return None
+    def __init__(self, cog, discord_id, old_player_id, new_player_id, instance_id, all_pending, status_message):
+        super().__init__("merge", cog, discord_id, old_player_id, new_player_id, instance_id, all_pending, status_message)
 
-        pending = await sync_to_async(remove_pending)()
 
-        if not pending:
-            await interaction.followup.send("❌ Pending change request not found.", ephemeral=True)
-            return
+class AddAltIdChangeFromListButton(_IdChangeActionFromListButton):
+    """Add new ID as a separate alt game instance. Returns to list."""
 
-        # Update both channel messages
-        # Update log channel message
-        if pending.get("log_message_id") and pending.get("log_channel_id"):
-            try:
-                log_channel = self.cog.bot.get_channel(pending["log_channel_id"])
-                if log_channel:
-                    log_message = await log_channel.fetch_message(pending["log_message_id"])
-                    if log_message and log_message.embeds:
-                        log_embed = log_message.embeds[0]
-                        for idx, field in enumerate(log_embed.fields):
-                            if field.name == "Status":
-                                log_embed.set_field_at(idx, name="Status", value=f"❌ Denied by {interaction.user.mention}", inline=True)
-                                break
-                        log_embed.color = discord.Color.red()
-                        await log_message.edit(embed=log_embed, view=None)
-            except Exception as e:
-                self.cog.logger.warning(f"Could not update log message: {e}")
+    def __init__(self, cog, discord_id, old_player_id, new_player_id, instance_id, all_pending, status_message):
+        super().__init__("add_alt", cog, discord_id, old_player_id, new_player_id, instance_id, all_pending, status_message)
 
-        # Update mod notification message
-        if pending.get("mod_message_id") and pending.get("mod_channel_id"):
-            try:
-                mod_channel = self.cog.bot.get_channel(pending["mod_channel_id"])
-                if mod_channel:
-                    mod_message = await mod_channel.fetch_message(pending["mod_message_id"])
-                    if mod_message and mod_message.embeds:
-                        mod_embed = mod_message.embeds[0]
-                        for idx, field in enumerate(mod_embed.fields):
-                            if field.name == "Status":
-                                mod_embed.set_field_at(idx, name="Status", value=f"❌ Denied by {interaction.user.mention}", inline=True)
-                                break
-                        mod_embed.color = discord.Color.red()
-                        await mod_message.edit(embed=mod_embed, view=None)
-            except Exception as e:
-                self.cog.logger.warning(f"Could not update mod notification message: {e}")
 
-        # Notify user
-        try:
-            user = await interaction.client.fetch_user(int(self.discord_id))
-            await user.send(
-                f"❌ **Player ID Change Denied**\n\n"
-                f"Your request to change from `{pending['old_player_id']}` to `{pending['new_player_id']}` was denied.\n"
-                f"Denied by {interaction.user.mention}.\n\n"
-                f"If you believe this was an error, please contact a moderator."
-            )
-        except Exception as e:
-            self.cog.logger.warning(f"Could not DM user {self.discord_id} about denial: {e}")
+class RejectIdChangeFromListButton(_IdChangeActionFromListButton):
+    """Reject the request. Returns to list."""
 
-        # Return to list view with status
-        old_id = pending.get("old_player_id", "Unknown")
-        new_id = pending.get("new_player_id", "Unknown")
-        del self.all_pending[self.discord_id]
-        status_msg = f"❌ <@{self.discord_id}> ID `{old_id}` → `{new_id}` **Denied**"
-
-        if self.all_pending:
-            view = PendingIdChangesListView(self.cog, self.all_pending, status_msg)
-            embed = view.create_list_embed()
-            await interaction.edit_original_response(embed=embed, view=view, attachments=[])
-        else:
-            await interaction.edit_original_response(content=f"{status_msg}\n\n✅ No more pending requests.", embed=None, view=None, attachments=[])
+    def __init__(self, cog, discord_id, old_player_id, new_player_id, all_pending, status_message):
+        super().__init__("reject", cog, discord_id, old_player_id, new_player_id, None, all_pending, status_message)
 
 
 class CancelDetailViewButton(discord.ui.Button):

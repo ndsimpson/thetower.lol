@@ -58,7 +58,6 @@ class Validation(BaseCog, name="Validation"):
         for discord_id, pending_data in pending_changes.items():
             old_player_id = pending_data.get("old_player_id")
             new_player_id = pending_data.get("new_player_id")
-            reason = pending_data.get("reason")
             instance_id = pending_data.get("instance_id")
 
             # Attempt to restore log channel message view
@@ -69,7 +68,7 @@ class Validation(BaseCog, name="Validation"):
                         # Try to fetch the message to verify it exists
                         try:
                             await log_channel.fetch_message(pending_data["log_message_id"])
-                            view = PlayerIdChangeApprovalView(self, discord_id, old_player_id, new_player_id, reason, instance_id)
+                            view = PlayerIdChangeApprovalView(self, discord_id, old_player_id, new_player_id, instance_id)
                             self.bot.add_view(view, message_id=pending_data["log_message_id"])
                             restored_views += 1
                         except discord.NotFound:
@@ -92,7 +91,7 @@ class Validation(BaseCog, name="Validation"):
                     if mod_channel:
                         try:
                             await mod_channel.fetch_message(pending_data["mod_message_id"])
-                            mod_view = PlayerIdChangeApprovalView(self, discord_id, old_player_id, new_player_id, reason, instance_id)
+                            mod_view = PlayerIdChangeApprovalView(self, discord_id, old_player_id, new_player_id, instance_id)
                             self.bot.add_view(mod_view, message_id=pending_data["mod_message_id"])
                             restored_views += 1
                         except discord.NotFound:
@@ -559,15 +558,18 @@ class Validation(BaseCog, name="Validation"):
         if new_player_id in sus_ids:
             new_mod_flags.append("⚠️ Suspicious")
 
-        # build user display
+        # build user display — use fetch_user so cache misses don't result in an unresolved mention.
+        # Mentions are not interactive links inside embed fields, so display plain text instead.
         try:
-            user = self.bot.get_user(int(discord_id))
-            user_display = f"{user.mention}\n`{user.name}`" if user else f"<@{discord_id}>"
+            user = await self.bot.fetch_user(int(discord_id))
+            user_display = f"`{user.display_name}`" if user.display_name != user.name else f"`{user.name}`"
+            if user.display_name != user.name:
+                user_display = f"`{user.display_name}` ({user.name})"
         except Exception:
-            user_display = f"<@{discord_id}>"
+            user_display = f"*(unknown user)*"
 
-        reason_emoji = "🎮" if reason == "game_changed" else "✏️"
-        reason_display = "Game changed my ID" if reason == "game_changed" else "I typed the wrong ID"
+        reason_emoji = "🎮" if reason == "game_changed" else ("🔄" if reason == "starting_over" else "✏️")
+        reason_display = "Game changed my ID" if reason == "game_changed" else ("I'm starting over" if reason == "starting_over" else "I typed the wrong ID")
 
         embed = discord.Embed(title=f"{reason_emoji} Player ID Change Request", color=discord.Color.orange(), timestamp=timestamp)
         embed.add_field(name="Discord User", value=user_display, inline=True)
@@ -656,7 +658,7 @@ class Validation(BaseCog, name="Validation"):
             discord_id: Discord ID of the requesting user
             old_player_id: Current player ID
             new_player_id: New player ID
-            reason: Reason for change ("game_changed" or "typo")
+            reason: Reason for change ("game_changed", "typo", or "starting_over")
             image_filename: Filename of the saved verification image
             timestamp: Timestamp of the request
             instance_id: ID of the GameInstance being updated (optional, uses primary if None)
@@ -695,7 +697,7 @@ class Validation(BaseCog, name="Validation"):
         # Create view with approve/deny buttons
         from .ui.core import PlayerIdChangeApprovalView
 
-        view = PlayerIdChangeApprovalView(self, discord_id, old_player_id, new_player_id, reason, instance_id)
+        view = PlayerIdChangeApprovalView(self, discord_id, old_player_id, new_player_id, instance_id)
 
         # Send to log channel
         log_message = None
@@ -719,7 +721,7 @@ class Validation(BaseCog, name="Validation"):
                         mod_file = discord.File(self.data_directory / image_filename, filename=image_filename)
 
                     # Create a new view instance for the mod channel
-                    mod_view = PlayerIdChangeApprovalView(self, discord_id, old_player_id, new_player_id, reason, instance_id)
+                    mod_view = PlayerIdChangeApprovalView(self, discord_id, old_player_id, new_player_id, instance_id)
 
                     mod_message = await mod_channel.send(embed=embed.copy(), file=mod_file, view=mod_view)
                 else:
