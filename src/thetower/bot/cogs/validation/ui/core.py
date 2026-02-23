@@ -2142,9 +2142,6 @@ class PendingIdChangeDetailView(discord.ui.View):
 
     async def create_detail_embed(self, bot) -> discord.Embed:
         """Create embed showing detailed change request."""
-        reason_display = "Game changed my ID" if self.pending_data.get("reason") == "game_changed" else "I typed the wrong ID"
-        reason_emoji = "🎮" if self.pending_data.get("reason") == "game_changed" else "✏️"
-
         # delegate to validation cog helper to build a consistent embed
         embed = await self.cog._build_change_request_embed(self.discord_id, {
             "reason": self.pending_data.get("reason"),

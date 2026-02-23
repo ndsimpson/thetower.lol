@@ -541,8 +541,11 @@ class Validation(BaseCog, name="Validation"):
                 new_career = await tourney_stats_cog.get_career_summary({new_player_id})
 
         # moderation flags
-        ban_ids = ModerationRecord.get_active_moderation_ids("ban")
-        sus_ids = ModerationRecord.get_active_moderation_ids("sus")
+        from asgiref.sync import sync_to_async
+
+        _get_mod_ids = sync_to_async(ModerationRecord.get_active_moderation_ids)
+        ban_ids = await _get_mod_ids("ban")
+        sus_ids = await _get_mod_ids("sus")
 
         old_mod_flags: list[str] = []
         if old_ids & ban_ids:
@@ -615,11 +618,12 @@ class Validation(BaseCog, name="Validation"):
         data = self.load_pending_player_id_changes_data()
         pending = data.get("pending_changes", {})
         for discord_id, pd in pending.items():
-            log_chan_id = pd.get("log_channel_id")
-            msg_id = pd.get("log_message_id")
-            mod_chan_id = pd.get("mod_channel_id")
-            for chan_id in (log_chan_id, mod_chan_id):
-                if not chan_id:
+            channel_message_pairs = [
+                (pd.get("log_channel_id"), pd.get("log_message_id")),
+                (pd.get("mod_channel_id"), pd.get("mod_message_id")),
+            ]
+            for chan_id, msg_id in channel_message_pairs:
+                if not chan_id or not msg_id:
                     continue
                 channel = self.bot.get_channel(chan_id)
                 if not channel:
@@ -659,42 +663,6 @@ class Validation(BaseCog, name="Validation"):
         """
         from asgiref.sync import sync_to_async
 
-        # Determine old player IDs for this request (all IDs in the affected game instance)
-        old_ids: set[str] = set()
-        if instance_id:
-            # use helper we just added; it's async already
-            old_ids = await self.get_instance_player_ids(instance_id)
-        # fallback just to include the single id if something went wrong
-        if not old_ids and old_player_id:
-            old_ids = {old_player_id}
-
-        # Obtain career summaries using the TourneyStats cog helper
-        tourney_stats_cog = await self.get_tourney_stats_cog()
-        old_career = None
-        new_career = None
-        if tourney_stats_cog:
-            if old_ids:
-                old_career = await tourney_stats_cog.get_career_summary(old_ids)
-            if new_player_id:
-                new_career = await tourney_stats_cog.get_career_summary({new_player_id})
-
-        # Determine moderation status for old/new IDs
-        from thetower.backend.sus.models import ModerationRecord
-        ban_ids = ModerationRecord.get_active_moderation_ids("ban")
-        sus_ids = ModerationRecord.get_active_moderation_ids("sus")
-
-        old_mod_flags: list[str] = []
-        if old_ids & ban_ids:
-            old_mod_flags.append("🚫 Active ban")
-        if old_ids & sus_ids:
-            old_mod_flags.append("⚠️ Suspicious")
-
-        new_mod_flags: list[str] = []
-        if new_player_id in ban_ids:
-            new_mod_flags.append("🚫 Active ban")
-        if new_player_id in sus_ids:
-            new_mod_flags.append("⚠️ Suspicious")
-
         # Log to verification channel with approve/deny buttons
         log_channel_id = self.get_setting("verification_log_channel_id", guild_id=interaction.guild.id)
         if not log_channel_id:
@@ -716,8 +684,6 @@ class Validation(BaseCog, name="Validation"):
         })
 
         # add thumbnail separately since helper doesn't know interaction user
-        embed.set_thumbnail(url=interaction.user.display_avatar.url)
-
         embed.set_thumbnail(url=interaction.user.display_avatar.url)
 
         # Attach verification image
