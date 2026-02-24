@@ -495,7 +495,7 @@ class UnifiedAdvertiseSettingsView(BaseSettingsView):
         if interaction.guild and not self.guild_id:
             guild_settings_view = GuildSettingsView(
                 SettingsViewContext(
-                    guild_id=interaction.guild.id, cog_instance=self.cog, interaction=interaction, is_bot_owner=self.context.is_bot_owner
+                    guild_id=interaction.guild.id, cog_instance=self.cog, interaction=interaction, is_bot_owner=self.ctx.is_bot_owner
                 )
             )
             embed = await guild_settings_view.update_view(interaction)
@@ -509,7 +509,7 @@ class UnifiedAdvertiseSettingsView(BaseSettingsView):
         if self.guild_id:
             guild_settings_view = GuildSettingsView(
                 SettingsViewContext(
-                    guild_id=self.guild_id, cog_instance=self.cog, interaction=interaction, is_bot_owner=self.context.is_bot_owner
+                    guild_id=self.guild_id, cog_instance=self.cog, interaction=interaction, is_bot_owner=self.ctx.is_bot_owner
                 )
             )
             embed = await guild_settings_view.update_view(interaction)
@@ -550,13 +550,13 @@ class UnifiedAdvertiseSettingsView(BaseSettingsView):
         """Open guild-specific settings."""
         guild_id = interaction.guild.id
         settings_view = GuildSettingsView(
-            SettingsViewContext(guild_id=guild_id, cog_instance=self.cog, interaction=interaction, is_bot_owner=self.context.is_bot_owner)
+            SettingsViewContext(guild_id=guild_id, cog_instance=self.cog, interaction=interaction, is_bot_owner=self.ctx.is_bot_owner)
         )
         embed = await settings_view.update_view(interaction)
         await interaction.response.edit_message(embed=embed, view=settings_view)
 
     async def default_settings(self, interaction: discord.Interaction):
         """Open default settings."""
-        settings_view = SettingsView(self.context)
+        settings_view = SettingsView(self.ctx)
         embed = await settings_view.update_view(interaction)
         await interaction.response.edit_message(embed=embed, view=settings_view)
