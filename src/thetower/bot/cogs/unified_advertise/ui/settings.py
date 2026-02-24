@@ -428,10 +428,21 @@ class SettingsView(View):
 
     async def update_view(self, interaction: discord.Interaction):
         """Update the view with current settings."""
+        remember_last_ad = self.cog.get_global_setting("remember_last_ad", default=True)
         embed = discord.Embed(title="Bot Settings", description="Configure bot behavior and preferences", color=discord.Color.green())
 
         # Add current settings
         embed.add_field(name="Default Cooldown", value=f"{self.cog.guild_settings.get('cooldown_hours', 24)} hours", inline=True)
+
+        # Global: remember last ad
+        embed.add_field(
+            name="💾 Remember Last Ad",
+            value=(
+                f"{'✅ Enabled' if remember_last_ad else '❌ Disabled'} — "
+                "When enabled, users can re-use their last advertisement as a pre-filled template when posting a new one."
+            ),
+            inline=False,
+        )
 
         embed.add_field(
             name="Default Settings", value="These are the default values used when no server-specific settings are configured.", inline=False
@@ -440,12 +451,28 @@ class SettingsView(View):
         # Update buttons
         self.clear_items()
 
-        # No edit functionality for default settings - they are configured in code
+        # Toggle remember last ad — bot owner only
+        if self.context.is_bot_owner:
+            toggle_label = "Disable Remember Last Ad" if remember_last_ad else "Enable Remember Last Ad"
+            toggle_style = discord.ButtonStyle.danger if remember_last_ad else discord.ButtonStyle.success
+            toggle_btn = Button(label=toggle_label, style=toggle_style, emoji="💾")
+            toggle_btn.callback = self.toggle_remember_last_ad
+            self.add_item(toggle_btn)
+
         back_btn = Button(label="Back", style=discord.ButtonStyle.secondary, emoji="⬅️")
         back_btn.callback = self.go_back
         self.add_item(back_btn)
 
         return embed
+
+    async def toggle_remember_last_ad(self, interaction: discord.Interaction):
+        """Toggle the remember_last_ad global setting."""
+        current = self.cog.get_global_setting("remember_last_ad", default=True)
+        self.cog.set_global_setting("remember_last_ad", not current)
+        status = "enabled" if not current else "disabled"
+        await interaction.response.send_message(f"✅ Remember Last Ad has been {status}.", ephemeral=True)
+        embed = await self.update_view(interaction)
+        await interaction.message.edit(embed=embed, view=self)
 
     async def go_back(self, interaction: discord.Interaction):
         """Go back to main settings view."""

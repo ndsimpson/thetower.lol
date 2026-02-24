@@ -131,8 +131,10 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
         except Exception as e:
             await self._send_debug_message(f"Orphan scan: Error: {e}")
 
-    # Global settings (bot-wide) - none for this cog currently
-    global_settings = {}
+    # Global settings (bot-wide)
+    global_settings = {
+        "remember_last_ad": True,  # Whether to remember users' last ad as a pre-fill template
+    }
 
     # Guild-specific settings
     guild_settings = {
@@ -153,6 +155,8 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
         self.cooldowns = {}
         # Format: [(thread_id, deletion_time, author_id, notify, guild_id), ...]
         self.pending_deletions = []
+        # Format: {str(user_id): {"guild": {...fields}, "member": {...fields}}}
+        self.last_ads = {}
 
     # === Settings Helper Methods ===
 
@@ -192,6 +196,47 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
     def _get_cooldown_filename(self, guild_id: int) -> str:
         """Get cooldown filename for a guild."""
         return f"advertisement_cooldowns_{guild_id}.json"
+
+    def _get_last_ads_filename(self) -> str:
+        """Get the filename for per-user last-ad template storage."""
+        return "advertisement_last_ads.json"
+
+    def save_last_ad_data(self, user_id: int, ad_type: str, ad_data: dict) -> None:
+        """Save the last ad posted by a user to memory (persisted via _save_last_ads).
+
+        Only updates if the 'remember_last_ad' global setting is enabled.
+
+        Args:
+            user_id: Discord user ID
+            ad_type: Advertisement type ('guild' or 'member')
+            ad_data: Dictionary of raw field values to use as a template
+        """
+        if not self.get_global_setting("remember_last_ad", default=True):
+            return
+        user_key = str(user_id)
+        if user_key not in self.last_ads:
+            self.last_ads[user_key] = {}
+        self.last_ads[user_key][ad_type] = ad_data
+        self.mark_data_modified()
+
+    def get_last_ad_data(self, user_id: int) -> dict:
+        """Get all saved last-ad template data for a user.
+
+        Args:
+            user_id: Discord user ID
+
+        Returns:
+            Dict keyed by ad_type ('guild', 'member') with field-value dicts, or empty dict
+        """
+        return self.last_ads.get(str(user_id), {})
+
+    async def _save_last_ads(self) -> None:
+        """Persist last-ads template data to disk."""
+        try:
+            last_ads_file = self.data_directory / self._get_last_ads_filename()
+            await self.save_data_if_modified(self.last_ads, last_ads_file, force=True)
+        except Exception as e:
+            self.logger.error(f"Error saving last ads: {e}")
 
     async def _initialize_cog_specific(self, tracker) -> None:
         """Initialize cog-specific functionality."""
@@ -233,6 +278,7 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
         if self.is_data_modified():
             await self._save_cooldowns()
             await self._save_pending_deletions()
+            await self._save_last_ads()
 
         # Clear tasks by invalidating the tracker
         if hasattr(self.task_tracker, "clear_error_state"):
@@ -416,6 +462,11 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
             self.pending_deletions = await self._load_pending_deletions_multi_guild(deletions_file)
 
             self.logger.info(f"Loaded {len(self.pending_deletions)} total pending deletions across all guilds")
+
+            # Load last-ad templates
+            last_ads_file = self.data_directory / self._get_last_ads_filename()
+            self.last_ads = await self.load_data(last_ads_file, default={})
+            self.logger.info(f"Loaded last ad templates for {len(self.last_ads)} users")
 
         except Exception as e:
             self.logger.error(f"Error loading guild data: {e}", exc_info=True)
@@ -956,6 +1007,10 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
                 await self._save_pending_deletions()
                 schedule_time = time.time() - schedule_start
                 await self._send_debug_message(f"Deletion scheduling took {schedule_time:.2f}s for user {interaction.user.id}")
+
+                # Persist updated last-ad templates to disk if the feature is enabled
+                if self.get_global_setting("remember_last_ad", default=True):
+                    await self._save_last_ads()
 
                 total_time = time.time() - start_time
                 await self._send_debug_message(

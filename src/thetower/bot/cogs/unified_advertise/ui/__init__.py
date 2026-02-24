@@ -8,7 +8,9 @@ from .core import (
     EditGuildAdvertisementForm,
     EditMemberAdvertisementForm,
     GuildAdvertisementForm,
+    GuildAdvertisementTemplateForm,
     MemberAdvertisementForm,
+    MemberAdvertisementTemplateForm,
     NotificationView,
 )
 from .settings import AdDetailView, AdListView, AdTypeSelectionView, SettingsView, UnifiedAdvertiseSettingsView
@@ -19,7 +21,9 @@ __all__ = [
     "AdvertisementType",
     "AdTypeSelection",
     "GuildAdvertisementForm",
+    "GuildAdvertisementTemplateForm",
     "MemberAdvertisementForm",
+    "MemberAdvertisementTemplateForm",
     "EditGuildAdvertisementForm",
     "EditMemberAdvertisementForm",
     "NotificationView",

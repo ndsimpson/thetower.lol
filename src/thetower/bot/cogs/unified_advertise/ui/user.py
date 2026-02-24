@@ -66,6 +66,17 @@ class AdManagementView(View):
             embed.add_field(name="Cooldown Status", value=f"⏳ You can post a new advertisement in {cooldown_hours_left:.1f} hours", inline=False)
         else:
             embed.add_field(name="Cooldown Status", value="✅ You can post a new advertisement now!", inline=False)
+            # Show template hint if a previous ad is saved
+            remember_last_ad = self.cog.get_global_setting("remember_last_ad", default=True)
+            if remember_last_ad:
+                user_last_ads = self.cog.last_ads.get(str(self.user_id), {})
+                if user_last_ads:
+                    types_saved = ", ".join(t.title() for t in user_last_ads)
+                    embed.add_field(
+                        name="📋 Saved Template",
+                        value=f"You have a saved template for: **{types_saved}**. Use **Re-use Last Ad** to pre-fill the form.",
+                        inline=False,
+                    )
 
         # Update buttons
         self.clear_items()
@@ -90,6 +101,13 @@ class AdManagementView(View):
             create_btn = Button(label="Create Advertisement", style=discord.ButtonStyle.success, emoji="✨")
             create_btn.callback = self.create_advertisement
             self.add_item(create_btn)
+
+            # If a previous ad is saved and the feature is enabled, offer to re-use it
+            remember_last_ad = self.cog.get_global_setting("remember_last_ad", default=True)
+            if remember_last_ad and self.cog.last_ads.get(str(self.user_id)):
+                template_btn = Button(label="Re-use Last Ad", style=discord.ButtonStyle.secondary, emoji="📋")
+                template_btn.callback = self.use_last_ad
+                self.add_item(template_btn)
 
         # Always add refresh button
         refresh_btn = Button(label="Refresh", style=discord.ButtonStyle.secondary, emoji="🔄")
@@ -300,6 +318,53 @@ class AdManagementView(View):
         )
         view = AdTypeSelection(context)
         await interaction.response.send_message("What type of advertisement would you like to post?", view=view, ephemeral=True)
+
+    async def use_last_ad(self, interaction: discord.Interaction):
+        """Launch the advertisement creation flow with the user's last ad pre-filled as a template."""
+        from .core import AdvertisementType, GuildAdvertisementTemplateForm, MemberAdvertisementTemplateForm, NotificationView
+
+        user_last_ads = self.cog.last_ads.get(str(self.user_id), {})
+        if not user_last_ads:
+            await interaction.response.send_message("❌ No previous advertisement found to use as a template.", ephemeral=True)
+            return
+
+        context = SettingsViewContext(guild_id=self.guild_id, cog_instance=self.cog, interaction=interaction, is_bot_owner=False)
+
+        if len(user_last_ads) == 1:
+            # Only one ad type stored — open its template form directly
+            ad_type, ad_data = next(iter(user_last_ads.items()))
+            form = (
+                GuildAdvertisementTemplateForm(context, ad_data)
+                if ad_type == AdvertisementType.GUILD
+                else MemberAdvertisementTemplateForm(context, ad_data)
+            )
+            notif_view = NotificationView(form)
+            await interaction.response.send_message("Please select your notification preference:", view=notif_view, ephemeral=True)
+        else:
+            # Both types stored — ask which template to use
+            options = [
+                discord.SelectOption(label="Guild Advertisement", value="guild", emoji="🏰"),
+                discord.SelectOption(label="Member Advertisement", value="member", emoji="👤"),
+            ]
+            select = Select(placeholder="Which template would you like to use?", options=options)
+
+            async def select_callback(select_interaction: discord.Interaction):
+                ad_type = select.values[0]
+                ad_data = user_last_ads.get(ad_type, {})
+                form = (
+                    GuildAdvertisementTemplateForm(context, ad_data)
+                    if ad_type == AdvertisementType.GUILD
+                    else MemberAdvertisementTemplateForm(context, ad_data)
+                )
+                notif_view = NotificationView(form)
+                await select_interaction.response.send_message("Please select your notification preference:", view=notif_view, ephemeral=True)
+
+            select.callback = select_callback
+            type_view = View(timeout=900)
+            type_view.add_item(select)
+            await interaction.response.send_message(
+                "Which type of advertisement would you like to re-use as a template?", view=type_view, ephemeral=True
+            )
 
     async def refresh_view(self, interaction: discord.Interaction):
         """Refresh the view."""
