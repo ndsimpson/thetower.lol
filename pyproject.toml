@@ -21,42 +21,42 @@ classifiers = [
 
 dependencies = [
     # Core shared runtime (used by more than one area)
-    "Django==5.2.4",
-    "pydantic==2.11.7",
+    "Django==5.2.12",
+    "pydantic==2.12.5",
 ]
 
 [project.optional-dependencies]
 bot = [
-    "discord.py @ git+https://github.com/Rapptz/discord.py.git@2d7e0614ad91e0544d0bf3f20f6ec615ca2b6d25",
+    "discord.py==2.7.0",
 ]
 
 web = [
     "streamlit==1.54.0",
     "streamlit-extras==0.6.0",
-    "plotly==6.2.0",
-    "pandas==2.3.1",
+    "plotly==6.5.2",
+    "pandas==2.3.3",
     # Backend / admin plugins and utilities (kept in web so prod installs web+bot include them)
-    "requests==2.32.4",
+    "requests==2.32.5",
     "django-extensions==4.1",
     "django-nested-admin==4.1.6",
-    "django-simple-history==3.10.1",
-    "djangorestframework==3.16.0",
-    "whitenoise==6.9.0",
+    "django-simple-history==3.11.0",
+    "djangorestframework==3.16.1",
+    "whitenoise==6.12.0",
     "django-colorfield==0.14.0",
-    "django-axes==8.0.0",
-    "anthropic==0.58.2",
-    "tqdm==4.67.1",
+    "django-axes==8.3.1",
+    "anthropic==0.84.0",
+    "tqdm==4.67.3",
     "schedule==1.2.2",
 ]
 
 dev = [
-    "pytest==8.4.1",
-    "pytest-django==4.11.1",
-    "pytest-sugar==1.0.0",
+    "pytest==9.0.2",
+    "pytest-django==4.12.0",
+    "pytest-sugar==1.1.1",
     "black==26.1.0",
-    "isort==7.0.0",
+    "isort==8.0.1",
     "flake8==7.3.0",
-    "autoflake==2.3.1",
+    "autoflake==2.3.3",
 ]
 
 [project.urls]
