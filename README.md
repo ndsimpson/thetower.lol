@@ -16,16 +16,25 @@
 source .venv/bin/activate
 ```
 
-**Install everything:**
+**Install / development guidance:**
+
+This project exposes a small core set of shared runtime dependencies and optional "extras" for feature areas. Pick the extras you need rather than installing everything by default.
 
 ```bash
-# Install main package with all dependencies
+# Install only the core package (shared runtime)
 pip install -e .
 
-# Optional dependency groups
-pip install -e ".[dev]"    # Development tools (pytest, black, isort, flake8)
-pip install -e ".[bot]"    # Discord bot only
-pip install -e ".[web]"    # Web interface only
+# Install core + development tools
+pip install -e ".[dev]"
+
+# Install core + bot only
+pip install -e ".[bot]"
+
+# Install core + web (includes Django admin plugins and web utilities)
+pip install -e ".[web]"
+
+# Production install (bot + web extras)
+pip install -e ".[bot,web]"
 ```
 
 **Optional: Battle conditions predictor (separate package, requires repo access):**

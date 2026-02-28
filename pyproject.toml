@@ -20,18 +20,23 @@ classifiers = [
 ]
 
 dependencies = [
-    # Web interface
+    # Core shared runtime (used by more than one area)
+    "Django==5.2.4",
+    "pydantic==2.11.7",
+]
+
+[project.optional-dependencies]
+bot = [
+    "discord.py @ git+https://github.com/Rapptz/discord.py.git@2d7e0614ad91e0544d0bf3f20f6ec615ca2b6d25",
+]
+
+web = [
     "streamlit==1.54.0",
     "streamlit-extras==0.6.0",
-    "requests==2.32.4",
-    "pandas==2.3.1",
-    "pydantic==2.11.7",
-
-    # Visualization
     "plotly==6.2.0",
-
-    # Django backend
-    "Django==5.2.4",
+    "pandas==2.3.1",
+    # Backend / admin plugins and utilities (kept in web so prod installs web+bot include them)
+    "requests==2.32.4",
     "django-extensions==4.1",
     "django-nested-admin==4.1.6",
     "django-simple-history==3.10.1",
@@ -40,16 +45,10 @@ dependencies = [
     "django-colorfield==0.14.0",
     "django-axes==8.0.0",
     "anthropic==0.58.2",
-
-    # Discord bot
-    "discord.py @ git+https://github.com/Rapptz/discord.py.git@2d7e0614ad91e0544d0bf3f20f6ec615ca2b6d25",
-
-    # Utilities
     "tqdm==4.67.1",
     "schedule==1.2.2",
 ]
 
-[project.optional-dependencies]
 dev = [
     "pytest==8.4.1",
     "pytest-django==4.11.1",
@@ -58,21 +57,6 @@ dev = [
     "isort==7.0.0",
     "flake8==7.3.0",
     "autoflake==2.3.1",
-]
-
-
-bot = [
-    "discord.py @ git+https://github.com/Rapptz/discord.py.git@2d7e0614ad91e0544d0bf3f20f6ec615ca2b6d25",
-    "Django==5.2.4",
-    "djangorestframework==3.16.0",
-]
-
-web = [
-    "streamlit==1.54.0",
-    "streamlit-extras==0.6.0",
-    "plotly==6.2.0",
-    "pandas==2.3.1",
-    "Django==5.2.4",
 ]
 
 [project.urls]
