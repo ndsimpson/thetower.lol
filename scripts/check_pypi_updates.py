@@ -47,6 +47,29 @@ def collect_dependencies(data: dict) -> Dict[str, str]:
                         spec = ""
                 deps[name] = spec
 
+    # PEP 621 - project.optional-dependencies is a mapping of group -> list of strings
+    opt_deps = project.get("optional-dependencies") or {}
+    if opt_deps:
+        for group, entries in (opt_deps or {}).items():
+            for entry in entries or []:
+                if isinstance(entry, str):
+                    try:
+                        req = Requirement(entry)
+                        name = req.name
+                        spec = str(req.specifier) if req.specifier else ""
+                    except Exception:
+                        import re
+
+                        m = re.match(r"^([A-Za-z0-9_.+-]+)\s*(.*)$", entry)
+                        if m:
+                            name = m.group(1)
+                            spec = m.group(2).strip()
+                        else:
+                            name = entry
+                            spec = ""
+                    # include optional deps as well (they may overwrite only if not present)
+                    deps[name] = spec
+
     # Poetry-style - tool.poetry.dependencies (mapping)
     tool = data.get("tool") or {}
     poetry = tool.get("poetry") or {}
@@ -75,9 +98,25 @@ def fetch_package_info(pkg_name: str) -> dict | None:
         return None
 
 
+def fetch_package_version_info(pkg_name: str, version: str) -> dict | None:
+    """Fetch PyPI JSON metadata for a specific package version (best-effort).
+
+    Returns the JSON object from `/pypi/{name}/{version}/json` or None on error.
+    """
+    url = f"https://pypi.org/pypi/{pkg_name}/{version}/json"
+    req = urllib.request.Request(url, headers={"User-Agent": "check-pypi-updates/1.0 (+https://github.com)"})
+    try:
+        with urllib.request.urlopen(req, timeout=10) as r:
+            return json.load(r)
+    except Exception as e:
+        print(f"DEBUG: fetch version error for {pkg_name}=={version}: {type(e).__name__}: {e}")
+        return None
+
+
 def check_updates(deps: Dict[str, str]) -> None:
     updates = []
-    for name, spec in sorted(deps.items(), key=lambda x: x[0].lower()):
+    # preserve order from pyproject.toml (insertion order of dict)
+    for name, spec in deps.items():
         pkg = fetch_package_info(name)
         if pkg is None:
             print(f"{name}: could not fetch info from PyPI")
@@ -136,7 +175,7 @@ def check_updates(deps: Dict[str, str]) -> None:
                     intermediate.append(v)
             else:
                 try:
-                    if pv > parse_version(current_ver) and pv <= latest_v:
+                    if pv > parse_version(current_ver) and pv < latest_v:
                         intermediate.append(v)
                 except Exception:
                     continue
@@ -158,16 +197,153 @@ def check_updates(deps: Dict[str, str]) -> None:
 
     print("Updates available:")
     for name, cur, latest, inter in updates:
+        latest_url = f"https://pypi.org/project/{name}/{latest}/"
         if cur is None:
-            print(f"- {name}: latest {latest} (no constraint in pyproject)")
+            print(f"- {name}: latest {latest} (no constraint in pyproject) -> {latest_url}")
         else:
-            print(f"- {name}: constraint '{cur}' -> latest {latest}")
+            print(f"- {name}: constraint {cur} -> latest {latest} ({latest_url})")
         if inter:
             # Show up to 20 versions, otherwise show count and range
             if len(inter) <= 20:
                 print(f"  Versions between: {', '.join(inter)}")
             else:
                 print(f"  {len(inter)} intermediate versions (e.g. {inter[0]} ... {inter[-1]})")
+
+    # Determine one-step candidates and check lightweight compatibility
+    # Candidate: the next version after current (first intermediate in list)
+    safe_steps: Dict[str, str] = {}
+    unsafe_reasons: Dict[str, list[str]] = {}
+
+    for name, cur, latest, inter in updates:
+        if not inter:
+            # nothing to step to
+            continue
+        candidate = inter[0]
+        pkg = fetch_package_info(name)
+        if pkg is None:
+            unsafe_reasons.setdefault(name, []).append("could not fetch package metadata for candidate")
+            continue
+
+        # Gather candidate requirements from package info if available (best-effort)
+        requires = pkg.get("info", {}).get("requires_dist") or []
+
+        # Helper to evaluate environment markers
+        from packaging.markers import default_environment
+
+        env = default_environment()
+
+        conflict = False
+        reasons: list[str] = []
+
+        for r in requires:
+            try:
+                req = Requirement(r)
+            except Exception:
+                # skip unparsable requirement
+                continue
+
+            # Skip requirements that don't apply to our environment
+            if getattr(req, "marker", None) is not None:
+                try:
+                    if not req.marker.evaluate(env):
+                        continue
+                except Exception:
+                    # if marker evaluation fails, conservatively keep requirement
+                    pass
+
+            dep_name = req.name
+
+            # If the dependency is not in our pyproject (we don't manage it), assume OK
+            if dep_name not in deps:
+                continue
+
+            local_spec = deps.get(dep_name, "")
+            # empty local spec -> we don't constrain it, assume OK
+            if not local_spec:
+                continue
+
+            # Now check whether there exists any released version of the dependency
+            # that satisfies both the package's requirement and our local constraint.
+            dep_pkg = fetch_package_info(dep_name)
+            if dep_pkg is None:
+                conflict = True
+                reasons.append(f"dependency {dep_name}: could not fetch metadata to verify {req.specifier}")
+                continue
+
+            dep_releases = list(dep_pkg.get("releases", {}).keys())
+            try:
+                dep_releases_sorted = sorted(dep_releases, key=lambda v: parse_version(v))
+            except Exception:
+                dep_releases_sorted = sorted(dep_releases)
+
+            try:
+                req_spec = req.specifier or SpecifierSet("")
+            except Exception:
+                req_spec = SpecifierSet("")
+
+            try:
+                local_specset = SpecifierSet(local_spec)
+            except Exception:
+                local_specset = SpecifierSet("")
+
+            intersection_found = False
+            for dv in dep_releases_sorted:
+                try:
+                    pv = parse_version(dv)
+                except Exception:
+                    continue
+                try:
+                    if (not req_spec or pv in req_spec) and (not local_specset or pv in local_specset):
+                        intersection_found = True
+                        break
+                except Exception:
+                    continue
+
+            if not intersection_found:
+                conflict = True
+                reasons.append(f"dependency {dep_name} has no release satisfying {req.specifier} and local {local_spec}")
+
+        if not conflict:
+            safe_steps[name] = candidate
+        else:
+            unsafe_reasons[name] = reasons
+
+    # Print safe step results
+    if safe_steps:
+        print("\nSafe to step (one-step) this round:")
+        for n, v in safe_steps.items():
+            candidate_url = f"https://pypi.org/project/{n}/{v}/"
+            print(f"- {n}: -> {v} ({candidate_url})")
+            # Fetch version-specific metadata and show declared requirements that map to our project deps
+            ver_meta = fetch_package_version_info(n, v)
+            if ver_meta is None:
+                print("  (could not fetch metadata for this specific version)")
+                continue
+            reqs = ver_meta.get("info", {}).get("requires_dist") or []
+            matched = []
+            for r in reqs:
+                try:
+                    req = Requirement(r)
+                except Exception:
+                    continue
+                dep_name = req.name
+                if dep_name in deps:
+                    spec = str(req.specifier) if req.specifier else ""
+                    marker = f"; {req.marker}" if getattr(req, "marker", None) is not None else ""
+                    matched.append((dep_name, spec, marker))
+
+            if matched:
+                print("  Declared requirements affecting project deps:")
+                for dep_name, spec, marker in matched:
+                    local = deps.get(dep_name) or "<no constraint>"
+                    print(f"  - {dep_name}: requires {spec}{marker} (you have: {local})")
+            else:
+                print("  (no declared requirements that match your project dependencies)")
+
+    if unsafe_reasons:
+        print("\nPackages skipped this round due to potential conflicts:")
+        for n, rs in unsafe_reasons.items():
+            print(f"- {n}: {', '.join(rs)}")
 
 
 def main(argv: list[str] | None = None) -> int:
