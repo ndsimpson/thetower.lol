@@ -25,10 +25,11 @@ class AdminAdManagementView(View):
         """Update the view with current advertisement status."""
         # Get all active advertisements in this guild
         active_ads = []
-        for thread_id, deletion_time, author_id, notify, ad_guild_id, thread_name, author_name in self.cog.pending_deletions:
+        cooldown_hours = self.cog._get_cooldown_hours(self.guild_id)
+        for thread_id, posted_time, author_id, notify, ad_guild_id, thread_name, author_name in self.cog.pending_deletions:
             if ad_guild_id == self.guild_id:
-                time_left = deletion_time - datetime.datetime.now()
-                hours_left = time_left.total_seconds() / 3600
+                expiration_time = posted_time + datetime.timedelta(hours=cooldown_hours)
+                hours_left = (expiration_time - datetime.datetime.now()).total_seconds() / 3600
                 active_ads.append((thread_id, thread_name, author_name, hours_left, notify))
 
         # Calculate pagination
@@ -88,6 +89,11 @@ class AdminAdManagementView(View):
             toggle_btn.callback = self.toggle_notifications
             self.add_item(toggle_btn)
 
+            # Add clear all ads button
+            clear_btn = Button(label="Clear All Ads", style=discord.ButtonStyle.danger, emoji="💥")
+            clear_btn.callback = self.clear_all_ads
+            self.add_item(clear_btn)
+
         # Add create advertisement button (switch to user view)
         create_btn = Button(label="Create Advertisement", style=discord.ButtonStyle.success, emoji="✨")
         create_btn.callback = self.create_advertisement
@@ -109,7 +115,7 @@ class AdminAdManagementView(View):
         """Handle deleting an advertisement."""
         # Get all ads in this guild
         guild_ads = []
-        for thread_id, deletion_time, author_id, notify, ad_guild_id, thread_name, author_name in self.cog.pending_deletions:
+        for thread_id, posted_time, author_id, notify, ad_guild_id, thread_name, author_name in self.cog.pending_deletions:
             if ad_guild_id == self.guild_id:
                 guild_ads.append((thread_id, thread_name, author_name))
 
@@ -154,7 +160,7 @@ class AdminAdManagementView(View):
         """Toggle notification settings for an advertisement."""
         # Get all ads in this guild
         guild_ads = []
-        for thread_id, deletion_time, author_id, notify, ad_guild_id, thread_name, author_name in self.cog.pending_deletions:
+        for thread_id, posted_time, author_id, notify, ad_guild_id, thread_name, author_name in self.cog.pending_deletions:
             if ad_guild_id == self.guild_id:
                 guild_ads.append((thread_id, thread_name, author_name, notify))
 
@@ -243,3 +249,76 @@ class AdminAdManagementView(View):
         view = GuildSettingsView(context)
         embed = await view.update_view(interaction)
         await interaction.response.edit_message(embed=embed, view=view)
+
+    async def clear_all_ads(self, interaction: discord.Interaction):
+        """Show a confirmation prompt before clearing all ads for this guild."""
+        guild_ad_count = sum(1 for _, _, _, _, gid, _, _ in self.cog.pending_deletions if gid == self.guild_id)
+        confirm_view = ClearAllAdsConfirmView(self.cog, self.guild_id, self)
+        embed = discord.Embed(
+            title="⚠️ Clear All Advertisements",
+            description=(
+                f"This will **permanently delete all {guild_ad_count} active advertisement(s)** in this server "
+                f"and reset all user and guild cooldowns.\n\n"
+                f"Users will be able to post again immediately. Are you sure?"
+            ),
+            color=discord.Color.red(),
+        )
+        await interaction.response.send_message(embed=embed, view=confirm_view, ephemeral=True)
+
+
+class ClearAllAdsConfirmView(View):
+    """Confirmation view before wiping all advertisements for a guild."""
+
+    def __init__(self, cog: "UnifiedAdvertise", guild_id: int, parent_view: "AdminAdManagementView"):
+        super().__init__(timeout=60)
+        self.cog = cog
+        self.guild_id = guild_id
+        self.parent_view = parent_view
+
+    @discord.ui.button(label="Yes, delete everything", style=discord.ButtonStyle.danger, emoji="🗑️")
+    async def confirm(self, interaction: discord.Interaction, button: Button):
+        """Proceed with clearing all ads and resetting cooldowns."""
+        await interaction.response.defer(ephemeral=True)
+
+        # Collect thread IDs to delete
+        thread_ids = [t_id for t_id, _, _, _, gid, _, _ in self.cog.pending_deletions if gid == self.guild_id]
+
+        deleted = 0
+        failed = 0
+        for thread_id in thread_ids:
+            try:
+                thread = await self.cog.bot.fetch_channel(thread_id)
+                await thread.delete()
+                deleted += 1
+            except discord.NotFound:
+                deleted += 1  # Already gone — still counts as cleared
+            except Exception as e:
+                self.cog.logger.error(f"ClearAllAds: failed to delete thread {thread_id}: {e}")
+                failed += 1
+
+        # Remove all guild entries from pending_deletions
+        self.cog.pending_deletions = [entry for entry in self.cog.pending_deletions if entry[4] != self.guild_id]
+        await self.cog._save_pending_deletions()
+
+        # Reset cooldowns for this guild
+        self.cog.cooldowns[self.guild_id] = {"users": {}, "guilds": {}}
+        await self.cog._save_cooldowns(self.guild_id)
+
+        result = f"✅ Cleared {deleted} advertisement(s) and reset all cooldowns."
+        if failed:
+            result += f" ({failed} thread(s) could not be deleted — they may still exist in Discord.)"
+
+        await interaction.followup.send(result, ephemeral=True)
+
+        # Refresh the parent admin view if possible
+        try:
+            embed = await self.parent_view.update_view(interaction)
+            await interaction.message.edit(embed=embed, view=self.parent_view)
+        except Exception:
+            pass
+
+    @discord.ui.button(label="Cancel", style=discord.ButtonStyle.secondary, emoji="✖️")
+    async def cancel(self, interaction: discord.Interaction, button: Button):
+        """Cancel the clear operation."""
+        await interaction.response.send_message("Cancelled. No advertisements were deleted.", ephemeral=True)
+        self.stop()

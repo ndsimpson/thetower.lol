@@ -18,7 +18,6 @@ from thetower.bot.basecog import BaseCog
 from .ui import (
     AdManagementView,
     AdminAdManagementView,
-    AdvertisementType,
     UnifiedAdvertiseSettingsView,
 )
 
@@ -75,7 +74,6 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
 
                 tracked_ids = {t_id for t_id, _, _, _, _, _, _ in self.pending_deletions}
                 new_orphans = 0
-                cooldown_hours = self._get_cooldown_hours(guild_id)
 
                 for thread in threads:
                     if thread.id not in tracked_ids:
@@ -91,9 +89,10 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
                             author_name = f"User {user_id}"
 
                         # Add all orphans regardless of pin status
-                        deletion_time = datetime.datetime.now() + datetime.timedelta(hours=cooldown_hours)
+                        # Use the thread's actual creation time (naive UTC) as the posted_time
+                        posted_time = thread.created_at.replace(tzinfo=None)
                         notify = False
-                        self.pending_deletions.append((thread.id, deletion_time, user_id, notify, guild_id, thread_name, author_name))
+                        self.pending_deletions.append((thread.id, posted_time, user_id, notify, guild_id, thread_name, author_name))
                         new_orphans += 1
 
                         # Update cooldown timestamps to match this thread's creation time
@@ -108,8 +107,8 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
                                 f"Updated user {user_id} cooldown to match orphaned thread {thread.id} creation time", guild_id
                             )
 
-                        # For guild advertisements, also update guild cooldown
-                        if ad_type == "guild" and ad_guild_id:
+                        # Always update guild cooldown when there's an in-game guild ID
+                        if ad_guild_id:
                             guild_cooldowns["guilds"][ad_guild_id] = thread_creation_timestamp
                             await self._send_debug_message(
                                 f"Updated guild {ad_guild_id} cooldown to match orphaned thread {thread.id} creation time", guild_id
@@ -141,8 +140,7 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
         "cooldown_hours": 24,
         "advertise_channel_id": None,
         "mod_channel_id": None,
-        "guild_tag_id": None,
-        "member_tag_id": None,
+        "custom_tags": [],
         "testing_channel_id": None,
         "debug_enabled": False,
     }
@@ -153,7 +151,8 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
         # Multi-guild data structures (will be populated in cog_initialize)
         # Format: {guild_id: {"users": {}, "guilds": {}}}
         self.cooldowns = {}
-        # Format: [(thread_id, deletion_time, author_id, notify, guild_id), ...]
+        # Format: [(thread_id, posted_time, author_id, notify, guild_id, thread_name, author_name), ...]
+        # posted_time is when the ad was created; expiry = posted_time + cooldown_hours (looked up live)
         self.pending_deletions = []
         # Format: {str(user_id): {"guild": {...fields}, "member": {...fields}}}
         self.last_ads = {}
@@ -181,13 +180,9 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
         """Get mod channel ID setting for a guild."""
         return self.get_setting("mod_channel_id", default=None, guild_id=guild_id)
 
-    def _get_guild_tag_id(self, guild_id: int) -> Optional[int]:
-        """Get guild tag ID setting for a guild."""
-        return self.get_setting("guild_tag_id", default=None, guild_id=guild_id)
-
-    def _get_member_tag_id(self, guild_id: int) -> Optional[int]:
-        """Get member tag ID setting for a guild."""
-        return self.get_setting("member_tag_id", default=None, guild_id=guild_id)
+    def _get_custom_tags(self, guild_id: int) -> list:
+        """Get custom tag groups configuration for a guild."""
+        return self.get_setting("custom_tags", default=[], guild_id=guild_id) or []
 
     def _get_testing_channel_id(self, guild_id: int) -> Optional[int]:
         """Get testing channel ID setting for a guild."""
@@ -216,7 +211,9 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
         user_key = str(user_id)
         if user_key not in self.last_ads:
             self.last_ads[user_key] = {}
-        self.last_ads[user_key][ad_type] = ad_data
+        # Store a copy with a _last_posted timestamp so the cleanup task can prune stale records
+        stamped = {**ad_data, "_last_posted": datetime.datetime.now(datetime.timezone.utc).isoformat()}
+        self.last_ads[user_key][ad_type] = stamped
         self.mark_data_modified()
 
     def get_last_ad_data(self, user_id: int) -> dict:
@@ -355,8 +352,9 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
 
     @tasks.loop(hours=168)  # 168 hours = 1 week
     async def weekly_cleanup(self) -> None:
-        """Weekly task to clean up expired cooldowns."""
+        """Weekly task to clean up expired cooldowns and stale last-ad templates."""
         await self._cleanup_cooldowns()
+        await self._cleanup_last_ads()
 
     @tasks.loop(minutes=1)  # Check for threads to delete every minute
     async def check_deletions(self) -> None:
@@ -365,12 +363,16 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
             current_time = datetime.datetime.now()
             to_remove = []  # Track entries to remove
 
-            for thread_id, deletion_time, author_id, notify, guild_id, thread_name, author_name in self.pending_deletions:
+            for thread_id, posted_time, author_id, notify, guild_id, thread_name, author_name in self.pending_deletions:
                 # Skip if this guild is paused
                 if self.get_setting("paused", default=False, guild_id=guild_id):
                     continue
 
-                if current_time >= deletion_time:
+                # Compute expiry dynamically from the current cooldown setting
+                cooldown_hours = self._get_cooldown_hours(guild_id)
+                expiration_time = posted_time + datetime.timedelta(hours=cooldown_hours)
+
+                if current_time >= expiration_time:
                     try:
                         # Try to get the thread
                         thread = await self.bot.fetch_channel(thread_id)
@@ -481,28 +483,48 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
             data = await self.load_data(file_path, default=[])
             converted_data = []
 
+            now = datetime.datetime.now()
             for entry in data:
-                if len(entry) == 7:  # New format with names
-                    thread_id, del_time, author_id, notify, guild_id, thread_name, author_name = entry
-                    if isinstance(del_time, str):
-                        del_time = datetime.datetime.fromisoformat(del_time)
-                    converted_data.append((int(thread_id), del_time, int(author_id), bool(notify), int(guild_id), str(thread_name), str(author_name)))
+                if len(entry) == 7:  # Current format with names
+                    thread_id, stored_time, author_id, notify, guild_id, thread_name, author_name = entry
+                    if isinstance(stored_time, str):
+                        stored_time = datetime.datetime.fromisoformat(stored_time)
+                    # Migration: if stored_time is in the future it was a deletion_time (old format).
+                    # Convert to posted_time by subtracting the current cooldown_hours.
+                    if stored_time > now:
+                        cooldown_hours = self._get_cooldown_hours(int(guild_id)) if guild_id else 168
+                        posted_time = stored_time - datetime.timedelta(hours=cooldown_hours)
+                        self.logger.info(f"Migrated thread {thread_id}: converted deletion_time to posted_time")
+                    else:
+                        posted_time = stored_time
+                    converted_data.append(
+                        (int(thread_id), posted_time, int(author_id), bool(notify), int(guild_id), str(thread_name), str(author_name))
+                    )
                 elif len(entry) == 5:  # Old format with guild_id but no names
-                    thread_id, del_time, author_id, notify, guild_id = entry
-                    if isinstance(del_time, str):
-                        del_time = datetime.datetime.fromisoformat(del_time)
+                    thread_id, stored_time, author_id, notify, guild_id = entry
+                    if isinstance(stored_time, str):
+                        stored_time = datetime.datetime.fromisoformat(stored_time)
+                    if stored_time > now:
+                        cooldown_hours = self._get_cooldown_hours(int(guild_id)) if guild_id else 168
+                        posted_time = stored_time - datetime.timedelta(hours=cooldown_hours)
+                    else:
+                        posted_time = stored_time
                     # Fetch names for migration
                     thread_name, author_name = await self._fetch_names_for_migration(thread_id, author_id)
-                    converted_data.append((int(thread_id), del_time, int(author_id), bool(notify), int(guild_id), thread_name, author_name))
+                    converted_data.append((int(thread_id), posted_time, int(author_id), bool(notify), int(guild_id), thread_name, author_name))
                     self.logger.info(f"Migrated deletion entry for thread {thread_id} to include names")
                 elif len(entry) == 4:  # Old format without guild_id (thread_id, time, author_id, notify)
-                    thread_id, del_time, author_id, notify = entry
-                    if isinstance(del_time, str):
-                        del_time = datetime.datetime.fromisoformat(del_time)
-                    # Try to determine guild_id from thread and fetch names
+                    thread_id, stored_time, author_id, notify = entry
+                    if isinstance(stored_time, str):
+                        stored_time = datetime.datetime.fromisoformat(stored_time)
                     guild_id = await self._get_thread_guild_id(thread_id)
+                    if stored_time > now:
+                        cooldown_hours = self._get_cooldown_hours(int(guild_id)) if guild_id else 168
+                        posted_time = stored_time - datetime.timedelta(hours=cooldown_hours)
+                    else:
+                        posted_time = stored_time
                     thread_name, author_name = await self._fetch_names_for_migration(thread_id, author_id)
-                    converted_data.append((int(thread_id), del_time, int(author_id), bool(notify), guild_id, thread_name, author_name))
+                    converted_data.append((int(thread_id), posted_time, int(author_id), bool(notify), guild_id, thread_name, author_name))
                     self.logger.info(f"Migrated deletion entry for thread {thread_id} to include guild_id {guild_id} and names")
                 else:
                     self.logger.warning(f"Invalid deletion entry format: {entry}")
@@ -570,14 +592,14 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
             serializable_data = [
                 (
                     thread_id,
-                    deletion_time.isoformat() if isinstance(deletion_time, datetime.datetime) else deletion_time,
+                    posted_time.isoformat() if isinstance(posted_time, datetime.datetime) else posted_time,
                     author_id,
                     notify,
                     guild_id,
                     thread_name,
                     author_name,
                 )
-                for thread_id, deletion_time, author_id, notify, guild_id, thread_name, author_name in self.pending_deletions
+                for thread_id, posted_time, author_id, notify, guild_id, thread_name, author_name in self.pending_deletions
             ]
 
             await self.save_data_if_modified(serializable_data, deletions_file)
@@ -623,6 +645,71 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
             self.logger.error(f"Error during cooldown cleanup: {e}")
             self._has_errors = True
 
+    async def _cleanup_last_ads(self) -> None:
+        """Remove stale and obsolete data from the last-ad template store.
+
+        Runs weekly.  Two things are cleaned:
+        - Any "member" key in any user record (member ads no longer exist).
+        - Any user record whose most recent ad was posted more than 30 days ago.
+
+        Records that pre-date this feature (no _last_posted field) are stamped with
+        the current time on first encounter, giving them a 30-day grace period.
+        """
+        try:
+            cutoff = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=30)
+            now_iso = datetime.datetime.now(datetime.timezone.utc).isoformat()
+            users_removed = 0
+            keys_cleaned = 0
+            modified = False
+
+            for user_key in list(self.last_ads.keys()):
+                user_record = self.last_ads[user_key]
+
+                # Remove obsolete member-ad templates
+                if "member" in user_record:
+                    del user_record["member"]
+                    keys_cleaned += 1
+                    modified = True
+
+                # For each remaining ad type, check _last_posted
+                for ad_type in list(user_record.keys()):
+                    ad_data = user_record[ad_type]
+                    if not isinstance(ad_data, dict):
+                        continue
+
+                    last_posted_str = ad_data.get("_last_posted")
+                    if last_posted_str is None:
+                        # Pre-dates stamping — grant a 30-day grace period from now
+                        ad_data["_last_posted"] = now_iso
+                        modified = True
+                        continue
+
+                    try:
+                        last_posted = datetime.datetime.fromisoformat(last_posted_str)
+                        if last_posted.tzinfo is None:
+                            last_posted = last_posted.replace(tzinfo=datetime.timezone.utc)
+                    except (ValueError, TypeError):
+                        ad_data["_last_posted"] = now_iso
+                        modified = True
+                        continue
+
+                    if last_posted < cutoff:
+                        del user_record[ad_type]
+                        keys_cleaned += 1
+                        modified = True
+
+                # Prune the entire user record if nothing remains
+                if not user_record:
+                    del self.last_ads[user_key]
+                    users_removed += 1
+
+            if modified:
+                await self._save_last_ads()
+                self.logger.info(f"Last-ads cleanup: removed {users_removed} user record(s), " f"pruned {keys_cleaned} stale/obsolete key(s)")
+        except Exception as e:
+            self.logger.error(f"Error during last-ads cleanup: {e}", exc_info=True)
+            self._has_errors = True
+
     async def _save_cooldowns(self, guild_id: int = None) -> None:
         """Save cooldowns - updated for multi-guild support."""
         if guild_id:
@@ -650,7 +737,7 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
             return
 
         to_remove = []
-        for thread_id, deletion_time, author_id, notify, guild_id, thread_name, author_name in self.pending_deletions:
+        for thread_id, posted_time, author_id, notify, guild_id, thread_name, author_name in self.pending_deletions:
             try:
                 # Try to fetch the thread - if it doesn't exist, mark for removal
                 await self.bot.fetch_channel(thread_id)
@@ -772,16 +859,13 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
             except Exception as e:
                 self.logger.error(f"Failed to send debug message to testing channel: {e}")
 
-    async def check_cooldowns(
-        self, interaction: discord.Interaction, user_id: int, ad_guild_id: Optional[str] = None, ad_type: Optional[str] = None
-    ) -> bool:
+    async def check_cooldowns(self, interaction: discord.Interaction, user_id: int, ad_guild_id: Optional[str] = None) -> bool:
         """Check if user or guild is on cooldown and handle the response.
 
         Args:
             interaction: The discord interaction
             user_id: Discord user ID
-            ad_guild_id: In-game Guild ID for guild advertisements (optional) - will be normalized for consistent checking
-            ad_type: Type of advertisement (guild or member)
+            ad_guild_id: In-game Guild ID for guild advertisements (optional)
 
         Returns:
             bool: True if not on cooldown, False if on cooldown
@@ -792,19 +876,18 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
             return False
 
         # Check if user or guild is banned
-        if ad_type == AdvertisementType.GUILD and ad_guild_id:
-            # Normalize the guild ID
+        if ad_guild_id:
+            # Normalize the in-game guild ID
             normalized_guild_id = self._normalize_guild_id(ad_guild_id)
             banned_guilds = self.get_setting("banned_guilds", default=[], guild_id=discord_guild_id)
             if isinstance(banned_guilds, list) and normalized_guild_id in banned_guilds:
                 await interaction.response.send_message("❌ This guild has been banned from posting advertisements in this server.", ephemeral=True)
                 return False
 
-        if ad_type == AdvertisementType.MEMBER:
-            banned_users = self.get_setting("banned_users", default=[], guild_id=discord_guild_id)
-            if isinstance(banned_users, list) and user_id in banned_users:
-                await interaction.response.send_message("❌ You have been banned from posting member advertisements in this server.", ephemeral=True)
-                return False
+        banned_users = self.get_setting("banned_users", default=[], guild_id=discord_guild_id)
+        if isinstance(banned_users, list) and user_id in banned_users:
+            await interaction.response.send_message("❌ You have been banned from posting advertisements in this server.", ephemeral=True)
+            return False
 
         # Ensure guild is initialized
         self._ensure_guild_initialized(discord_guild_id)
@@ -842,7 +925,6 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
                         await mod_channel.send(
                             f"⚠️ **Advertisement Cooldown Bypass Attempt**\n"
                             f"User: {interaction.user.name} (ID: {interaction.user.id})\n"
-                            f"Type: User cooldown ({ad_type})\n"
                             f"Time remaining: {hours_left:.1f} hours"
                         )
 
@@ -891,7 +973,13 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
         return True
 
     async def post_advertisement(
-        self, interaction: discord.Interaction, embed: discord.Embed, thread_title: str, ad_type: str, ad_guild_id: Optional[str], notify: bool
+        self,
+        interaction: discord.Interaction,
+        embed: discord.Embed,
+        thread_title: str,
+        ad_guild_id: Optional[str],
+        notify: bool,
+        tag_ids: Optional[List[int]] = None,
     ) -> None:
         """Post the advertisement as a thread in the forum channel.
 
@@ -899,9 +987,9 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
             interaction: Discord interaction object (response already sent)
             embed: Embed to post
             thread_title: Title for the forum thread
-            ad_type: Type of advertisement (guild or member)
             ad_guild_id: In-game Guild ID (optional, for guild advertisements)
             notify: Whether to notify the user when the ad expires
+            tag_ids: List of Discord forum tag IDs to apply
         """
         start_time = time.time()
 
@@ -911,7 +999,7 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
             await interaction.followup.send("❌ This command must be used in a server.", ephemeral=True)
             return
 
-        await self._send_debug_message(f"Starting post_advertisement for user {interaction.user.id} ({interaction.user.name}), type: {ad_type}")
+        await self._send_debug_message(f"Starting post_advertisement for user {interaction.user.id} ({interaction.user.name})")
 
         try:
             # Ensure guild is initialized
@@ -919,9 +1007,6 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
 
             # Get guild-specific settings
             advertise_channel_id = self._get_advertise_channel_id(discord_guild_id)
-            guild_tag_id = self._get_guild_tag_id(discord_guild_id)
-            member_tag_id = self._get_member_tag_id(discord_guild_id)
-            cooldown_hours = self._get_cooldown_hours(discord_guild_id)
 
             # Get the forum channel first (quick check)
             channel_fetch_start = time.time()
@@ -938,28 +1023,16 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
 
             # Now do the heavy work (initial response already sent by form)
             async with self.task_tracker.task_context("Posting Advertisement"):
-                # Determine which tag to apply based on advertisement type
+                # Resolve custom tag objects from provided tag_ids
                 applied_tags = []
-                if ad_type == AdvertisementType.GUILD and guild_tag_id:
+                if tag_ids:
+                    tag_id_set = set(tag_ids)
                     try:
-                        # Find the tag object by ID
                         for tag in channel.available_tags:
-                            if tag.id == guild_tag_id:
+                            if tag.id in tag_id_set:
                                 applied_tags.append(tag)
-                                break
                     except Exception as e:
-                        self.logger.error(f"Error finding guild tag: {e}")
-                        self._has_errors = True
-
-                elif ad_type == AdvertisementType.MEMBER and member_tag_id:
-                    try:
-                        # Find the tag object by ID
-                        for tag in channel.available_tags:
-                            if tag.id == member_tag_id:
-                                applied_tags.append(tag)
-                                break
-                    except Exception as e:
-                        self.logger.error(f"Error finding member tag: {e}")
+                        self.logger.error(f"Error resolving custom tags: {e}")
                         self._has_errors = True
 
                 # Create the forum thread with tags
@@ -976,7 +1049,7 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
 
                 thread = thread_with_message.thread
                 await self._send_debug_message(
-                    f"✅ Created advertisement thread: {thread.id} for user {interaction.user.id} ({interaction.user.name}), type: {ad_type}"
+                    f"✅ Created advertisement thread: {thread.id} for user {interaction.user.id} ({interaction.user.name})"
                 )
                 self._operation_count += 1
                 self._last_operation_time = datetime.datetime.now()
@@ -989,7 +1062,7 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
                 guild_cooldowns = self.cooldowns.get(discord_guild_id, {"users": {}, "guilds": {}})
                 guild_cooldowns["users"][str(interaction.user.id)] = current_time
 
-                # If it's a guild advertisement, also add in-game guild cooldown
+                # Also add in-game guild cooldown if present
                 if ad_guild_id:
                     guild_cooldowns["guilds"][ad_guild_id] = current_time
 
@@ -1000,10 +1073,10 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
 
                 # Schedule thread for deletion with author ID, notification preference, and guild ID
                 schedule_start = time.time()
-                deletion_time = datetime.datetime.now() + datetime.timedelta(hours=cooldown_hours)
+                posted_time = datetime.datetime.now()
                 thread_name = thread.name
                 author_name = interaction.user.name
-                self.pending_deletions.append((thread.id, deletion_time, interaction.user.id, notify, discord_guild_id, thread_name, author_name))
+                self.pending_deletions.append((thread.id, posted_time, interaction.user.id, notify, discord_guild_id, thread_name, author_name))
                 await self._save_pending_deletions()
                 schedule_time = time.time() - schedule_start
                 await self._send_debug_message(f"Deletion scheduling took {schedule_time:.2f}s for user {interaction.user.id}")
@@ -1197,8 +1270,8 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
                                 f"Updated user {thread_user_id} cooldown to match kept thread {keep_thread.id} creation time", guild_id
                             )
 
-                        # Update guild cooldown for guild advertisements
-                        if thread_ad_type == "guild" and thread_guild_id:
+                        # Update guild cooldown for advertisement with in-game guild ID
+                        if thread_guild_id:
                             guild_cooldowns["guilds"][thread_guild_id] = thread_creation_timestamp
                             await self._send_debug_message(
                                 f"Updated guild {thread_guild_id} cooldown to match kept thread {keep_thread.id} creation time", guild_id

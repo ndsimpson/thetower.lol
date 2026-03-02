@@ -3,30 +3,32 @@
 
 from .admin import AdminAdManagementView
 from .core import (
-    AdTypeSelection,
     AdvertisementType,
     EditGuildAdvertisementForm,
-    EditMemberAdvertisementForm,
     GuildAdvertisementForm,
     GuildAdvertisementTemplateForm,
-    MemberAdvertisementForm,
-    MemberAdvertisementTemplateForm,
     NotificationView,
+    TagSelectionView,
 )
-from .settings import AdDetailView, AdListView, AdTypeSelectionView, SettingsView, UnifiedAdvertiseSettingsView
+from .settings import (
+    AdDetailView,
+    AdListView,
+    AdTypeSelectionView,
+    CustomTagsManagementView,
+    SettingsView,
+    TagGroupOptionsView,
+    UnifiedAdvertiseSettingsView,
+)
 from .user import AdManagementView
 
 __all__ = [
     # Core advertisement creation
     "AdvertisementType",
-    "AdTypeSelection",
     "GuildAdvertisementForm",
     "GuildAdvertisementTemplateForm",
-    "MemberAdvertisementForm",
-    "MemberAdvertisementTemplateForm",
     "EditGuildAdvertisementForm",
-    "EditMemberAdvertisementForm",
     "NotificationView",
+    "TagSelectionView",
     # User management
     "AdManagementView",
     # Admin management
@@ -37,4 +39,6 @@ __all__ = [
     # Settings management
     "SettingsView",
     "UnifiedAdvertiseSettingsView",
+    "CustomTagsManagementView",
+    "TagGroupOptionsView",
 ]

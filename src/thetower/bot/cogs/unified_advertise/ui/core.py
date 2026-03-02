@@ -3,7 +3,7 @@ import re
 
 # Third-party imports
 import discord
-from discord.ui import Button, Modal, TextInput, View
+from discord.ui import Button, Modal, Select, TextInput, View
 
 from thetower.bot.ui.context import SettingsViewContext
 
@@ -12,60 +12,6 @@ class AdvertisementType:
     """Constants for advertisement types."""
 
     GUILD: str = "guild"
-    MEMBER: str = "member"
-
-
-class AdTypeSelection(View):
-    """View with buttons to select advertisement type."""
-
-    def __init__(self, context: SettingsViewContext) -> None:
-        """Initialize the view with a reference to the cog.
-
-        Args:
-            context: The settings view context
-        """
-        super().__init__(timeout=900)  # 15 minute timeout
-        self.cog = context.cog_instance
-        self.context = context
-
-    @discord.ui.button(label="Guild Advertisement", style=discord.ButtonStyle.primary, emoji="🏰")
-    async def guild_button(self, interaction: discord.Interaction, button: Button) -> None:
-        # Defer the response early to prevent timeouts
-        if not interaction.response.is_done():
-            await interaction.response.defer(ephemeral=True)
-
-        form = GuildAdvertisementForm(self.context)
-        view = NotificationView(form)
-
-        if interaction.response.is_done():
-            await interaction.followup.send("Please select your notification preference:", view=view, ephemeral=True)
-        else:
-            await interaction.response.send_message("Please select your notification preference:", view=view, ephemeral=True)
-
-    @discord.ui.button(label="Member Advertisement", style=discord.ButtonStyle.success, emoji="👤")
-    async def member_button(self, interaction: discord.Interaction, button: Button) -> None:
-        # Defer the response early to prevent timeouts
-        if not interaction.response.is_done():
-            await interaction.response.defer(ephemeral=True)
-
-        form = MemberAdvertisementForm(self.context)
-        view = NotificationView(form)  # Reuse the same NotificationView
-
-        if interaction.response.is_done():
-            await interaction.followup.send("Please select your notification preference:", view=view, ephemeral=True)
-        else:
-            await interaction.response.send_message("Please select your notification preference:", view=view, ephemeral=True)
-
-    async def on_timeout(self) -> None:
-        # Disable all buttons when the view times out
-        for item in self.children:
-            item.disabled = True
-        # Try to edit the original message with disabled buttons
-        try:
-            if hasattr(self, "message"):
-                await self.message.edit(view=self)
-        except discord.NotFound:
-            pass  # Message might have been deleted
 
 
 class GuildAdvertisementForm(Modal, title="Guild Advertisement Form"):
@@ -96,9 +42,6 @@ class GuildAdvertisementForm(Modal, title="Guild Advertisement Form"):
     )
 
     async def on_submit(self, interaction: discord.Interaction) -> None:
-        import time
-
-        start_time = time.time()
         self.interaction = interaction  # Store interaction when form is submitted
         await self.cog._send_debug_message(f"Guild advertisement form submitted by user {interaction.user.id} ({interaction.user.name})")
 
@@ -111,21 +54,11 @@ class GuildAdvertisementForm(Modal, title="Guild Advertisement Form"):
             )
             return
 
-        # Process notification preference
-        notify = self.notify
-
         # Check cooldowns before processing
         user_id = interaction.user.id
-        cooldown_start = time.time()
+        discord_guild_id = interaction.guild.id if interaction.guild else None
 
-        cooldown_check = await self.cog.check_cooldowns(interaction, user_id, guild_id, AdvertisementType.GUILD)
-        cooldown_time = time.time() - cooldown_start
-        await self.cog._send_debug_message(f"Cooldown check completed in {cooldown_time:.2f}s for user {interaction.user.id}")
-
-        # Warn if cooldown check took too long
-        if cooldown_time > 1.0:
-            await self.cog._send_debug_message(f"⚠️ Cooldown check took {cooldown_time:.2f}s - potential timeout risk for user {interaction.user.id}")
-
+        cooldown_check = await self.cog.check_cooldowns(interaction, user_id, guild_id)
         if not cooldown_check:
             return
 
@@ -135,36 +68,50 @@ class GuildAdvertisementForm(Modal, title="Guild Advertisement Form"):
         )
 
         embed.set_author(name=f"Guild Ad by {interaction.user.name}", icon_url=interaction.user.avatar.url if interaction.user.avatar else None)
-        embed.add_field(name="Guild ID", value=guild_id, inline=True)  # Display uppercase ID
+        embed.add_field(name="Guild ID", value=guild_id, inline=True)
         embed.add_field(name="Leader", value=self.guild_leader.value, inline=True)
         embed.add_field(name="Member Count", value=self.member_count.value, inline=True)
         embed.add_field(name="Posted by", value=f"<@{interaction.user.id}>", inline=True)
         embed.set_footer(text="Use /advertise to submit your own advertisement")
 
-        # CRITICAL: Respond to interaction IMMEDIATELY before heavy work
-        discord_guild_id = interaction.guild.id if interaction.guild else None
-        cooldown_hours = self.cog._get_cooldown_hours(discord_guild_id) if discord_guild_id else 168
-
-        await interaction.response.send_message(
-            f"Thank you! Your {AdvertisementType.GUILD} advertisement is being posted. " f"It will remain visible for {cooldown_hours} hours.",
-            ephemeral=True,
-        )
-
-        # Post advertisement and update cooldowns
         thread_title = f"[Guild] {self.guild_name.value} ({guild_id})"
-        total_time = time.time() - start_time
-        await self.cog._send_debug_message(
-            f"Guild form processing completed in {total_time:.2f}s, posting advertisement for user {interaction.user.id}"
-        )
-        # Save last ad data as a template for future use
-        self.cog.save_last_ad_data(interaction.user.id, AdvertisementType.GUILD, {
+
+        form_data = {
             "guild_name": self.guild_name.value,
             "guild_id": guild_id,
             "guild_leader": self.guild_leader.value,
             "member_count": self.member_count.value,
             "description": self.description.value,
-        })
-        await self.cog.post_advertisement(interaction, embed, thread_title, AdvertisementType.GUILD, guild_id, notify)
+        }
+
+        # Check for custom tags — show tag selection view if any are configured
+        custom_tags = self.cog._get_custom_tags(discord_guild_id) if discord_guild_id else []
+        if custom_tags:
+            context = SettingsViewContext(guild_id=discord_guild_id, cog_instance=self.cog, interaction=interaction, is_bot_owner=False)
+            pending = {
+                "user_id": user_id,
+                "embed": embed,
+                "thread_title": thread_title,
+                "ad_guild_id": guild_id,
+                "notify": self.notify,
+                "form_data": form_data,
+            }
+            view = TagSelectionView(context, pending)
+            tag_embed = discord.Embed(
+                title="🏷️ Select Tags",
+                description="Choose tags for your advertisement, then click **Post Advertisement**.",
+                color=discord.Color.blurple(),
+            )
+            await interaction.response.send_message(embed=tag_embed, view=view, ephemeral=True)
+        else:
+            cooldown_hours = self.cog._get_cooldown_hours(discord_guild_id) if discord_guild_id else 168
+            await interaction.response.send_message(
+                f"Thank you! Your guild advertisement is being posted. It will remain visible for {cooldown_hours} hours.",
+                ephemeral=True,
+            )
+            await self.cog._send_debug_message(f"Guild form processing completed, posting advertisement for user {interaction.user.id}")
+            self.cog.save_last_ad_data(user_id, AdvertisementType.GUILD, form_data)
+            await self.cog.post_advertisement(interaction, embed, thread_title, guild_id, self.notify, tag_ids=[])
 
     async def on_timeout(self) -> None:
         """Handle form timeout."""
@@ -278,110 +225,9 @@ class EditGuildAdvertisementForm(Modal, title="Edit Guild Advertisement"):
             pass
 
 
-class EditMemberAdvertisementForm(Modal, title="Edit Member Advertisement"):
-    """Modal form for editing member advertisement information."""
-
-    def __init__(self, context: SettingsViewContext, thread_id: int, message_id: int, current_embed: discord.Embed) -> None:
-        """Initialize the edit form with current advertisement data.
-
-        Args:
-            context: The settings view context
-            thread_id: The thread ID of the advertisement
-            message_id: The message ID of the starter message
-            current_embed: The current embed to extract data from
-        """
-        super().__init__(timeout=900)  # 15 minute timeout
-        self.cog = context.cog_instance
-        self.context = context
-        self.thread_id = thread_id
-        self.message_id = message_id
-        self.interaction = None
-
-        # Extract current values from embed
-        player_id = ""
-        weekly_boxes = ""
-        additional_info = ""
-
-        for field in current_embed.fields:
-            if field.name == "Player ID":
-                # Extract player ID from markdown link if present
-                value = field.value
-                if value.startswith("[") and "](" in value:
-                    player_id = value.split("[")[1].split("]")[0]
-                else:
-                    player_id = value
-            elif field.name == "Weekly Box Count":
-                weekly_boxes = field.value
-            elif field.name == "Additional Info":
-                additional_info = field.value
-
-        # Set default values for text inputs
-        self.player_id = TextInput(label="Player ID", placeholder="Your player ID", required=True, max_length=50, default=player_id[:50])
-        self.weekly_boxes = TextInput(
-            label="Weekly Box Count",
-            placeholder="How many weekly boxes do you usually clear? (out of 7)",
-            required=True,
-            max_length=10,
-            default=weekly_boxes[:10],
-        )
-        self.additional_info = TextInput(
-            label="Additional Information",
-            placeholder="What else should we know about you?",
-            required=True,
-            max_length=1000,
-            style=discord.TextStyle.paragraph,
-            default=additional_info[:1000],
-        )
-
-        # Add the fields to the modal
-        self.add_item(self.player_id)
-        self.add_item(self.weekly_boxes)
-        self.add_item(self.additional_info)
-
-    async def on_submit(self, interaction: discord.Interaction) -> None:
-        self.interaction = interaction
-
-        # Check if player ID is valid (only A-Z, 0-9)
-        player_id = self.player_id.value.upper()
-        if not re.match(r"^[A-Z0-9]+$", player_id):
-            self.cog.logger.warning(f"User {interaction.user.id} provided invalid player ID format: {player_id}")
-            await interaction.response.send_message("Player ID can only contain letters A-Z and numbers 0-9.", ephemeral=True)
-            return
-
-        # Create updated member advertisement embed
-        embed = discord.Embed(title=f"Player: {interaction.user.name}", color=discord.Color.green(), timestamp=discord.utils.utcnow())
-
-        embed.set_author(name=f"Submitted by {interaction.user.name}", icon_url=interaction.user.avatar.url if interaction.user.avatar else None)
-
-        # Make the Player ID a clickable link (uppercase)
-        url_value = f"[{player_id}](https://thetower.lol/player?player={player_id})"
-        embed.add_field(name="Player ID", value=url_value, inline=True)
-        embed.add_field(name="Weekly Box Count", value=self.weekly_boxes.value, inline=True)
-        embed.add_field(name="Posted by", value=f"<@{interaction.user.id}>", inline=True)
-        embed.add_field(name="Additional Info", value=self.additional_info.value, inline=False)
-        embed.set_footer(text="Use /advertise to submit your own advertisement")
-
-        # Update the advertisement
-        thread_title = f"[Member] {interaction.user.name} ({player_id})"
-        await interaction.response.send_message("✏️ Updating your advertisement...", ephemeral=True)
-
-        success = await self.cog.update_advertisement(interaction, self.thread_id, self.message_id, embed, thread_title)
-
-        if success:
-            await interaction.edit_original_response(content="✅ Your advertisement has been updated successfully!")
-        else:
-            await interaction.edit_original_response(content="❌ Failed to update advertisement. It may have been deleted.")
-
-    async def on_timeout(self) -> None:
-        """Handle form timeout."""
-        try:
-            if self.interaction:
-                await self.interaction.response.send_message("The form timed out. Please try editing your advertisement again.", ephemeral=True)
-        except (discord.NotFound, discord.HTTPException):
-            pass
-
-
 class NotificationView(View):
+    """View for selecting notification preference before submitting a form."""
+
     def __init__(self, form: GuildAdvertisementForm):
         super().__init__(timeout=900)
         self.form = form
@@ -398,93 +244,13 @@ class NotificationView(View):
 
 
 class MemberAdvertisementForm(Modal, title="Member Advertisement Form"):
-    """Modal form for collecting member advertisement information."""
+    """Removed — member advertisements are no longer supported.
 
-    def __init__(self, context: SettingsViewContext) -> None:
-        """Initialize the view with a reference to the cog.
+    This stub is kept temporarily to avoid import errors.
+    DO NOT USE.
+    """
 
-        Args:
-            context: The settings view context
-        """
-        super().__init__(timeout=900)  # 15 minute timeout
-        self.cog = context.cog_instance
-        self.context = context
-        self.notify = True
-        self.interaction = None  # Store interaction object
-
-    player_id = TextInput(label="Player ID", placeholder="Your player ID", required=True, max_length=50)
-
-    weekly_boxes = TextInput(
-        label="Weekly Box Count", placeholder="How many weekly boxes do you usually clear? (out of 7)", required=True, max_length=10
-    )
-
-    additional_info = TextInput(
-        label="Additional Information",
-        placeholder="What else should we know about you?",
-        required=True,
-        max_length=1000,
-        style=discord.TextStyle.paragraph,
-    )
-
-    async def on_submit(self, interaction: discord.Interaction) -> None:
-        self.interaction = interaction  # Store interaction when form is submitted
-        # Check if player ID is valid (only A-Z, 0-9)
-        player_id = self.player_id.value.upper()
-        if not re.match(r"^[A-Z0-9]+$", player_id):
-            self.cog.logger.warning(f"User {interaction.user.id} provided invalid player ID format: {player_id}")
-            await interaction.response.send_message("Player ID can only contain letters A-Z and numbers 0-9.", ephemeral=True)
-            return
-
-        # Process notification preference
-        notify = self.notify
-
-        # Check cooldowns before processing
-        user_id = interaction.user.id
-
-        cooldown_check = await self.cog.check_cooldowns(interaction, user_id, None, AdvertisementType.MEMBER)
-
-        if not cooldown_check:
-            return
-
-        # Create member advertisement embed
-        embed = discord.Embed(title=f"Player: {interaction.user.name}", color=discord.Color.green(), timestamp=discord.utils.utcnow())
-
-        embed.set_author(name=f"Submitted by {interaction.user.name}", icon_url=interaction.user.avatar.url if interaction.user.avatar else None)
-
-        # Make the Player ID a clickable link (uppercase)
-        url_value = f"[{player_id}](https://thetower.lol/player?player={player_id})"
-        embed.add_field(name="Player ID", value=url_value, inline=True)
-        embed.add_field(name="Weekly Box Count", value=self.weekly_boxes.value, inline=True)
-        embed.add_field(name="Posted by", value=f"<@{interaction.user.id}>", inline=True)
-        embed.add_field(name="Additional Info", value=self.additional_info.value, inline=False)
-        embed.set_footer(text="Use /advertise to submit your own advertisement")
-
-        # CRITICAL: Respond to interaction IMMEDIATELY before heavy work
-        discord_guild_id = interaction.guild.id if interaction.guild else None
-        cooldown_hours = self.cog._get_cooldown_hours(discord_guild_id) if discord_guild_id else 168
-
-        await interaction.response.send_message(
-            f"Thank you! Your {AdvertisementType.MEMBER} advertisement is being posted. " f"It will remain visible for {cooldown_hours} hours.",
-            ephemeral=True,
-        )
-
-        # Post advertisement and update cooldowns
-        thread_title = f"[Member] {interaction.user.name} ({player_id})"
-        # Save last ad data as a template for future use
-        self.cog.save_last_ad_data(interaction.user.id, AdvertisementType.MEMBER, {
-            "player_id": player_id,
-            "weekly_boxes": self.weekly_boxes.value,
-            "additional_info": self.additional_info.value,
-        })
-        await self.cog.post_advertisement(interaction, embed, thread_title, AdvertisementType.MEMBER, None, notify)
-
-    async def on_timeout(self) -> None:
-        """Handle form timeout."""
-        try:
-            if self.interaction:  # Only try to send message if we have an interaction
-                await self.interaction.response.send_message("The form timed out. Please try submitting your advertisement again.", ephemeral=True)
-        except (discord.NotFound, discord.HTTPException):
-            pass
+    pass
 
 
 class GuildAdvertisementTemplateForm(Modal, title="Guild Advertisement Form"):
@@ -496,26 +262,45 @@ class GuildAdvertisementTemplateForm(Modal, title="Guild Advertisement Form"):
         self.context = context
         self.notify = True
         self.interaction = None
+        # Store saved tag IDs for pre-selection in the tag view
+        self._saved_tag_ids: list = defaults.get("tags", [])
 
         self.guild_name = TextInput(
-            label="Guild Name", placeholder="Enter your guild's name", required=True, max_length=100,
+            label="Guild Name",
+            placeholder="Enter your guild's name",
+            required=True,
+            max_length=100,
             default=defaults.get("guild_name", "")[:100],
         )
         self.guild_id_input = TextInput(
-            label="Guild ID", placeholder="Enter your guild's ID (e.g. A1B2C3)", required=True, min_length=6, max_length=6,
+            label="Guild ID",
+            placeholder="Enter your guild's ID (e.g. A1B2C3)",
+            required=True,
+            min_length=6,
+            max_length=6,
             default=defaults.get("guild_id", "")[:6],
         )
         self.guild_leader = TextInput(
-            label="Guild Leader", placeholder="Enter guild leader's name", required=True, max_length=100,
+            label="Guild Leader",
+            placeholder="Enter guild leader's name",
+            required=True,
+            max_length=100,
             default=defaults.get("guild_leader", "")[:100],
         )
         self.member_count = TextInput(
-            label="Member Count", placeholder="How many active members?", required=True, max_length=10,
+            label="Member Count",
+            placeholder="How many active members?",
+            required=True,
+            max_length=10,
             default=defaults.get("member_count", "")[:10],
         )
         self.description = TextInput(
-            label="Guild Description", placeholder="Tell us about your guild...", required=True, max_length=1000,
-            style=discord.TextStyle.paragraph, default=defaults.get("description", "")[:1000],
+            label="Guild Description",
+            placeholder="Tell us about your guild...",
+            required=True,
+            max_length=1000,
+            style=discord.TextStyle.paragraph,
+            default=defaults.get("description", "")[:1000],
         )
 
         self.add_item(self.guild_name)
@@ -525,8 +310,6 @@ class GuildAdvertisementTemplateForm(Modal, title="Guild Advertisement Form"):
         self.add_item(self.description)
 
     async def on_submit(self, interaction: discord.Interaction) -> None:
-        import time
-
         self.interaction = interaction
         await self.cog._send_debug_message(f"Guild ad template form submitted by user {interaction.user.id} ({interaction.user.name})")
 
@@ -538,7 +321,9 @@ class GuildAdvertisementTemplateForm(Modal, title="Guild Advertisement Form"):
             return
 
         user_id = interaction.user.id
-        cooldown_check = await self.cog.check_cooldowns(interaction, user_id, guild_id, AdvertisementType.GUILD)
+        discord_guild_id = interaction.guild.id if interaction.guild else None
+
+        cooldown_check = await self.cog.check_cooldowns(interaction, user_id, guild_id)
         if not cooldown_check:
             return
 
@@ -552,24 +337,44 @@ class GuildAdvertisementTemplateForm(Modal, title="Guild Advertisement Form"):
         embed.add_field(name="Posted by", value=f"<@{interaction.user.id}>", inline=True)
         embed.set_footer(text="Use /advertise to submit your own advertisement")
 
-        discord_guild_id = interaction.guild.id if interaction.guild else None
-        cooldown_hours = self.cog._get_cooldown_hours(discord_guild_id) if discord_guild_id else 168
-        await interaction.response.send_message(
-            f"Thank you! Your {AdvertisementType.GUILD} advertisement is being posted. It will remain visible for {cooldown_hours} hours.",
-            ephemeral=True,
-        )
+        thread_title = f"[Guild] {self.guild_name.value} ({guild_id})"
 
-        # Save updated template data (captures any edits the user made to the pre-filled form)
-        self.cog.save_last_ad_data(interaction.user.id, AdvertisementType.GUILD, {
+        form_data = {
             "guild_name": self.guild_name.value,
             "guild_id": guild_id,
             "guild_leader": self.guild_leader.value,
             "member_count": self.member_count.value,
             "description": self.description.value,
-        })
+        }
 
-        thread_title = f"[Guild] {self.guild_name.value} ({guild_id})"
-        await self.cog.post_advertisement(interaction, embed, thread_title, AdvertisementType.GUILD, guild_id, self.notify)
+        # Check for custom tags — show tag selection with pre-selections if configured
+        custom_tags = self.cog._get_custom_tags(discord_guild_id) if discord_guild_id else []
+        if custom_tags:
+            context = SettingsViewContext(guild_id=discord_guild_id, cog_instance=self.cog, interaction=interaction, is_bot_owner=False)
+            pending = {
+                "user_id": user_id,
+                "embed": embed,
+                "thread_title": thread_title,
+                "ad_guild_id": guild_id,
+                "notify": self.notify,
+                "form_data": form_data,
+                "saved_tag_ids": self._saved_tag_ids,
+            }
+            view = TagSelectionView(context, pending)
+            tag_embed = discord.Embed(
+                title="🏷️ Select Tags",
+                description="Choose tags for your advertisement, then click **Post Advertisement**.",
+                color=discord.Color.blurple(),
+            )
+            await interaction.response.send_message(embed=tag_embed, view=view, ephemeral=True)
+        else:
+            cooldown_hours = self.cog._get_cooldown_hours(discord_guild_id) if discord_guild_id else 168
+            await interaction.response.send_message(
+                f"Thank you! Your guild advertisement is being posted. It will remain visible for {cooldown_hours} hours.",
+                ephemeral=True,
+            )
+            self.cog.save_last_ad_data(user_id, AdvertisementType.GUILD, form_data)
+            await self.cog.post_advertisement(interaction, embed, thread_title, guild_id, self.notify, tag_ids=[])
 
     async def on_timeout(self) -> None:
         try:
@@ -579,75 +384,136 @@ class GuildAdvertisementTemplateForm(Modal, title="Guild Advertisement Form"):
             pass
 
 
-class MemberAdvertisementTemplateForm(Modal, title="Member Advertisement Form"):
-    """Pre-filled modal for posting a member ad using a previous ad as a template."""
+class TagSelectionView(View):
+    """View shown after the advertisement form, allowing users to select custom forum tags.
 
-    def __init__(self, context: SettingsViewContext, defaults: dict) -> None:
+    Each custom tag group configured by the admin is rendered as follows:
+    - type 'group': a Select dropdown (pick one of the options)
+    - type 'solo':  a toggle Button (on/off)
+
+    After selecting, the user clicks 'Post Advertisement' to finalize.
+    """
+
+    def __init__(self, context: SettingsViewContext, pending_data: dict) -> None:
+        """Initialize the tag selection view.
+
+        Args:
+            context: Settings view context (provides guild_id and cog_instance)
+            pending_data: Dict with keys: user_id, embed, thread_title, ad_guild_id, notify, form_data,
+                          and optionally saved_tag_ids (list of int) for pre-selection.
+        """
         super().__init__(timeout=900)
         self.cog = context.cog_instance
         self.context = context
-        self.notify = True
-        self.interaction = None
+        self.pending_data = pending_data
+        self.selected_tag_ids: set = {int(t) for t in pending_data.get("saved_tag_ids", [])}
+        self._rebuild_items()
 
-        self.player_id = TextInput(
-            label="Player ID", placeholder="Your player ID", required=True, max_length=50,
-            default=defaults.get("player_id", "")[:50],
-        )
-        self.weekly_boxes = TextInput(
-            label="Weekly Box Count", placeholder="How many weekly boxes do you usually clear? (out of 7)", required=True, max_length=10,
-            default=defaults.get("weekly_boxes", "")[:10],
-        )
-        self.additional_info = TextInput(
-            label="Additional Information", placeholder="What else should we know about you?", required=True, max_length=1000,
-            style=discord.TextStyle.paragraph, default=defaults.get("additional_info", "")[:1000],
-        )
+    def _rebuild_items(self) -> None:
+        """Rebuild all UI items reflecting the current selection state."""
+        self.clear_items()
+        guild_id = self.context.guild_id
+        custom_tags = self.cog._get_custom_tags(guild_id)
 
-        self.add_item(self.player_id)
-        self.add_item(self.weekly_boxes)
-        self.add_item(self.additional_info)
+        # Rows 0-3 can hold group selects (one per row).
+        # Solo buttons share row 4 with the Post button.
+        select_row = 0
+        solo_btn_row = 4
 
-    async def on_submit(self, interaction: discord.Interaction) -> None:
-        self.interaction = interaction
-        player_id = self.player_id.value.upper()
-        if not re.match(r"^[A-Z0-9]+$", player_id):
-            self.cog.logger.warning(f"User {interaction.user.id} provided invalid player ID format: {player_id}")
-            await interaction.response.send_message("Player ID can only contain letters A-Z and numbers 0-9.", ephemeral=True)
-            return
+        for tag_group in custom_tags:
+            tag_type = tag_group.get("type", "solo")
+            label = tag_group.get("label", "Tag")
+            options_data = tag_group.get("options", [])
 
-        user_id = interaction.user.id
-        cooldown_check = await self.cog.check_cooldowns(interaction, user_id, None, AdvertisementType.MEMBER)
-        if not cooldown_check:
-            return
+            if not options_data:
+                continue
 
-        embed = discord.Embed(title=f"Player: {interaction.user.name}", color=discord.Color.green(), timestamp=discord.utils.utcnow())
-        embed.set_author(name=f"Submitted by {interaction.user.name}", icon_url=interaction.user.avatar.url if interaction.user.avatar else None)
-        url_value = f"[{player_id}](https://thetower.lol/player?player={player_id})"
-        embed.add_field(name="Player ID", value=url_value, inline=True)
-        embed.add_field(name="Weekly Box Count", value=self.weekly_boxes.value, inline=True)
-        embed.add_field(name="Posted by", value=f"<@{interaction.user.id}>", inline=True)
-        embed.add_field(name="Additional Info", value=self.additional_info.value, inline=False)
-        embed.set_footer(text="Use /advertise to submit your own advertisement")
+            if tag_type == "group":
+                if select_row >= 4:
+                    # No more rows available for group selects
+                    break
+                all_option_ids = {int(opt["tag_id"]) for opt in options_data}
+                options = [
+                    discord.SelectOption(
+                        label=opt["name"][:100],
+                        value=str(opt["tag_id"]),
+                        default=int(opt["tag_id"]) in self.selected_tag_ids,
+                    )
+                    for opt in options_data
+                ]
+                select = Select(placeholder=label[:100], options=options[:25], min_values=0, max_values=1, row=select_row)
 
+                async def group_callback(inter: discord.Interaction, s=select, opt_ids=all_option_ids) -> None:
+                    for oid in opt_ids:
+                        self.selected_tag_ids.discard(oid)
+                    if s.values:
+                        self.selected_tag_ids.add(int(s.values[0]))
+                    await inter.response.defer()
+
+                select.callback = group_callback
+                self.add_item(select)
+                select_row += 1
+
+            elif tag_type == "solo":
+                opt = options_data[0]
+                tag_id = int(opt["tag_id"])
+                is_selected = tag_id in self.selected_tag_ids
+                btn = Button(
+                    label=(f"✅ {label}" if is_selected else f"☑️ {label}")[:80],
+                    style=discord.ButtonStyle.success if is_selected else discord.ButtonStyle.secondary,
+                    row=solo_btn_row,
+                )
+
+                async def solo_callback(inter: discord.Interaction, o=opt, b=btn, lbl=label) -> None:
+                    tid = int(o["tag_id"])
+                    if tid in self.selected_tag_ids:
+                        self.selected_tag_ids.discard(tid)
+                        b.style = discord.ButtonStyle.secondary
+                        b.label = f"☑️ {lbl}"[:80]
+                    else:
+                        self.selected_tag_ids.add(tid)
+                        b.style = discord.ButtonStyle.success
+                        b.label = f"✅ {lbl}"[:80]
+                    await inter.response.edit_message(view=self)
+
+                btn.callback = solo_callback
+                self.add_item(btn)
+
+        # Post button always in the last occupied row
+        post_row = min(select_row, 4)
+        post_btn = Button(label="📢 Post Advertisement", style=discord.ButtonStyle.primary, row=post_row)
+        post_btn.callback = self.post_advertisement
+        self.add_item(post_btn)
+
+    async def post_advertisement(self, interaction: discord.Interaction) -> None:
+        """Gather selected tags and post the advertisement."""
+        pd = self.pending_data
         discord_guild_id = interaction.guild.id if interaction.guild else None
         cooldown_hours = self.cog._get_cooldown_hours(discord_guild_id) if discord_guild_id else 168
+
         await interaction.response.send_message(
-            f"Thank you! Your {AdvertisementType.MEMBER} advertisement is being posted. It will remain visible for {cooldown_hours} hours.",
+            f"Thank you! Your guild advertisement is being posted. It will remain visible for {cooldown_hours} hours.",
             ephemeral=True,
         )
 
-        # Save updated template data (captures any edits the user made to the pre-filled form)
-        self.cog.save_last_ad_data(interaction.user.id, AdvertisementType.MEMBER, {
-            "player_id": player_id,
-            "weekly_boxes": self.weekly_boxes.value,
-            "additional_info": self.additional_info.value,
-        })
+        # Save last-ad data including the selected tags
+        form_data = {**pd["form_data"], "tags": list(self.selected_tag_ids)}
+        self.cog.save_last_ad_data(pd["user_id"], AdvertisementType.GUILD, form_data)
 
-        thread_title = f"[Member] {interaction.user.name} ({player_id})"
-        await self.cog.post_advertisement(interaction, embed, thread_title, AdvertisementType.MEMBER, None, self.notify)
+        await self.cog.post_advertisement(
+            interaction,
+            pd["embed"],
+            pd["thread_title"],
+            pd["ad_guild_id"],
+            pd["notify"],
+            tag_ids=list(self.selected_tag_ids),
+        )
 
     async def on_timeout(self) -> None:
+        for item in self.children:
+            item.disabled = True
         try:
-            if self.interaction:
-                await self.interaction.response.send_message("The form timed out. Please try submitting your advertisement again.", ephemeral=True)
-        except (discord.NotFound, discord.HTTPException):
+            if hasattr(self, "message"):
+                await self.message.edit(view=self)
+        except discord.NotFound:
             pass

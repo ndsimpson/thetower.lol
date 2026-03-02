@@ -163,7 +163,7 @@ class SettingsModal(Modal):
             value = int(self.value_input.value)
 
             # Handle special case: 0 means None for optional settings
-            if value == 0 and self.setting_name in ["mod_channel_id", "guild_tag_id", "member_tag_id", "testing_channel_id"]:
+            if value == 0 and self.setting_name in ["mod_channel_id", "testing_channel_id"]:
                 value = None
 
             # Update setting
@@ -195,8 +195,7 @@ class GuildSettingsView(View):
         mod_channel_id = self.cog._get_mod_channel_id(self.guild_id)
         testing_channel_id = self.cog._get_testing_channel_id(self.guild_id)
         debug_enabled = self.cog.get_setting("debug_enabled", default=False, guild_id=self.guild_id)
-        guild_tag_id = self.cog._get_guild_tag_id(self.guild_id)
-        member_tag_id = self.cog._get_member_tag_id(self.guild_id)
+        custom_tags = self.cog._get_custom_tags(self.guild_id)
 
         # Get guild name
         guild = self.cog.bot.get_guild(self.guild_id)
@@ -223,25 +222,16 @@ class GuildSettingsView(View):
         debug_status = "✅ Enabled" if debug_enabled else "❌ Disabled"
         embed.add_field(name="🔧 Debug Settings", value=f"Testing Channel: {testing_channel_name}\nDebug Messages: {debug_status}", inline=False)
 
-        # Tag Settings - Get tag names
-        guild_tag_name = "Not configured"
-        member_tag_name = "Not configured"
-
-        if guild_tag_id and advertise_channel and hasattr(advertise_channel, "available_tags"):
-            guild_tag = next((tag for tag in advertise_channel.available_tags if tag.id == guild_tag_id), None)
-            if guild_tag:
-                guild_tag_name = f"{guild_tag.name} (ID: {guild_tag_id})"
-            else:
-                guild_tag_name = f"ID: {guild_tag_id}"
-
-        if member_tag_id and advertise_channel and hasattr(advertise_channel, "available_tags"):
-            member_tag = next((tag for tag in advertise_channel.available_tags if tag.id == member_tag_id), None)
-            if member_tag:
-                member_tag_name = f"{member_tag.name} (ID: {member_tag_id})"
-            else:
-                member_tag_name = f"ID: {member_tag_id}"
-
-        embed.add_field(name="🏷️ Forum Tags", value=f"Guild Tag: {guild_tag_name}\nMember Tag: {member_tag_name}", inline=False)
+        # Custom Tags summary
+        if custom_tags:
+            tag_lines = []
+            for group in custom_tags:
+                type_label = "group" if group.get("type") == "group" else "solo"
+                count = len(group.get("options", []))
+                tag_lines.append(f"• **{group['label']}** [{type_label}, {count} option(s)]")
+            embed.add_field(name="🏷️ Custom Tags", value="\n".join(tag_lines) or "None", inline=False)
+        else:
+            embed.add_field(name="🏷️ Custom Tags", value="No custom tags configured.", inline=False)
 
         # Stats
         guild_cooldowns = self.cog.cooldowns.get(self.guild_id, {"users": {}, "guilds": {}})
@@ -287,17 +277,17 @@ class GuildSettingsView(View):
         debug_btn.callback = self.toggle_debug
         self.add_item(debug_btn)
 
-        # Set guild tag button
-        guild_tag_btn = Button(label="Set Guild Tag", style=discord.ButtonStyle.secondary, emoji="🏰")
-        guild_tag_btn.callback = self.set_guild_tag
-        self.add_item(guild_tag_btn)
-
-        # Set member tag button
-        member_tag_btn = Button(label="Set Member Tag", style=discord.ButtonStyle.secondary, emoji="👤")
-        member_tag_btn.callback = self.set_member_tag
-        self.add_item(member_tag_btn)
+        # Custom tags management button
+        custom_tags_btn = Button(label="Manage Custom Tags", style=discord.ButtonStyle.secondary, emoji="🏷️")
+        custom_tags_btn.callback = self.manage_custom_tags
+        self.add_item(custom_tags_btn)
 
         # Back button
+        back_btn = Button(label="Back", style=discord.ButtonStyle.secondary, emoji="⬅️")
+        back_btn.callback = self.go_back
+        self.add_item(back_btn)
+
+        return embed
         back_btn = Button(label="Back", style=discord.ButtonStyle.secondary, emoji="⬅️")
         back_btn.callback = self.go_back
         self.add_item(back_btn)
@@ -360,15 +350,11 @@ class GuildSettingsView(View):
 
         await interaction.response.send_message("Select the text channel for moderation notifications (or click Clear):", view=view, ephemeral=True)
 
-    async def set_guild_tag(self, interaction: discord.Interaction):
-        """Show modal to set guild tag."""
-        modal = SettingsModal(self.context, "guild_tag_id", "Set Guild Tag ID", "Enter forum tag ID (0 to clear)")
-        await interaction.response.send_modal(modal)
-
-    async def set_member_tag(self, interaction: discord.Interaction):
-        """Show modal to set member tag."""
-        modal = SettingsModal(self.context, "member_tag_id", "Set Member Tag ID", "Enter forum tag ID (0 to clear)")
-        await interaction.response.send_modal(modal)
+    async def manage_custom_tags(self, interaction: discord.Interaction):
+        """Open the custom tag management view."""
+        view = CustomTagsManagementView(self.context)
+        embed = await view.update_view(interaction)
+        await interaction.response.edit_message(embed=embed, view=view)
 
     async def set_testing_channel(self, interaction: discord.Interaction):
         """Show channel selector for testing/debug channel."""
@@ -494,9 +480,7 @@ class UnifiedAdvertiseSettingsView(BaseSettingsView):
         # directly show the guild settings
         if interaction.guild and not self.guild_id:
             guild_settings_view = GuildSettingsView(
-                SettingsViewContext(
-                    guild_id=interaction.guild.id, cog_instance=self.cog, interaction=interaction, is_bot_owner=self.ctx.is_bot_owner
-                )
+                SettingsViewContext(guild_id=interaction.guild.id, cog_instance=self.cog, interaction=interaction, is_bot_owner=self.ctx.is_bot_owner)
             )
             embed = await guild_settings_view.update_view(interaction)
             # Copy buttons from the guild settings view to this view
@@ -508,9 +492,7 @@ class UnifiedAdvertiseSettingsView(BaseSettingsView):
         # If we have a specific guild_id, show that guild's settings
         if self.guild_id:
             guild_settings_view = GuildSettingsView(
-                SettingsViewContext(
-                    guild_id=self.guild_id, cog_instance=self.cog, interaction=interaction, is_bot_owner=self.ctx.is_bot_owner
-                )
+                SettingsViewContext(guild_id=self.guild_id, cog_instance=self.cog, interaction=interaction, is_bot_owner=self.ctx.is_bot_owner)
             )
             embed = await guild_settings_view.update_view(interaction)
             # Copy buttons from the guild settings view to this view
@@ -560,3 +542,301 @@ class UnifiedAdvertiseSettingsView(BaseSettingsView):
         settings_view = SettingsView(self.ctx)
         embed = await settings_view.update_view(interaction)
         await interaction.response.edit_message(embed=embed, view=settings_view)
+
+
+# ====================
+# Custom Tag Management
+# ====================
+
+
+class AddTagGroupModal(Modal, title="Add Custom Tag Group"):
+    """Modal for creating a new custom tag group."""
+
+    group_label = TextInput(
+        label="Label (shown to users)",
+        placeholder="e.g. How many members are in your guild?",
+        required=True,
+        max_length=100,
+    )
+    group_type = TextInput(
+        label="Type: 'group' or 'solo'",
+        placeholder="group = pick one option  |  solo = on/off toggle",
+        required=True,
+        max_length=10,
+    )
+
+    def __init__(self, context: SettingsViewContext) -> None:
+        super().__init__(timeout=900)
+        self.cog = context.cog_instance
+        self.guild_id = context.guild_id
+        self.context = context
+
+    async def on_submit(self, interaction: discord.Interaction) -> None:
+        type_val = self.group_type.value.strip().lower()
+        if type_val not in ("group", "solo"):
+            await interaction.response.send_message("❌ Type must be exactly **group** or **solo**.", ephemeral=True)
+            return
+
+        import uuid
+
+        existing = list(self.cog._get_custom_tags(self.guild_id))
+        new_group = {
+            "id": str(uuid.uuid4())[:8],
+            "label": self.group_label.value.strip(),
+            "type": type_val,
+            "options": [],
+        }
+        existing.append(new_group)
+        self.cog.set_setting("custom_tags", existing, guild_id=self.guild_id)
+        await interaction.response.send_message(
+            f"✅ Created **{type_val}** tag group: *{new_group['label']}*\n" "Use **Manage Options** to add tag options to this group.",
+            ephemeral=True,
+        )
+
+
+class AddTagOptionModal(Modal, title="Add Tag Option"):
+    """Modal for adding a tag option to an existing tag group."""
+
+    tag_id_input = TextInput(
+        label="Discord Forum Tag ID",
+        placeholder="Paste the integer tag ID from developer mode",
+        required=True,
+        max_length=20,
+    )
+    tag_name = TextInput(
+        label="Display Name (shown to users)",
+        placeholder="e.g. 1-10 members",
+        required=True,
+        max_length=80,
+    )
+
+    def __init__(self, context: SettingsViewContext, group_id: str) -> None:
+        super().__init__(timeout=900)
+        self.cog = context.cog_instance
+        self.guild_id = context.guild_id
+        self.group_id = group_id
+        self.context = context
+
+    async def on_submit(self, interaction: discord.Interaction) -> None:
+        try:
+            tag_id = int(self.tag_id_input.value.strip())
+        except ValueError:
+            await interaction.response.send_message("❌ Tag ID must be a number (integer).", ephemeral=True)
+            return
+
+        custom_tags = list(self.cog._get_custom_tags(self.guild_id))
+        found = False
+        for group in custom_tags:
+            if group["id"] == self.group_id:
+                group["options"].append({"tag_id": tag_id, "name": self.tag_name.value.strip()})
+                found = True
+                break
+
+        if not found:
+            await interaction.response.send_message("❌ Tag group not found.", ephemeral=True)
+            return
+
+        self.cog.set_setting("custom_tags", custom_tags, guild_id=self.guild_id)
+        await interaction.response.send_message(f"✅ Added option **{self.tag_name.value.strip()}** (Tag ID: `{tag_id}`).", ephemeral=True)
+
+
+class TagGroupOptionsView(View):
+    """View for managing options within a single tag group."""
+
+    def __init__(self, context: SettingsViewContext, group_id: str) -> None:
+        super().__init__(timeout=900)
+        self.cog = context.cog_instance
+        self.context = context
+        self.guild_id = context.guild_id
+        self.group_id = group_id
+
+    async def update_view(self, interaction: discord.Interaction) -> discord.Embed:
+        """Build and return the embed for this view."""
+        custom_tags = self.cog._get_custom_tags(self.guild_id)
+        group = next((g for g in custom_tags if g["id"] == self.group_id), None)
+
+        if not group:
+            return discord.Embed(title="❌ Group not found", color=discord.Color.red())
+
+        type_label = "Group (pick one)" if group["type"] == "group" else "Solo (on/off toggle)"
+        embed = discord.Embed(
+            title=f"🏷️ Options: {group['label']}",
+            description=f"**Type:** {type_label}",
+            color=discord.Color.gold(),
+        )
+
+        if group.get("options"):
+            lines = [f"• **{opt['name']}** — Tag ID: `{opt['tag_id']}`" for opt in group["options"]]
+            embed.add_field(name="Current Options", value="\n".join(lines), inline=False)
+        else:
+            embed.add_field(name="Options", value="No options yet. Add some below!", inline=False)
+
+        self.clear_items()
+
+        add_btn = Button(label="Add Option", style=discord.ButtonStyle.success, emoji="➕")
+        add_btn.callback = self.add_option
+        self.add_item(add_btn)
+
+        if group.get("options"):
+            remove_btn = Button(label="Remove Option", style=discord.ButtonStyle.danger, emoji="🗑️")
+            remove_btn.callback = self.remove_option
+            self.add_item(remove_btn)
+
+        back_btn = Button(label="Back", style=discord.ButtonStyle.secondary, emoji="⬅️")
+        back_btn.callback = self.go_back
+        self.add_item(back_btn)
+
+        return embed
+
+    async def add_option(self, interaction: discord.Interaction) -> None:
+        modal = AddTagOptionModal(self.context, self.group_id)
+        await interaction.response.send_modal(modal)
+
+    async def remove_option(self, interaction: discord.Interaction) -> None:
+        custom_tags = self.cog._get_custom_tags(self.guild_id)
+        group = next((g for g in custom_tags if g["id"] == self.group_id), None)
+        if not group or not group.get("options"):
+            await interaction.response.send_message("No options to remove.", ephemeral=True)
+            return
+
+        options = [discord.SelectOption(label=f"{opt['name']} (ID: {opt['tag_id']})"[:100], value=str(opt["tag_id"])) for opt in group["options"]]
+        select = Select(placeholder="Select option to remove", options=options)
+
+        async def select_callback(select_interaction: discord.Interaction) -> None:
+            tag_id_to_remove = int(select.values[0])
+            tags_list = list(self.cog._get_custom_tags(self.guild_id))
+            for g in tags_list:
+                if g["id"] == self.group_id:
+                    g["options"] = [o for o in g["options"] if o["tag_id"] != tag_id_to_remove]
+                    break
+            self.cog.set_setting("custom_tags", tags_list, guild_id=self.guild_id)
+            await select_interaction.response.send_message("✅ Option removed.", ephemeral=True)
+
+        select.callback = select_callback
+        view = View(timeout=900)
+        view.add_item(select)
+        await interaction.response.send_message("Select the option to remove:", view=view, ephemeral=True)
+
+    async def go_back(self, interaction: discord.Interaction) -> None:
+        view = CustomTagsManagementView(self.context)
+        embed = await view.update_view(interaction)
+        await interaction.response.edit_message(embed=embed, view=view)
+
+
+class CustomTagsManagementView(View):
+    """View for listing, adding, and deleting custom tag groups for a guild."""
+
+    def __init__(self, context: SettingsViewContext) -> None:
+        super().__init__(timeout=900)
+        self.cog = context.cog_instance
+        self.context = context
+        self.guild_id = context.guild_id
+
+    async def update_view(self, interaction: discord.Interaction) -> discord.Embed:
+        """Build and return the embed for this view."""
+        custom_tags = self.cog._get_custom_tags(self.guild_id)
+
+        embed = discord.Embed(
+            title="🏷️ Custom Tag Management",
+            description=(
+                "Configure tags that users can apply to their guild advertisements.\n\n"
+                "**Group** tags let users pick exactly one option from a list.\n"
+                "**Solo** tags are independent on/off toggles."
+            ),
+            color=discord.Color.gold(),
+        )
+
+        if custom_tags:
+            for group in custom_tags:
+                type_label = "Group (pick one)" if group.get("type") == "group" else "Solo (toggle)"
+                opts = group.get("options", [])
+                if opts:
+                    opts_text = "\n".join(f"  • {o['name']} (ID: `{o['tag_id']}`)" for o in opts)
+                else:
+                    opts_text = "  *(no options yet)*"
+                embed.add_field(
+                    name=f"{group['label']} [{type_label}]",
+                    value=opts_text,
+                    inline=False,
+                )
+        else:
+            embed.add_field(name="No custom tags", value="No tag groups have been configured yet.", inline=False)
+
+        self.clear_items()
+
+        add_group_btn = Button(label="Add Tag Group", style=discord.ButtonStyle.success, emoji="➕")
+        add_group_btn.callback = self.add_tag_group
+        self.add_item(add_group_btn)
+
+        if custom_tags:
+            manage_btn = Button(label="Manage Options", style=discord.ButtonStyle.primary, emoji="⚙️")
+            manage_btn.callback = self.manage_options
+            self.add_item(manage_btn)
+
+            delete_group_btn = Button(label="Delete Tag Group", style=discord.ButtonStyle.danger, emoji="🗑️")
+            delete_group_btn.callback = self.delete_tag_group
+            self.add_item(delete_group_btn)
+
+        back_btn = Button(label="Back to Settings", style=discord.ButtonStyle.secondary, emoji="⬅️")
+        back_btn.callback = self.go_back
+        self.add_item(back_btn)
+
+        return embed
+
+    async def add_tag_group(self, interaction: discord.Interaction) -> None:
+        modal = AddTagGroupModal(self.context)
+        await interaction.response.send_modal(modal)
+
+    async def delete_tag_group(self, interaction: discord.Interaction) -> None:
+        custom_tags = self.cog._get_custom_tags(self.guild_id)
+        if not custom_tags:
+            await interaction.response.send_message("No tag groups to delete.", ephemeral=True)
+            return
+
+        options = [discord.SelectOption(label=g["label"][:100], value=g["id"]) for g in custom_tags]
+        select = Select(placeholder="Select tag group to delete", options=options)
+
+        async def select_callback(select_interaction: discord.Interaction) -> None:
+            group_id = select.values[0]
+            remaining = [g for g in self.cog._get_custom_tags(self.guild_id) if g["id"] != group_id]
+            self.cog.set_setting("custom_tags", remaining, guild_id=self.guild_id)
+            await select_interaction.response.send_message("✅ Tag group deleted.", ephemeral=True)
+
+        select.callback = select_callback
+        view = View(timeout=900)
+        view.add_item(select)
+        await interaction.response.send_message("Select the tag group to delete:", view=view, ephemeral=True)
+
+    async def manage_options(self, interaction: discord.Interaction) -> None:
+        custom_tags = self.cog._get_custom_tags(self.guild_id)
+        if not custom_tags:
+            await interaction.response.send_message("No tag groups to manage.", ephemeral=True)
+            return
+
+        if len(custom_tags) == 1:
+            # Only one group — open it directly
+            view = TagGroupOptionsView(self.context, custom_tags[0]["id"])
+            embed = await view.update_view(interaction)
+            await interaction.response.edit_message(embed=embed, view=view)
+            return
+
+        options = [discord.SelectOption(label=g["label"][:100], value=g["id"]) for g in custom_tags]
+        select = Select(placeholder="Select tag group to manage", options=options)
+
+        async def select_callback(select_interaction: discord.Interaction) -> None:
+            group_id = select.values[0]
+            view = TagGroupOptionsView(self.context, group_id)
+            embed = await view.update_view(select_interaction)
+            await select_interaction.response.edit_message(embed=embed, view=view)
+
+        select.callback = select_callback
+        view = View(timeout=900)
+        view.add_item(select)
+        await interaction.response.send_message("Select the tag group to manage:", view=view, ephemeral=True)
+
+    async def go_back(self, interaction: discord.Interaction) -> None:
+        from .settings import GuildSettingsView
+
+        guild_settings_view = GuildSettingsView(self.context)
+        embed = await guild_settings_view.update_view(interaction)
+        await interaction.response.edit_message(embed=embed, view=guild_settings_view)
