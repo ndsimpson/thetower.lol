@@ -898,6 +898,10 @@ class CustomTagsManagementView(View):
 
         self.clear_items()
 
+        refresh_btn = Button(label="Refresh", style=discord.ButtonStyle.secondary, emoji="🔄")
+        refresh_btn.callback = self.refresh
+        self.add_item(refresh_btn)
+
         add_group_btn = Button(label="Add Tag Group", style=discord.ButtonStyle.success, emoji="📦")
         add_group_btn.callback = self.add_tag_group
         self.add_item(add_group_btn)
@@ -905,10 +909,6 @@ class CustomTagsManagementView(View):
         add_solo_btn = Button(label="Add Solo Tag", style=discord.ButtonStyle.success, emoji="🏷️")
         add_solo_btn.callback = self.add_solo_tag
         self.add_item(add_solo_btn)
-
-        refresh_btn = Button(label="Refresh", style=discord.ButtonStyle.secondary, emoji="🔄")
-        refresh_btn.callback = self.refresh
-        self.add_item(refresh_btn)
 
         if custom_tags:
             edit_btn = Button(label="Edit Tags", style=discord.ButtonStyle.primary, emoji="⚙️")
