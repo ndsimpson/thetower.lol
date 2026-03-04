@@ -549,20 +549,14 @@ class UnifiedAdvertiseSettingsView(BaseSettingsView):
 # ====================
 
 
-class AddTagGroupModal(Modal, title="Add Custom Tag Group"):
-    """Modal for creating a new custom tag group."""
+class AddGroupTagModal(Modal, title="Add Tag Group"):
+    """Modal for creating a new group-type custom tag (pick-one from multiple options)."""
 
     group_label = TextInput(
         label="Label (shown to users)",
         placeholder="e.g. How many members are in your guild?",
         required=True,
         max_length=100,
-    )
-    group_type = TextInput(
-        label="Type: 'group' or 'solo'",
-        placeholder="group = pick one option  |  solo = on/off toggle",
-        required=True,
-        max_length=10,
     )
 
     def __init__(self, context: SettingsViewContext) -> None:
@@ -572,26 +566,53 @@ class AddTagGroupModal(Modal, title="Add Custom Tag Group"):
         self.context = context
 
     async def on_submit(self, interaction: discord.Interaction) -> None:
-        type_val = self.group_type.value.strip().lower()
-        if type_val not in ("group", "solo"):
-            await interaction.response.send_message("❌ Type must be exactly **group** or **solo**.", ephemeral=True)
-            return
-
         import uuid
 
         existing = list(self.cog._get_custom_tags(self.guild_id))
         new_group = {
             "id": str(uuid.uuid4())[:8],
             "label": self.group_label.value.strip(),
-            "type": type_val,
+            "type": "group",
             "options": [],
         }
         existing.append(new_group)
         self.cog.set_setting("custom_tags", existing, guild_id=self.guild_id)
-        await interaction.response.send_message(
-            f"✅ Created **{type_val}** tag group: *{new_group['label']}*\n" "Use **Manage Options** to add tag options to this group.",
-            ephemeral=True,
-        )
+        view = TagGroupOptionsView(self.context, new_group["id"])
+        embed = await view.update_view(interaction)
+        await interaction.response.edit_message(embed=embed, view=view)
+
+
+class AddSoloTagModal(Modal, title="Add Solo Tag"):
+    """Modal for creating a new solo-type custom tag (independent on/off toggle)."""
+
+    tag_label = TextInput(
+        label="Label (shown to users)",
+        placeholder="e.g. Looking for members",
+        required=True,
+        max_length=100,
+    )
+
+    def __init__(self, context: SettingsViewContext) -> None:
+        super().__init__(timeout=900)
+        self.cog = context.cog_instance
+        self.guild_id = context.guild_id
+        self.context = context
+
+    async def on_submit(self, interaction: discord.Interaction) -> None:
+        import uuid
+
+        existing = list(self.cog._get_custom_tags(self.guild_id))
+        new_group = {
+            "id": str(uuid.uuid4())[:8],
+            "label": self.tag_label.value.strip(),
+            "type": "solo",
+            "options": [],
+        }
+        existing.append(new_group)
+        self.cog.set_setting("custom_tags", existing, guild_id=self.guild_id)
+        view = TagGroupOptionsView(self.context, new_group["id"])
+        embed = await view.update_view(interaction)
+        await interaction.response.edit_message(embed=embed, view=view)
 
 
 class AddTagOptionModal(Modal, title="Add Tag Option"):
@@ -764,9 +785,17 @@ class CustomTagsManagementView(View):
 
         self.clear_items()
 
-        add_group_btn = Button(label="Add Tag Group", style=discord.ButtonStyle.success, emoji="➕")
+        add_group_btn = Button(label="Add Tag Group", style=discord.ButtonStyle.success, emoji="📦")
         add_group_btn.callback = self.add_tag_group
         self.add_item(add_group_btn)
+
+        add_solo_btn = Button(label="Add Solo Tag", style=discord.ButtonStyle.success, emoji="🏷️")
+        add_solo_btn.callback = self.add_solo_tag
+        self.add_item(add_solo_btn)
+
+        refresh_btn = Button(label="Refresh", style=discord.ButtonStyle.secondary, emoji="🔄")
+        refresh_btn.callback = self.refresh
+        self.add_item(refresh_btn)
 
         if custom_tags:
             manage_btn = Button(label="Manage Options", style=discord.ButtonStyle.primary, emoji="⚙️")
@@ -784,8 +813,16 @@ class CustomTagsManagementView(View):
         return embed
 
     async def add_tag_group(self, interaction: discord.Interaction) -> None:
-        modal = AddTagGroupModal(self.context)
+        modal = AddGroupTagModal(self.context)
         await interaction.response.send_modal(modal)
+
+    async def add_solo_tag(self, interaction: discord.Interaction) -> None:
+        modal = AddSoloTagModal(self.context)
+        await interaction.response.send_modal(modal)
+
+    async def refresh(self, interaction: discord.Interaction) -> None:
+        embed = await self.update_view(interaction)
+        await interaction.response.edit_message(embed=embed, view=self)
 
     async def delete_tag_group(self, interaction: discord.Interaction) -> None:
         custom_tags = self.cog._get_custom_tags(self.guild_id)
