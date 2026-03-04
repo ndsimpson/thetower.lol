@@ -483,46 +483,26 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
             data = await self.load_data(file_path, default=[])
             converted_data = []
 
-            now = datetime.datetime.now()
             for entry in data:
                 if len(entry) == 7:  # Current format with names
-                    thread_id, stored_time, author_id, notify, guild_id, thread_name, author_name = entry
-                    if isinstance(stored_time, str):
-                        stored_time = datetime.datetime.fromisoformat(stored_time)
-                    # Migration: if stored_time is in the future it was a deletion_time (old format).
-                    # Convert to posted_time by subtracting the current cooldown_hours.
-                    if stored_time > now:
-                        cooldown_hours = self._get_cooldown_hours(int(guild_id)) if guild_id else 168
-                        posted_time = stored_time - datetime.timedelta(hours=cooldown_hours)
-                        self.logger.info(f"Migrated thread {thread_id}: converted deletion_time to posted_time")
-                    else:
-                        posted_time = stored_time
+                    thread_id, posted_time, author_id, notify, guild_id, thread_name, author_name = entry
+                    if isinstance(posted_time, str):
+                        posted_time = datetime.datetime.fromisoformat(posted_time)
                     converted_data.append(
                         (int(thread_id), posted_time, int(author_id), bool(notify), int(guild_id), str(thread_name), str(author_name))
                     )
                 elif len(entry) == 5:  # Old format with guild_id but no names
-                    thread_id, stored_time, author_id, notify, guild_id = entry
-                    if isinstance(stored_time, str):
-                        stored_time = datetime.datetime.fromisoformat(stored_time)
-                    if stored_time > now:
-                        cooldown_hours = self._get_cooldown_hours(int(guild_id)) if guild_id else 168
-                        posted_time = stored_time - datetime.timedelta(hours=cooldown_hours)
-                    else:
-                        posted_time = stored_time
-                    # Fetch names for migration
+                    thread_id, posted_time, author_id, notify, guild_id = entry
+                    if isinstance(posted_time, str):
+                        posted_time = datetime.datetime.fromisoformat(posted_time)
                     thread_name, author_name = await self._fetch_names_for_migration(thread_id, author_id)
                     converted_data.append((int(thread_id), posted_time, int(author_id), bool(notify), int(guild_id), thread_name, author_name))
                     self.logger.info(f"Migrated deletion entry for thread {thread_id} to include names")
                 elif len(entry) == 4:  # Old format without guild_id (thread_id, time, author_id, notify)
-                    thread_id, stored_time, author_id, notify = entry
-                    if isinstance(stored_time, str):
-                        stored_time = datetime.datetime.fromisoformat(stored_time)
+                    thread_id, posted_time, author_id, notify = entry
+                    if isinstance(posted_time, str):
+                        posted_time = datetime.datetime.fromisoformat(posted_time)
                     guild_id = await self._get_thread_guild_id(thread_id)
-                    if stored_time > now:
-                        cooldown_hours = self._get_cooldown_hours(int(guild_id)) if guild_id else 168
-                        posted_time = stored_time - datetime.timedelta(hours=cooldown_hours)
-                    else:
-                        posted_time = stored_time
                     thread_name, author_name = await self._fetch_names_for_migration(thread_id, author_id)
                     converted_data.append((int(thread_id), posted_time, int(author_id), bool(notify), guild_id, thread_name, author_name))
                     self.logger.info(f"Migrated deletion entry for thread {thread_id} to include guild_id {guild_id} and names")
