@@ -174,8 +174,9 @@ class AdManagementView(View):
             # Show the edit form with current data
             from .core import EditGuildAdvertisementForm
 
+            current_tag_ids = [tag.id for tag in thread.applied_tags] if hasattr(thread, "applied_tags") else []
             context = SettingsViewContext(guild_id=self.guild_id, cog_instance=self.cog, interaction=interaction, is_bot_owner=False)
-            form = EditGuildAdvertisementForm(context, thread_id, starter_message.id, embed)
+            form = EditGuildAdvertisementForm(context, thread_id, starter_message.id, embed, current_tag_ids)
             await interaction.response.send_modal(form)
 
         except discord.NotFound:

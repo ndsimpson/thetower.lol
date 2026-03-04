@@ -74,7 +74,7 @@ class GuildAdvertisementForm(Modal, title="Guild Advertisement Form"):
         embed.add_field(name="Posted by", value=f"<@{interaction.user.id}>", inline=True)
         embed.set_footer(text="Use /advertise to submit your own advertisement")
 
-        thread_title = f"[Guild] {self.guild_name.value} ({guild_id})"
+        thread_title = f"{self.guild_name.value} ({guild_id})"
 
         form_data = {
             "guild_name": self.guild_name.value,
@@ -125,7 +125,9 @@ class GuildAdvertisementForm(Modal, title="Guild Advertisement Form"):
 class EditGuildAdvertisementForm(Modal, title="Edit Guild Advertisement"):
     """Modal form for editing guild advertisement information."""
 
-    def __init__(self, context: SettingsViewContext, thread_id: int, message_id: int, current_embed: discord.Embed) -> None:
+    def __init__(
+        self, context: SettingsViewContext, thread_id: int, message_id: int, current_embed: discord.Embed, current_tag_ids: list = None
+    ) -> None:
         """Initialize the edit form with current advertisement data.
 
         Args:
@@ -133,12 +135,14 @@ class EditGuildAdvertisementForm(Modal, title="Edit Guild Advertisement"):
             thread_id: The thread ID of the advertisement
             message_id: The message ID of the starter message
             current_embed: The current embed to extract data from
+            current_tag_ids: List of currently applied forum tag IDs
         """
         super().__init__(timeout=900)  # 15 minute timeout
         self.cog = context.cog_instance
         self.context = context
         self.thread_id = thread_id
         self.message_id = message_id
+        self.current_tag_ids = current_tag_ids or []
         self.interaction = None
 
         # Extract current values from embed
@@ -205,16 +209,44 @@ class EditGuildAdvertisementForm(Modal, title="Edit Guild Advertisement"):
         embed.add_field(name="Posted by", value=f"<@{interaction.user.id}>", inline=True)
         embed.set_footer(text="Use /advertise to submit your own advertisement")
 
-        # Update the advertisement
         thread_title = f"[Guild] {self.guild_name.value} ({guild_id})"
-        await interaction.response.send_message("✏️ Updating your advertisement...", ephemeral=True)
+        form_data = {
+            "guild_name": self.guild_name.value,
+            "guild_id": guild_id,
+            "guild_leader": self.guild_leader.value,
+            "member_count": self.member_count.value,
+            "description": self.description.value,
+        }
 
-        success = await self.cog.update_advertisement(interaction, self.thread_id, self.message_id, embed, thread_title)
-
-        if success:
-            await interaction.edit_original_response(content="✅ Your advertisement has been updated successfully!")
+        discord_guild_id = interaction.guild.id if interaction.guild else None
+        custom_tags = self.cog._get_custom_tags(discord_guild_id) if discord_guild_id else []
+        if custom_tags:
+            context = SettingsViewContext(guild_id=discord_guild_id, cog_instance=self.cog, interaction=interaction, is_bot_owner=False)
+            pending = {
+                "user_id": interaction.user.id,
+                "embed": embed,
+                "thread_title": thread_title,
+                "form_data": form_data,
+                "is_edit": True,
+                "thread_id": self.thread_id,
+                "message_id": self.message_id,
+                "saved_tag_ids": self.current_tag_ids,
+            }
+            view = TagSelectionView(context, pending)
+            tag_embed = discord.Embed(
+                title="🏷️ Update Tags",
+                description="Adjust tags for your advertisement, then click **Update Advertisement**.",
+                color=discord.Color.blurple(),
+            )
+            await interaction.response.send_message(embed=tag_embed, view=view, ephemeral=True)
         else:
-            await interaction.edit_original_response(content="❌ Failed to update advertisement. It may have been deleted.")
+            await interaction.response.send_message("✏️ Updating your advertisement...", ephemeral=True)
+            self.cog.save_last_ad_data(interaction.user.id, AdvertisementType.GUILD, {**form_data, "tags": []})
+            success = await self.cog.update_advertisement(interaction, self.thread_id, self.message_id, embed, thread_title)
+            if success:
+                await interaction.edit_original_response(content="✅ Your advertisement has been updated successfully!")
+            else:
+                await interaction.edit_original_response(content="❌ Failed to update advertisement. It may have been deleted.")
 
     async def on_timeout(self) -> None:
         """Handle form timeout."""
@@ -479,35 +511,45 @@ class TagSelectionView(View):
                 btn.callback = solo_callback
                 self.add_item(btn)
 
-        # Post button always in the last occupied row
+        # Post/Update button always in the last occupied row
         post_row = min(select_row, 4)
-        post_btn = Button(label="📢 Post Advertisement", style=discord.ButtonStyle.primary, row=post_row)
+        is_edit = self.pending_data.get("is_edit", False)
+        btn_label = "✏️ Update Advertisement" if is_edit else "📢 Post Advertisement"
+        post_btn = Button(label=btn_label, style=discord.ButtonStyle.primary, row=post_row)
         post_btn.callback = self.post_advertisement
         self.add_item(post_btn)
 
     async def post_advertisement(self, interaction: discord.Interaction) -> None:
-        """Gather selected tags and post the advertisement."""
+        """Gather selected tags and post or update the advertisement."""
         pd = self.pending_data
-        discord_guild_id = interaction.guild.id if interaction.guild else None
-        cooldown_hours = self.cog._get_cooldown_hours(discord_guild_id) if discord_guild_id else 168
-
-        await interaction.response.send_message(
-            f"Thank you! Your guild advertisement is being posted. It will remain visible for {cooldown_hours} hours.",
-            ephemeral=True,
-        )
-
-        # Save last-ad data including the selected tags
         form_data = {**pd["form_data"], "tags": list(self.selected_tag_ids)}
-        self.cog.save_last_ad_data(pd["user_id"], AdvertisementType.GUILD, form_data)
 
-        await self.cog.post_advertisement(
-            interaction,
-            pd["embed"],
-            pd["thread_title"],
-            pd["ad_guild_id"],
-            pd["notify"],
-            tag_ids=list(self.selected_tag_ids),
-        )
+        if pd.get("is_edit"):
+            await interaction.response.send_message("✏️ Updating your advertisement...", ephemeral=True)
+            self.cog.save_last_ad_data(pd["user_id"], AdvertisementType.GUILD, form_data)
+            success = await self.cog.update_advertisement(
+                interaction, pd["thread_id"], pd["message_id"], pd["embed"], pd["thread_title"], tag_ids=list(self.selected_tag_ids)
+            )
+            if success:
+                await interaction.edit_original_response(content="✅ Your advertisement has been updated successfully!")
+            else:
+                await interaction.edit_original_response(content="❌ Failed to update advertisement. It may have been deleted.")
+        else:
+            discord_guild_id = interaction.guild.id if interaction.guild else None
+            cooldown_hours = self.cog._get_cooldown_hours(discord_guild_id) if discord_guild_id else 168
+            await interaction.response.send_message(
+                f"Thank you! Your guild advertisement is being posted. It will remain visible for {cooldown_hours} hours.",
+                ephemeral=True,
+            )
+            self.cog.save_last_ad_data(pd["user_id"], AdvertisementType.GUILD, form_data)
+            await self.cog.post_advertisement(
+                interaction,
+                pd["embed"],
+                pd["thread_title"],
+                pd["ad_guild_id"],
+                pd["notify"],
+                tag_ids=list(self.selected_tag_ids),
+            )
 
     async def on_timeout(self) -> None:
         for item in self.children:

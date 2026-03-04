@@ -1085,7 +1085,13 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
                 await self._send_debug_message(f"❌ Failed to send error response to user {interaction.user.id}: {str(response_error)}")
 
     async def update_advertisement(
-        self, interaction: discord.Interaction, thread_id: int, message_id: int, embed: discord.Embed, thread_title: str
+        self,
+        interaction: discord.Interaction,
+        thread_id: int,
+        message_id: int,
+        embed: discord.Embed,
+        thread_title: str,
+        tag_ids: Optional[List[int]] = None,
     ) -> bool:
         """Update an existing advertisement.
 
@@ -1095,6 +1101,7 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
             message_id: The message ID of the starter message
             embed: Updated embed
             thread_title: Updated thread title
+            tag_ids: Optional list of forum tag IDs to apply; None leaves tags unchanged
 
         Returns:
             bool: True if successful, False otherwise
@@ -1109,9 +1116,24 @@ class UnifiedAdvertise(BaseCog, name="Unified Advertise"):
             # Update the message embed
             await message.edit(embed=embed)
 
-            # Update thread title if it changed
+            # Build edit kwargs — merge title and tag changes into a single call
+            edit_kwargs = {}
             if thread.name != thread_title:
-                await thread.edit(name=thread_title)
+                edit_kwargs["name"] = thread_title
+            if tag_ids is not None:
+                applied_tags = []
+                tag_id_set = set(tag_ids)
+                try:
+                    parent = thread.parent
+                    if parent and hasattr(parent, "available_tags"):
+                        for tag in parent.available_tags:
+                            if tag.id in tag_id_set:
+                                applied_tags.append(tag)
+                except Exception as e:
+                    self.logger.error(f"Error resolving tags for thread {thread_id}: {e}")
+                edit_kwargs["applied_tags"] = applied_tags
+            if edit_kwargs:
+                await thread.edit(**edit_kwargs)
 
             await self._send_debug_message(f"✅ Updated advertisement thread: {thread_id} for user {interaction.user.id} ({interaction.user.name})")
             self._operation_count += 1
