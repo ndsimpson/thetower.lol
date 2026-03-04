@@ -881,18 +881,22 @@ class CustomTagsManagementView(View):
         )
 
         if custom_tags:
+            # Group tags — one field each
             for group in custom_tags:
-                if group.get("type") == "solo":
+                if group.get("type") != "solo":
                     opts = group.get("options", [])
-                    tag_info = f"Tag ID: `{opts[0]['tag_id']}`" if opts else "*(no tag ID set)*"
-                    embed.add_field(name=f"{group['label']} [Solo]", value=tag_info, inline=False)
-                else:
-                    opts = group.get("options", [])
-                    if opts:
-                        opts_text = "\n".join(f"  • {o['name']} (ID: `{o['tag_id']}`)" for o in opts)
-                    else:
-                        opts_text = "  *(no options yet)*"
+                    opts_text = "\n".join(f"  • {o['name']} (ID: `{o['tag_id']}`)" for o in opts) if opts else "  *(no options yet)*"
                     embed.add_field(name=f"{group['label']} [Group]", value=opts_text, inline=False)
+
+            # Solo tags — all in one field
+            solo_tags = [g for g in custom_tags if g.get("type") == "solo"]
+            if solo_tags:
+                solo_lines = []
+                for g in solo_tags:
+                    opts = g.get("options", [])
+                    tag_id = opts[0]["tag_id"] if opts else "*(no tag ID set)*"
+                    solo_lines.append(f"{g['label']}: {tag_id}")
+                embed.add_field(name="Solo Tags", value="\n".join(solo_lines), inline=False)
         else:
             embed.add_field(name="No custom tags", value="No tag groups have been configured yet.", inline=False)
 
