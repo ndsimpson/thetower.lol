@@ -12,6 +12,7 @@ from discord.ext import commands
 from discord.ext.commands import Context
 
 # Local imports
+from thetower import __version__
 from thetower.bot.exceptions import ChannelUnauthorized, UserUnauthorized
 from thetower.bot.ui.settings_views import SettingsMainView
 from thetower.bot.utils import CogManager, ConfigManager, PermissionManager
@@ -368,6 +369,8 @@ async def settings_slash(interaction: discord.Interaction):
     view = SettingsMainView(is_bot_owner, guild_id)
 
     embed = discord.Embed(title="⚙️ Settings", description="Select a category to manage", color=discord.Color.blue())
+
+    embed.set_footer(text=f"Bot version: {__version__}")
 
     if is_bot_owner:
         embed.add_field(name="👑 Bot Owner", value="You have full access to all settings", inline=False)
