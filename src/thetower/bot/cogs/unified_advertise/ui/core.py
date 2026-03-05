@@ -447,75 +447,84 @@ class TagSelectionView(View):
         guild_id = self.context.guild_id
         custom_tags = self.cog._get_custom_tags(guild_id)
 
-        # Rows 0-3 can hold group selects (one per row).
-        # Solo buttons share row 4 with the Post button.
-        select_row = 0
-        solo_btn_row = 4
-
+        # Pass 1: group selects — one per row, rows 0-3.
+        current_row = 0
         for tag_group in custom_tags:
-            tag_type = tag_group.get("type", "solo")
-            label = tag_group.get("label", "Tag")
-            options_data = tag_group.get("options", [])
-
-            if not options_data:
+            if tag_group.get("type") != "group":
                 continue
-
-            if tag_type == "group":
-                if select_row >= 4:
-                    # No more rows available for group selects
-                    break
-                all_option_ids = {int(opt["tag_id"]) for opt in options_data}
-                options = [
-                    discord.SelectOption(
-                        label=opt["name"][:100],
-                        value=str(opt["tag_id"]),
-                        default=int(opt["tag_id"]) in self.selected_tag_ids,
-                    )
-                    for opt in options_data
-                ]
-                select = Select(placeholder=label[:100], options=options[:25], min_values=0, max_values=1, row=select_row)
-
-                async def group_callback(inter: discord.Interaction, s=select, opt_ids=all_option_ids) -> None:
-                    for oid in opt_ids:
-                        self.selected_tag_ids.discard(oid)
-                    if s.values:
-                        self.selected_tag_ids.add(int(s.values[0]))
-                    await inter.response.defer()
-
-                select.callback = group_callback
-                self.add_item(select)
-                select_row += 1
-
-            elif tag_type == "solo":
-                opt = options_data[0]
-                tag_id = int(opt["tag_id"])
-                is_selected = tag_id in self.selected_tag_ids
-                btn = Button(
-                    label=(f"✅ {label}" if is_selected else f"☑️ {label}")[:80],
-                    style=discord.ButtonStyle.success if is_selected else discord.ButtonStyle.secondary,
-                    row=solo_btn_row,
+            options_data = tag_group.get("options", [])
+            if not options_data or current_row >= 4:
+                continue
+            label = tag_group.get("label", "Tag")
+            all_option_ids = {int(opt["tag_id"]) for opt in options_data}
+            options = [
+                discord.SelectOption(
+                    label=opt["name"][:100],
+                    value=str(opt["tag_id"]),
+                    default=int(opt["tag_id"]) in self.selected_tag_ids,
                 )
+                for opt in options_data
+            ]
+            select = Select(placeholder=label[:100], options=options[:25], min_values=0, max_values=1, row=current_row)
 
-                async def solo_callback(inter: discord.Interaction, o=opt, b=btn, lbl=label) -> None:
-                    tid = int(o["tag_id"])
-                    if tid in self.selected_tag_ids:
-                        self.selected_tag_ids.discard(tid)
-                        b.style = discord.ButtonStyle.secondary
-                        b.label = f"☑️ {lbl}"[:80]
-                    else:
-                        self.selected_tag_ids.add(tid)
-                        b.style = discord.ButtonStyle.success
-                        b.label = f"✅ {lbl}"[:80]
-                    await inter.response.edit_message(view=self)
+            async def group_callback(inter: discord.Interaction, s=select, opt_ids=all_option_ids) -> None:
+                for oid in opt_ids:
+                    self.selected_tag_ids.discard(oid)
+                if s.values:
+                    self.selected_tag_ids.add(int(s.values[0]))
+                await inter.response.defer()
 
-                btn.callback = solo_callback
-                self.add_item(btn)
+            select.callback = group_callback
+            self.add_item(select)
+            current_row += 1
 
-        # Post/Update button always in the last occupied row
-        post_row = min(select_row, 4)
+        # Pass 2: solo buttons — pack up to 5 per row, starting after the group rows.
+        # The post button is appended last and shares whatever row has space remaining.
+        items_in_row = 0
+        for tag_group in custom_tags:
+            if tag_group.get("type") != "solo":
+                continue
+            options_data = tag_group.get("options", [])
+            if not options_data or current_row > 4:
+                continue
+            if items_in_row >= 5:
+                current_row += 1
+                items_in_row = 0
+            if current_row > 4:
+                break
+            label = tag_group.get("label", "Tag")
+            opt = options_data[0]
+            tag_id = int(opt["tag_id"])
+            is_selected = tag_id in self.selected_tag_ids
+            btn = Button(
+                label=(f"✅ {label}" if is_selected else f"☑️ {label}")[:80],
+                style=discord.ButtonStyle.success if is_selected else discord.ButtonStyle.secondary,
+                row=current_row,
+            )
+
+            async def solo_callback(inter: discord.Interaction, o=opt, b=btn, lbl=label) -> None:
+                tid = int(o["tag_id"])
+                if tid in self.selected_tag_ids:
+                    self.selected_tag_ids.discard(tid)
+                    b.style = discord.ButtonStyle.secondary
+                    b.label = f"☑️ {lbl}"[:80]
+                else:
+                    self.selected_tag_ids.add(tid)
+                    b.style = discord.ButtonStyle.success
+                    b.label = f"✅ {lbl}"[:80]
+                await inter.response.edit_message(view=self)
+
+            btn.callback = solo_callback
+            self.add_item(btn)
+            items_in_row += 1
+
+        # Post/Update button: own row if possible, otherwise shares row 4.
+        if items_in_row > 0 and current_row < 4:
+            current_row += 1
+        current_row = min(current_row, 4)
         is_edit = self.pending_data.get("is_edit", False)
         btn_label = "✏️ Update Advertisement" if is_edit else "📢 Post Advertisement"
-        post_btn = Button(label=btn_label, style=discord.ButtonStyle.primary, row=post_row)
+        post_btn = Button(label=btn_label, style=discord.ButtonStyle.primary, row=current_row)
         post_btn.callback = self.post_advertisement
         self.add_item(post_btn)
 
