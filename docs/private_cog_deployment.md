@@ -253,11 +253,11 @@ GitHub doesn't allow the same deploy key on multiple repositories. Generate a un
 
 ### Cog Not Discoverable
 
-Check the cog's `pyproject.toml` has the entry point:
+Check the cog's `pyproject.toml` has the entry point pointing at the **top-level package** (not a `.cogs` sub-module):
 
 ```toml
 [project.entry-points."thetower.bot.cogs"]
-cogname = "package_name.cogs"
+cogname = "package_name"   # src/package_name/__init__.py must have async setup(bot)
 ```
 
 ## Security Notes
