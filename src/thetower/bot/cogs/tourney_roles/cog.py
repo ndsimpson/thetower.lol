@@ -113,16 +113,9 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
     async def save_data(self) -> bool:
         """Save tournament role data using BaseCog's utility."""
         try:
-            # Collect roles_config from all guilds
-            roles_config = {}
-            for guild in self.bot.guilds:
-                guild_roles_config = self.get_setting("roles_config", {}, guild_id=guild.id)
-                if guild_roles_config:
-                    roles_config[str(guild.id)] = guild_roles_config
-
             # Prepare serializable data
+            # Note: roles_config is a user setting persisted in config.json via set_setting - not stored here
             save_data = {
-                "roles_config": roles_config,
                 "last_full_update": self.last_full_update.isoformat() if self.last_full_update else None,
                 "processed_users": self.processed_users,
                 "roles_assigned": self.roles_assigned,
@@ -151,12 +144,6 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
             save_data = await super().load_data(self.cache_file)
 
             if save_data:
-                # Load roles configuration (guild-specific) - will be loaded later when guilds are available
-                roles_config = save_data.get("roles_config", {})
-                if roles_config:
-                    # Store for later loading into guild settings
-                    self._saved_roles_config = roles_config
-
                 # Load tracking data
                 self.last_full_update = datetime.datetime.fromisoformat(save_data["last_full_update"]) if save_data.get("last_full_update") else None
                 self.processed_users = save_data.get("processed_users", 0)
@@ -228,10 +215,6 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
                     # Initialize guild-specific settings
                     self.ensure_settings_initialized(guild_id=guild.id, default_settings=self.guild_settings)
 
-                    # If we have saved roles config, load it for this guild
-                    if hasattr(self, "_saved_roles_config") and self._saved_roles_config:
-                        self.set_setting("roles_config", self._saved_roles_config, guild_id=guild.id)
-                        self.logger.debug(f"Loaded saved roles config for guild {guild.id}")
             except Exception as e:
                 self.logger.debug(f"Error initializing settings for guild {guild.id}: {e}")
 
@@ -247,10 +230,6 @@ class TourneyRoles(BaseCog, name="Tourney Roles"):
                     self.logger.debug(f"Removed settings for disabled guild {guild_id}")
         except Exception as e:
             self.logger.debug(f"Error cleaning up settings for disabled guilds: {e}")
-
-        # Clean up saved roles config after loading
-        if hasattr(self, "_saved_roles_config"):
-            del self._saved_roles_config
 
     async def get_known_players_cog(self):
         """Get the PlayerLookup cog instance."""

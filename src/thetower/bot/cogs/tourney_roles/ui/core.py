@@ -65,13 +65,22 @@ class TournamentRolesCore:
         """Get the league hierarchy for a guild."""
         return self.cog.get_global_setting("league_hierarchy", ["Legend", "Champion", "Platinum", "Gold", "Silver", "Copper"])
 
+    def get_raw_roles_config(self, guild_id: int) -> Dict[str, Dict]:
+        """Get the raw roles configuration for a guild as plain dicts (safe to pass back to set_setting)."""
+        return self.cog.get_setting("roles_config", {}, guild_id=guild_id)
+
     def get_roles_config(self, guild_id: int) -> Dict[str, TournamentRoleConfig]:
         """Get the roles configuration for a guild."""
         roles_config = self.cog.get_setting("roles_config", {}, guild_id=guild_id)
-        return {
-            name: TournamentRoleConfig(role_id=config["id"], method=config["method"], threshold=config["threshold"], league=config.get("league"))
-            for name, config in roles_config.items()
-        }
+        result = {}
+        for name, config in roles_config.items():
+            if isinstance(config, TournamentRoleConfig):
+                result[name] = config
+            else:
+                result[name] = TournamentRoleConfig(
+                    role_id=config["id"], method=config["method"], threshold=config["threshold"], league=config.get("league")
+                )
+        return result
 
     def get_verified_role_id(self, guild_id: int) -> Optional[str]:
         """Get the verified role ID for a guild."""

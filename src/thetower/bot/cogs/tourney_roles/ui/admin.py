@@ -140,7 +140,7 @@ class AdminRoleManagementView(ui.View):
         """Handle the result of adding a role."""
         try:
             # Get existing roles config
-            roles_config = self.core.get_roles_config(self.guild_id)
+            roles_config = self.core.get_raw_roles_config(self.guild_id)
 
             # Check if this is a duplicate role name
             role_name = result["role_name"]
@@ -310,7 +310,7 @@ class ConfirmRemoveView(ui.View):
             from .core import TournamentRolesCore
 
             core = TournamentRolesCore(self.cog)
-            roles_config = core.get_roles_config(self.guild_id)
+            roles_config = core.get_raw_roles_config(self.guild_id)
 
             # Check if the role exists
             if self.role_name not in roles_config:
@@ -399,7 +399,7 @@ class AddRoleMethodView(ui.View):
                 role_name = f"{league}{threshold}"
 
             # Check if this is a duplicate role name
-            roles_config = self.core.get_roles_config(self.guild_id)
+            roles_config = self.core.get_raw_roles_config(self.guild_id)
             if role_name in roles_config:
                 await interaction.response.send_message(
                     f"❌ A role with the name '{role_name}' already exists. Please choose different parameters.", ephemeral=True
@@ -495,7 +495,7 @@ class AddRoleThresholdView(ui.View):
                 role_name = f"Top{threshold}"
 
             # Check if this is a duplicate role name
-            roles_config = self.core.get_roles_config(self.guild_id)
+            roles_config = self.core.get_raw_roles_config(self.guild_id)
             if role_name in roles_config:
                 await interaction.response.send_message(
                     f"❌ A role with the name '{role_name}' already exists. Please choose different parameters.", ephemeral=True
@@ -621,7 +621,7 @@ class AddRoleLeagueView(ui.View):
                 role_name = f"{league}{threshold}"
 
             # Check if this is a duplicate role name
-            roles_config = self.core.get_roles_config(self.guild_id)
+            roles_config = self.core.get_raw_roles_config(self.guild_id)
             if role_name in roles_config:
                 await interaction.response.send_message(
                     f"❌ A role with the name '{role_name}' already exists. Please choose different parameters.", ephemeral=True
