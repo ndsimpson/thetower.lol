@@ -1,6 +1,9 @@
 import json
 import logging
+import os
+import shutil
 import sys
+from datetime import datetime, timezone
 from os import getenv
 from pathlib import Path
 from typing import Any, Dict
@@ -47,14 +50,32 @@ class ConfigManager:
         logger.info(f"Created blank config file at: {self.config_path}")
 
     def load_config(self) -> None:
-        """Load configuration from JSON file."""
+        """Load configuration from JSON file, falling back to .bak if primary is corrupt."""
         try:
             with open(self.config_path, "r") as f:
                 self.config = json.load(f)
             logger.info("Configuration loaded successfully")
-        except Exception as e:
-            logger.error(f"Failed to load config: {e}")
-            raise
+        except Exception as primary_error:
+            logger.error(f"Failed to load config: {primary_error}")
+            bak_path = self.config_path.with_suffix(".bak")
+            if bak_path.exists():
+                logger.warning(f"Attempting to load backup config from {bak_path}")
+                try:
+                    with open(bak_path, "r") as f:
+                        self.config = json.load(f)
+                    # Archive the corrupt primary with a timestamp
+                    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+                    archive_path = self.config_path.with_name(f"config.corrupt_{timestamp}.json")
+                    shutil.move(str(self.config_path), str(archive_path))
+                    logger.warning(f"Corrupt config archived to {archive_path}, loaded from backup")
+                    # Restore the backup as the new primary
+                    shutil.copy2(str(bak_path), str(self.config_path))
+                    logger.info("Backup promoted to primary config")
+                except Exception as bak_error:
+                    logger.error(f"Failed to load backup config: {bak_error}")
+                    raise primary_error
+            else:
+                raise
 
     def save_config(self) -> None:
         """Save configuration to JSON file with alphabetically sorted guilds and cogs."""
@@ -68,8 +89,19 @@ class ConfigManager:
                     # Sort all cog settings within this guild
                     self.config["guilds"][guild_id] = self._sort_dict_keys(guild_data)
 
-            with open(self.config_path, "w") as f:
-                json.dump(self.config, f, indent=4)
+            # Serialize to string first - raises before touching any file if data is not serializable
+            content = json.dumps(self.config, indent=4)
+
+            # Back up the current good config before overwriting
+            if self.config_path.exists():
+                shutil.copy2(str(self.config_path), str(self.config_path.with_suffix(".bak")))
+
+            # Write atomically via a temp file + os.replace
+            tmp_path = self.config_path.with_suffix(".tmp")
+            with open(tmp_path, "w") as f:
+                f.write(content)
+            os.replace(str(tmp_path), str(self.config_path))
+
             logger.info("Configuration saved successfully")
         except Exception as e:
             logger.error(f"Failed to save config: {e}")
