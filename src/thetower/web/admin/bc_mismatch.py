@@ -118,7 +118,7 @@ if mismatches:
     st.markdown("### Detailed Mismatch Table")
     st.dataframe(
         df[['tournament_id', 'date', 'league', 'stored_bcs', 'predicted_bcs', 'missing_in_db', 'extra_in_db']],
-        use_container_width=True,
+        width='stretch',
         column_config={
             'tournament_id': st.column_config.NumberColumn("Tournament ID", width="small"),
             'date': st.column_config.DateColumn("Date", width="medium"),

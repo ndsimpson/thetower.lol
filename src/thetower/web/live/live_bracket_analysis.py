@@ -58,7 +58,7 @@ def bracket_analysis():
     )
 
     fig1.update_layout(margin=dict(l=20, r=20, t=40, b=20), legend=dict(yanchor="top", y=0.99, xanchor="right", x=0.99))
-    st.plotly_chart(fig1, use_container_width=True)
+    st.plotly_chart(fig1, width='stretch')
 
     # Display bracket statistics in columns
     cols = st.columns(2 if not is_mobile else 1)

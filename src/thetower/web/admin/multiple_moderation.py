@@ -211,7 +211,7 @@ def render_multiple_moderation_page():
 
         st.dataframe(
             sortable_df,
-            use_container_width=True,
+            width='stretch',
             height=600,
             column_config={
                 "Tower ID": st.column_config.TextColumn("Tower ID", help="Player's Tower ID", max_chars=16),
@@ -280,7 +280,7 @@ def render_multiple_moderation_page():
 
                         st.dataframe(
                             filtered_final,
-                            use_container_width=True,
+                            width='stretch',
                             height=400,
                             column_config={
                                 "Tower ID": st.column_config.TextColumn("Tower ID", max_chars=16),
@@ -309,7 +309,7 @@ def render_multiple_moderation_page():
 
                     st.dataframe(
                         count_final,
-                        use_container_width=True,
+                        width='stretch',
                         height=400,
                         column_config={
                             "Tower ID": st.column_config.TextColumn("Tower ID", max_chars=16),

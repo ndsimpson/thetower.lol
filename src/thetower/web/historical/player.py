@@ -179,7 +179,7 @@ def compute_player_lookup():
     filtered_player_df = filtered_player_df.reset_index(drop=True)
     filtered_player_df.index = filtered_player_df.index + 1
 
-    info_tab.dataframe(dataframe_styler(filtered_player_df), use_container_width=True, height=610)
+    info_tab.dataframe(dataframe_styler(filtered_player_df), width='stretch', height=610)
 
     # Performance Graph Tab
     col1, col2 = league_graph_tab.columns(2)

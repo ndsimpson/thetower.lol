@@ -120,7 +120,7 @@ def quantile_analysis():
             annotation_position="top right",
         )
 
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width='stretch')
 
     # Display summary statistics table
     st.markdown("### Summary Statistics by Placement")
