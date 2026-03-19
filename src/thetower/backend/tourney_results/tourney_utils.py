@@ -506,8 +506,9 @@ def check_live_entry(league: str, player_id: str, fast: bool = False) -> bool:
             # Use the same data loading as the live bracket view for consistency
             df = get_live_df(league, True)
 
-        # Use our local bracket filtering
-        _, fullish_brackets = get_full_brackets(df)
+        # Use our local bracket filtering; only apply anti-snipe during ENTRY_OPEN
+        anti_snipe = get_tourney_state() == TourneyState.ENTRY_OPEN
+        _, fullish_brackets = get_full_brackets(df, anti_snipe=anti_snipe)
 
         # Check if player is in any full bracket
         filtered_df = df[df.bracket.isin(fullish_brackets)]
