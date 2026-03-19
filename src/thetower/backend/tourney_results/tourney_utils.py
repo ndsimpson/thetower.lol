@@ -500,8 +500,35 @@ def check_live_entry(league: str, player_id: str, fast: bool = False) -> bool:
 
     try:
         if fast:
-            # Use the latest checkpoint only (efficient for participation checking)
-            df = get_latest_live_df(league, True)
+            # Fast path: read only the columns needed for bracket membership, and defer exclusion
+            # DB queries until after confirming the player actually appears in the raw CSV.
+            # If the player isn't in the file at all we return False with zero DB calls;
+            # if they are, we run the sus/banned check exactly once.
+            csv_data = get_csv_data()
+            live_path = Path(csv_data) / f"{league}_live"
+            all_files = sorted(live_path.glob("*.csv.gz"), key=get_time)
+            non_empty_files = [f for f in all_files if f.stat().st_size > 0]
+            if not non_empty_files:
+                raise ValueError("No current data, wait until the tourney day")
+            last_file = non_empty_files[-1]
+            last_date = get_time(last_file)
+            try:
+                df = pd.read_csv(last_file, usecols=["player_id", "bracket"])
+            except Exception as e:
+                logging.warning(f"Failed to read latest live file {last_file}: {e}")
+                raise ValueError("No current data, wait until the tourney day")
+            if df.empty:
+                raise ValueError("No current data, wait until the tourney day")
+            df["datetime"] = last_date
+
+            # Quick raw presence check — no DB calls if player isn't in the file at all
+            if player_id not in df.player_id.values:
+                return False
+
+            # Player found in raw data; check sus/banned exclusion once (matches shun=True behaviour)
+            excluded_ids = get_sus_ids() | get_banned_ids()
+            if player_id in excluded_ids:
+                return False
         else:
             # Use the same data loading as the live bracket view for consistency
             df = get_live_df(league, True)
