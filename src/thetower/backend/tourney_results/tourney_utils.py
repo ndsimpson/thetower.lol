@@ -448,14 +448,12 @@ def get_latest_live_df(league: str, shun: bool = False) -> pd.DataFrame:
     csv_data = get_csv_data()
     live_path = Path(csv_data) / f"{league}_live"
 
-    all_files = sorted(live_path.glob("*.csv.gz"), key=get_time)
-    non_empty_files = [f for f in all_files if f.stat().st_size > 0]
+    try:
+        last_file = max(live_path.glob("*.csv.gz"))
+    except ValueError:
+        raise ValueError("No current data, wait until the tourney day")
     t_glob = perf_counter()
 
-    if not non_empty_files:
-        raise ValueError("No current data, wait until the tourney day")
-
-    last_file = non_empty_files[-1]
     last_date = get_time(last_file)
 
     try:
@@ -512,12 +510,11 @@ def check_live_entry(league: str, player_id: str, fast: bool = False) -> bool:
             # if they are, we run the sus/banned check exactly once.
             csv_data = get_csv_data()
             live_path = Path(csv_data) / f"{league}_live"
-            all_files = sorted(live_path.glob("*.csv.gz"), key=get_time)
-            non_empty_files = [f for f in all_files if f.stat().st_size > 0]
-            t_glob = perf_counter()
-            if not non_empty_files:
+            try:
+                last_file = max(live_path.glob("*.csv.gz"))
+            except ValueError:
                 raise ValueError("No current data, wait until the tourney day")
-            last_file = non_empty_files[-1]
+            t_glob = perf_counter()
             last_date = get_time(last_file)
             try:
                 df = pd.read_csv(last_file, usecols=["player_id", "bracket"])
