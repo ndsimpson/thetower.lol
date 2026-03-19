@@ -31,18 +31,16 @@ class PlayerLookupSettingsView(BaseSettingsView):
             self.profile_post_channels = []
             self.allow_post_publicly_everywhere = False
 
-        # Add toggle buttons for boolean settings
-        self.add_toggle_button("Allow Partial Matches", "allow_partial_matches", self.allow_partial_matches, is_guild_setting=False)
-        self.add_toggle_button("Case Sensitive", "case_sensitive", self.case_sensitive, is_guild_setting=False)
-
         # Add guild-specific toggle for post publicly everywhere
         if self.guild_id:
             self.add_toggle_button(
                 "Post Publicly Everywhere", "allow_post_publicly_everywhere", self.allow_post_publicly_everywhere, is_guild_setting=True
             )
 
-        # Add security toggle for bot owners
+        # Add global boolean toggles for bot owners only (these affect all guilds)
         if self.is_bot_owner:
+            self.add_toggle_button("Allow Partial Matches", "allow_partial_matches", self.allow_partial_matches, is_guild_setting=False)
+            self.add_toggle_button("Case Sensitive", "case_sensitive", self.case_sensitive, is_guild_setting=False)
             self.add_toggle_button(
                 "Restrict Lookups", "restrict_lookups_to_known_users", self.restrict_lookups_to_known_users, is_guild_setting=False
             )
@@ -244,7 +242,7 @@ class SettingModal(discord.ui.Modal):
 
         try:
             # Check if this is a bot owner only setting
-            if self.setting_name in ["restrict_lookups_to_known_users"]:
+            if self.setting_name in ["restrict_lookups_to_known_users", "results_per_page"]:
                 # Check if user is bot owner
                 if interaction.user.id not in self.cog.bot.owner_ids:
                     embed = discord.Embed(

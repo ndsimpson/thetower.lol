@@ -18,24 +18,26 @@ class DjangoAdminSettingsView(BaseSettingsView):
         # Get current global settings
         self.allowed_bot_owners = self.cog.get_global_setting("allowed_bot_owners", [])
 
-        # Add button to open Django admin interface
-        admin_button = discord.ui.Button(label="Open Django Admin", style=discord.ButtonStyle.primary, emoji="🔧", row=0)
-        admin_button.callback = self.open_admin_interface
-        self.add_item(admin_button)
+        # All Django admin controls are bot-owner only (privilege escalation risk)
+        if self.is_bot_owner:
+            # Add button to open Django admin interface
+            admin_button = discord.ui.Button(label="Open Django Admin", style=discord.ButtonStyle.primary, emoji="🔧", row=0)
+            admin_button.callback = self.open_admin_interface
+            self.add_item(admin_button)
 
-        # Build options list for settings
-        options = [
-            discord.SelectOption(
-                label="Allowed Bot Owners",
-                value="allowed_bot_owners",
-                description="Additional Discord user IDs that can use admin commands",
-            ),
-        ]
+            # Build options list for settings
+            options = [
+                discord.SelectOption(
+                    label="Allowed Bot Owners",
+                    value="allowed_bot_owners",
+                    description="Additional Discord user IDs that can use admin commands",
+                ),
+            ]
 
-        # Create the select for settings
-        self.setting_select = discord.ui.Select(placeholder="Modify settings", options=options, row=1)
-        self.setting_select.callback = self.setting_select_callback
-        self.add_item(self.setting_select)
+            # Create the select for settings
+            self.setting_select = discord.ui.Select(placeholder="Modify settings", options=options, row=1)
+            self.setting_select.callback = self.setting_select_callback
+            self.add_item(self.setting_select)
 
     def create_settings_embed(self) -> discord.Embed:
         """Create the settings embed with current values."""
@@ -63,6 +65,13 @@ class DjangoAdminSettingsView(BaseSettingsView):
 
         embed.set_footer(text="Click button to open admin interface • Use dropdown to manage settings")
         return embed
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        """Only bot owners can interact with Django admin settings."""
+        if not await self.cog.bot.is_owner(interaction.user):
+            await interaction.response.send_message("❌ Only the bot owner can access Django admin settings.", ephemeral=True)
+            return False
+        return True
 
     async def open_admin_interface(self, interaction: discord.Interaction):
         """Open the Django admin interface."""

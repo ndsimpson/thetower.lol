@@ -15,7 +15,8 @@ class BCSettingsView(discord.ui.View):
         self.cog = cog
 
         # Add buttons for different settings
-        self.add_item(ConfigureLeaguesButton())
+        if is_bot_owner:
+            self.add_item(ConfigureLeaguesButton())
         self.add_item(ConfigurePermissionsButton())
         self.add_item(ManageSchedulesButton())
 
@@ -56,6 +57,11 @@ class LeagueSelect(discord.ui.Select):
 
     async def callback(self, interaction: discord.Interaction):
         selected_leagues = self.values
+
+        # Defense-in-depth: only bot owners may change global league config
+        if not await interaction.client.is_owner(interaction.user):
+            await interaction.response.send_message("❌ Only the bot owner can change the global league configuration.", ephemeral=True)
+            return
 
         # Save to global settings
         self.cog.set_global_setting("enabled_leagues", selected_leagues)

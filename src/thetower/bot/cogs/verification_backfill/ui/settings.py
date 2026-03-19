@@ -15,8 +15,9 @@ class VerificationBackfillSettingsView(discord.ui.View):
         self.is_bot_owner = context.is_bot_owner
         self.guild_id = context.guild_id
 
-        # Add global log channel selector (row 0)
-        self.add_item(GlobalLogChannelSelect(self.cog))
+        # Add global log channel selector (row 0) - bot owner only (affects all guilds)
+        if self.is_bot_owner:
+            self.add_item(GlobalLogChannelSelect(self.cog))
 
         # Add action buttons (row 1) - will be customized based on state
         self.add_item(PreviewBackfillButton(self.cog, self.guild_id))
@@ -41,6 +42,10 @@ class GlobalLogChannelSelect(discord.ui.ChannelSelect):
 
     async def callback(self, interaction: discord.Interaction):
         """Set global log channel."""
+        if not await interaction.client.is_owner(interaction.user):
+            await interaction.response.send_message("❌ Only the bot owner can set the global log channel.", ephemeral=True)
+            return
+
         if not self.values:
             # Clear the channel
             self.cog.set_global_setting("global_log_channel_id", None)

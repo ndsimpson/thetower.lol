@@ -22,14 +22,15 @@ class ManageSusSettingsView(BaseSettingsView):
             "manage_sus", "privileged_groups_for_moderation_records", []
         )
 
-        # Add configuration buttons for each group setting
-        self.add_item(ManageSusConfigureGroupButton(self.cog, "view_groups", "View Groups", "👁️"))
-        self.add_item(ManageSusConfigureGroupButton(self.cog, "manage_groups", "Manage Groups", "✏️"))
-        self.add_item(ManageSusConfigureGroupButton(self.cog, "privileged_groups_for_full_ids", "Full IDs Groups", "🆔"))
-        self.add_item(ManageSusConfigureGroupButton(self.cog, "privileged_groups_for_moderation_records", "Mod Records Groups", "📋"))
+        # All manage_sus settings are global (affect all guilds) - bot owner only
+        if self.is_bot_owner:
+            self.add_item(ManageSusConfigureGroupButton(self.cog, "view_groups", "View Groups", "👁️"))
+            self.add_item(ManageSusConfigureGroupButton(self.cog, "manage_groups", "Manage Groups", "✏️"))
+            self.add_item(ManageSusConfigureGroupButton(self.cog, "privileged_groups_for_full_ids", "Full IDs Groups", "🆔"))
+            self.add_item(ManageSusConfigureGroupButton(self.cog, "privileged_groups_for_moderation_records", "Mod Records Groups", "📋"))
 
-        # Add toggle button for boolean setting
-        self.add_item(ManageSusToggleButton(self.cog, "show_moderation_records_in_profiles", "Show Moderation Records"))
+            # Add toggle button for boolean setting
+            self.add_item(ManageSusToggleButton(self.cog, "show_moderation_records_in_profiles", "Show Moderation Records"))
 
         # Add back button
         self.add_back_button()

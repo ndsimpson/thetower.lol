@@ -11,8 +11,9 @@ class BattleConditionsSettingsView(BaseSettingsView):
     def __init__(self, context: SettingsViewContext):
         super().__init__(context)
 
-        # Configure leagues button
-        self.add_item(BattleConditionsConfigureLeaguesButton(self.cog))
+        # Configure leagues button (bot owner only - affects all guilds globally)
+        if context.is_bot_owner:
+            self.add_item(BattleConditionsConfigureLeaguesButton(self.cog))
 
         # Configure permissions button
         self.add_item(BattleConditionsConfigurePermissionsButton(self.cog))
@@ -141,6 +142,11 @@ class BattleConditionsLeagueSelect(discord.ui.Select):
 
     async def callback(self, interaction: discord.Interaction):
         selected_leagues = self.values
+
+        # Defense-in-depth: only bot owners may change global league config
+        if not await interaction.client.is_owner(interaction.user):
+            await interaction.response.send_message("❌ Only the bot owner can change the global league configuration.", ephemeral=True)
+            return
 
         # Save to global settings
         self.bc_cog.set_global_setting("enabled_leagues", selected_leagues)
