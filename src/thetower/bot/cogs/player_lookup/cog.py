@@ -433,14 +433,12 @@ class PlayerLookup(BaseCog, name="Player Lookup", description="Universal player 
                     unverified_player = UnverifiedPlayer(tower_id)
                     results.append(unverified_player)
 
-            # Check tourney records for exact player_id matches (try both)
+            # Check tourney records for exact player_id matches (try both).
+            # Use exact (not iexact) so SQLite can use the B-tree index — player IDs are always
+            # stored uppercase and search_term_upper is already uppercased.
             tourney_results = await sync_to_async(list)(
-                TourneyRow.objects.filter(player_id__iexact=search_term).values_list("player_id", flat=True).distinct()
+                TourneyRow.objects.filter(player_id__exact=search_term_upper).values_list("player_id", flat=True).distinct()
             )
-            if not tourney_results and search_term != search_term_upper:
-                tourney_results = await sync_to_async(list)(
-                    TourneyRow.objects.filter(player_id__iexact=search_term_upper).values_list("player_id", flat=True).distinct()
-                )
             for player_id in tourney_results:
                 # Only add if not already found
                 if not await player_id_already_in_results(player_id, results):
@@ -487,16 +485,20 @@ class PlayerLookup(BaseCog, name="Player Lookup", description="Universal player 
                     unverified_player = UnverifiedPlayer(tower_id)
                     results.append(unverified_player)
 
-            # Search by player_id in TourneyRow for unverified players (use uppercase)
-            tourney_results = await sync_to_async(list)(
-                TourneyRow.objects.filter(player_id__icontains=search_term_upper).values_list("player_id", flat=True).distinct()
-            )
-            # For tourney results, create UnverifiedPlayer objects
-            for player_id in tourney_results:
-                if not await player_id_already_in_results(player_id, results):
-                    # Create an UnverifiedPlayer object
-                    unverified_player = UnverifiedPlayer(player_id)
-                    results.append(unverified_player)
+            # Skip if we already have a KnownPlayer match — they're the authoritative source
+            # and the TourneyRow scan is both redundant and extremely expensive (17M+ rows).
+            # Use exact (not iexact) so SQLite can use the B-tree index — player IDs are always
+            # stored uppercase and search_term_upper is already uppercased.
+            if not results:
+                tourney_results = await sync_to_async(list)(
+                    TourneyRow.objects.filter(player_id__exact=search_term_upper).values_list("player_id", flat=True).distinct()
+                )
+                # For tourney results, create UnverifiedPlayer objects
+                for player_id in tourney_results:
+                    if not await player_id_already_in_results(player_id, results):
+                        # Create an UnverifiedPlayer object
+                        unverified_player = UnverifiedPlayer(player_id)
+                        results.append(unverified_player)
 
             return results
 

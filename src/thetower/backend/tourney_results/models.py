@@ -184,7 +184,7 @@ class TourneyRow(models.Model):
     # player = models.ForeignKey(
     #     KnownPlayer, null=False, blank=False, related_name="results", on_delete=models.CASCADE, help_text="Player achieving a given result."
     # )
-    player_id = models.CharField(max_length=32, null=False, blank=False, help_text="Player id from The Tower")
+    player_id = models.CharField(max_length=32, null=False, blank=False, db_index=True, help_text="Player id from The Tower")
     position = models.IntegerField(null=False, blank=False, help_text="Position in a given tourney")
     nickname = models.CharField(max_length=32, null=False, blank=False, help_text="Tourney name")
     wave = models.IntegerField(null=False, blank=False, help_text="Tourney score")
