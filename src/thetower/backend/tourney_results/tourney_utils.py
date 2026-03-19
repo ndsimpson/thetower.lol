@@ -20,7 +20,7 @@ from thetower.backend.env_config import get_csv_data
 # Local imports
 from .constants import champ, leagues, legend
 from .data import get_banned_ids, get_player_id_lookup, get_shun_ids, get_sus_ids, get_tourneys
-from .models import Injection, PromptTemplate, TourneyResult, TourneyRow
+from .models import PromptTemplate, TourneyResult, TourneyRow
 from .shun_config import include_shun_enabled_for
 
 # Initialize logging
@@ -287,19 +287,19 @@ def get_summary(last_date: datetime.datetime) -> str:
         )
         ranking += "\n\n"
 
-        top1_message = Injection.objects.last().text
+        # top1_message = Injection.objects.last().text
 
     prompt_template = PromptTemplate.objects.get(id=1).text
     text = prompt_template.format(
         ranking=ranking,
         last_date=last_date,
-        top1_message=top1_message,
+        # top1_message=top1_message,
     )
 
     logging.info("Starting to generate ai summary...")
     client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
     message = client.messages.create(
-        model="claude-3-5-sonnet-20241022",
+        model="claude-haiku-4-5-20251001",
         max_tokens=4096,
         temperature=1.0,
         messages=[
