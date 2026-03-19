@@ -16,18 +16,21 @@ from thetower import __version__
 from thetower.bot.exceptions import ChannelUnauthorized, UserUnauthorized
 from thetower.bot.ui.settings_views import SettingsMainView
 from thetower.bot.utils import CogManager, ConfigManager, PermissionManager
+from thetower.bot.utils.log_context import GuildContextFilter, current_guild_id, current_user_id
 
 # Set up logging
 log_level = getenv("LOG_LEVEL", "INFO").upper()
 logging.basicConfig(level=getattr(logging, log_level))  # Keep basicConfig but modify its formatter
 logger = logging.getLogger(__name__)
 
-# Modify the root logger's formatter
-formatter = logging.Formatter("%(asctime)s UTC [%(name)s] %(levelname)s: %(message)s", datefmt="%Y-%m-%d %H:%M:%S")
+# Modify the root logger's formatter to include optional guild ID
+guild_filter = GuildContextFilter()
+formatter = logging.Formatter("%(asctime)s UTC [%(name)s] %(guild_id_str)s%(levelname)s: %(message)s", datefmt="%Y-%m-%d %H:%M:%S")
 formatter.converter = lambda *args: datetime.datetime.now(timezone.utc).timetuple()
 root_logger = logging.getLogger()
 for handler in root_logger.handlers:
     handler.setFormatter(formatter)
+    handler.addFilter(guild_filter)
 
 # Prevent discord logs from duplicating
 discord_logger = logging.getLogger("discord")
@@ -57,6 +60,13 @@ class DiscordBot(commands.Bot):
         )
         self.logger = logger
         self.cog_manager = CogManager(self)
+
+        # Inject guild ID and user ID into logging context for every app_commands interaction
+        @self.tree.interaction_check
+        async def set_guild_log_context(interaction: discord.Interaction) -> bool:
+            current_guild_id.set(interaction.guild_id)
+            current_user_id.set(interaction.user.id)
+            return True
 
     async def setup_hook(self) -> None:
         """This will just be executed when the bot starts the first time."""
