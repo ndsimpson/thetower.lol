@@ -7,7 +7,13 @@ from asgiref.sync import sync_to_async
 
 from thetower.backend.tourney_results.constants import leagues
 from thetower.backend.tourney_results.shun_config import include_shun_enabled_for
-from thetower.backend.tourney_results.tourney_utils import TourneyState, check_all_live_entry, get_full_brackets, get_live_df, get_tourney_state
+from thetower.backend.tourney_results.tourney_utils import (
+    TourneyState,
+    check_all_live_entry,
+    get_full_brackets,
+    get_latest_live_df,
+    get_tourney_state,
+)
 
 # Local
 from thetower.bot.basecog import BaseCog
@@ -59,7 +65,7 @@ class TourneyLiveData(BaseCog, name="Tourney Live Data", description="Commands f
             try:
                 # Get live data for this league
                 # shun parameter: True means exclude only sus (include shunned), False means exclude both sus and shunned
-                df = await sync_to_async(get_live_df)(league, include_shun)
+                df = await sync_to_async(get_latest_live_df)(league, include_shun)
 
                 # Filter to full brackets during entry phase only
                 if use_full_brackets_only:
