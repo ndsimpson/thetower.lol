@@ -450,6 +450,7 @@ def get_latest_live_df(league: str, shun: bool = False) -> pd.DataFrame:
 
     all_files = sorted(live_path.glob("*.csv.gz"), key=get_time)
     non_empty_files = [f for f in all_files if f.stat().st_size > 0]
+    t_glob = perf_counter()
 
     if not non_empty_files:
         raise ValueError("No current data, wait until the tourney day")
@@ -462,6 +463,7 @@ def get_latest_live_df(league: str, shun: bool = False) -> pd.DataFrame:
     except Exception as e:
         logging.warning(f"Failed to read latest live file {last_file}: {e}")
         raise ValueError("No current data, wait until the tourney day")
+    t_read = perf_counter()
 
     if df.empty:
         raise ValueError("No current data, wait until the tourney day")
@@ -479,7 +481,11 @@ def get_latest_live_df(league: str, shun: bool = False) -> pd.DataFrame:
     df = df[~df.player_id.isin(excluded_ids)]
     df = df.reset_index(drop=True)
     t1_stop = perf_counter()
-    logging.debug(f"get_latest_live_df({league}) took {t1_stop - t1_start}")
+    logging.info(
+        f"get_latest_live_df({league}): glob={1000*(t_glob-t1_start):.0f}ms "
+        f"read={1000*(t_read-t_glob):.0f}ms db={1000*(t1_stop-t_read):.0f}ms "
+        f"total={1000*(t1_stop-t1_start):.0f}ms"
+    )
     return df
 
 
@@ -508,6 +514,7 @@ def check_live_entry(league: str, player_id: str, fast: bool = False) -> bool:
             live_path = Path(csv_data) / f"{league}_live"
             all_files = sorted(live_path.glob("*.csv.gz"), key=get_time)
             non_empty_files = [f for f in all_files if f.stat().st_size > 0]
+            t_glob = perf_counter()
             if not non_empty_files:
                 raise ValueError("No current data, wait until the tourney day")
             last_file = non_empty_files[-1]
@@ -517,12 +524,18 @@ def check_live_entry(league: str, player_id: str, fast: bool = False) -> bool:
             except Exception as e:
                 logging.warning(f"Failed to read latest live file {last_file}: {e}")
                 raise ValueError("No current data, wait until the tourney day")
+            t_read = perf_counter()
             if df.empty:
                 raise ValueError("No current data, wait until the tourney day")
             df["datetime"] = last_date
 
             # Quick raw presence check — no DB calls if player isn't in the file at all
             if player_id not in df.player_id.values:
+                logging.info(
+                    f"check_live_entry({league}): not found — "
+                    f"glob={1000*(t_glob-t1_start):.0f}ms read={1000*(t_read-t_glob):.0f}ms "
+                    f"total={1000*(t_read-t1_start):.0f}ms"
+                )
                 return False
 
             # Player found in raw data; check sus/banned exclusion once (matches shun=True behaviour)
@@ -530,6 +543,7 @@ def check_live_entry(league: str, player_id: str, fast: bool = False) -> bool:
             if player_id in excluded_ids:
                 return False
         else:
+            t_glob = t_read = perf_counter()
             # Use the same data loading as the live bracket view for consistency
             df = get_live_df(league, True)
 
@@ -542,7 +556,11 @@ def check_live_entry(league: str, player_id: str, fast: bool = False) -> bool:
         player_found = player_id in filtered_df.player_id.values
 
         t1_stop = perf_counter()
-        logging.debug(f"check_live_entry({league}, {player_id}, fast={fast}) took {t1_stop - t1_start:.3f} seconds")
+        logging.info(
+            f"check_live_entry({league}): {'found' if player_found else 'not found'} — "
+            f"glob={1000*(t_glob-t1_start):.0f}ms read={1000*(t_read-t_glob):.0f}ms "
+            f"total={1000*(t1_stop-t1_start):.0f}ms"
+        )
         return player_found
 
     except (IndexError, ValueError):
@@ -562,10 +580,10 @@ def check_all_live_entry(player_id: str) -> bool:
     for league in leagues:
         if check_live_entry(league, player_id, fast=True):
             t1_stop = perf_counter()
-            logging.debug(f"check_all_live_entry({player_id}) took {t1_stop - t1_start}")
+            logging.info(f"check_all_live_entry({player_id}): found in {league}, total={1000*(t1_stop-t1_start):.0f}ms")
             return True
     t1_stop = perf_counter()
-    logging.debug(f"check_all_live_entry({player_id}) took {t1_stop - t1_start}")
+    logging.info(f"check_all_live_entry({player_id}): not found, total={1000*(t1_stop-t1_start):.0f}ms")
     return False
 
 
