@@ -59,7 +59,22 @@ def live_results():
     joined_ids = set(ldf.player_id.unique())
     pdf["joined"] = [player_id in joined_ids for player_id in pdf.id]
     pdf = pdf.rename(columns={"wave": "wave_last"})
-    pdf.index = pdf.index + 1
+
+    # Calculate positions with tie handling (same wave = same rank)
+    pdf = pdf.sort_values("wave_last", ascending=False).reset_index(drop=True)
+    positions = []
+    current = 0
+    borrow = 1
+    last_wave = None
+    for wave in pdf["wave_last"]:
+        if last_wave is not None and wave == last_wave:
+            borrow += 1
+        else:
+            current += borrow
+            borrow = 1
+        positions.append(current)
+        last_wave = wave
+    pdf.index = positions
 
     topx = canvas.selectbox("top x", [1000, 500, 200, 100, 50, 25], key=f"topx_{league}")
     need_to_get_in = canvas.checkbox("Filter by needing to get in", key=f"need_to_get_in_{league}")
