@@ -13,12 +13,11 @@ from typing import Optional
 import anthropic
 import pandas as pd
 from django.apps import apps
-from django.db.models import Q
 
 from thetower.backend.env_config import get_csv_data
 
 # Local imports
-from .constants import champ, leagues, legend
+from .constants import leagues, legend
 from .data import get_banned_ids, get_player_id_lookup, get_shun_ids, get_sus_ids, get_tourneys
 from .models import PromptTemplate, TourneyResult, TourneyRow
 from .shun_config import include_shun_enabled_for
@@ -264,20 +263,21 @@ def get_summary(last_date: datetime.datetime) -> str:
     logging.info("Collecting ai summary data...")
 
     qs = TourneyResult.objects.filter(league=legend, date__lte=last_date).order_by("-date")[:10]
+    tourney_dates = list(qs.values_list("date", flat=True))
+    logging.info(f"AI summary: querying {len(tourney_dates)} Legend tourneys: {tourney_dates}")
 
-    qs_dates = qs.values_list("date", flat=True)
-
-    champ_qs = TourneyResult.objects.filter(~Q(date__in=qs_dates), league=champ, date__lte=last_date).order_by("-date")[:10]
-
-    df1 = get_tourneys(qs, offset=0, limit=50)
-    df2 = get_tourneys(champ_qs, offset=0, limit=50)
-
-    df = pd.concat([df1, df2])
+    df = get_tourneys(qs, offset=0, limit=50)
+    logging.info(f"AI summary: got {len(df)} rows across {df['date'].nunique() if not df.empty else 0} dates")
 
     ranking = ""
 
     for date, sdf in df.groupby(["date"]):
         bcs = [(bc.name, bc.shortcut) for bc in sdf.iloc[0]["bcs"]]
+        name_counts = sdf["real_name"].value_counts()
+        dupes = name_counts[name_counts > 1]
+        if not dupes.empty:
+            logging.warning(f"AI summary: duplicate real_names on {date[0].isoformat()}: {dupes.to_dict()}")
+        logging.info(f"AI summary: {date[0].isoformat()} — {len(sdf)} rows, top 3: {list(sdf.head(3)['real_name'])}")
         ranking += f"Tourney of {date[0].isoformat()}, battle conditions: {bcs}:\n"
         ranking += "\n".join(
             [
@@ -289,11 +289,14 @@ def get_summary(last_date: datetime.datetime) -> str:
 
         # top1_message = Injection.objects.last().text
 
+    logging.info(f"AI summary: full prompt ranking length = {len(ranking)} chars")
+    logging.debug(f"AI summary: ranking text =\n{ranking}")
+
     prompt_template = PromptTemplate.objects.get(id=1).text
     text = prompt_template.format(
         ranking=ranking,
         last_date=last_date,
-        # top1_message=top1_message,
+        top1_message="",  # deprecated, kept for template compatibility
     )
 
     logging.info("Starting to generate ai summary...")
@@ -316,7 +319,7 @@ def get_summary(last_date: datetime.datetime) -> str:
     )
 
     response = message.content[0].text
-    logging.info(f"Ai summary done: {response}")
+    logging.info(f"AI summary done ({len(response)} chars): {response[:200]}...")
 
     return response
 
