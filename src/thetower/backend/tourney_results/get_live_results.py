@@ -43,7 +43,7 @@ def get_date_offset() -> int:
 
 def get_last_date():
     utcnow = get_current_time__game_server()
-    return f"{utcnow.year}-{str(utcnow.month).zfill(2)}-{str(utcnow.day).zfill(2)}__{utcnow.hour}_{utcnow.minute}"
+    return f"{utcnow.year}-{str(utcnow.month).zfill(2)}-{str(utcnow.day).zfill(2)}__{str(utcnow.hour).zfill(2)}_{str(utcnow.minute).zfill(2)}"
 
 
 def get_file_name():
