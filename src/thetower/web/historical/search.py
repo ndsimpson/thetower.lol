@@ -1,4 +1,5 @@
 import os
+import time
 
 import django
 
@@ -10,20 +11,68 @@ from itertools import groupby
 from pathlib import Path
 
 import streamlit as st
+from django.db import connection
 from django.db.models import Q
 
-from thetower.backend.sus.models import PlayerId
+from thetower.backend.sus.models import ModerationRecord, PlayerId
 from thetower.backend.tourney_results.constants import how_many_results_public_site
-from thetower.backend.tourney_results.data import get_banned_ids, get_soft_banned_ids, get_sus_ids
 from thetower.backend.tourney_results.models import TourneyRow
 from thetower.web.util import add_player_id, add_to_comparison
 
 
-def search_players_optimized(search_term, excluded_player_ids, page=20):
+def _next_prefix(s: str) -> str:
+    """Return the string that sorts immediately after all strings starting with s."""
+    return s[:-1] + chr(ord(s[-1]) + 1)
+
+
+def _get_excluded_from_results(player_ids: list[str]) -> set[str]:
+    """Check only the given player IDs against moderation records (sus/ban/soft-ban)."""
+    if not player_ids:
+        return set()
+    banned_types = [
+        ModerationRecord.ModerationType.SUS,
+        ModerationRecord.ModerationType.BAN,
+        ModerationRecord.ModerationType.SOFT_BAN,
+    ]
+    # Standalone records (not yet linked to a GameInstance)
+    standalone = set(
+        ModerationRecord.objects.filter(
+            tower_id__in=player_ids,
+            game_instance__isnull=True,
+            resolved_at__isnull=True,
+            moderation_type__in=banned_types,
+        ).values_list("tower_id", flat=True)
+    )
+    # Records via GameInstance
+    game_instance_ids = list(
+        PlayerId.objects.filter(id__in=player_ids, game_instance__isnull=False).values_list("game_instance_id", flat=True).distinct()
+    )
+    via_instance: set[str] = set()
+    if game_instance_ids:
+        moderated_instances = set(
+            ModerationRecord.objects.filter(
+                game_instance_id__in=game_instance_ids,
+                resolved_at__isnull=True,
+                moderation_type__in=banned_types,
+            ).values_list("game_instance_id", flat=True)
+        )
+        if moderated_instances:
+            via_instance = set(
+                PlayerId.objects.filter(
+                    id__in=player_ids,
+                    game_instance_id__in=moderated_instances,
+                ).values_list("id", flat=True)
+            )
+    return standalone | via_instance
+
+
+def search_players_optimized(search_term, page=20, advanced_search=False):
     """
     Optimized search function that combines all searches into unified queries.
     Returns results prioritized by relevance.
+    If advanced_search is True, also runs P3/P4 (contains) passes after the startswith passes.
     """
+    t0 = time.perf_counter()
     search_term = search_term.strip()
     if not search_term:
         return []
@@ -40,39 +89,62 @@ def search_players_optimized(search_term, excluded_player_ids, page=20):
     if is_player_id_search:
         # Normalize to uppercase to align with stored player IDs
         search_term = search_term.upper()
-        fragments = [frag.upper() for frag in fragments]
-        # Player ID search - unified query
-        match_conditions = Q()
-        for i, fragment in enumerate(fragments):
-            if i == 0:
-                match_conditions &= Q(player_id__istartswith=fragment)
-            else:
-                match_conditions &= Q(player_id__icontains=fragment)
 
-        # Single query for player ID search with grouping
-        results = list(
+        # Single query: player IDs starting with the search term
+        t1 = time.perf_counter()
+        pid_results = list(
             TourneyRow.objects.filter(
-                match_conditions,
-                ~Q(player_id__in=excluded_player_ids),
+                player_id__istartswith=search_term,
                 position__lte=how_many_results_public_site,
             )
-            .values_list("player_id", "nickname", "result__league")
+            .values_list("player_id", "nickname")
             .order_by("player_id")
-            .distinct()[: page * 3]  # Get more to account for grouping
+            .distinct()[:page]
         )
+        # Dedup to one row per player_id
+        seen: set[str] = set()
+        unique_pids: list[tuple[str, str]] = []
+        for pid, nick in pid_results:
+            if pid not in seen:
+                seen.add(pid)
+                unique_pids.append((pid, nick))
 
-        # Group by player_id and combine nicknames/leagues, then sort by player_id
-        grouped_results = []
-        for player_id, group in groupby(sorted(results), lambda x: x[0]):
-            group_list = list(group)
-            nicknames = list(set(nickname for _, nickname, _ in group_list))
-            leagues = list(set(league for _, _, league in group_list if league))
-            grouped_results.append((player_id, ", ".join(nicknames[:page]), ", ".join(sorted(leagues))))
-            if len(grouped_results) >= page:
-                break
+        # Advanced: also search player IDs containing the term (not just startswith)
+        if advanced_search and len(unique_pids) < page:
+            t1c = time.perf_counter()
+            contains_results = list(
+                TourneyRow.objects.filter(
+                    player_id__icontains=search_term,
+                    position__lte=how_many_results_public_site,
+                )
+                .exclude(player_id__istartswith=search_term)
+                .values_list("player_id", "nickname")
+                .order_by("player_id")
+                .distinct()[: (page - len(unique_pids)) * 5]
+            )
+            for pid, nick in contains_results:
+                if pid not in seen:
+                    seen.add(pid)
+                    unique_pids.append((pid, nick))
+                    if len(unique_pids) >= page:
+                        break
+            print(f"[search] player_id contains query: {time.perf_counter() - t1c:.3f}s")
 
-        # Sort final results by player_id
-        grouped_results.sort(key=lambda x: x[0])
+        # Batch league lookup
+        ids = [pid for pid, _ in unique_pids]
+        t1b = time.perf_counter()
+        league_rows = (
+            TourneyRow.objects.filter(player_id__in=ids, position__lte=how_many_results_public_site)
+            .values_list("player_id", "result__league")
+            .distinct()
+        )
+        league_map: dict[str, set[str]] = {}
+        for pid, lg in league_rows:
+            league_map.setdefault(pid, set()).add(lg)
+        print(f"[search] player_id query: {t1b - t1:.3f}s ({len(unique_pids)} rows)  league batch: {time.perf_counter() - t1b:.3f}s")
+
+        grouped_results = [(pid, nick, ", ".join(sorted(league_map.get(pid, set())))) for pid, nick in unique_pids]
+        print(f"[search] player_id total: {time.perf_counter() - t0:.3f}s")
         return grouped_results
 
     else:
@@ -89,103 +161,140 @@ def search_players_optimized(search_term, excluded_player_ids, page=20):
             for fragment in additional_fragments:
                 base_condition &= Q(player__name__icontains=fragment)
 
+            t1 = time.perf_counter()
             priority1_results = list(
-                PlayerId.objects.filter(base_condition & Q(primary=True) & ~Q(id__in=excluded_player_ids))
+                PlayerId.objects.filter(base_condition & Q(primary=True))
                 .select_related("game_instance__player")
                 .order_by("id")
                 .values_list("id", "game_instance__player__name")[:page]
             )
-            # Add league info by querying TourneyRow for each player
-            priority1_with_league = []
-            for player_id, name in priority1_results:
-                leagues = list(
-                    TourneyRow.objects.filter(player_id=player_id, position__lte=how_many_results_public_site)
-                    .values_list("result__league", flat=True)
-                    .distinct()[:5]
-                )
-                priority1_with_league.append((player_id, name, ", ".join(sorted(set(leagues)))))
+            # Batch league lookup — one query for all players instead of N+1
+            p1_ids = [pid for pid, _ in priority1_results]
+            t2 = time.perf_counter()
+            p1_league_rows = (
+                TourneyRow.objects.filter(player_id__in=p1_ids, position__lte=how_many_results_public_site)
+                .values_list("player_id", "result__league")
+                .distinct()
+            )
+            p1_league_map: dict[str, set[str]] = {}
+            for pid, lg in p1_league_rows:
+                p1_league_map.setdefault(pid, set()).add(lg)
+            print(f"[search] p1 name query: {t2 - t1:.3f}s ({len(priority1_results)} rows)  p1 league batch: {time.perf_counter() - t2:.3f}s")
+            priority1_with_league = [(pid, name, ", ".join(sorted(p1_league_map.get(pid, set())))) for pid, name in priority1_results]
             all_results.extend(priority1_with_league)
 
         # Priority 2: Nicknames starting with first fragment (if we need more results)
         existing_player_ids = {player_id for player_id, _, _ in all_results}
         if len(all_results) < page and primary_fragment:
-            base_condition = Q(nickname__istartswith=primary_fragment)
-            for fragment in additional_fragments:
-                base_condition &= Q(nickname__icontains=fragment)
+            lo = primary_fragment.upper()
+            hi = _next_prefix(lo)
+            limit = page - len(all_results)
 
-            priority2_results = list(
-                TourneyRow.objects.filter(
-                    base_condition
-                    & ~Q(player_id__in=existing_player_ids)
-                    & ~Q(player_id__in=excluded_player_ids)
-                    & Q(position__lte=how_many_results_public_site)
+            t2 = time.perf_counter()
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    "SELECT player_id, nickname FROM tourney_results_tourneyrow "
+                    "WHERE UPPER(nickname) >= %s AND UPPER(nickname) < %s "
+                    "AND position <= %s LIMIT %s",
+                    [lo, hi, how_many_results_public_site, limit * 20],
                 )
+                raw = cursor.fetchall()
+
+            seen = set(existing_player_ids)
+            priority2_results: list[tuple[str, str]] = []
+            for pid, nick in raw:
+                if pid not in seen:
+                    seen.add(pid)
+                    if not additional_fragments or all(frag.lower() in nick.lower() for frag in additional_fragments):
+                        priority2_results.append((pid, nick))
+                        if len(priority2_results) >= limit:
+                            break
+
+            p2_ids = [pid for pid, _ in priority2_results]
+            t2b = time.perf_counter()
+            p2_league_rows = (
+                TourneyRow.objects.filter(player_id__in=p2_ids, position__lte=how_many_results_public_site)
+                .values_list("player_id", "result__league")
                 .distinct()
-                .order_by("player_id")
-                .values_list("player_id", "nickname", "result__league")[: page - len(all_results)]
             )
-            # Group by player_id to combine leagues
-            priority2_with_league = []
-            for player_id, group in groupby(priority2_results, lambda x: x[0]):
-                group_list = list(group)
-                nickname = group_list[0][1]
-                leagues = list(set(league for _, _, league in group_list if league))
-                priority2_with_league.append((player_id, nickname, ", ".join(sorted(leagues))))
+            p2_league_map: dict[str, set[str]] = {}
+            for pid, lg in p2_league_rows:
+                p2_league_map.setdefault(pid, set()).add(lg)
+            print(f"[search] p2 nickname query: {t2b - t2:.3f}s ({len(priority2_results)} rows)  p2 league batch: {time.perf_counter() - t2b:.3f}s")
+
+            priority2_with_league = [(pid, nick, ", ".join(sorted(p2_league_map.get(pid, set())))) for pid, nick in priority2_results]
             all_results.extend(priority2_with_league)
-            existing_player_ids.update(player_id for player_id, _, _ in priority2_with_league)
+            existing_player_ids.update(pid for pid, _, _ in priority2_with_league)
 
-        # Priority 3: Primary names containing all fragments (if we need more results)
-        if len(all_results) < page and fragments:
-            base_condition = Q()
-            for fragment in fragments:
-                base_condition &= Q(player__name__icontains=fragment)
+        if advanced_search:
+            # Priority 3: Primary names containing all fragments
+            if len(all_results) < page and fragments:
+                base_condition = Q()
+                for fragment in fragments:
+                    base_condition &= Q(player__name__icontains=fragment)
 
-            priority3_results = list(
-                PlayerId.objects.filter(base_condition & Q(primary=True) & ~Q(id__in=existing_player_ids) & ~Q(id__in=excluded_player_ids))
-                .select_related("game_instance__player")
-                .order_by("id")
-                .values_list("id", "game_instance__player__name")[: page - len(all_results)]
-            )
-            # Add league info
-            priority3_with_league = []
-            for player_id, name in priority3_results:
-                leagues = list(
-                    TourneyRow.objects.filter(player_id=player_id, position__lte=how_many_results_public_site)
-                    .values_list("result__league", flat=True)
-                    .distinct()[:5]
+                t3 = time.perf_counter()
+                priority3_results = list(
+                    PlayerId.objects.filter(base_condition & Q(primary=True) & ~Q(id__in=existing_player_ids))
+                    .select_related("game_instance__player")
+                    .order_by("id")
+                    .values_list("id", "game_instance__player__name")[: page - len(all_results)]
                 )
-                priority3_with_league.append((player_id, name, ", ".join(sorted(set(leagues)))))
-            all_results.extend(priority3_with_league)
-            existing_player_ids.update(player_id for player_id, _, _ in priority3_with_league)
-
-        # Priority 4: Nicknames containing all fragments (if we need more results)
-        if len(all_results) < page and fragments:
-            base_condition = Q()
-            for fragment in fragments:
-                base_condition &= Q(nickname__icontains=fragment)
-
-            priority4_results = list(
-                TourneyRow.objects.filter(
-                    base_condition
-                    & ~Q(player_id__in=existing_player_ids)
-                    & ~Q(player_id__in=excluded_player_ids)
-                    & Q(position__lte=how_many_results_public_site)
+                p3_ids = [pid for pid, _ in priority3_results]
+                t3b = time.perf_counter()
+                p3_league_rows = (
+                    TourneyRow.objects.filter(player_id__in=p3_ids, position__lte=how_many_results_public_site)
+                    .values_list("player_id", "result__league")
+                    .distinct()
                 )
-                .distinct()
-                .order_by("player_id")
-                .values_list("player_id", "nickname", "result__league")[: page - len(all_results)]
-            )
-            # Group by player_id to combine leagues
-            priority4_with_league = []
-            for player_id, group in groupby(priority4_results, lambda x: x[0]):
-                group_list = list(group)
-                nickname = group_list[0][1]
-                leagues = list(set(league for _, _, league in group_list if league))
-                priority4_with_league.append((player_id, nickname, ", ".join(sorted(leagues))))
-            all_results.extend(priority4_with_league)
+                p3_league_map: dict[str, set[str]] = {}
+                for pid, lg in p3_league_rows:
+                    p3_league_map.setdefault(pid, set()).add(lg)
+                print(f"[search] p3 name query: {t3b - t3:.3f}s ({len(priority3_results)} rows)  p3 league batch: {time.perf_counter() - t3b:.3f}s")
+                priority3_with_league = [(pid, name, ", ".join(sorted(p3_league_map.get(pid, set())))) for pid, name in priority3_results]
+                all_results.extend(priority3_with_league)
+                existing_player_ids.update(pid for pid, _, _ in priority3_with_league)
+
+            # Priority 4: Nicknames containing all fragments
+            if len(all_results) < page and fragments:
+                limit = page - len(all_results)
+                conditions = " AND ".join(["UPPER(nickname) LIKE %s"] * len(fragments))
+                params: list = [f"%{frag.upper()}%" for frag in fragments] + [how_many_results_public_site, limit * 20]
+                sql = f"SELECT player_id, nickname FROM tourney_results_tourneyrow WHERE {conditions} AND position <= %s LIMIT %s"
+
+                t4 = time.perf_counter()
+                with connection.cursor() as cursor:
+                    cursor.execute(sql, params)
+                    raw = cursor.fetchall()
+
+                seen = set(existing_player_ids)
+                priority4_results: list[tuple[str, str]] = []
+                for pid, nick in raw:
+                    if pid not in seen:
+                        seen.add(pid)
+                        priority4_results.append((pid, nick))
+                        if len(priority4_results) >= limit:
+                            break
+
+                p4_ids = [pid for pid, _ in priority4_results]
+                t4b = time.perf_counter()
+                p4_league_rows = (
+                    TourneyRow.objects.filter(player_id__in=p4_ids, position__lte=how_many_results_public_site)
+                    .values_list("player_id", "result__league")
+                    .distinct()
+                )
+                p4_league_map: dict[str, set[str]] = {}
+                for pid, lg in p4_league_rows:
+                    p4_league_map.setdefault(pid, set()).add(lg)
+                print(
+                    f"[search] p4 nickname query: {t4b - t4:.3f}s ({len(priority4_results)} rows)  p4 league batch: {time.perf_counter() - t4b:.3f}s"
+                )
+                priority4_with_league = [(pid, nick, ", ".join(sorted(p4_league_map.get(pid, set())))) for pid, nick in priority4_results]
+                all_results.extend(priority4_with_league)
 
         # Sort name search results by nickname (case-insensitive)
         all_results.sort(key=lambda x: x[1].lower() if x[1] else "")
+        print(f"[search] name search total: {time.perf_counter() - t0:.3f}s ({len(all_results)} results)")
         return all_results[:page]
 
 
@@ -196,23 +305,26 @@ def compute_search(player=False, comparison=False):
 
     st.write(table_styling, unsafe_allow_html=True)
 
-    # Get all suspicious or banned player IDs
     hidden_features = os.environ.get("HIDDEN_FEATURES")
 
-    if not hidden_features:
-        sus_ids = get_sus_ids()
-        banned_ids = get_banned_ids()
-        soft_banned_ids = get_soft_banned_ids()
-        excluded_player_ids = list(sus_ids.union(banned_ids).union(soft_banned_ids))
-    else:
-        excluded_player_ids = []
+    advanced_search = False
+    if hidden_features:
+        with st.sidebar:
+            advanced_search = st.toggle("Advanced search (slow)", value=False)
 
     name_col, id_col = st.columns([1, 1])
 
     page = 20
 
-    real_name_part = name_col.text_input("Enter part of the player name")
-    player_id_part = id_col.text_input("Enter part of the player_id to be queried")
+    if advanced_search:
+        name_label = "Enter any part of the player name"
+        id_label = "Enter any part of the player id to be queried"
+    else:
+        name_label = "Enter beginning of the player name"
+        id_label = "Enter beginning of the player id to be queried"
+
+    real_name_part = name_col.text_input(name_label)
+    player_id_part = id_col.text_input(id_label)
 
     # Determine which search to perform
     search_term = ""
@@ -221,14 +333,16 @@ def compute_search(player=False, comparison=False):
     elif player_id_part.strip():
         search_term = player_id_part.strip()
 
-    # Debug output
     if search_term:
-        st.write(f"🔍 Searching for: '{search_term}'")
-
-    if search_term:
-        # Use the optimized search function
-        nickname_ids = search_players_optimized(search_term, excluded_player_ids, page)
-        st.write(f"📊 Found {len(nickname_ids)} raw results")
+        t_search = time.perf_counter()
+        nickname_ids = search_players_optimized(search_term, page, advanced_search=advanced_search)
+        if not hidden_features:
+            t_excl = time.perf_counter()
+            result_ids = [pid for pid, _, _ in nickname_ids]
+            excluded = _get_excluded_from_results(result_ids)
+            print(f"[search] exclusion check: {time.perf_counter() - t_excl:.3f}s")
+            nickname_ids = [(pid, name, lg) for pid, name, lg in nickname_ids if pid not in excluded]
+        print(f"[search] compute_search total: {time.perf_counter() - t_search:.3f}s")
     else:
         nickname_ids = []
 
