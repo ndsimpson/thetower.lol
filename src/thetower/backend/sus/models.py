@@ -38,7 +38,7 @@ class ApiKey(models.Model):
 
 
 class KnownPlayer(models.Model):
-    name = models.CharField(max_length=100, blank=True, null=True, help_text="Player's friendly name, e.g. common discord handle")
+    name = models.CharField(max_length=100, blank=True, null=True, db_index=True, help_text="Player's friendly name, e.g. common discord handle")
     discord_id = models.CharField(max_length=50, blank=True, null=True, help_text="DEPRECATED: Discord numeric id (use linked_accounts instead)")
     creator_code = models.CharField(max_length=50, blank=True, null=True, help_text="Creator/supporter code to promote in shop")
     approved = models.BooleanField(blank=False, null=False, default=True, help_text="Has this entry been validated?")
