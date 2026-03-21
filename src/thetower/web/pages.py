@@ -9,6 +9,7 @@ import streamlit as st
 
 from thetower.backend.tourney_results.constants import Graph, Options
 from thetower.web.maintenance import get_maintenance_state
+from thetower.web.request_logger import log_request
 from thetower.web.util import makeitrain
 
 # Django setup
@@ -118,6 +119,8 @@ if hidden_features:
         st.Page("admin/codebase_status.py", title="Codebase Status", icon="📦", url_path="codebase"),
         st.Page("admin/migrations.py", title="Migrations", icon="🔄", url_path="migrations"),
         st.Page("admin/maintenance_mode.py", title="Maintenance Mode", icon="🛠️", url_path="maintenance"),
+        st.Page("admin/access_log.py", title="Access Log Viewer", icon="🌐", url_path="accesslog"),
+        st.Page("admin/access_log_stats.py", title="Access Log Stats", icon="📊", url_path="accesslogstats"),
     ]
 
     admin_moderation_pages = [
@@ -181,4 +184,5 @@ st.html(
 """
 )
 
+log_request()
 pg.run()
