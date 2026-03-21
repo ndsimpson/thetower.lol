@@ -247,44 +247,44 @@ def compute_comparison(player_id=None, canvas=st):
     is_mobile = st.session_state.get("mobile_view", False)
 
     if is_mobile:
-        canvas.plotly_chart(wave_fig, width='stretch')
+        canvas.plotly_chart(wave_fig, use_container_width=True)
 
         if st.session_state.options.links_toggle:
             to_be_displayed = summary.style.format(make_player_url, subset=["Search term"]).to_html(escape=False)
             canvas.write(to_be_displayed, unsafe_allow_html=True)
         else:
-            canvas.dataframe(summary, width='stretch', hide_index=True)
+            canvas.dataframe(summary, use_container_width=True, hide_index=True)
 
-        canvas.plotly_chart(placement_fig, width='stretch')
+        canvas.plotly_chart(placement_fig, use_container_width=True)
 
         if st.session_state.options.links_toggle:
             to_be_displayed = last_results.format(make_player_url, subset=["id"]).to_html(escape=False)
             canvas.write(to_be_displayed, unsafe_allow_html=True)
         else:
-            canvas.dataframe(last_results, width='stretch', hide_index=True)
+            canvas.dataframe(last_results, use_container_width=True, hide_index=True)
     else:
         # Present each chart and table in its own tab
         tab1, tab2, tab3, tab4 = canvas.tabs(["Waves over time", "Placement over Time", "Summary", "Last 5"])
 
         with tab1:
-            canvas.plotly_chart(wave_fig, width='stretch')
+            canvas.plotly_chart(wave_fig, use_container_width=True)
 
         with tab2:
-            canvas.plotly_chart(placement_fig, width='stretch')
+            canvas.plotly_chart(placement_fig, use_container_width=True)
 
         with tab3:
             if st.session_state.options.links_toggle:
                 to_be_displayed = summary.style.format(make_player_url, subset=["Search term"]).to_html(escape=False)
                 canvas.write(to_be_displayed, unsafe_allow_html=True)
             else:
-                canvas.dataframe(summary, width='stretch', hide_index=True)
+                canvas.dataframe(summary, use_container_width=True, hide_index=True)
 
         with tab4:
             if st.session_state.options.links_toggle:
                 to_be_displayed = last_results.format(make_player_url, subset=["id"]).to_html(escape=False)
                 canvas.write(to_be_displayed, unsafe_allow_html=True)
             else:
-                canvas.dataframe(last_results, width='stretch', hide_index=True)
+                canvas.dataframe(last_results, use_container_width=True, hide_index=True)
 
     if not player_id:
         with canvas.expander("Debug data..."):

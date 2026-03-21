@@ -335,7 +335,7 @@ def live_bracket():
     fig.update_traces(mode="lines+markers")
     fig.update_layout(xaxis_title="Time", yaxis_title="Wave", legend_title="real_name", hovermode="x unified")
     fig.update_traces(hovertemplate="%{y}")
-    st.plotly_chart(fig, width='stretch')
+    st.plotly_chart(fig, use_container_width=True)
 
     # Process and display latest data
     last_moment = tdf.datetime.max()

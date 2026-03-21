@@ -85,7 +85,7 @@ def compute_counts():
 
     if untranspose:
         # Display without transposing
-        st.dataframe(to_be_displayed, width='stretch', height=row_height, hide_index=True)
+        st.dataframe(to_be_displayed, use_container_width=True, height=row_height, hide_index=True)
     else:
         # Existing transposed view
         date_col = to_be_displayed["date"]
@@ -111,7 +111,7 @@ def compute_counts():
         transposed.columns = pd.Index(visible_headers, name=None)
         st.dataframe(
             transposed,
-            width='stretch',
+            use_container_width=True,
             height=row_height,
             hide_index=False,
             column_config={header: {"help": tooltip} for header, tooltip in zip(visible_headers, tooltips)},
