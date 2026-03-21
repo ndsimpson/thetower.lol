@@ -8,6 +8,7 @@ import django
 import streamlit as st
 
 from thetower.backend.tourney_results.constants import Graph, Options
+from thetower.web.maintenance import get_maintenance_state
 from thetower.web.util import makeitrain
 
 # Django setup
@@ -17,6 +18,15 @@ django.setup()
 # Local imports
 
 hidden_features = os.environ.get("HIDDEN_FEATURES")
+
+_maintenance = get_maintenance_state()
+_maintenance_enabled = _maintenance["enabled"] and not hidden_features
+
+
+def _page(path: str, **kwargs) -> st.Page:
+    """Return st.Page pointing to message.py when maintenance mode is active on the public site."""
+    return st.Page("message.py" if _maintenance_enabled else path, **kwargs)
+
 
 if hidden_features:
     page_title = "Admin: The Tower tourney results"
@@ -62,40 +72,40 @@ if st.session_state.get("options") is None:
     st.session_state.options = options
 
 home_info_pages = [
-    st.Page("historical/overview.py", title="Overview", icon="🏠", url_path="overview"),
-    st.Page("historical/about.py", title="About", icon="👴", url_path="about"),
+    _page("historical/overview.py", title="Overview", icon="🏠", url_path="overview"),
+    _page("historical/about.py", title="About", icon="👴", url_path="about"),
 ]
 
 current_tournament_pages = [
-    st.Page("live/bcs.py", title="Battle Conditions", icon="🔮", url_path="bcs"),
-    st.Page("live/live_progress.py", title="Live Progress", icon="⏱️", url_path="liveprogress"),
-    st.Page("live/live_results.py", title="Live Results", icon="📋", url_path="liveresults"),
-    st.Page("live/live_bracket.py", title="Live Bracket View", icon="🔠", url_path="livebracketview"),
+    _page("live/bcs.py", title="Battle Conditions", icon="🔮", url_path="bcs"),
+    _page("live/live_progress.py", title="Live Progress", icon="⏱️", url_path="liveprogress"),
+    _page("live/live_results.py", title="Live Results", icon="📋", url_path="liveresults"),
+    _page("live/live_bracket.py", title="Live Bracket View", icon="🔠", url_path="livebracketview"),
 ]
 
 live_analytics_pages = [
-    st.Page("live/live_bracket_analysis.py", title="Live Bracket Analysis", icon="📉", url_path="livebracketanalysis"),
-    st.Page("live/live_placement_analysis.py", title="Live Placement Analysis", icon="📈", url_path="liveplacement"),
-    st.Page("live/live_quantile_analysis.py", title="Live Quantile Analysis", icon="📊", url_path="livequantile"),
+    _page("live/live_bracket_analysis.py", title="Live Bracket Analysis", icon="📉", url_path="livebracketanalysis"),
+    _page("live/live_placement_analysis.py", title="Live Placement Analysis", icon="📈", url_path="liveplacement"),
+    _page("live/live_quantile_analysis.py", title="Live Quantile Analysis", icon="📊", url_path="livequantile"),
 ]
 
 player_statistics_pages = [
-    st.Page("historical/player.py", title="Individual Player Stats", icon="⛹️", url_path="player"),
-    st.Page("historical/comparison.py", title="Player Comparison", icon="🔃", url_path="comparison"),
-    st.Page("historical/namechangers.py", title="Namechangers", icon="💩", url_path="namechangers"),
+    _page("historical/player.py", title="Individual Player Stats", icon="⛹️", url_path="player"),
+    _page("historical/comparison.py", title="Player Comparison", icon="🔃", url_path="comparison"),
+    _page("historical/namechangers.py", title="Namechangers", icon="💩", url_path="namechangers"),
 ]
 
 historical_data_pages = [
-    st.Page("historical/results.py", title="League Standings", icon="🐳", url_path="results"),
-    st.Page("historical/counts.py", title="Wave Cutoffs", icon="🐈", url_path="counts"),
-    st.Page("historical/winners.py", title="Winners", icon="🔥", url_path="winners"),
+    _page("historical/results.py", title="League Standings", icon="🐳", url_path="results"),
+    _page("historical/counts.py", title="Wave Cutoffs", icon="🐈", url_path="counts"),
+    _page("historical/winners.py", title="Winners", icon="🔥", url_path="winners"),
 ]
 
 archive_pages = [
-    st.Page("historical/deprecated/top_scores.py", title="Top Scores", icon="🤑", url_path="top"),
-    st.Page("historical/deprecated/breakdown.py", title="Breakdown", icon="🪁", url_path="breakdown"),
-    st.Page("historical/deprecated/various.py", title="Relics and Avatars", icon="👽", url_path="relics"),
-    st.Page("historical/deprecated/fallen_defenders.py", title="Fallen Defenders", icon="🪦", url_path="fallen"),
+    _page("historical/deprecated/top_scores.py", title="Top Scores", icon="🤑", url_path="top"),
+    _page("historical/deprecated/breakdown.py", title="Breakdown", icon="🪁", url_path="breakdown"),
+    _page("historical/deprecated/various.py", title="Relics and Avatars", icon="👽", url_path="relics"),
+    _page("historical/deprecated/fallen_defenders.py", title="Fallen Defenders", icon="🪦", url_path="fallen"),
 ]
 
 # Hidden admin pages (only available when HIDDEN_FEATURES env var is set)
@@ -107,6 +117,7 @@ if hidden_features:
         st.Page("admin/service_status.py", title="Service Status", icon="🔧", url_path="services"),
         st.Page("admin/codebase_status.py", title="Codebase Status", icon="📦", url_path="codebase"),
         st.Page("admin/migrations.py", title="Migrations", icon="🔄", url_path="migrations"),
+        st.Page("admin/maintenance_mode.py", title="Maintenance Mode", icon="🛠️", url_path="maintenance"),
     ]
 
     admin_moderation_pages = [
