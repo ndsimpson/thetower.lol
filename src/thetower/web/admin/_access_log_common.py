@@ -9,9 +9,10 @@ from pathlib import Path
 
 import streamlit as st
 
-# Matches lines produced by request_logger.py:
-# 2026-03-21 14:32:01 UTC | 203.0.113.42    | /comparison | player_id=abc123
-LOG_RE = re.compile(r"^(?P<dt>\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} UTC)" r"\s*\|\s*(?P<ip>[^\|]+)" r"\s*\|\s*(?P<path>[^\|]+)" r"\s*\|\s*(?P<qs>.+)$")
+# Log line formats produced by request_logger.py:
+#   New (6 fields): 2026-03-21 14:32:01 UTC | public | 203.0.113.42    | /player | - | C249A98DEA598A8D
+#   Old (4 fields): 2026-03-21 14:32:01 UTC | 203.0.113.42    | /comparison | player_id=abc123
+# Parsed keys in both cases: dt, site, ip, path, qs, ctx
 
 # Matches rotated filenames: web_access.log.2026-03-21_14
 FILE_RE = re.compile(r"^web_access\.log\.(\d{4}-\d{2}-\d{2})_(\d{2})$")
@@ -53,9 +54,19 @@ def parse_files(paths: list[Path]) -> list[dict]:
     for path in paths:
         try:
             for line in path.read_text(encoding="utf-8").splitlines():
-                m = LOG_RE.match(line.strip())
-                if m:
-                    rows.append(m.groupdict())
+                line = line.strip()
+                if not line:
+                    continue
+                parts = [p.strip() for p in line.split("|")]
+                if len(parts) == 6:
+                    dt, site, ip, pg_path, qs, ctx = parts
+                elif len(parts) == 4:
+                    # Old format without site/ctx fields
+                    dt, ip, pg_path, qs = parts
+                    site, ctx = "-", "-"
+                else:
+                    continue
+                rows.append({"dt": dt, "site": site, "ip": ip, "path": pg_path, "qs": qs, "ctx": ctx})
         except Exception as e:
             st.warning(f"Could not read {path.name}: {e}")
     return rows

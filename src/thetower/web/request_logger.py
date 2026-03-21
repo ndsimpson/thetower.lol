@@ -7,6 +7,7 @@ Only logs once per URL per session to avoid spamming on Streamlit re-runs.
 
 import logging
 import logging.handlers
+import os
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urlparse
@@ -64,6 +65,35 @@ def _setup_logger() -> None:
     _configured = True
 
 
+def _get_page_context(path: str) -> str:
+    """Return page-specific context string from session/query state, or '-'.
+
+    Called before pg.run(), so session_state reflects the *previous* script
+    execution — which is exactly when meaningful player/comparison context exists.
+    Using this as part of the dedup key means navigating to /player for a
+    different player will generate a new log entry even though the URL is unchanged.
+    """
+    try:
+        if path == "/player":
+            player_id = st.session_state.get("player_id")
+            if not player_id:
+                options = st.session_state.get("options")
+                player_id = getattr(options, "current_player", None) if options else None
+            return str(player_id) if player_id else "-"
+
+        if path == "/comparison":
+            bracket_player = st.query_params.get("bracket_player")
+            if bracket_player:
+                return f"bracket={bracket_player}"
+            players = st.session_state.get("comparison", [])
+            if players:
+                return "players=" + ",".join(str(p) for p in players[:5])
+            return "-"
+    except Exception:
+        pass
+    return "-"
+
+
 def _get_client_ip() -> str:
     """Return the real visitor IP, preferring Cloudflare's header over generic proxy headers."""
     try:
@@ -99,10 +129,14 @@ def log_request() -> None:
             path = "/"
         current_url = path
 
+    site = "hidden" if os.environ.get("HIDDEN_FEATURES") else "public"
+    ctx = _get_page_context(path)
+
     session_id = _get_session_id()
-    if _session_last_url.get(session_id) == current_url:
+    dedup_key = f"{current_url}|{ctx}"
+    if _session_last_url.get(session_id) == dedup_key:
         return
-    _session_last_url[session_id] = current_url
+    _session_last_url[session_id] = dedup_key
 
     try:
         query_params = dict(st.query_params)
@@ -113,4 +147,4 @@ def log_request() -> None:
     now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
     qs = "&".join(f"{k}={v}" for k, v in query_params.items()) if query_params else "-"
 
-    logger.info("%s | %-15s | %s | %s", now, ip, path, qs)
+    logger.info("%s | %-6s | %-15s | %s | %s | %s", now, site, ip, path, qs, ctx)

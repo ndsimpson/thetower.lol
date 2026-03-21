@@ -58,10 +58,11 @@ with st.expander("Time Range", expanded=True):
 
 # --- Text filters ---
 with st.expander("Filters", expanded=True):
-    col1, col2, col3 = st.columns(3)
+    col1, col2, col3, col4 = st.columns(4)
     ip_filter = col1.text_input("IP contains")
     path_filter = col2.text_input("Path contains")
     qs_filter = col3.text_input("Query string contains")
+    ctx_filter = col4.text_input("Context contains")
 
 # --- Load files for selected date + hour range ---
 selected_paths = [path for h, path in catalog[selected_date] if start_hour <= h <= end_hour]
@@ -75,6 +76,8 @@ if path_filter:
     filtered = [r for r in filtered if path_filter.lower() in r["path"].lower()]
 if qs_filter:
     filtered = [r for r in filtered if qs_filter.lower() in r["qs"].lower()]
+if ctx_filter:
+    filtered = [r for r in filtered if ctx_filter.lower() in r["ctx"].lower()]
 
 # --- Summary ---
 hour_label = f"{start_hour:02d}:00\u2013{end_hour:02d}:59" if view_mode == "Hour range" else "all day"
@@ -82,8 +85,8 @@ st.caption(f"Showing {len(filtered):,} of {len(rows):,} entries \u2014 " f"{sele
 
 # --- Display ---
 if filtered:
-    df = pd.DataFrame(filtered, columns=["dt", "ip", "path", "qs"])
-    df.columns = ["Datetime (UTC)", "IP", "Path", "Query String"]
+    df = pd.DataFrame(filtered, columns=["dt", "site", "ip", "path", "qs", "ctx"])
+    df.columns = ["Datetime (UTC)", "Site", "IP", "Path", "Query String", "Context"]
     st.dataframe(df, use_container_width=True, hide_index=True)
 else:
     st.info("No entries match the current filters.")

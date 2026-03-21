@@ -66,8 +66,10 @@ if not rows:
     st.info("No log entries in the selected date range.")
     st.stop()
 
-df = pd.DataFrame(rows, columns=["dt", "ip", "path", "qs"])
-df.columns = ["dt", "ip", "path", "qs"]
+df = pd.DataFrame(rows)
+for col in ["dt", "site", "ip", "path", "qs", "ctx"]:
+    if col not in df.columns:
+        df[col] = "-"
 df["ip"] = df["ip"].str.strip()
 df["path"] = df["path"].str.strip()
 
@@ -81,9 +83,14 @@ df["hour"] = df["timestamp"].dt.floor("h")
 # Pre-filter controls
 # ---------------------------------------------------------------------------
 with st.expander("Filters", expanded=True):
-    col_ip, col_path = st.columns(2)
+    col_site, col_ip, col_path = st.columns(3)
+    site_options = sorted(df["site"].unique().tolist())
+    site_filter = col_site.multiselect("Site", site_options, default=site_options)
     ip_filter = col_ip.text_input("IP contains")
     path_filter = col_path.text_input("Path contains")
+
+if site_filter:
+    df = df[df["site"].isin(site_filter)]
 
 if ip_filter:
     df = df[df["ip"].str.contains(ip_filter, case=False, na=False)]
