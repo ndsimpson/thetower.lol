@@ -51,6 +51,9 @@ def atomic_write(path: Path, data: dict):
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp = tempfile.mkstemp(dir=str(path.parent))
     try:
+        # mkstemp creates with mode 0600; chmod to 0664 so the ACL mask (derived
+        # from group bits) is rw-, allowing named ACL entries (e.g. rslsync-tower) to be effective.
+        os.chmod(fd, 0o664)
         with os.fdopen(fd, "w", encoding="utf8") as f:
             json.dump(data, f, ensure_ascii=False, indent=4)  # Added indent=4 for pretty-printing
             f.flush()
