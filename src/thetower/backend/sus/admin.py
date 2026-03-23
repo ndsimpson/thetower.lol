@@ -298,8 +298,14 @@ class GameInstanceAdmin(SimpleHistoryAdmin, nested_admin.NestedModelAdmin):
     list_display = ("__str__", "player", "primary", "created_at")
     list_filter = ("primary", "created_at")
     search_fields = ("name", "player__name", "player_ids__id")
-    readonly_fields = ("player", "created_at")
+    readonly_fields = ("created_at",)
+    autocomplete_fields = ("player",)
     inlines = (PlayerIdInline,)
+
+    def get_readonly_fields(self, request, obj=None):
+        if obj is None:  # Add view: allow setting player
+            return ("created_at",)
+        return ("player", "created_at")  # Change view: player is locked
 
     def get_queryset(self, request):
         """Optimize queryset to reduce queries."""
