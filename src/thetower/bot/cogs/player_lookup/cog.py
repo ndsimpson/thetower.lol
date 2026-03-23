@@ -68,10 +68,6 @@ class PlayerLookup(BaseCog, name="Player Lookup", description="Universal player 
         at the button level, not at the command level. This allows everyone to
         open the UI and see what actions they can perform based on their permissions.
         """
-        # Check cog authorization first
-        if not await self._check_cog_authorization(interaction):
-            return False
-
         # Allow all slash commands through - permissions checked in button callbacks
         return True
 
