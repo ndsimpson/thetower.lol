@@ -6,21 +6,6 @@ from typing import Any, Dict
 import discord
 
 
-def format_relative_time(seconds: float) -> str:
-    """Format seconds into a human-readable relative time string."""
-    if seconds < 60:
-        return f"{int(seconds)} seconds"
-    elif seconds < 3600:
-        minutes = int(seconds // 60)
-        return f"{minutes} minute{'s' if minutes != 1 else ''}"
-    elif seconds < 86400:
-        hours = int(seconds // 3600)
-        return f"{hours} hour{'s' if hours != 1 else ''}"
-    else:
-        days = int(seconds // 86400)
-        return f"{days} day{'s' if days != 1 else ''}"
-
-
 def create_stats_embed(player_id: str, stats: Dict[str, Any]) -> discord.Embed:
     """Create an embed for player statistics.
 
