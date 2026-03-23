@@ -5,7 +5,7 @@ import discord
 from thetower.bot.basecog import BaseCog
 from thetower.bot.ui.context import BaseSettingsView, SettingsViewContext
 
-from .main import DjangoAdminMainView
+from .core import DjangoAdminMainView
 
 
 class DjangoAdminSettingsView(BaseSettingsView):
