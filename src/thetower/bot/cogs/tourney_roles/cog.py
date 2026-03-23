@@ -1983,11 +1983,6 @@ class TourneyRolesRefreshButton(discord.ui.Button):
         await interaction.response.defer(ephemeral=True)
 
         try:
-            # Check permissions with Django groups
-            from asgiref.sync import sync_to_async
-
-            from thetower.backend.sus.models import LinkedAccount
-
             # Get authorized groups from settings
             authorized_groups = self.cog.get_setting("authorized_refresh_groups", guild_id=self.guild_id, default=[])
 
@@ -1995,32 +1990,9 @@ class TourneyRolesRefreshButton(discord.ui.Button):
                 await interaction.followup.send("❌ Tournament role refresh is not configured for this server.", ephemeral=True)
                 return
 
-            # Get Django user from Discord ID via LinkedAccount
-            discord_id = str(interaction.user.id)
-
-            def get_linked_account():
-                return (
-                    LinkedAccount.objects.filter(platform=LinkedAccount.Platform.DISCORD, account_id=discord_id)
-                    .select_related("player__django_user")
-                    .first()
-                )
-
-            linked_account = await sync_to_async(get_linked_account)()
-
-            if not linked_account or not linked_account.player or not linked_account.player.django_user:
-                await interaction.followup.send("❌ No Django user account found for your Discord ID.", ephemeral=True)
-                return
-
-            django_user = linked_account.player.django_user
-
-            # Check if user is in approved groups
-            def get_user_groups():
-                return list(django_user.groups.values_list("name", flat=True))
-
-            user_groups = await sync_to_async(get_user_groups)()
-            has_permission = any(group in authorized_groups for group in user_groups)
-
-            if not has_permission:
+            # Check if user is in approved groups (cache-aware via get_user_permissions)
+            perm_ctx = await self.cog.get_user_permissions(interaction.user)
+            if not perm_ctx.has_any_group(authorized_groups):
                 await interaction.followup.send("❌ You don't have permission to refresh tournament roles for other players.", ephemeral=True)
                 return
 
