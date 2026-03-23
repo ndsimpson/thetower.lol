@@ -293,17 +293,23 @@ def live_placement_analysis():
     # Sort by creation time initially
     results_df = results_df.sort_values("Creation Time")
 
-    # Group by checkpoints (30-minute intervals) and calculate averages, min, and max
+    # Group by checkpoints (30-minute intervals) and calculate averages and quantiles
     results_df["Checkpoint"] = results_df["Creation Time"].dt.floor("30min")
+
+    def q25(x):
+        return x.quantile(0.25)
+
+    def q75(x):
+        return x.quantile(0.75)
+
     checkpoint_df = (
         results_df.groupby("Checkpoint")
         .agg(
             {
-                "Position": ["mean", "min", "max"],
+                "Position": ["mean", q25, q75, "min", "max"],
                 "Top Wave": "mean",
                 "Median Wave": "mean",
                 "Players Above": "mean",
-                "Bracket": "count",  # Count of brackets per checkpoint
             }
         )
         .round(1)
@@ -317,12 +323,13 @@ def live_placement_analysis():
     checkpoint_df = checkpoint_df.rename(
         columns={
             "Position_mean": "Avg Placement",
+            "Position_q25": "Q25 Placement",
+            "Position_q75": "Q75 Placement",
             "Position_min": "Best Case",
             "Position_max": "Worst Case",
             "Top Wave_mean": "Avg Top Wave",
             "Median Wave_mean": "Avg Median Wave",
             "Players Above_mean": "Avg Players Above",
-            "Bracket_count": "Brackets",
         }
     )
 
@@ -336,9 +343,14 @@ def live_placement_analysis():
         hide_index=True,
         column_config={
             "Avg Placement": st.column_config.NumberColumn("Avg Placement", help="Average placement position across brackets in this checkpoint"),
+            "Q25 Placement": st.column_config.NumberColumn(
+                "Q25 Placement", help="25th percentile placement — 25% of brackets would place at this position or better"
+            ),
+            "Q75 Placement": st.column_config.NumberColumn(
+                "Q75 Placement", help="75th percentile placement — 75% of brackets would place at this position or better"
+            ),
             "Best Case": st.column_config.NumberColumn("Best Case", help="Best (lowest) placement position in this checkpoint"),
             "Worst Case": st.column_config.NumberColumn("Worst Case", help="Worst (highest) placement position in this checkpoint"),
-            "Brackets": st.column_config.NumberColumn("Brackets", help="Number of brackets in this checkpoint"),
         },
     )
 
@@ -374,23 +386,42 @@ def live_placement_analysis():
         fig.data[1].name = "Lowess Trendline"
         fig.data[1].showlegend = True
 
-    # Add best case scenario line
+    # Add Q25 line (better bracket scenarios — lower position number)
+    fig.add_scatter(
+        x=plot_df["Creation Time"],
+        y=plot_df["Q25 Placement"],
+        mode="lines",
+        line=dict(color="green", width=2, dash="dash"),
+        name="Q25 (25th Pct)",
+        showlegend=True,
+    )
+
+    # Add Q75 line (weaker bracket scenarios — higher position number)
+    fig.add_scatter(
+        x=plot_df["Creation Time"],
+        y=plot_df["Q75 Placement"],
+        mode="lines",
+        line=dict(color="red", width=2, dash="dash"),
+        name="Q75 (75th Pct)",
+        showlegend=True,
+    )
+
+    # Add min/max lines (dotted, lighter) to show absolute range
     fig.add_scatter(
         x=plot_df["Creation Time"],
         y=plot_df["Best Case"],
         mode="lines",
-        line=dict(color="green", width=2, dash="dash"),
-        name="Best Case",
+        line=dict(color="green", width=1, dash="dot"),
+        name="Best Case (Min)",
         showlegend=True,
     )
 
-    # Add worst case scenario line
     fig.add_scatter(
         x=plot_df["Creation Time"],
         y=plot_df["Worst Case"],
         mode="lines",
-        line=dict(color="red", width=2, dash="dash"),
-        name="Worst Case",
+        line=dict(color="red", width=1, dash="dot"),
+        name="Worst Case (Max)",
         showlegend=True,
     )
 
