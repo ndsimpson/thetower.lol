@@ -1408,6 +1408,18 @@ _ID_ACTION_PAST: dict[str, str] = {
 }
 
 
+def _resolve_attachment_image(embed: discord.Embed, message: discord.Message) -> None:
+    """Replace an attachment:// embed image URL with the real CDN URL from message attachments.
+
+    When a message is originally sent with a file attachment and the embed references it via
+    ``attachment://filename``, editing the message later without re-uploading the file causes
+    Discord to render the image twice (once inside the embed, once as a standalone attachment
+    preview).  Swapping the URL for the CDN URL fixes this for all subsequent edits.
+    """
+    if embed.image and embed.image.url and embed.image.url.startswith("attachment://") and message.attachments:
+        embed.set_image(url=message.attachments[0].url)
+
+
 def _sync_apply_id_change(action: str, old_player_id: str, new_player_id: str, instance_id, pending: dict) -> dict:
     """Sync DB operation for an ID change action (wrap with sync_to_async before calling)."""
     try:
@@ -1444,7 +1456,13 @@ def _sync_apply_id_change(action: str, old_player_id: str, new_player_id: str, i
         discord_ids = list(
             LinkedAccount.objects.filter(player=game_instance.player, platform=LinkedAccount.Platform.DISCORD).values_list("account_id", flat=True)
         )
-        return {"status": "success", "player_name": game_instance.player.name, "old_primary": old_player_id, "new_primary": new_player_id, "discord_ids": discord_ids}
+        return {
+            "status": "success",
+            "player_name": game_instance.player.name,
+            "old_primary": old_player_id,
+            "new_primary": new_player_id,
+            "discord_ids": discord_ids,
+        }
     except Exception as exc:
         return {"status": "error", "message": str(exc)}
 
@@ -1464,7 +1482,9 @@ async def _finalize_id_change(
 
     if result.get("discord_ids") and action != "reject":
         for did in result["discord_ids"]:
-            cog.bot.dispatch("player_verified", interaction.guild.id if interaction.guild else None, did, result["new_primary"], result["old_primary"])
+            cog.bot.dispatch(
+                "player_verified", interaction.guild.id if interaction.guild else None, did, result["new_primary"], result["old_primary"]
+            )
 
     def _remove_pending():
         data = cog.load_pending_player_id_changes_data()
@@ -1489,6 +1509,7 @@ async def _finalize_id_change(
                             emb.set_field_at(idx, name="Status", value=embed_status, inline=True)
                             break
                     emb.color = embed_color
+                    _resolve_attachment_image(emb, log_msg)
                     await log_msg.edit(embed=emb, view=None)
         except Exception as exc:
             cog.logger.warning(f"Could not update log message: {exc}")
@@ -1506,6 +1527,7 @@ async def _finalize_id_change(
                                 emb.set_field_at(idx, name="Status", value=embed_status, inline=True)
                                 break
                         emb.color = embed_color
+                        _resolve_attachment_image(emb, mod_msg)
                         await mod_msg.edit(embed=emb, view=None)
                     else:
                         await mod_msg.delete()
@@ -2150,13 +2172,16 @@ class PendingIdChangeDetailView(discord.ui.View):
     async def create_detail_embed(self, bot) -> discord.Embed:
         """Create embed showing detailed change request."""
         # delegate to validation cog helper to build a consistent embed
-        embed = await self.cog._build_change_request_embed(self.discord_id, {
-            "reason": self.pending_data.get("reason"),
-            "old_player_id": self.pending_data.get("old_player_id"),
-            "new_player_id": self.pending_data.get("new_player_id"),
-            "instance_id": self.pending_data.get("instance_id"),
-            "timestamp": self.pending_data.get("timestamp"),
-        })
+        embed = await self.cog._build_change_request_embed(
+            self.discord_id,
+            {
+                "reason": self.pending_data.get("reason"),
+                "old_player_id": self.pending_data.get("old_player_id"),
+                "new_player_id": self.pending_data.get("new_player_id"),
+                "instance_id": self.pending_data.get("instance_id"),
+                "timestamp": self.pending_data.get("timestamp"),
+            },
+        )
 
         # include thumbnail — try cache first (fetch_user in the helper may have populated it),
         # fall back to a fetch if still missing
@@ -2178,7 +2203,9 @@ class PendingIdChangeDetailView(discord.ui.View):
 class _IdChangeActionFromListButton(discord.ui.Button):
     """Base class for ID change action buttons inside the list-review detail view."""
 
-    def __init__(self, action: str, cog, discord_id: str, old_player_id: str, new_player_id: str, instance_id, all_pending: dict, status_message: str):
+    def __init__(
+        self, action: str, cog, discord_id: str, old_player_id: str, new_player_id: str, instance_id, all_pending: dict, status_message: str
+    ):
         emoji, label, style, _ = _ID_ACTION_META[action]
         super().__init__(label=label, style=style, emoji=emoji)
         self.action = action

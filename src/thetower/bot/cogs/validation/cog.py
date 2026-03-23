@@ -632,6 +632,8 @@ class Validation(BaseCog, name="Validation"):
                 except Exception:
                     continue
                 new_embed = await self._build_change_request_embed(discord_id, pd)
+                if msg.attachments:
+                    new_embed.set_image(url=msg.attachments[0].url)
                 try:
                     await msg.edit(embed=new_embed)
                 except Exception:
