@@ -390,16 +390,45 @@ def get_bracket_stats(df):
         df: DataFrame containing tournament data
 
     Returns:
-        Dictionary containing bracket statistics
+        Dictionary containing bracket statistics, including salt/spoon ranking brackets
+        (hardest/easiest promotion and relegation by 5th/25th place wave).
     """
+
+    def nth_place_wave(group, n):
+        return group.nlargest(n).iloc[-1] if len(group) >= n else None
+
     group_by_bracket = df.groupby("bracket").wave
-    return {
+
+    fifth_place = group_by_bracket.apply(lambda x: nth_place_wave(x, 5)).dropna()
+    twenty_fifth_place = group_by_bracket.apply(lambda x: nth_place_wave(x, 25)).dropna()
+
+    stats = {
         "total_brackets": df.groupby("bracket").ngroups,
         "highest_total": group_by_bracket.sum().sort_values(ascending=False).index[0],
         "highest_median": group_by_bracket.median().sort_values(ascending=False).index[0],
         "lowest_total": group_by_bracket.sum().sort_values(ascending=True).index[0],
         "lowest_median": group_by_bracket.median().sort_values(ascending=True).index[0],
     }
+
+    if len(fifth_place) > 0:
+        stats["hardest_promotion"] = fifth_place.idxmax()
+        stats["hardest_promotion_wave"] = int(fifth_place.max())
+        stats["easiest_promotion"] = fifth_place.idxmin()
+        stats["easiest_promotion_wave"] = int(fifth_place.min())
+    else:
+        stats["hardest_promotion"] = stats["easiest_promotion"] = None
+        stats["hardest_promotion_wave"] = stats["easiest_promotion_wave"] = None
+
+    if len(twenty_fifth_place) > 0:
+        stats["hardest_relegation"] = twenty_fifth_place.idxmax()
+        stats["hardest_relegation_wave"] = int(twenty_fifth_place.max())
+        stats["easiest_relegation"] = twenty_fifth_place.idxmin()
+        stats["easiest_relegation_wave"] = int(twenty_fifth_place.min())
+    else:
+        stats["hardest_relegation"] = stats["easiest_relegation"] = None
+        stats["hardest_relegation_wave"] = stats["easiest_relegation_wave"] = None
+
+    return stats
 
 
 @cache_data_if_enabled(ttl=CACHE_TTL_SECONDS)
