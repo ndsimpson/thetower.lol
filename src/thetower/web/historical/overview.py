@@ -105,11 +105,13 @@ def render_legend_avg_wave_leaderboard():
         pass
 
 
+import datetime
 import os
 from collections import Counter
 from pathlib import Path
 
 import streamlit as st
+import streamlit.components.v1 as components
 
 from thetower.backend.tourney_results.constants import Graph, Options, leagues, legend
 from thetower.backend.tourney_results.data import get_player_id_lookup, get_tourneys
@@ -127,18 +129,6 @@ except ImportError:
     predict_future_tournament = None
 
 
-def format_time_until(days_until, tourney_date):
-    """Format the countdown to the next tournament."""
-    if days_until < 0:
-        return "Tournament has passed"
-    elif days_until == 0:
-        return "Today!"
-    elif days_until == 1:
-        return "Tomorrow!"
-    else:
-        return f"{days_until} days"
-
-
 def render_tournament_countdown():
     """Render the tournament countdown header."""
     if not TOWERBCS_AVAILABLE:
@@ -147,7 +137,6 @@ def render_tournament_countdown():
 
     try:
         tourney_id, tourney_date, days_until = TournamentPredictor.get_tournament_info()
-        time_str = format_time_until(days_until, tourney_date)
 
         # Get battle conditions for Legend league if available
         bcs_html = ""
@@ -165,15 +154,56 @@ def render_tournament_countdown():
             except Exception:
                 pass  # Silently fail BC prediction
 
-        countdown_html = f"""
-<div style="text-align: center; padding: 1.5rem; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 10px; margin-bottom: 2rem; box-shadow: 0 4px 6px rgba(0,0,0,0.3);">
-    <h2 style="margin: 0; color: white; font-size: 1.8rem;">⏰ Next Tournament</h2>
-    <p style="margin: 0.5rem 0 0 0; color: white; font-size: 1.3rem; font-weight: bold;">{tourney_date.strftime('%A, %B %d, %Y')}</p>
-    <p style="margin: 0.3rem 0 0 0; color: #f0f0f0; font-size: 1.1rem;">{time_str}</p>
+        # Build countdown or live indicator
+        if days_until >= 1:
+            target_dt = datetime.datetime.combine(tourney_date, datetime.time.min, tzinfo=datetime.timezone.utc)
+            target_ms = int(target_dt.timestamp() * 1000)
+            components.html(
+                f"""<!DOCTYPE html>
+<html><head><style>
+body{{margin:0;padding:0;font-family:sans-serif;}}
+</style></head><body>
+<div style="text-align:center;padding:1.5rem;background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);border-radius:10px;margin:2px;box-shadow:0 4px 6px rgba(0,0,0,.3);">
+    <h2 style="margin:0;color:white;font-size:1.8rem;">&#9200; Next Tournament</h2>
+    <p style="margin:.5rem 0 0;color:white;font-size:1.3rem;font-weight:bold;">{tourney_date.strftime('%A, %B %d, %Y')}</p>
+    <div style="display:flex;justify-content:center;align-items:flex-start;gap:.8rem;margin-top:1rem;flex-wrap:wrap;">
+        <div style="text-align:center;"><div id="cd-d" style="font-size:2.4rem;font-weight:bold;color:white;font-family:monospace;line-height:1;">--</div><div style="font-size:.7rem;color:#ddd;text-transform:uppercase;letter-spacing:.08em;margin-top:.2rem;">Days</div></div>
+        <div style="font-size:2.4rem;font-weight:bold;color:rgba(255,255,255,.4);line-height:1;">:</div>
+        <div style="text-align:center;"><div id="cd-h" style="font-size:2.4rem;font-weight:bold;color:white;font-family:monospace;line-height:1;">--</div><div style="font-size:.7rem;color:#ddd;text-transform:uppercase;letter-spacing:.08em;margin-top:.2rem;">Hours</div></div>
+        <div style="font-size:2.4rem;font-weight:bold;color:rgba(255,255,255,.4);line-height:1;">:</div>
+        <div style="text-align:center;"><div id="cd-m" style="font-size:2.4rem;font-weight:bold;color:white;font-family:monospace;line-height:1;">--</div><div style="font-size:.7rem;color:#ddd;text-transform:uppercase;letter-spacing:.08em;margin-top:.2rem;">Mins</div></div>
+        <div style="font-size:2.4rem;font-weight:bold;color:rgba(255,255,255,.4);line-height:1;">:</div>
+        <div style="text-align:center;"><div id="cd-s" style="font-size:2.4rem;font-weight:bold;color:white;font-family:monospace;line-height:1;">--</div><div style="font-size:.7rem;color:#ddd;text-transform:uppercase;letter-spacing:.08em;margin-top:.2rem;">Secs</div></div>
+    </div>
     {bcs_html}
 </div>
-"""
-        st.html(countdown_html)
+<script>
+(function(){{
+    var t={target_ms};
+    function p(n){{return String(n).padStart(2,'0');}}
+    function tick(){{
+        var r=Math.max(0,t-Date.now());
+        document.getElementById('cd-d').innerText=p(Math.floor(r/86400000));
+        document.getElementById('cd-h').innerText=p(Math.floor(r%86400000/3600000));
+        document.getElementById('cd-m').innerText=p(Math.floor(r%3600000/60000));
+        document.getElementById('cd-s').innerText=p(Math.floor(r%60000/1000));
+    }}
+    tick();setInterval(tick,1000);
+}})();
+</script>
+</body></html>""",
+                height=290 if bcs_html else 210,
+            )
+        else:
+            st.html(
+                f"""
+<div style="text-align:center;padding:1.5rem;background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);border-radius:10px;margin-bottom:2rem;box-shadow:0 4px 6px rgba(0,0,0,.3);">
+    <h2 style="margin:0;color:white;font-size:1.8rem;">&#9200; Next Tournament</h2>
+    <p style="margin:.5rem 0 0;color:white;font-size:1.3rem;font-weight:bold;">{tourney_date.strftime('%A, %B %d, %Y')}</p>
+    <p style="margin:.6rem 0 0;color:#f0f0f0;font-size:1.2rem;">&#127918; Tournament is Live!</p>
+    {bcs_html}
+</div>"""
+            )
 
     except Exception as e:
         st.warning(f"⚠️ Could not load tournament countdown: {str(e)}")
