@@ -235,16 +235,14 @@ class ManageSus(BaseCog, name="Manage Sus"):
         """Check if a Discord user can view moderation records based on their Django groups."""
         self.logger.info(f"Checking view permissions for user {user.id} ({user.name})")
         try:
-            # Get user's Django groups using centralized method
-            user_groups = await self.get_user_django_groups(user)
-            self.logger.info(f"User groups: {user_groups}")
+            perm_ctx = await self.get_user_permissions(user)
+            self.logger.info(f"User groups: {perm_ctx.django_groups}")
 
             # Get allowed view groups from settings
             view_groups = self.config.get_global_cog_setting("manage_sus", "view_groups", self.global_settings["view_groups"])
             self.logger.info(f"Required view groups: {view_groups}")
 
-            # Check if user is in any of the allowed groups
-            has_permission = any(group in view_groups for group in user_groups)
+            has_permission = perm_ctx.has_any_group(view_groups)
             self.logger.info(f"User has view permission: {has_permission}")
 
             return has_permission
@@ -257,16 +255,14 @@ class ManageSus(BaseCog, name="Manage Sus"):
         """Check if a Discord user can manage moderation records based on their Django groups."""
         self.logger.info(f"Checking manage permissions for user {user.id} ({user.name})")
         try:
-            # Get user's Django groups using centralized method
-            user_groups = await self.get_user_django_groups(user)
-            self.logger.info(f"User groups: {user_groups}")
+            perm_ctx = await self.get_user_permissions(user)
+            self.logger.info(f"User groups: {perm_ctx.django_groups}")
 
             # Get allowed manage groups from settings
             manage_groups = self.config.get_global_cog_setting("manage_sus", "manage_groups", self.global_settings["manage_groups"])
             self.logger.info(f"Required manage groups: {manage_groups}")
 
-            # Check if user is in any of the allowed groups
-            has_permission = any(group in manage_groups for group in user_groups)
+            has_permission = perm_ctx.has_any_group(manage_groups)
             self.logger.info(f"User has manage permission: {has_permission}")
 
             return has_permission
@@ -279,16 +275,13 @@ class ManageSus(BaseCog, name="Manage Sus"):
         """Check if a Discord user can see all player IDs based on their Django groups."""
         self.logger.info(f"Checking full IDs permissions for user {user.id} ({user.name})")
         try:
-            # Get user's Django groups using centralized method
-            user_groups = await self.get_user_django_groups(user)
-            self.logger.info(f"User groups: {user_groups}")
+            perm_ctx = await self.get_user_permissions(user)
+            self.logger.info(f"User groups: {perm_ctx.django_groups}")
 
-            # Get allowed privileged groups from settings
             privileged_groups = self.privileged_groups_for_full_ids
             self.logger.info(f"Required privileged groups for full IDs: {privileged_groups}")
 
-            # Check if user is in any of the privileged groups
-            has_permission = any(group in privileged_groups for group in user_groups)
+            has_permission = perm_ctx.has_any_group(privileged_groups)
             self.logger.info(f"User has full IDs permission: {has_permission}")
 
             return has_permission
@@ -301,16 +294,13 @@ class ManageSus(BaseCog, name="Manage Sus"):
         """Check if a Discord user can see moderation records in profiles based on their Django groups."""
         self.logger.info(f"Checking moderation records in profiles permissions for user {user.id} ({user.name})")
         try:
-            # Get user's Django groups using centralized method
-            user_groups = await self.get_user_django_groups(user)
-            self.logger.info(f"User groups: {user_groups}")
+            perm_ctx = await self.get_user_permissions(user)
+            self.logger.info(f"User groups: {perm_ctx.django_groups}")
 
-            # Get allowed privileged groups from settings
             privileged_groups = self.privileged_groups_for_moderation_records
             self.logger.info(f"Required privileged groups for moderation records: {privileged_groups}")
 
-            # Check if user is in any of the privileged groups
-            has_permission = any(group in privileged_groups for group in user_groups)
+            has_permission = perm_ctx.has_any_group(privileged_groups)
             self.logger.info(f"User has moderation records permission: {has_permission}")
 
             return has_permission

@@ -3,6 +3,7 @@ import asyncio
 import datetime
 import logging
 import re
+from contextvars import ContextVar
 from dataclasses import dataclass
 from pathlib import Path
 from types import SimpleNamespace
@@ -23,6 +24,11 @@ from thetower.bot.utils.data_management import DataManager
 from thetower.bot.utils.task_tracker import TaskTracker
 
 logger = logging.getLogger(__name__)
+
+# Per-interaction cache for Django group lookups. Each Discord interaction runs in its own
+# asyncio task and receives a fresh copy of the context, so this cache is automatically
+# scoped to one interaction and GC'd when the task ends — no manual cleanup required.
+_django_groups_cache: ContextVar[Optional[Dict[int, List[str]]]] = ContextVar("_django_groups_cache", default=None)
 
 
 @dataclass
@@ -729,8 +735,10 @@ class BaseCog(commands.Cog):
         """
         Get Django groups for a Discord user.
 
-        This is a centralized method for fetching Django user groups that can be reused
-        across all cogs to avoid code duplication.
+        Results are cached for the duration of the current interaction (asyncio task) to avoid
+        redundant DB queries when multiple permission checks occur within the same action.
+        Each Discord interaction runs in its own task and receives a fresh copy of the context,
+        so there is no cross-interaction leakage.
 
         Args:
             user: The Discord user to get groups for
@@ -738,6 +746,14 @@ class BaseCog(commands.Cog):
         Returns:
             List of Django group names the user belongs to
         """
+        cache = _django_groups_cache.get()
+        if cache is None:
+            cache = {}
+            _django_groups_cache.set(cache)
+
+        if user.id in cache:
+            return cache[user.id]
+
         from asgiref.sync import sync_to_async
 
         @sync_to_async
@@ -766,7 +782,9 @@ class BaseCog(commands.Cog):
             except Exception:
                 return []
 
-        return await get_django_user_groups()
+        groups = await get_django_user_groups()
+        cache[user.id] = groups
+        return groups
 
     async def get_user_permissions(self, user: discord.User) -> PermissionContext:
         """

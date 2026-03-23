@@ -366,8 +366,8 @@ class Validation(BaseCog, name="Validation"):
         if not approved_groups:
             return False
 
-        user_groups = await self.get_user_django_groups(user)
-        return any(group in approved_groups for group in user_groups)
+        perm_ctx = await self.get_user_permissions(user)
+        return perm_ctx.has_any_group(approved_groups)
 
     async def check_id_change_moderator_permission(self, user: discord.User) -> bool:
         """Check if a user has permission to moderate player ID change requests.
@@ -382,8 +382,8 @@ class Validation(BaseCog, name="Validation"):
         if not approved_groups:
             return False
 
-        user_groups = await self.get_user_django_groups(user)
-        return any(group in approved_groups for group in user_groups)
+        perm_ctx = await self.get_user_permissions(user)
+        return perm_ctx.has_any_group(approved_groups)
 
     async def check_manage_retired_accounts_permission(self, user: discord.User) -> bool:
         """Check if a user has permission to view and manage retired Discord accounts.
@@ -398,8 +398,8 @@ class Validation(BaseCog, name="Validation"):
         if not approved_groups:
             return False
 
-        user_groups = await self.get_user_django_groups(user)
-        return any(group in approved_groups for group in user_groups)
+        perm_ctx = await self.get_user_permissions(user)
+        return perm_ctx.has_any_group(approved_groups)
 
     def get_manage_discord_accounts_button_for_player(
         self, details: dict, requesting_user: discord.User, guild_id: int, permission_context
@@ -491,10 +491,7 @@ class Validation(BaseCog, name="Validation"):
 
         @sync_to_async
         def _query():
-            return set(
-                PlayerId.objects.filter(game_instance_id=instance_id)
-                .values_list("id", flat=True)
-            )
+            return set(PlayerId.objects.filter(game_instance_id=instance_id).values_list("id", flat=True))
 
         return await _query()
 
@@ -569,7 +566,9 @@ class Validation(BaseCog, name="Validation"):
             user_display = f"*(unknown user)*"
 
         reason_emoji = "🎮" if reason == "game_changed" else ("🔄" if reason == "starting_over" else "✏️")
-        reason_display = "Game changed my ID" if reason == "game_changed" else ("I'm starting over" if reason == "starting_over" else "I typed the wrong ID")
+        reason_display = (
+            "Game changed my ID" if reason == "game_changed" else ("I'm starting over" if reason == "starting_over" else "I typed the wrong ID")
+        )
 
         embed = discord.Embed(title=f"{reason_emoji} Player ID Change Request", color=discord.Color.orange(), timestamp=timestamp)
         embed.add_field(name="Discord User", value=user_display, inline=True)
@@ -602,9 +601,7 @@ class Validation(BaseCog, name="Validation"):
             lines.append(f"**All-Time Peak Wave:** {career.get('peak_wave', 0):,}")
             lines.append(f"**All-Time Best Position:** {career.get('best_position', 'N/A')}")
             if career.get("last_league"):
-                lines.append(
-                    f"**Last Played:** {last} · {career['last_league']} · #{career['last_position']} · Wave {career['last_wave']:,}"
-                )
+                lines.append(f"**Last Played:** {last} · {career['last_league']} · #{career['last_position']} · Wave {career['last_wave']:,}")
             return "\n".join(lines)
 
         if old_career is not None:
@@ -677,13 +674,16 @@ class Validation(BaseCog, name="Validation"):
             return
 
         # Build the embed using reusable helper so it can also be refreshed later
-        embed = await self._build_change_request_embed(discord_id, {
-            "reason": reason,
-            "old_player_id": old_player_id,
-            "new_player_id": new_player_id,
-            "instance_id": instance_id,
-            "timestamp": timestamp.isoformat(),
-        })
+        embed = await self._build_change_request_embed(
+            discord_id,
+            {
+                "reason": reason,
+                "old_player_id": old_player_id,
+                "new_player_id": new_player_id,
+                "instance_id": instance_id,
+                "timestamp": timestamp.isoformat(),
+            },
+        )
 
         # add thumbnail separately since helper doesn't know interaction user
         embed.set_thumbnail(url=interaction.user.display_avatar.url)

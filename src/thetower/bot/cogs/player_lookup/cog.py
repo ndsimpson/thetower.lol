@@ -134,7 +134,7 @@ class PlayerLookup(BaseCog, name="Player Lookup", description="Universal player 
         # Check if user has permission to view moderation records
         # Use the same permission check as provide_player_lookup_info
         try:
-            user_groups = await self.get_user_django_groups(discord_user)
+            perm_ctx = await self.get_user_permissions(discord_user)
 
             # Get allowed groups from manage_sus config
             view_groups = manage_sus_cog.config.get_global_cog_setting("manage_sus", "view_groups", manage_sus_cog.global_settings["view_groups"])
@@ -145,7 +145,7 @@ class PlayerLookup(BaseCog, name="Player Lookup", description="Universal player 
             )
             allowed_groups = view_groups + privileged_groups
 
-            return any(group in allowed_groups for group in user_groups)
+            return perm_ctx.has_any_group(allowed_groups)
         except Exception as e:
             self.logger.error(f"Error checking banned instance view permission: {e}")
             return False
