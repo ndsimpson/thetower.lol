@@ -4,6 +4,7 @@ from time import perf_counter
 
 import pandas as pd
 import plotly.express as px
+import plotly.graph_objects as go
 import streamlit as st
 
 from thetower.web.live.data_ops import (
@@ -440,6 +441,101 @@ def live_placement_analysis():
     fig.update_yaxes(autorange="reversed")
 
     st.plotly_chart(fig, use_container_width=True)
+
+    # --- Placement Histogram ---
+    st.markdown("### Placement Distribution Across All Brackets")
+    st.caption("How many brackets would give you each placement for this wave. Your actual placement is highlighted in amber.")
+
+    # Promotion/relegation cutoffs (top 5 promote, 26+ relegate)
+    PROMOTE_CUTOFF = 5
+    RELEGATE_CUTOFF = 26
+
+    pos_counts = results_df["Position"].value_counts().sort_index().reset_index()
+    pos_counts.columns = ["Position", "Brackets"]
+
+    total_brackets = len(results_df)
+    promote_n = int((results_df["Position"] <= PROMOTE_CUTOFF).sum())
+    relegate_n = int((results_df["Position"] >= RELEGATE_CUTOFF).sum())
+    safe_n = total_brackets - promote_n - relegate_n
+
+    promote_pct = promote_n / total_brackets * 100 if total_brackets else 0
+    relegate_pct = relegate_n / total_brackets * 100 if total_brackets else 0
+    safe_pct = safe_n / total_brackets * 100 if total_brackets else 0
+
+    pos_counts["Pct"] = pos_counts["Brackets"] / total_brackets * 100 if total_brackets else 0
+
+    bar_colors = []
+    for p in pos_counts["Position"]:
+        if p == player_position:
+            bar_colors.append("#f59e0b")  # amber — actual placement
+        elif p <= PROMOTE_CUTOFF:
+            bar_colors.append("#22c55e")  # green — promotion zone
+        elif p >= RELEGATE_CUTOFF:
+            bar_colors.append("#ef4444")  # red — relegation zone
+        else:
+            bar_colors.append("#6366f1")  # indigo — safe zone
+
+    fig_hist = go.Figure()
+    fig_hist.add_trace(
+        go.Bar(
+            x=pos_counts["Position"],
+            y=pos_counts["Pct"],
+            marker_color=bar_colors,
+            hovertemplate="Position %{x}: %{y:.1f}% of brackets<extra></extra>",
+        )
+    )
+
+    # Boundary lines between zones
+    fig_hist.add_vline(x=PROMOTE_CUTOFF + 0.5, line_dash="dash", line_color="#16a34a", line_width=2)
+    fig_hist.add_vline(x=RELEGATE_CUTOFF - 0.5, line_dash="dash", line_color="#dc2626", line_width=2)
+
+    # Zone annotations on the chart
+    max_pos = int(pos_counts["Position"].max())
+    fig_hist.add_annotation(
+        x=(PROMOTE_CUTOFF + 1) / 2,
+        y=1,
+        yref="paper",
+        text="Promote",
+        showarrow=False,
+        font=dict(color="#16a34a", size=11),
+        xanchor="center",
+    )
+    fig_hist.add_annotation(
+        x=(PROMOTE_CUTOFF + RELEGATE_CUTOFF) / 2,
+        y=1,
+        yref="paper",
+        text="Safe",
+        showarrow=False,
+        font=dict(color="#818cf8", size=11),
+        xanchor="center",
+    )
+    fig_hist.add_annotation(
+        x=RELEGATE_CUTOFF + (max_pos - RELEGATE_CUTOFF) / 2 + 1,
+        y=1,
+        yref="paper",
+        text="Relegate",
+        showarrow=False,
+        font=dict(color="#dc2626", size=11),
+        xanchor="center",
+    )
+
+    fig_hist.update_layout(
+        title=f"Placement distribution for wave {wave_to_analyze}",
+        xaxis_title="Placement Position",
+        yaxis_title="% of Brackets",
+        yaxis=dict(ticksuffix="%"),
+        height=350,
+        margin=dict(l=20, r=20, t=60, b=20),
+        showlegend=False,
+        xaxis=dict(dtick=1),
+    )
+    st.plotly_chart(fig_hist, use_container_width=True)
+
+    # Fraction summary
+    m1, m2, m3 = st.columns(3)
+    m1.metric("🟢 Promote (top 5)", f"{promote_pct:.1f}%")
+    m2.metric("🔵 Safe (6–25)", f"{safe_pct:.1f}%")
+    m3.metric("🔴 Relegate (26+)", f"{relegate_pct:.1f}%")
 
     # Log execution time
     t2_stop = perf_counter()
