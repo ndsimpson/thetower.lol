@@ -39,6 +39,11 @@ class DjangoAdminSettingsView(BaseSettingsView):
             self.setting_select.callback = self.setting_select_callback
             self.add_item(self.setting_select)
 
+    async def update_display(self, interaction: discord.Interaction):
+        """Display the settings embed (required by CogSettingsView)."""
+        embed = self.create_settings_embed()
+        await interaction.response.edit_message(embed=embed, view=self)
+
     def create_settings_embed(self) -> discord.Embed:
         """Create the settings embed with current values."""
         embed = discord.Embed(
@@ -89,9 +94,6 @@ class DjangoAdminSettingsView(BaseSettingsView):
             embed = view.create_selection_embed()
             await interaction.response.edit_message(embed=embed, view=view)
             return
-
-        # Add back button for navigation
-        self.add_back_button()
 
 
 class AllowedOwnersView(discord.ui.View):

@@ -55,6 +55,11 @@ class BaseSettingsView(View):
         self.is_bot_owner = context.is_bot_owner
 
     @property
+    def context(self) -> SettingsViewContext:
+        """Alias for self.ctx; used by sub-views that store context as self.context."""
+        return self.ctx
+
+    @property
     def bot(self):
         """Quick access to bot instance from interaction.
 

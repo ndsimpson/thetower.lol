@@ -16,6 +16,11 @@ class TourneyStatsSettingsView(BaseSettingsView):
             return False
         return True
 
+    async def update_display(self, interaction: discord.Interaction):
+        """Display the settings embed (required by CogSettingsView)."""
+        embed = await self.get_embed()
+        await interaction.response.edit_message(embed=embed, view=self)
+
     async def get_embed(self) -> discord.Embed:
         """Create the main settings embed displaying all current settings."""
         embed = discord.Embed(

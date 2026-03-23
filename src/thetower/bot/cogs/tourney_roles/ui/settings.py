@@ -655,12 +655,10 @@ class TournamentRolesSettingsView(BaseSettingsView):
         embed = await view.get_embed()
         await interaction.followup.edit_message(interaction.message.id, embed=embed, view=view)
 
-    @ui.button(label="Back to Main", style=discord.ButtonStyle.gray, emoji="⬅️", row=2)
+    @ui.button(label="Back to Cog Settings", style=discord.ButtonStyle.gray, emoji="⬅️", row=2)
     async def back_to_main(self, interaction: discord.Interaction, button: ui.Button):
-        """Go back to main settings view."""
-        await interaction.response.defer()
-        embed = await self.get_settings_embed()
-        await interaction.followup.edit_message(interaction.message.id, embed=embed, view=self)
+        """Go back to cog settings selector."""
+        await self.back_to_cog_settings(interaction)
 
     @ui.button(label="Admin Management", style=discord.ButtonStyle.primary, emoji="⚙️", row=3)
     async def admin_management(self, interaction: discord.Interaction, button: ui.Button):
@@ -844,11 +842,9 @@ class UpdateSettingsView(ui.View):
         current = self.cog.get_setting("update_on_startup", True, guild_id=self.guild_id)
         self.cog.set_setting("update_on_startup", not current, guild_id=self.guild_id)
 
-        status = "enabled" if not current else "disabled"
-        await interaction.response.send_message(f"✅ Update on startup {status}", ephemeral=True)
-
+        await interaction.response.defer()
         embed = await self.get_embed()
-        await interaction.edit_original_response(embed=embed, view=self)
+        await interaction.followup.edit_message(interaction.message.id, embed=embed, view=self)
 
     @ui.button(label="Back", style=discord.ButtonStyle.gray, emoji="⬅️")
     async def back(self, interaction: discord.Interaction, button: ui.Button):
@@ -956,8 +952,8 @@ class ProcessingSettingsView(ui.View):
             minutes = modal.result
             seconds = minutes * 60
             self.cog.set_setting("error_retry_delay", seconds, guild_id=self.guild_id)
-        embed = await self.get_embed()
-        await interaction.followup.edit_message(interaction.message.id, embed=embed, view=self)
+            embed = await self.get_embed()
+            await interaction.followup.edit_message(interaction.message.id, embed=embed, view=self)
 
     @ui.button(label="Back", style=discord.ButtonStyle.gray, emoji="⬅️")
     async def back(self, interaction: discord.Interaction, button: ui.Button):
@@ -1047,11 +1043,9 @@ class ModeSettingsView(ui.View):
         current = self.core.is_dry_run_enabled(self.guild_id)
         self.cog.set_setting("dry_run", not current, guild_id=self.guild_id)
 
-        status = "enabled" if not current else "disabled"
-        await interaction.response.send_message(f"✅ Dry run mode {status}", ephemeral=True)
-
+        await interaction.response.defer()
         embed = await self.get_embed()
-        await interaction.edit_original_response(embed=embed, view=self)
+        await interaction.followup.edit_message(interaction.message.id, embed=embed, view=self)
 
     @ui.button(label="Toggle Server Pause", style=discord.ButtonStyle.secondary, emoji="⏸️", row=0)
     async def toggle_pause(self, interaction: discord.Interaction, button: ui.Button):
@@ -1059,11 +1053,9 @@ class ModeSettingsView(ui.View):
         current = self.cog.get_setting("paused", False, guild_id=self.guild_id)
         self.cog.set_setting("paused", not current, guild_id=self.guild_id)
 
-        status = "paused" if not current else "resumed"
-        await interaction.response.send_message(f"✅ Automatic updates {status} for this server", ephemeral=True)
-
+        await interaction.response.defer()
         embed = await self.get_embed()
-        await interaction.edit_original_response(embed=embed, view=self)
+        await interaction.followup.edit_message(interaction.message.id, embed=embed, view=self)
 
     @ui.button(label="Toggle Global Pause", style=discord.ButtonStyle.danger, emoji="🔴", row=1)
     async def toggle_global_pause(self, interaction: discord.Interaction, button: ui.Button):
@@ -1076,12 +1068,9 @@ class ModeSettingsView(ui.View):
         current = self.cog.get_global_setting("paused", False)
         self.cog.set_global_setting("paused", not current)
 
-        status = "paused globally" if not current else "resumed globally"
-        impact = "All role updates across ALL servers are now paused" if not current else "Role updates are now active across all servers"
-        await interaction.response.send_message(f"✅ Automatic updates {status}\n⚠️ {impact}", ephemeral=True)
-
+        await interaction.response.defer()
         embed = await self.get_embed()
-        await interaction.edit_original_response(embed=embed, view=self)
+        await interaction.followup.edit_message(interaction.message.id, embed=embed, view=self)
 
     @ui.button(label="Toggle Debug Logging", style=discord.ButtonStyle.secondary, emoji="🔍", row=2)
     async def toggle_debug_logging(self, interaction: discord.Interaction, button: ui.Button):
@@ -1089,11 +1078,9 @@ class ModeSettingsView(ui.View):
         current = self.cog.get_setting("debug_logging", False, guild_id=self.guild_id)
         self.cog.set_setting("debug_logging", not current, guild_id=self.guild_id)
 
-        status = "enabled" if not current else "disabled"
-        await interaction.response.send_message(f"✅ Debug logging {status}", ephemeral=True)
-
+        await interaction.response.defer()
         embed = await self.get_embed()
-        await interaction.edit_original_response(embed=embed, view=self)
+        await interaction.followup.edit_message(interaction.message.id, embed=embed, view=self)
 
     @ui.button(label="Back", style=discord.ButtonStyle.gray, emoji="⬅️", row=3)
     async def back(self, interaction: discord.Interaction, button: ui.Button):

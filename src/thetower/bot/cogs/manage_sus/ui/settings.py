@@ -163,7 +163,7 @@ class SettingModal(discord.ui.Modal):
 
             # Update the view with new settings
             view = ManageSusSettingsView(
-                self.cog.SettingsViewContext(
+                SettingsViewContext(
                     guild_id=interaction.guild.id if interaction.guild else None,
                     cog_instance=self.cog,
                     interaction=interaction,

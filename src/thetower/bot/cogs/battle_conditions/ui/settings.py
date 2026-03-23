@@ -635,10 +635,10 @@ class BattleConditionsDeleteScheduleSelect(discord.ui.Select):
         channel_name = channel.mention if channel else f"ID: {dest_id}"
 
         # Delete schedule
-        schedules = self.cog.get_setting("destination_schedules", guild_id=self.guild_id) or []
+        schedules = self.bc_cog.get_setting("destination_schedules", guild_id=self.guild_id) or []
         schedules.pop(idx)
-        self.cog.set_setting("destination_schedules", schedules, guild_id=self.guild_id)
-        self.cog.mark_data_modified()
+        self.bc_cog.set_setting("destination_schedules", schedules, guild_id=self.guild_id)
+        self.bc_cog.mark_data_modified()
 
         await interaction.response.send_message(f"✅ Deleted schedule #{idx} for {channel_name}", ephemeral=True)
 
