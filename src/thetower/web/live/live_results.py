@@ -68,6 +68,7 @@ def live_results():
             p_last_wave = wave
         prior_df["_pos"] = p_pos_list
         prior_positions = dict(zip(prior_df["player_id"], prior_df["_pos"]))
+        prior_waves = dict(zip(prior_df["player_id"], prior_df["wave"]))
 
     def _format_delta(current_pos: int, player_id: str) -> str:
         if player_id not in prior_positions:
@@ -79,17 +80,24 @@ def live_results():
             return f"↓{abs(delta)}"
         return "→"
 
+    def _format_wave_delta(current_wave: int, player_id: str) -> str:
+        if player_id not in prior_waves:
+            return "🆕"
+        delta = current_wave - prior_waves[player_id]
+        return f"+{delta}" if delta > 0 else "="
+
     tourney_active = get_tourney_state().is_active
 
     ldf_display = ldf.copy()
     if tourney_active:
         ldf_display["±"] = [_format_delta(pos, pid) for pos, pid in zip(ldf_display.index, ldf_display["player_id"])]
+        ldf_display["wave Δ"] = [_format_wave_delta(wave, pid) for wave, pid in zip(ldf_display["wave"], ldf_display["player_id"])]
 
     cols = st.columns([3, 2] if not is_mobile else [1])
 
     with cols[0]:
         st.write("Current result (ordered)")
-        display_cols = ["±", "name", "real_name", "wave"] if tourney_active else ["name", "real_name", "wave"]
+        display_cols = ["±", "name", "real_name", "wave", "wave Δ"] if tourney_active else ["name", "real_name", "wave"]
         st.dataframe(ldf_display[display_cols][:how_many_results_public_site], height=700, width=400)
 
     canvas = cols[0] if is_mobile else cols[1]
