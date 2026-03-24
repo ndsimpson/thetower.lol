@@ -443,12 +443,50 @@ def live_placement_analysis():
     st.plotly_chart(fig, use_container_width=True)
 
     # --- Placement Histogram ---
-    st.markdown("### Placement Distribution Across All Brackets")
-    st.caption("How many brackets would give you each placement for this wave. Your actual placement is highlighted in amber.")
+    st.markdown(f"### Placement Distribution Across All Brackets in {league}")
+    st.caption(
+        "How many brackets would give you each placement for this wave. Your actual placement is shown in a stronger shade of its zone colour."
+    )
 
-    # Promotion/relegation cutoffs (top 5 promote, 26+ relegate)
-    PROMOTE_CUTOFF = 5
-    RELEGATE_CUTOFF = 26
+    # Per-league promotion/relegation cutoffs and reward tier boundaries.
+    # Copper/Silver/Gold relegate from rank 23; Platinum/Champion/Legend from rank 25.
+    # Reward boundaries are the mid-points between adjacent rank-range endpoints.
+    _LEAGUE_HISTOGRAM_CONFIG: dict[str, dict] = {
+        "Copper": {
+            "promote_cutoff": 5,
+            "relegate_cutoff": 23,
+            "reward_boundaries": [1.5, 2.5, 4.5, 6.5, 8.5, 10.5, 12.5, 15.5, 22.5],
+        },
+        "Silver": {
+            "promote_cutoff": 5,
+            "relegate_cutoff": 23,
+            "reward_boundaries": [1.5, 2.5, 4.5, 6.5, 8.5, 10.5, 12.5, 15.5, 22.5],
+        },
+        "Gold": {
+            "promote_cutoff": 5,
+            "relegate_cutoff": 23,
+            "reward_boundaries": [1.5, 2.5, 4.5, 6.5, 8.5, 10.5, 12.5, 15.5, 22.5],
+        },
+        "Platinum": {
+            "promote_cutoff": 5,
+            "relegate_cutoff": 25,
+            "reward_boundaries": [1.5, 2.5, 4.5, 6.5, 8.5, 10.5, 12.5, 15.5, 24.5],
+        },
+        "Champion": {
+            "promote_cutoff": 5,
+            "relegate_cutoff": 25,
+            "reward_boundaries": [1.5, 2.5, 4.5, 6.5, 8.5, 10.5, 12.5, 15.5, 24.5],
+        },
+        "Legend": {
+            "promote_cutoff": 5,
+            "relegate_cutoff": 25,
+            "reward_boundaries": [1.5, 2.5, 4.5, 6.5, 8.5, 10.5, 12.5, 15.5, 24.5],
+        },
+    }
+    _league_cfg = _LEAGUE_HISTOGRAM_CONFIG.get(league, _LEAGUE_HISTOGRAM_CONFIG["Legend"])
+    PROMOTE_CUTOFF: int = _league_cfg["promote_cutoff"]
+    RELEGATE_CUTOFF: int = _league_cfg["relegate_cutoff"]
+    REWARD_BRACKET_BOUNDARIES: list[float] = _league_cfg["reward_boundaries"]
 
     pos_counts = results_df["Position"].value_counts().sort_index().reset_index()
     pos_counts.columns = ["Position", "Brackets"]
@@ -464,16 +502,33 @@ def live_placement_analysis():
 
     pos_counts["Pct"] = pos_counts["Brackets"] / total_brackets * 100 if total_brackets else 0
 
-    bar_colors = []
-    for p in pos_counts["Position"]:
+    # X-range: show 3 positions on either side of the actual data (handles oversized brackets with 31/32 people)
+    data_min = int(pos_counts["Position"].min())
+    data_max = int(pos_counts["Position"].max())
+    x_range_min = max(0.4, data_min - 3)
+    x_range_max = data_max + 3
+
+    # Zone-tinted bar colours; player's position gets a strong version of their zone colour.
+    # All colours are medium-saturation so they read on both light and dark Streamlit themes:
+    #   Promotion  — blue  (#93c5fd pale / #2563eb strong)
+    #   Relegation — orange (#fdba74 pale / #c2410c strong)
+    #   Safe       — grey  (#9ca3af pale / #d97706 amber highlight — distinct hue, visible on both bg colours)
+    def _bar_color(p: int) -> str:
+        in_promote = p <= PROMOTE_CUTOFF
+        in_relegate = p >= RELEGATE_CUTOFF
         if p == player_position:
-            bar_colors.append("#f59e0b")  # amber — actual placement
-        elif p <= PROMOTE_CUTOFF:
-            bar_colors.append("#22c55e")  # green — promotion zone
-        elif p >= RELEGATE_CUTOFF:
-            bar_colors.append("#ef4444")  # red — relegation zone
-        else:
-            bar_colors.append("#6366f1")  # indigo — safe zone
+            if in_promote:
+                return "#2563eb"  # strong blue
+            elif in_relegate:
+                return "#c2410c"  # strong orange
+            return "#d97706"  # amber — distinct from blue/orange, visible on light & dark
+        elif in_promote:
+            return "#93c5fd"  # medium blue
+        elif in_relegate:
+            return "#fdba74"  # medium orange
+        return "#9ca3af"  # medium grey
+
+    bar_colors = [_bar_color(p) for p in pos_counts["Position"]]
 
     fig_hist = go.Figure()
     fig_hist.add_trace(
@@ -485,57 +540,58 @@ def live_placement_analysis():
         )
     )
 
-    # Boundary lines between zones
-    fig_hist.add_vline(x=PROMOTE_CUTOFF + 0.5, line_dash="dash", line_color="#16a34a", line_width=2)
-    fig_hist.add_vline(x=RELEGATE_CUTOFF - 0.5, line_dash="dash", line_color="#dc2626", line_width=2)
+    # Full solid lines for promotion and demotion zone boundaries (blue / orange — colorblind-safe pair)
+    fig_hist.add_vline(x=PROMOTE_CUTOFF + 0.5, line_dash="solid", line_color="rgba(59,130,246,0.8)", line_width=2)
+    fig_hist.add_vline(x=RELEGATE_CUTOFF - 0.5, line_dash="solid", line_color="rgba(234,88,12,0.8)", line_width=2)
 
-    # Zone annotations on the chart
-    max_pos = int(pos_counts["Position"].max())
+    # Lighter dotted lines for reward tier boundaries
+    for rb in REWARD_BRACKET_BOUNDARIES:
+        fig_hist.add_vline(x=rb, line_dash="dot", line_color="rgba(160,160,160,0.5)", line_width=1)
+
+    # Zone labels with percentages inside the chart near the top
+    relegate_center = (RELEGATE_CUTOFF + x_range_max) / 2
     fig_hist.add_annotation(
-        x=(PROMOTE_CUTOFF + 1) / 2,
-        y=1,
+        x=(1 + PROMOTE_CUTOFF) / 2,
+        y=0.97,
         yref="paper",
-        text="Promote",
+        text=f"Promote<br>{promote_pct:.0f}%",
         showarrow=False,
-        font=dict(color="#16a34a", size=11),
+        font=dict(size=11),
         xanchor="center",
+        yanchor="top",
     )
     fig_hist.add_annotation(
         x=(PROMOTE_CUTOFF + RELEGATE_CUTOFF) / 2,
-        y=1,
+        y=0.97,
         yref="paper",
-        text="Safe",
+        text=f"Safe<br>{safe_pct:.0f}%",
         showarrow=False,
-        font=dict(color="#818cf8", size=11),
+        font=dict(size=11),
         xanchor="center",
+        yanchor="top",
     )
     fig_hist.add_annotation(
-        x=RELEGATE_CUTOFF + (max_pos - RELEGATE_CUTOFF) / 2 + 1,
-        y=1,
+        x=relegate_center,
+        y=0.97,
         yref="paper",
-        text="Relegate",
+        text=f"Relegate<br>{relegate_pct:.0f}%",
         showarrow=False,
-        font=dict(color="#dc2626", size=11),
+        font=dict(size=11),
         xanchor="center",
+        yanchor="top",
     )
 
     fig_hist.update_layout(
-        title=f"Placement distribution for wave {wave_to_analyze}",
+        title=f"Placement distribution for wave {wave_to_analyze} ({league})",
         xaxis_title="Placement Position",
         yaxis_title="% of Brackets",
         yaxis=dict(ticksuffix="%"),
         height=350,
         margin=dict(l=20, r=20, t=60, b=20),
         showlegend=False,
-        xaxis=dict(dtick=1),
+        xaxis=dict(dtick=1, range=[x_range_min, x_range_max]),
     )
     st.plotly_chart(fig_hist, use_container_width=True)
-
-    # Fraction summary
-    m1, m2, m3 = st.columns(3)
-    m1.metric("🟢 Promote (top 5)", f"{promote_pct:.1f}%")
-    m2.metric("🔵 Safe (6–25)", f"{safe_pct:.1f}%")
-    m3.metric("🔴 Relegate (26+)", f"{relegate_pct:.1f}%")
 
     # Log execution time
     t2_stop = perf_counter()
