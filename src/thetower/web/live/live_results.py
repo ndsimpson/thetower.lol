@@ -48,11 +48,44 @@ def live_results():
     tourney = qs[0]
     pdf = get_tourneys([tourney])
 
+    # Compute position deltas vs. the prior checkpoint snapshot
+    sorted_datetimes = sorted(df["datetime"].unique(), reverse=True)
+    prior_positions: dict[str, int] = {}
+    if len(sorted_datetimes) >= 2:
+        prior_moment = sorted_datetimes[1]
+        prior_df = df[df["datetime"] == prior_moment].copy()
+        prior_df = prior_df.sort_values("wave", ascending=False).reset_index(drop=True)
+        p_current, p_borrow, p_last_wave = 0, 1, None
+        p_pos_list: list[int] = []
+        for wave in prior_df["wave"]:
+            if p_last_wave is not None and wave == p_last_wave:
+                p_borrow += 1
+            else:
+                p_current += p_borrow
+                p_borrow = 1
+            p_pos_list.append(p_current)
+            p_last_wave = wave
+        prior_df["_pos"] = p_pos_list
+        prior_positions = dict(zip(prior_df["player_id"], prior_df["_pos"]))
+
+    def _format_delta(current_pos: int, player_id: str) -> str:
+        if player_id not in prior_positions:
+            return "🆕"
+        delta = prior_positions[player_id] - current_pos  # positive = moved up
+        if delta > 0:
+            return f"↑{delta}"
+        if delta < 0:
+            return f"↓{abs(delta)}"
+        return "→"
+
+    ldf_display = ldf.copy()
+    ldf_display["±"] = [_format_delta(pos, pid) for pos, pid in zip(ldf_display.index, ldf_display["player_id"])]
+
     cols = st.columns([3, 2] if not is_mobile else [1])
 
     with cols[0]:
         st.write("Current result (ordered)")
-        st.dataframe(ldf[["name", "real_name", "wave"]][:how_many_results_public_site], height=700, width=400)
+        st.dataframe(ldf_display[["±", "name", "real_name", "wave"]][:how_many_results_public_site], height=700, width=400)
 
     canvas = cols[0] if is_mobile else cols[1]
 
