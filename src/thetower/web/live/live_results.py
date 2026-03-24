@@ -8,6 +8,7 @@ from thetower.backend.tourney_results.constants import champ, how_many_results_p
 from thetower.backend.tourney_results.data import get_tourneys
 from thetower.backend.tourney_results.models import TourneyResult
 from thetower.backend.tourney_results.shun_config import include_shun_enabled_for
+from thetower.backend.tourney_results.tourney_utils import get_tourney_state
 from thetower.web.live.data_ops import format_time_ago, get_data_refresh_timestamp, get_processed_data, require_tournament_data
 from thetower.web.live.ui_components import setup_common_ui
 
@@ -78,14 +79,18 @@ def live_results():
             return f"↓{abs(delta)}"
         return "→"
 
+    tourney_active = get_tourney_state().is_active
+
     ldf_display = ldf.copy()
-    ldf_display["±"] = [_format_delta(pos, pid) for pos, pid in zip(ldf_display.index, ldf_display["player_id"])]
+    if tourney_active:
+        ldf_display["±"] = [_format_delta(pos, pid) for pos, pid in zip(ldf_display.index, ldf_display["player_id"])]
 
     cols = st.columns([3, 2] if not is_mobile else [1])
 
     with cols[0]:
         st.write("Current result (ordered)")
-        st.dataframe(ldf_display[["±", "name", "real_name", "wave"]][:how_many_results_public_site], height=700, width=400)
+        display_cols = ["±", "name", "real_name", "wave"] if tourney_active else ["name", "real_name", "wave"]
+        st.dataframe(ldf_display[display_cols][:how_many_results_public_site], height=700, width=400)
 
     canvas = cols[0] if is_mobile else cols[1]
 
