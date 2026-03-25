@@ -399,13 +399,43 @@ def get_bracket_stats(df):
         (hardest/easiest promotion and relegation by 5th/25th place wave).
     """
 
-    def nth_place_wave(group, n):
-        return group.nlargest(n).iloc[-1] if len(group) >= n else None
+    def _promotion_cutoff_wave(group, n):
+        """Wave of the last player to actually promote under the last-in-tie rank rule.
+
+        Tied players all share the worst rank in their group. This returns the minimum
+        wave whose entire tied group still fits within the top n slots. Returns None if
+        nobody in the bracket promotes (e.g. > n players all tied at the top wave).
+        """
+        sorted_counts = group.value_counts().sort_index(ascending=False)
+        cumulative = 0
+        result = None
+        for wave, cnt in sorted_counts.items():
+            if cumulative + cnt <= n:
+                cumulative += cnt
+                result = wave
+            else:
+                break
+        return result
+
+    def _relegation_cutoff_wave(group, n):
+        """Wave of the highest-ranked player who demotes under the last-in-tie rank rule.
+
+        Returns the first wave (going highest to lowest) where the cumulative player
+        count reaches n — those players' last-in-tie rank >= n, so they demote.
+        Returns None if fewer than n players in the bracket.
+        """
+        sorted_counts = group.value_counts().sort_index(ascending=False)
+        cumulative = 0
+        for wave, cnt in sorted_counts.items():
+            cumulative += cnt
+            if cumulative >= n:
+                return wave
+        return None
 
     group_by_bracket = df.groupby("bracket").wave
 
-    fourth_place = group_by_bracket.apply(lambda x: nth_place_wave(x, 4)).dropna()
-    twenty_fifth_place = group_by_bracket.apply(lambda x: nth_place_wave(x, 25)).dropna()
+    fourth_place = group_by_bracket.apply(lambda x: _promotion_cutoff_wave(x, 4)).dropna()
+    twenty_fifth_place = group_by_bracket.apply(lambda x: _relegation_cutoff_wave(x, 25)).dropna()
 
     stats = {
         "total_brackets": df.groupby("bracket").ngroups,

@@ -90,7 +90,7 @@ def bracket_analysis():
         elif bracket_stats["hardest_promotion"] is not None:
             bracket_id = bracket_stats["hardest_promotion"]
             wave = bracket_stats["hardest_promotion_wave"]
-            st.write(f"**Hardest Promotion** — 4th place wave: **{wave}**")
+            st.write(f"**Hardest Promotion** — last-promoted wave: **{wave}**")
             st.caption(f"Bracket: {bracket_id}")
             st.dataframe(ldf[ldf.bracket == bracket_id][["real_name", "wave", "datetime"]])
         else:
@@ -102,7 +102,7 @@ def bracket_analysis():
         elif bracket_stats["hardest_relegation"] is not None:
             bracket_id = bracket_stats["hardest_relegation"]
             wave = bracket_stats["hardest_relegation_wave"]
-            st.write(f"**Hardest Relegation** — 25th place wave: **{wave}**")
+            st.write(f"**Hardest Relegation** — first-demoted wave: **{wave}**")
             st.caption(f"Bracket: {bracket_id}")
             st.dataframe(ldf[ldf.bracket == bracket_id][["real_name", "wave", "datetime"]])
         else:
@@ -121,7 +121,7 @@ def bracket_analysis():
         elif bracket_stats["easiest_promotion"] is not None:
             bracket_id = bracket_stats["easiest_promotion"]
             wave = bracket_stats["easiest_promotion_wave"]
-            st.write(f"**Easiest Promotion** — 4th place wave: **{wave}**")
+            st.write(f"**Easiest Promotion** — last-promoted wave: **{wave}**")
             st.caption(f"Bracket: {bracket_id}")
             st.dataframe(ldf[ldf.bracket == bracket_id][["real_name", "wave", "datetime"]])
         else:
@@ -133,7 +133,7 @@ def bracket_analysis():
         elif bracket_stats["easiest_relegation"] is not None:
             bracket_id = bracket_stats["easiest_relegation"]
             wave = bracket_stats["easiest_relegation_wave"]
-            st.write(f"**Easiest Relegation** — 25th place wave: **{wave}**")
+            st.write(f"**Easiest Relegation** — first-demoted wave: **{wave}**")
             st.caption(f"Bracket: {bracket_id}")
             st.dataframe(ldf[ldf.bracket == bracket_id][["real_name", "wave", "datetime"]])
         else:
