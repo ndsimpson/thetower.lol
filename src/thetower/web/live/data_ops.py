@@ -303,9 +303,14 @@ def analyze_wave_placement(df, wave_to_analyze, latest_time):
         bracket_df = df[df["bracket"] == bracket]
         last_bracket_df = bracket_df[bracket_df["datetime"] == latest_time].sort_values("wave", ascending=False)
 
-        better_or_equal = last_bracket_df[last_bracket_df["wave"] > wave_to_analyze].shape[0]
+        # Tie rule: tied players all receive the LAST (worst) position in the tied group.
+        # above_count = players strictly better; equal_count = players tied at the same wave.
+        # The analyzed wave is treated as a new entrant joining any existing tie, so
+        # rank = above_count + equal_count + 1 (last slot in the combined tied group).
+        above_count = last_bracket_df[last_bracket_df["wave"] > wave_to_analyze].shape[0]
+        equal_count = last_bracket_df[last_bracket_df["wave"] == wave_to_analyze].shape[0]
         total = last_bracket_df.shape[0]
-        rank = better_or_equal + 1
+        rank = above_count + equal_count + 1
 
         results.append(
             {
@@ -313,7 +318,7 @@ def analyze_wave_placement(df, wave_to_analyze, latest_time):
                 "Would Place": f"{rank}/{total}",
                 "Top Wave": last_bracket_df["wave"].max(),
                 "Median Wave": int(last_bracket_df["wave"].median()),
-                "Players Above": better_or_equal,
+                "Players Above": above_count,
             }
         )
 
@@ -399,7 +404,7 @@ def get_bracket_stats(df):
 
     group_by_bracket = df.groupby("bracket").wave
 
-    fifth_place = group_by_bracket.apply(lambda x: nth_place_wave(x, 5)).dropna()
+    fourth_place = group_by_bracket.apply(lambda x: nth_place_wave(x, 4)).dropna()
     twenty_fifth_place = group_by_bracket.apply(lambda x: nth_place_wave(x, 25)).dropna()
 
     stats = {
@@ -410,11 +415,11 @@ def get_bracket_stats(df):
         "lowest_median": group_by_bracket.median().sort_values(ascending=True).index[0],
     }
 
-    if len(fifth_place) > 0:
-        stats["hardest_promotion"] = fifth_place.idxmax()
-        stats["hardest_promotion_wave"] = int(fifth_place.max())
-        stats["easiest_promotion"] = fifth_place.idxmin()
-        stats["easiest_promotion_wave"] = int(fifth_place.min())
+    if len(fourth_place) > 0:
+        stats["hardest_promotion"] = fourth_place.idxmax()
+        stats["hardest_promotion_wave"] = int(fourth_place.max())
+        stats["easiest_promotion"] = fourth_place.idxmin()
+        stats["easiest_promotion_wave"] = int(fourth_place.min())
     else:
         stats["hardest_promotion"] = stats["easiest_promotion"] = None
         stats["hardest_promotion_wave"] = stats["easiest_promotion_wave"] = None

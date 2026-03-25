@@ -355,15 +355,15 @@ def live_placement_analysis():
         },
     )
 
-    # Calculate player's actual position
+    # Calculate player's actual position using the tie rule:
+    # all players tied at the same wave share the LAST rank in their group.
     player_bracket = df[df["display_name"] == selected_player]["bracket"].iloc[0]
     player_creation_time = bracket_creation_times[player_bracket]
-    player_position = (
-        df[(df["bracket"] == player_bracket) & (df["datetime"] == latest_time)]
-        .sort_values("wave", ascending=False)
-        .index.get_loc(df[(df["bracket"] == player_bracket) & (df["datetime"] == latest_time) & (df["display_name"] == selected_player)].index[0])
-        + 1
-    )
+    bracket_at_latest = df[(df["bracket"] == player_bracket) & (df["datetime"] == latest_time)]
+    player_wave = bracket_at_latest[bracket_at_latest["display_name"] == selected_player]["wave"].iloc[0]
+    above = int((bracket_at_latest["wave"] > player_wave).sum())
+    tied = int((bracket_at_latest["wave"] == player_wave).sum())  # includes the player themselves
+    player_position = above + tied  # last rank in the tied group
 
     # Create plot data using checkpoint averages
     plot_df = checkpoint_df.copy()
@@ -448,52 +448,56 @@ def live_placement_analysis():
         "How many brackets would give you each placement for this wave. Your actual placement is shown in a stronger shade of its zone colour."
     )
 
-    # Per-league promotion/relegation cutoffs and reward tier boundaries.
-    # Copper/Silver/Gold relegate from rank 23; Platinum/Champion/Legend from rank 25.
+    # Per-league promotion/relegation cutoffs and reward tier boundaries (as of v25).
+    # Top 4 promoted in all leagues except Legend (promote_cutoff=None — top tier, can't promote).
+    # Copper/Silver/Gold are protected tiers — no demotion (relegate_cutoff=None).
+    # Platinum/Champion/Legend: ranks 25+ are demoted (bottom 6 in a standard 30-person bracket;
+    #   brackets smaller than 25 people have nobody at rank 25 so demotion is naturally absent;
+    #   brackets larger than 30 people also demote the extra positions 31, 32, etc.)
     # Reward boundaries are the mid-points between adjacent rank-range endpoints.
     _LEAGUE_HISTOGRAM_CONFIG: dict[str, dict] = {
         "Copper": {
-            "promote_cutoff": 5,
-            "relegate_cutoff": 23,
+            "promote_cutoff": 4,
+            "relegate_cutoff": None,
             "reward_boundaries": [1.5, 2.5, 4.5, 6.5, 8.5, 10.5, 12.5, 15.5, 22.5],
         },
         "Silver": {
-            "promote_cutoff": 5,
-            "relegate_cutoff": 23,
+            "promote_cutoff": 4,
+            "relegate_cutoff": None,
             "reward_boundaries": [1.5, 2.5, 4.5, 6.5, 8.5, 10.5, 12.5, 15.5, 22.5],
         },
         "Gold": {
-            "promote_cutoff": 5,
-            "relegate_cutoff": 23,
+            "promote_cutoff": 4,
+            "relegate_cutoff": None,
             "reward_boundaries": [1.5, 2.5, 4.5, 6.5, 8.5, 10.5, 12.5, 15.5, 22.5],
         },
         "Platinum": {
-            "promote_cutoff": 5,
+            "promote_cutoff": 4,
             "relegate_cutoff": 25,
             "reward_boundaries": [1.5, 2.5, 4.5, 6.5, 8.5, 10.5, 12.5, 15.5, 24.5],
         },
         "Champion": {
-            "promote_cutoff": 5,
+            "promote_cutoff": 4,
             "relegate_cutoff": 25,
             "reward_boundaries": [1.5, 2.5, 4.5, 6.5, 8.5, 10.5, 12.5, 15.5, 24.5],
         },
         "Legend": {
-            "promote_cutoff": 5,
+            "promote_cutoff": None,
             "relegate_cutoff": 25,
             "reward_boundaries": [1.5, 2.5, 4.5, 6.5, 8.5, 10.5, 12.5, 15.5, 24.5],
         },
     }
     _league_cfg = _LEAGUE_HISTOGRAM_CONFIG.get(league, _LEAGUE_HISTOGRAM_CONFIG["Legend"])
-    PROMOTE_CUTOFF: int = _league_cfg["promote_cutoff"]
-    RELEGATE_CUTOFF: int = _league_cfg["relegate_cutoff"]
+    PROMOTE_CUTOFF: int | None = _league_cfg["promote_cutoff"]
+    RELEGATE_CUTOFF: int | None = _league_cfg["relegate_cutoff"]
     REWARD_BRACKET_BOUNDARIES: list[float] = _league_cfg["reward_boundaries"]
 
     pos_counts = results_df["Position"].value_counts().sort_index().reset_index()
     pos_counts.columns = ["Position", "Brackets"]
 
     total_brackets = len(results_df)
-    promote_n = int((results_df["Position"] <= PROMOTE_CUTOFF).sum())
-    relegate_n = int((results_df["Position"] >= RELEGATE_CUTOFF).sum())
+    promote_n = int((results_df["Position"] <= PROMOTE_CUTOFF).sum()) if PROMOTE_CUTOFF is not None else 0
+    relegate_n = int((results_df["Position"] >= RELEGATE_CUTOFF).sum()) if RELEGATE_CUTOFF is not None else 0
     safe_n = total_brackets - promote_n - relegate_n
 
     promote_pct = promote_n / total_brackets * 100 if total_brackets else 0
@@ -514,8 +518,8 @@ def live_placement_analysis():
     #   Relegation — orange (#fdba74 pale / #c2410c strong)
     #   Safe       — grey  (#9ca3af pale / #d97706 amber highlight — distinct hue, visible on both bg colours)
     def _bar_color(p: int) -> str:
-        in_promote = p <= PROMOTE_CUTOFF
-        in_relegate = p >= RELEGATE_CUTOFF
+        in_promote = PROMOTE_CUTOFF is not None and p <= PROMOTE_CUTOFF
+        in_relegate = RELEGATE_CUTOFF is not None and p >= RELEGATE_CUTOFF
         if p == player_position:
             if in_promote:
                 return "#2563eb"  # strong blue
@@ -540,28 +544,33 @@ def live_placement_analysis():
         )
     )
 
-    # Full solid lines for promotion and demotion zone boundaries (blue / orange — colorblind-safe pair)
-    fig_hist.add_vline(x=PROMOTE_CUTOFF + 0.5, line_dash="solid", line_color="rgba(59,130,246,0.8)", line_width=2)
-    fig_hist.add_vline(x=RELEGATE_CUTOFF - 0.5, line_dash="solid", line_color="rgba(234,88,12,0.8)", line_width=2)
+    # Promotion zone boundary (blue) — only for leagues that have promotion
+    if PROMOTE_CUTOFF is not None:
+        fig_hist.add_vline(x=PROMOTE_CUTOFF + 0.5, line_dash="solid", line_color="rgba(59,130,246,0.8)", line_width=2)
+    # Demotion zone boundary (orange) only for leagues with demotion (Platinum/Champion/Legend)
+    if RELEGATE_CUTOFF is not None:
+        fig_hist.add_vline(x=RELEGATE_CUTOFF - 0.5, line_dash="solid", line_color="rgba(234,88,12,0.8)", line_width=2)
 
     # Lighter dotted lines for reward tier boundaries
     for rb in REWARD_BRACKET_BOUNDARIES:
         fig_hist.add_vline(x=rb, line_dash="dot", line_color="rgba(160,160,160,0.5)", line_width=1)
 
     # Zone labels with percentages inside the chart near the top
-    relegate_center = (RELEGATE_CUTOFF + x_range_max) / 2
+    safe_left_bound = PROMOTE_CUTOFF + 1 if PROMOTE_CUTOFF is not None else x_range_min
+    safe_right_bound = RELEGATE_CUTOFF - 1 if RELEGATE_CUTOFF is not None else x_range_max
+    if PROMOTE_CUTOFF is not None:
+        fig_hist.add_annotation(
+            x=(1 + PROMOTE_CUTOFF) / 2,
+            y=0.97,
+            yref="paper",
+            text=f"Promote<br>{promote_pct:.0f}%",
+            showarrow=False,
+            font=dict(size=11),
+            xanchor="center",
+            yanchor="top",
+        )
     fig_hist.add_annotation(
-        x=(1 + PROMOTE_CUTOFF) / 2,
-        y=0.97,
-        yref="paper",
-        text=f"Promote<br>{promote_pct:.0f}%",
-        showarrow=False,
-        font=dict(size=11),
-        xanchor="center",
-        yanchor="top",
-    )
-    fig_hist.add_annotation(
-        x=(PROMOTE_CUTOFF + RELEGATE_CUTOFF) / 2,
+        x=(safe_left_bound + safe_right_bound) / 2,
         y=0.97,
         yref="paper",
         text=f"Safe<br>{safe_pct:.0f}%",
@@ -570,16 +579,18 @@ def live_placement_analysis():
         xanchor="center",
         yanchor="top",
     )
-    fig_hist.add_annotation(
-        x=relegate_center,
-        y=0.97,
-        yref="paper",
-        text=f"Relegate<br>{relegate_pct:.0f}%",
-        showarrow=False,
-        font=dict(size=11),
-        xanchor="center",
-        yanchor="top",
-    )
+    if RELEGATE_CUTOFF is not None:
+        relegate_center = (RELEGATE_CUTOFF + x_range_max) / 2
+        fig_hist.add_annotation(
+            x=relegate_center,
+            y=0.97,
+            yref="paper",
+            text=f"Relegate<br>{relegate_pct:.0f}%",
+            showarrow=False,
+            font=dict(size=11),
+            xanchor="center",
+            yanchor="top",
+        )
 
     fig_hist.update_layout(
         title=f"Placement distribution for wave {wave_to_analyze} ({league})",

@@ -85,17 +85,21 @@ def bracket_analysis():
     salt_cols = st.columns(2 if not is_mobile else 1)
 
     with salt_cols[0]:
-        if bracket_stats["hardest_promotion"] is not None:
+        if league == "Legend":
+            st.info("Legend is the top tier — players cannot be promoted further.")
+        elif bracket_stats["hardest_promotion"] is not None:
             bracket_id = bracket_stats["hardest_promotion"]
             wave = bracket_stats["hardest_promotion_wave"]
-            st.write(f"**Hardest Promotion** — 5th place wave: **{wave}**")
+            st.write(f"**Hardest Promotion** — 4th place wave: **{wave}**")
             st.caption(f"Bracket: {bracket_id}")
             st.dataframe(ldf[ldf.bracket == bracket_id][["real_name", "wave", "datetime"]])
         else:
-            st.info("Not enough data for promotion bracket (need at least 5 players per bracket).")
+            st.info("Not enough data for promotion bracket (need at least 4 players per bracket).")
 
     with salt_cols[1] if not is_mobile else salt_cols[0]:
-        if bracket_stats["hardest_relegation"] is not None:
+        if league in ("Copper", "Silver", "Gold"):
+            st.info(f"{league} is a protected tier — players cannot be demoted from it.")
+        elif bracket_stats["hardest_relegation"] is not None:
             bracket_id = bracket_stats["hardest_relegation"]
             wave = bracket_stats["hardest_relegation_wave"]
             st.write(f"**Hardest Relegation** — 25th place wave: **{wave}**")
@@ -112,17 +116,21 @@ def bracket_analysis():
     spoon_cols = st.columns(2 if not is_mobile else 1)
 
     with spoon_cols[0]:
-        if bracket_stats["easiest_promotion"] is not None:
+        if league == "Legend":
+            st.info("Legend is the top tier — players cannot be promoted further.")
+        elif bracket_stats["easiest_promotion"] is not None:
             bracket_id = bracket_stats["easiest_promotion"]
             wave = bracket_stats["easiest_promotion_wave"]
-            st.write(f"**Easiest Promotion** — 5th place wave: **{wave}**")
+            st.write(f"**Easiest Promotion** — 4th place wave: **{wave}**")
             st.caption(f"Bracket: {bracket_id}")
             st.dataframe(ldf[ldf.bracket == bracket_id][["real_name", "wave", "datetime"]])
         else:
-            st.info("Not enough data for promotion bracket (need at least 5 players per bracket).")
+            st.info("Not enough data for promotion bracket (need at least 4 players per bracket).")
 
     with spoon_cols[1] if not is_mobile else spoon_cols[0]:
-        if bracket_stats["easiest_relegation"] is not None:
+        if league in ("Copper", "Silver", "Gold"):
+            st.info(f"{league} is a protected tier — players cannot be demoted from it.")
+        elif bracket_stats["easiest_relegation"] is not None:
             bracket_id = bracket_stats["easiest_relegation"]
             wave = bracket_stats["easiest_relegation_wave"]
             st.write(f"**Easiest Relegation** — 25th place wave: **{wave}**")
