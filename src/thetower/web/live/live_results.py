@@ -72,21 +72,25 @@ def live_results():
         prior_waves = dict(zip(prior_df["player_id"], prior_df["wave"]))
         prior_joined_ids = set(prior_df["player_id"])
 
-    def _format_delta(current_pos: int, player_id: str) -> str:
+    def _format_rank_delta(current_pos: int, player_id: str) -> str:
         if player_id not in prior_positions:
-            return "🆕"
+            return f"{current_pos} 🆕"
         delta = prior_positions[player_id] - current_pos  # positive = moved up
         if delta > 0:
-            return f"↑{delta}"
+            return f"{current_pos} ↑{delta}"
         if delta < 0:
-            return f"↓{abs(delta)}"
-        return ""
+            return f"{current_pos} ↓{abs(delta)}"
+        return str(current_pos)
 
     def _format_wave_delta(current_wave: int, player_id: str) -> str:
         if player_id not in prior_waves:
-            return "🆕"
+            return str(current_wave)
         delta = current_wave - prior_waves[player_id]
-        return f"+{delta}" if delta > 0 else (f"{delta}" if delta < 0 else "")
+        if delta > 0:
+            return f"{current_wave} (+{delta})"
+        if delta < 0:
+            return f"{current_wave} ({delta})"
+        return str(current_wave)
 
     tourney_active = get_tourney_state().is_active
 
@@ -94,23 +98,23 @@ def live_results():
     ldf_display.insert(0, "#", ldf_display.index)  # preserve rank as a column before resetting index
     ldf_display = ldf_display.reset_index(drop=True)
     if tourney_active:
-        ldf_display["±"] = [_format_delta(pos, pid) for pos, pid in zip(ldf_display["#"], ldf_display["player_id"])]
-        ldf_display["wave Δ"] = [_format_wave_delta(wave, pid) for wave, pid in zip(ldf_display["wave"], ldf_display["player_id"])]
+        ldf_display["#"] = [_format_rank_delta(pos, pid) for pos, pid in zip(ldf_display["#"], ldf_display["player_id"])]
+        ldf_display["wave"] = [_format_wave_delta(wave, pid) for wave, pid in zip(ldf_display["wave"], ldf_display["player_id"])]
 
     cols = st.columns([3, 2] if not is_mobile else [1], gap="large")
 
     with cols[0]:
         st.write("Current result (ordered)")
-        display_cols = ["#", "±", "name", "real_name", "wave", "wave Δ"] if tourney_active else ["#", "name", "real_name", "wave"]
+        display_cols = ["#", "name", "real_name", "wave"]
         display_df = ldf_display[display_cols][: min(how_many_results_public_site, 5000)]
         if tourney_active:
             display_df = display_df.style.map(
                 lambda v: (
                     "color: green"
-                    if isinstance(v, str) and v.startswith("↑") or isinstance(v, str) and v.startswith("+")
-                    else ("color: red" if isinstance(v, str) and v.startswith("↓") or isinstance(v, str) and v.startswith("-") else "")
+                    if isinstance(v, str) and ("↑" in v or " (+" in v)
+                    else ("color: red" if isinstance(v, str) and ("↓" in v or " (-" in v) else "")
                 ),
-                subset=["±", "wave Δ"],
+                subset=["#", "wave"],
             )
         st.dataframe(
             display_df,
@@ -118,7 +122,7 @@ def live_results():
             use_container_width=True,
             hide_index=True,
             column_config={
-                "#": st.column_config.NumberColumn("#"),
+                "#": st.column_config.TextColumn("#"),
                 "name": st.column_config.TextColumn("name", width="small"),
                 "real_name": st.column_config.TextColumn("real_name", width="small"),
             },
