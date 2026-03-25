@@ -93,12 +93,12 @@ def live_results():
         ldf_display["±"] = [_format_delta(pos, pid) for pos, pid in zip(ldf_display.index, ldf_display["player_id"])]
         ldf_display["wave Δ"] = [_format_wave_delta(wave, pid) for wave, pid in zip(ldf_display["wave"], ldf_display["player_id"])]
 
-    cols = st.columns([3, 2] if not is_mobile else [1])
+    cols = st.columns([3, 2] if not is_mobile else [1], gap="large")
 
     with cols[0]:
         st.write("Current result (ordered)")
         display_cols = ["±", "name", "real_name", "wave", "wave Δ"] if tourney_active else ["name", "real_name", "wave"]
-        st.dataframe(ldf_display[display_cols][:how_many_results_public_site], height=700, width=400)
+        st.dataframe(ldf_display[display_cols][:how_many_results_public_site], height=700, use_container_width=True)
 
     canvas = cols[0] if is_mobile else cols[1]
 
@@ -142,7 +142,7 @@ def live_results():
         # Show all players in top X
         display_df = pdf[:topx]
 
-    canvas.dataframe(display_df[["real_name", "wave_last", "joined"]], height=600, width=400)
+    canvas.dataframe(display_df[["real_name", "wave_last", "joined"]], height=600, use_container_width=True)
 
     # Log execution time
     t2_stop = perf_counter()
