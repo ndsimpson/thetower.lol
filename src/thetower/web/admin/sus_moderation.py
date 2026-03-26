@@ -183,7 +183,7 @@ def render_sus_moderation_page():
 
     st.dataframe(
         sortable_df,
-        width="stretch",
+        use_container_width=True,
         height=600,
         column_config={
             "Tower ID": st.column_config.TextColumn("Tower ID", help="Click to copy Tower ID", max_chars=16),
@@ -241,7 +241,7 @@ def render_sus_moderation_page():
 
                     st.dataframe(
                         filtered_final,
-                        width="stretch",
+                        use_container_width=True,
                         height=400,
                         column_config={
                             "Tower ID": st.column_config.TextColumn("Tower ID", max_chars=16),

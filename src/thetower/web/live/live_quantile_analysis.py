@@ -48,8 +48,7 @@ def quantile_analysis():
     st.caption(f"Tournament start date: {tourney_start_date}")
 
     # Introduction and explanation
-    st.markdown(
-        """
+    st.markdown("""
     This analysis shows the **distribution of waves required** to achieve specific placements
     across all brackets in the current tournament. Each curve represents a different placement
     position (1st, 4th, 10th, etc.).
@@ -62,8 +61,7 @@ def quantile_analysis():
     **Example**: If the 75% quantile for 10th place shows 2500 waves, it means:
     - 75% of brackets required **2500 or fewer waves** to reach 10th place
     - 25% of brackets required **more than 2500 waves** to reach 10th place
-    """
-    )
+    """)
 
     # Display the quantile data
     if quantile_df.empty:
@@ -122,7 +120,7 @@ def quantile_analysis():
             annotation_position="top right",
         )
 
-    st.plotly_chart(fig, width="stretch")
+    st.plotly_chart(fig, use_container_width=True)
 
     # Display summary statistics table
     st.markdown("### Summary Statistics by Placement")
@@ -159,8 +157,7 @@ def quantile_analysis():
 
     # Add interpretation guidance
     with st.expander("📖 How to Use This Information"):
-        st.markdown(
-            """
+        st.markdown("""
         ### Strategic Planning:
 
         **Conservative Strategy** (75th-90th percentile):
@@ -184,8 +181,7 @@ def quantile_analysis():
         **Narrow spread** (small difference between 25th and 75th percentile):
         - Consistent requirements across brackets
         - Performance matters more than bracket luck
-        """
-        )
+        """)
 
     # Additional insights section
     st.markdown("### Bracket Variability Analysis")
@@ -218,15 +214,13 @@ def quantile_analysis():
         )
 
     with col2:
-        st.markdown(
-            """
+        st.markdown("""
         **Interquartile Range (IQR)** measures the spread of the middle 50% of brackets.
 
         - **Lower IQR**: More consistent across brackets
         - **Higher IQR**: More bracket-to-bracket variation
         - **IQR % of Median**: Normalizes variability for comparison
-        """
-        )
+        """)
 
     # Log execution time
     t2_stop = perf_counter()

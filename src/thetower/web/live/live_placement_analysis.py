@@ -440,7 +440,7 @@ def live_placement_analysis():
     fig.update_layout(yaxis_title="Position", height=400, margin=dict(l=20, r=20, t=40, b=20), legend=dict(orientation="h" if is_mobile else "v"))
     fig.update_yaxes(autorange="reversed")
 
-    st.plotly_chart(fig, width="stretch")
+    st.plotly_chart(fig, use_container_width=True)
 
     # --- Placement Histogram ---
     st.markdown(f"### Placement Distribution Across All Brackets in {league}")
@@ -602,7 +602,7 @@ def live_placement_analysis():
         showlegend=False,
         xaxis=dict(dtick=1, range=[x_range_min, x_range_max]),
     )
-    st.plotly_chart(fig_hist, width="stretch")
+    st.plotly_chart(fig_hist, use_container_width=True)
 
     # Log execution time
     t2_stop = perf_counter()

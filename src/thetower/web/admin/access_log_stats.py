@@ -124,7 +124,7 @@ with tab_time:
         counts.rename(columns={"date": "Date"}, inplace=True)
         fig = px.bar(counts, x="Date", y="Requests", title="Requests per Day")
 
-    st.plotly_chart(fig, width="stretch")
+    st.plotly_chart(fig, use_container_width=True)
 
 # ── By Page ─────────────────────────────────────────────────────────────────
 with tab_pages:
@@ -149,9 +149,9 @@ with tab_pages:
         labels={"path": "Page"},
     )
     fig_pages.update_layout(height=max(300, top_n * 22))
-    st.plotly_chart(fig_pages, width="stretch")
+    st.plotly_chart(fig_pages, use_container_width=True)
 
-    st.dataframe(page_counts, width="stretch", hide_index=True)
+    st.dataframe(page_counts, use_container_width=True, hide_index=True)
 
 # ── By IP ────────────────────────────────────────────────────────────────────
 with tab_ips:
@@ -176,7 +176,7 @@ with tab_ips:
         labels={"ip": "IP"},
     )
     fig_ips.update_layout(height=max(300, top_n_ip * 22))
-    st.plotly_chart(fig_ips, width="stretch")
+    st.plotly_chart(fig_ips, use_container_width=True)
 
     # Per-IP breakdown: click an IP to see which pages they hit
     st.subheader("Per-IP page breakdown")
@@ -188,4 +188,4 @@ with tab_ips:
     if selected_ip:
         ip_df = df[df["ip"] == selected_ip].groupby("path").size().reset_index(name="Requests")
         ip_df = ip_df.sort_values("Requests", ascending=False)
-        st.dataframe(ip_df, width="stretch", hide_index=True)
+        st.dataframe(ip_df, use_container_width=True, hide_index=True)

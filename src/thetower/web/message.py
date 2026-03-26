@@ -19,7 +19,7 @@ _logo_path = _web_dir / "static" / "images" / "TT.png"
 if _logo_path.exists():
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
-        st.image(str(_logo_path), width=400)
+        st.image(str(_logo_path), width=400, use_container_width=False)
 
 st.markdown(f"## 🔧 {header}")
 st.markdown(message)

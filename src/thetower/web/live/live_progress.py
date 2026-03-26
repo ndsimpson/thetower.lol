@@ -48,7 +48,7 @@ def live_progress():
         margin=dict(l=20, r=20, t=40, b=20),
         legend=dict(orientation="h" if is_mobile else "v"),
     )
-    st.plotly_chart(fig, width="stretch")
+    st.plotly_chart(fig, use_container_width=True)
 
     # Get reference data for fill-up calculation
     qs = TourneyResult.objects.filter(league=league, public=True).order_by("-date")
@@ -77,7 +77,7 @@ def live_progress():
         height=400,
         margin=dict(l=20, r=20, t=40, b=20),
     )
-    st.plotly_chart(fig, width="stretch")
+    st.plotly_chart(fig, use_container_width=True)
 
     # Log execution time
     t2_stop = perf_counter()
