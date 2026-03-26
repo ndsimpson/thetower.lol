@@ -121,7 +121,7 @@ def live_results():
         st.dataframe(
             display_df,
             height=700,
-            use_container_width=True,
+            width="stretch",
             hide_index=True,
             column_config={
                 "#": st.column_config.TextColumn("#"),
@@ -181,7 +181,7 @@ def live_results():
         # Show all players in top X
         display_df = pdf[:topx]
 
-    canvas.dataframe(display_df[["real_name", "wave_last", "joined"]], height=600, use_container_width=True)
+    canvas.dataframe(display_df[["real_name", "wave_last", "joined"]], height=600, width="stretch")
 
     # Log execution time
     t2_stop = perf_counter()

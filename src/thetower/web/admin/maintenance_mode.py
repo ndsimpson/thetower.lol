@@ -42,7 +42,7 @@ def main() -> None:
         help="Displayed to visitors on all public pages while maintenance mode is active.",
     )
 
-    if st.button("💾 Save Changes", type="primary", use_container_width=True):
+    if st.button("💾 Save Changes", type="primary", width="stretch"):
         try:
             set_maintenance_state(
                 enabled=new_enabled,

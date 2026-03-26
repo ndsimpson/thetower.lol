@@ -64,7 +64,7 @@ st.markdown(f"## Tournament {'is today!' if days_until == 0 else f'is on {tourne
 
 st.dataframe(
     pd.DataFrame.from_dict({league: predict_future_tournament(tourney_id, league) for league in leagues}, orient="index").transpose().fillna(""),
-    use_container_width=True,
+    width="stretch",
 )
 
 # Log execution time at the end of the file

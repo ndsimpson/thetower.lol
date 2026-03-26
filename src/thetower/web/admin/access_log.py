@@ -87,6 +87,6 @@ st.caption(f"Showing {len(filtered):,} of {len(rows):,} entries \u2014 " f"{sele
 if filtered:
     df = pd.DataFrame(filtered, columns=["dt", "site", "ip", "path", "qs", "ctx"])
     df.columns = ["Datetime (UTC)", "Site", "IP", "Path", "Query String", "Context"]
-    st.dataframe(df, use_container_width=True, hide_index=True)
+    st.dataframe(df, width="stretch", hide_index=True)
 else:
     st.info("No entries match the current filters.")

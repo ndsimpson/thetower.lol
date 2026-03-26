@@ -22,7 +22,7 @@ def show_service_logs(service_name: str, logs: str):
     st.markdown(f"**{service_name}** - Recent Logs")
     st.code(logs, language="bash")
 
-    if st.button("✅ Close", use_container_width=True, type="primary"):
+    if st.button("✅ Close", width="stretch", type="primary"):
         st.rerun()
 
 
@@ -36,7 +36,7 @@ def show_operation_result(success: bool, title: str, message: str):
 
     st.code(message, language="bash")
 
-    if st.button("✅ Close & Refresh", use_container_width=True, type="primary"):
+    if st.button("✅ Close & Refresh", width="stretch", type="primary"):
         st.rerun()
 
 

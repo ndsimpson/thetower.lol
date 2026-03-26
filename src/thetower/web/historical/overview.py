@@ -484,7 +484,7 @@ def compute_overview(options: Options):
         col1, col2, col3 = st.columns([1, 2, 1])
         with col2:
             st.markdown("<a id='top'></a>", unsafe_allow_html=True)
-            st.image(str(logo_path), width=400, use_container_width=False)
+            st.image(str(logo_path), width=400)
 
     # Render tournament countdown
     render_tournament_countdown()
