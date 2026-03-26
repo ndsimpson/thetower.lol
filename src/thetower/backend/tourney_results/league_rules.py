@@ -9,7 +9,17 @@ same rules. When game mechanics change in a future patch, update ``_DEFAULT_RULE
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import NamedTuple, Optional
+
+
+class RewardTier(NamedTuple):
+    """Reward values for a bracket place tier."""
+
+    max_rank: int
+    """Inclusive upper bound of this tier (e.g. 4 means ranks 1–4 after the previous tier's max_rank+1)."""
+    gems: int
+    stones: int
+    keys: int = 0
 
 
 @dataclass(frozen=True)
@@ -27,6 +37,9 @@ class LeagueRules:
 
     reward_boundaries: tuple[float, ...] = field(default_factory=tuple)
     """Reward tier boundary positions (used for histogram rendering)."""
+
+    reward_tiers: tuple[RewardTier, ...] = field(default_factory=tuple)
+    """Reward tiers ordered by ascending max_rank."""
 
     @property
     def last_safe(self) -> Optional[int]:
@@ -52,6 +65,18 @@ class LeagueRules:
             places.append(self.last_safe)
         return places
 
+    @property
+    def has_keys(self) -> bool:
+        """True if any reward tier in this league awards keys."""
+        return any(t.keys > 0 for t in self.reward_tiers)
+
+    def rewards_for_place(self, place: int) -> RewardTier | None:
+        """Return the RewardTier for a given bracket place, or None if no data."""
+        for tier in self.reward_tiers:
+            if place <= tier.max_rank:
+                return tier
+        return None
+
     def place_label(self, place: int) -> str:
         """Human-readable label describing a place's bracket significance."""
         if place == self.promote_cutoff:
@@ -73,31 +98,103 @@ _DEFAULT_RULES: dict[str, LeagueRules] = {
         promote_cutoff=4,
         relegate_cutoff=None,
         reward_boundaries=(1.5, 2.5, 4.5, 6.5, 8.5, 10.5, 12.5, 15.5, 22.5),
+        reward_tiers=(
+            RewardTier(1, 100, 20),
+            RewardTier(2, 80, 18),
+            RewardTier(4, 65, 16),
+            RewardTier(6, 50, 12),
+            RewardTier(8, 45, 10),
+            RewardTier(10, 40, 9),
+            RewardTier(12, 30, 8),
+            RewardTier(15, 20, 7),
+            RewardTier(22, 15, 6),
+            RewardTier(30, 10, 5),
+        ),
     ),
     "Silver": LeagueRules(
         promote_cutoff=4,
         relegate_cutoff=None,
         reward_boundaries=(1.5, 2.5, 4.5, 6.5, 8.5, 10.5, 12.5, 15.5, 22.5),
+        reward_tiers=(
+            RewardTier(1, 200, 40),
+            RewardTier(2, 150, 35),
+            RewardTier(4, 100, 30),
+            RewardTier(6, 75, 20),
+            RewardTier(8, 65, 19),
+            RewardTier(10, 60, 18),
+            RewardTier(12, 55, 17),
+            RewardTier(15, 50, 16),
+            RewardTier(22, 45, 14),
+            RewardTier(30, 40, 12),
+        ),
     ),
     "Gold": LeagueRules(
         promote_cutoff=4,
         relegate_cutoff=None,
         reward_boundaries=(1.5, 2.5, 4.5, 6.5, 8.5, 10.5, 12.5, 15.5, 22.5),
+        reward_tiers=(
+            RewardTier(1, 300, 80),
+            RewardTier(2, 250, 70),
+            RewardTier(4, 200, 60),
+            RewardTier(6, 150, 40),
+            RewardTier(8, 125, 30),
+            RewardTier(10, 100, 28),
+            RewardTier(12, 90, 26),
+            RewardTier(15, 80, 24),
+            RewardTier(22, 70, 22),
+            RewardTier(30, 50, 20),
+        ),
     ),
     "Platinum": LeagueRules(
         promote_cutoff=4,
         relegate_cutoff=25,
         reward_boundaries=(1.5, 2.5, 4.5, 6.5, 8.5, 10.5, 12.5, 15.5, 24.5),
+        reward_tiers=(
+            RewardTier(1, 400, 160),
+            RewardTier(2, 350, 140),
+            RewardTier(4, 300, 120),
+            RewardTier(6, 250, 70),
+            RewardTier(8, 225, 65),
+            RewardTier(10, 200, 60),
+            RewardTier(12, 175, 56),
+            RewardTier(15, 150, 53),
+            RewardTier(24, 125, 50),
+            RewardTier(30, 100, 20),
+        ),
     ),
     "Champion": LeagueRules(
         promote_cutoff=4,
         relegate_cutoff=25,
         reward_boundaries=(1.5, 2.5, 4.5, 6.5, 8.5, 10.5, 12.5, 15.5, 24.5),
+        reward_tiers=(
+            RewardTier(1, 600, 320),
+            RewardTier(2, 500, 300),
+            RewardTier(4, 400, 280),
+            RewardTier(6, 350, 200),
+            RewardTier(8, 325, 175),
+            RewardTier(10, 300, 150),
+            RewardTier(12, 275, 125),
+            RewardTier(15, 250, 100),
+            RewardTier(24, 200, 90),
+            RewardTier(30, 150, 20),
+        ),
     ),
     "Legend": LeagueRules(
         promote_cutoff=None,
         relegate_cutoff=25,
         reward_boundaries=(1.5, 2.5, 4.5, 6.5, 8.5, 10.5, 12.5, 15.5, 24.5),
+        reward_tiers=(
+            RewardTier(1, 800, 425, 25),
+            RewardTier(2, 700, 400, 20),
+            RewardTier(4, 600, 375, 15),
+            RewardTier(6, 500, 350, 10),
+            RewardTier(8, 475, 325, 8),
+            RewardTier(10, 450, 300, 6),
+            RewardTier(12, 425, 275, 4),
+            RewardTier(15, 400, 250, 2),
+            RewardTier(24, 375, 225, 0),
+            RewardTier(30, 200, 120, 0),
+        ),
     ),
 }
 
