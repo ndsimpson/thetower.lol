@@ -7,6 +7,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
 
+from thetower.backend.tourney_results.league_rules import get_league_rules
 from thetower.web.live.data_ops import (
     analyze_wave_placement,
     format_time_ago,
@@ -448,49 +449,10 @@ def live_placement_analysis():
         "How many brackets would give you each placement for this wave. Your actual placement is shown in a stronger shade of its zone colour."
     )
 
-    # Per-league promotion/relegation cutoffs and reward tier boundaries (as of v25).
-    # Top 4 promoted in all leagues except Legend (promote_cutoff=None — top tier, can't promote).
-    # Copper/Silver/Gold are protected tiers — no demotion (relegate_cutoff=None).
-    # Platinum/Champion/Legend: ranks 25+ are demoted (bottom 6 in a standard 30-person bracket;
-    #   brackets smaller than 25 people have nobody at rank 25 so demotion is naturally absent;
-    #   brackets larger than 30 people also demote the extra positions 31, 32, etc.)
-    # Reward boundaries are the mid-points between adjacent rank-range endpoints.
-    _LEAGUE_HISTOGRAM_CONFIG: dict[str, dict] = {
-        "Copper": {
-            "promote_cutoff": 4,
-            "relegate_cutoff": None,
-            "reward_boundaries": [1.5, 2.5, 4.5, 6.5, 8.5, 10.5, 12.5, 15.5, 22.5],
-        },
-        "Silver": {
-            "promote_cutoff": 4,
-            "relegate_cutoff": None,
-            "reward_boundaries": [1.5, 2.5, 4.5, 6.5, 8.5, 10.5, 12.5, 15.5, 22.5],
-        },
-        "Gold": {
-            "promote_cutoff": 4,
-            "relegate_cutoff": None,
-            "reward_boundaries": [1.5, 2.5, 4.5, 6.5, 8.5, 10.5, 12.5, 15.5, 22.5],
-        },
-        "Platinum": {
-            "promote_cutoff": 4,
-            "relegate_cutoff": 25,
-            "reward_boundaries": [1.5, 2.5, 4.5, 6.5, 8.5, 10.5, 12.5, 15.5, 24.5],
-        },
-        "Champion": {
-            "promote_cutoff": 4,
-            "relegate_cutoff": 25,
-            "reward_boundaries": [1.5, 2.5, 4.5, 6.5, 8.5, 10.5, 12.5, 15.5, 24.5],
-        },
-        "Legend": {
-            "promote_cutoff": None,
-            "relegate_cutoff": 25,
-            "reward_boundaries": [1.5, 2.5, 4.5, 6.5, 8.5, 10.5, 12.5, 15.5, 24.5],
-        },
-    }
-    _league_cfg = _LEAGUE_HISTOGRAM_CONFIG.get(league, _LEAGUE_HISTOGRAM_CONFIG["Legend"])
-    PROMOTE_CUTOFF: int | None = _league_cfg["promote_cutoff"]
-    RELEGATE_CUTOFF: int | None = _league_cfg["relegate_cutoff"]
-    REWARD_BRACKET_BOUNDARIES: list[float] = _league_cfg["reward_boundaries"]
+    _rules = get_league_rules(league)
+    PROMOTE_CUTOFF: int | None = _rules.promote_cutoff
+    RELEGATE_CUTOFF: int | None = _rules.relegate_cutoff
+    REWARD_BRACKET_BOUNDARIES: list[float] = list(_rules.reward_boundaries)
 
     pos_counts = results_df["Position"].value_counts().sort_index().reset_index()
     pos_counts.columns = ["Position", "Brackets"]
