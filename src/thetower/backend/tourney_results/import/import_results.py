@@ -120,8 +120,8 @@ def execute():
 
         create_tourney_rows(result)
 
-        # Generate summary for Legends league results
-        if league == "Legends":
+        # Generate summary for Legend league results
+        if league == "Legend":
             logging.info("Generating summary for Legends league results")
             thread = threading.Thread(target=update_summary, args=(result,))
             thread.start()
