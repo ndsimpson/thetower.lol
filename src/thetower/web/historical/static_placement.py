@@ -142,8 +142,13 @@ def compute_static_placement():
 
     styled = df.style.apply(_highlight_median, axis=1)
 
+    data_cols = [c for c in df.columns if c != "Place"]
+    col_config: dict = {"Place": st.column_config.NumberColumn("Place", format="%d")}
+    for col in data_cols:
+        col_config[col] = st.column_config.NumberColumn(col, format="%.0f")
+
     row_height = (len(_PLACES) + 1) * 35 + 10
-    st.dataframe(styled, hide_index=True, use_container_width=True, height=row_height)
+    st.dataframe(styled, hide_index=True, use_container_width=True, height=row_height, column_config=col_config)
 
     with st.expander("How to read this table"):
         st.markdown(
