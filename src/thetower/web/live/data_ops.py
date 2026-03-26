@@ -31,13 +31,15 @@ def cache_data_if_enabled(**cache_args):
     """Decorator that only applies st.cache_data if caching is enabled."""
 
     def decorator(func):
+        cached_func = st.cache_data(**cache_args)(func)
+
         @wraps(func)
         def wrapper(*args, **kwargs):
-            is_disabled = is_caching_disabled()
-            logging.info(f"Cache {'disabled' if is_disabled else 'enabled'} for {func.__name__}")
-            if is_disabled:
+            if is_caching_disabled():
+                logging.info(f"Cache disabled for {func.__name__}")
                 return func(*args, **kwargs)
-            return st.cache_data(**cache_args)(func)(*args, **kwargs)
+            logging.info(f"Cache enabled for {func.__name__}")
+            return cached_func(*args, **kwargs)
 
         return wrapper
 
