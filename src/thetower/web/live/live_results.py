@@ -106,7 +106,9 @@ def live_results():
     with cols[0]:
         st.write("Current result (ordered)")
         display_cols = ["#", "name", "real_name", "wave"]
-        display_df = ldf_display[display_cols][: min(how_many_results_public_site, 5000)]
+        results_full = st.query_params.get("results") == "full"
+        row_limit = None if results_full else min(how_many_results_public_site, 5000)
+        display_df = ldf_display[display_cols][:row_limit]
         if tourney_active:
             display_df = display_df.style.map(
                 lambda v: (
