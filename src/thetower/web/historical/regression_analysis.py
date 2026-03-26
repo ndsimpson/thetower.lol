@@ -40,7 +40,7 @@ def _group_into_tourneys(files: list[Path]) -> list[list[Path]]:
     return groups
 
 
-def _fetch_patch_data(league: str, patch: Patch) -> list[dict] | None:
+def _fetch_patch_data(league: str, patch: Patch, key_places: list[int]) -> list[dict] | None:
     """Fetch per-tournament bracket-level wave thresholds at key places.
 
     Reads the live CSV snapshots (which carry the 'bracket' column), groups them
@@ -60,7 +60,6 @@ def _fetch_patch_data(league: str, patch: Patch) -> list[dict] | None:
         return None
 
     rules = get_league_rules(league, patch)
-    key_places = rules.key_places()
     # Tolerate brackets that are missing a few players (e.g. late-join or early-leave)
     min_bracket_size = max(rules.bracket_size - 5, rules.bracket_size // 2)
 
@@ -122,7 +121,18 @@ def _linregress(x: np.ndarray, y: np.ndarray) -> tuple[float, float]:
 
 
 # Distinct colours for up to 4 key places
-_PLACE_COLORS = ["#4C9BE8", "#E87C4C", "#4CE87C", "#E84C9B"]
+_PLACE_COLORS = [
+    "#4C9BE8",  # blue
+    "#E87C4C",  # orange
+    "#4CE87C",  # green
+    "#E84C9B",  # pink
+    "#B04CE8",  # purple
+    "#E8D44C",  # yellow
+    "#4CE8D4",  # teal
+    "#E84C4C",  # red
+    "#8CE84C",  # lime
+    "#4C6CE8",  # indigo
+]
 
 
 def compute_regression_analysis():
@@ -132,19 +142,43 @@ def compute_regression_analysis():
         "The slope is how many waves the cutoff rises per tournament."
     )
 
-    col1, col2 = st.columns([2, 2])
+    col1, col2, col3 = st.columns([2, 2, 2])
     league = col1.selectbox("League", leagues, index=0)
     patches = list(Patch.objects.order_by("-start_date"))
     if not patches:
         st.error("No patch data available.")
         return
     selected_patch = col2.selectbox("Patch", patches, index=0)
+    mode = col3.radio("Cutoffs", ["Progression", "Rewards", "Custom"], horizontal=True)
 
     rules = get_league_rules(league)
-    key_places = rules.key_places()
+
+    _CUSTOM_PLACES = [1, 4, 15, 24]
+
+    if mode == "Rewards":
+        key_places = [t.max_rank for t in rules.reward_tiers]
+
+        def place_label(place: int) -> str:
+            tier = rules.rewards_for_place(place)
+            if tier is None:
+                return f"#{place}"
+            if rules.has_keys:
+                return f"#{place} ({tier.gems}💎 {tier.stones}🪨 {tier.keys}🔑)"
+            return f"#{place} ({tier.gems}💎 {tier.stones}🪨)"
+
+    elif mode == "Custom":
+        all_places = list(range(1, 31))
+        key_places = sorted(st.multiselect("Places to chart", all_places, default=_CUSTOM_PLACES, key="custom_places"))
+        if not key_places:
+            st.warning("Select at least one place.")
+            return
+        place_label = rules.place_label
+    else:
+        key_places = rules.key_places()
+        place_label = rules.place_label
 
     with st.spinner("Loading tournament data…"):
-        data_points = _fetch_patch_data(league, selected_patch)
+        data_points = _fetch_patch_data(league, selected_patch, key_places)
 
     if data_points is None:
         st.warning(f"Not enough tournament data for {league} · {selected_patch} (need at least 2 tournaments).")
@@ -183,7 +217,6 @@ def compute_regression_analysis():
     for place in key_places:
         reg = regressions[place]
         color = place_color[place]
-        label = rules.place_label(place)
         y_line = [reg["intercept"] + reg["slope"] * xi for xi in x_all]
 
         fig.add_trace(
@@ -191,7 +224,7 @@ def compute_regression_analysis():
                 x=dates,
                 y=reg["y_values"].tolist(),
                 mode="markers",
-                name=f"{label}",
+                name=f"{place_label(place)}",
                 marker=dict(color=color, size=9),
                 legendgroup=str(place),
             )
@@ -201,7 +234,7 @@ def compute_regression_analysis():
                 x=dates,
                 y=y_line,
                 mode="lines",
-                name=f"{label} trend",
+                name=f"{place_label(place)} trend",
                 line=dict(color=color, dash="dash", width=2),
                 legendgroup=str(place),
                 showlegend=True,
@@ -229,7 +262,7 @@ def compute_regression_analysis():
     for place in key_places:
         reg = regressions[place]
         row: dict = {
-            "Place": rules.place_label(place),
+            "Place": place_label(place),
             "Actual": int(round(reg["actual_latest"])),
             "Predicted": int(round(reg["predicted_latest"])),
             "Difference": int(round(reg["difference"])),
@@ -281,7 +314,7 @@ A slope of 8 means the trend line climbs 8 waves each tournament.
 If Slope > Prev Slope the trend is accelerating; if less, it is decelerating.
 
 **Key places shown for {league}:**
-{chr(10).join(f"- {rules.place_label(p)}" for p in key_places)}
+{chr(10).join(f"- {place_label(p)}" for p in key_places)}
 """
         )
 
