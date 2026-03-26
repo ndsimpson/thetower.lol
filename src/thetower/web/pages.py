@@ -97,6 +97,7 @@ historical_data_pages = [
     _page("historical/results.py", title="League Standings", icon="🐳", url_path="results"),
     _page("historical/counts.py", title="Wave Cutoffs", icon="🐈", url_path="counts"),
     _page("historical/winners.py", title="Winners", icon="🔥", url_path="winners"),
+    _page("historical/median_history.py", title="Median History", icon="📉", url_path="medianhistory"),
 ]
 
 archive_pages = [
