@@ -47,9 +47,9 @@ class VerificationModal(ui.Modal, title="Player Verification"):
         # Save the verification image
         image_filename = None
         if attachment:
-            # Create filename: verification_{user_id}_{timestamp}_{player_id}.{extension}
+            # Create filename: verification_{discord_id}_{player_id}_{timestamp}.{extension}
             file_extension = attachment.filename.split(".")[-1] if "." in attachment.filename else "png"
-            image_filename = f"verification_{interaction.user.id}_{timestamp_unix}_{player_id}.{file_extension}"
+            image_filename = f"verification_{interaction.user.id}_{player_id}_{timestamp_unix}.{file_extension}"
             image_path = self.cog.data_directory / image_filename
 
             try:
@@ -1290,7 +1290,7 @@ class PlayerIdChangeModal(ui.Modal, title="Update Player ID"):
         timestamp = dt.datetime.now(dt.timezone.utc)
         timestamp_unix = int(timestamp.timestamp())
         file_extension = attachment.filename.split(".")[-1] if "." in attachment.filename else "png"
-        image_filename = f"player_id_change_{interaction.user.id}_{timestamp_unix}_{new_id}.{file_extension}"
+        image_filename = f"player_id_change_{interaction.user.id}_{new_id}_{timestamp_unix}.{file_extension}"
         image_path = self.cog.data_directory / image_filename
 
         try:
