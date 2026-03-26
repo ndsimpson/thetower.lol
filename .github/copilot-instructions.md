@@ -257,7 +257,13 @@ pip install git+https://github.com/ndsimpson/thetower.lol.git@v1.2.3
 thetower-init-streamlit
 ```
 
-**Service files** (located in `/data/services/`):
+**Service files**:
+
+- Systemd reads service files from `/etc/systemd/system/` on the production server — that is the authoritative location.
+- `/data/services/` is a folder on the **dev machine** that holds backup copies of the production service files in case they need to be restored. It is not used by systemd directly.
+- To update a service: edit the file in `/etc/systemd/system/`, then run `systemctl daemon-reload` and `systemctl restart <service>`.
+
+Service files in use:
 
 - Web: `tower-public_site.service`, `tower-admin_site.service`, `tower-hidden_site.service`
 - Bot: `discord_bot.service` (unified bot, replaces old fish_bot/validation_bot)
@@ -320,6 +326,7 @@ thetower-init-streamlit
 - **Background tasks**: Wrap in `async with self.task_tracker.task_context("name"):` for monitoring
 - **Ready state**: Always `await self.ready.wait()` before accessing guild data in cog methods
 - **Exception handling**: Cogs raise custom exceptions, bot's global error handler formats user-friendly messages
+- **Embed attachment images**: When a message is sent with a file attachment and the embed references it via `attachment://filename`, editing that message later (without re-uploading the file) causes Discord to render the image **twice** — once inside the embed and once as a standalone attachment preview. Before calling `message.edit(embed=emb)`, replace the `attachment://` URL with the real CDN URL: use `_resolve_attachment_image(emb, msg)` from `validation/ui/core.py`, or inline: `if emb.image and emb.image.url.startswith("attachment://") and msg.attachments: emb.set_image(url=msg.attachments[0].url)`
 
 ### Git Commit Standards
 
@@ -361,12 +368,21 @@ thetower-init-streamlit
 
 ### Data Files & Paths
 
+#### Production (Linux)
+
 - **Data directory**: `/data/` - database, uploads, static, bot configs
 - **Database**: `/data/tower.sqlite3`
 - **Uploads**: `/data/uploads/` (CSV files for import)
 - **Static**: `/data/static/` (Django collectstatic output)
 - **Bot config**: `/data/` (DataManager saves guild-specific JSON files)
 - **Bytecode cache**: `.cache/python/` (via `scripts/manage_bytecode.py setup`) - keeps `__pycache__` out of git
+
+#### Local Development (Windows)
+
+- **Django data directory**: `c:\data\django\` — maps to `/data/` on production
+- **Bot config**: `c:\data\django\` (guild-specific JSON files)
+- **Results cache**: `c:\data\results_cache\`
+- **Discord data**: `c:\data\discord\`
 
 ## Critical Integration Points
 
