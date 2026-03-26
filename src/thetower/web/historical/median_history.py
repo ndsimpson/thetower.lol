@@ -145,7 +145,7 @@ def compute_median_history():
 
     row_height = (len(flipped_rows) + 1) * 35 + 10
 
-    st.dataframe(df, hide_index=True, width="stretch", height=row_height, column_config=col_config)
+    st.dataframe(df, hide_index=True, use_container_width=True, height=row_height, column_config=col_config)
 
 
 compute_median_history()

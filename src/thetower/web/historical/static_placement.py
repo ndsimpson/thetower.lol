@@ -114,7 +114,7 @@ def compute_static_placement():
     styled = df.style.apply(_highlight_median, axis=1)
 
     row_height = (len(_PLACES) + 1) * 35 + 10
-    st.dataframe(styled, hide_index=True, width="stretch", height=row_height)
+    st.dataframe(styled, hide_index=True, use_container_width=True, height=row_height)
 
     # Explanation
     with st.expander("How to read this table"):
