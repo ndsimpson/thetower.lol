@@ -72,6 +72,10 @@ def make_request(league):
 
     csv_contents = header + csv_contents
     df = pd.read_csv(io.StringIO(csv_contents.strip()), on_bad_lines="warn")
+    nan_waves = df["wave"].isna().sum()
+    if nan_waves:
+        logging.warning(f"Dropping {nan_waves} rows with NaN wave values.")
+        df = df.dropna(subset=["wave"])
     df["wave"] = df["wave"].astype(int)
     df = df.sort_values("wave", ascending=False)
     df["name"] = df["name"].map(lambda x: x.strip())
