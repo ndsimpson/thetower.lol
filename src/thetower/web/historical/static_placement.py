@@ -11,45 +11,58 @@ _DEFAULT_LEAGUES = ["Legend", "Champion", "Platinum", "Gold"]
 _PLACES = list(range(1, 31))
 
 
-def _compute_global_thresholds(result: TourneyResult) -> tuple[list[int | None], int, float, float]:
+def _compute_cohort_stats(result: TourneyResult) -> tuple[list[tuple[float, float] | None], int, float, float]:
     """
-    Return (thresholds, num_brackets, median, mean) for a given TourneyResult.
+    For each of the 30 bracket places compute the median and mean wave across the cohort
+    of players who would occupy that place in a perfectly-distributed bracket assignment.
 
-    threshold[k] is the lowest wave that earns global place k+1 (0-indexed list),
-    i.e. sorted_waves[k * num_brackets - 1].
+    Methodology (as per community analysis):
+      - Sort all players globally by wave descending.
+      - n_brackets = total_players // 30  (remainder players are ignored).
+      - The place-k cohort is waves[(k-1)*n_brackets : k*n_brackets].
+      - Report median and mean of that cohort.
+
+    Returns:
+        stats_per_place: list of (median, mean) tuples, one per place (None if empty)
+        n_brackets: number of hypothetical brackets
+        global_median: median of all player waves
+        global_mean: mean of all player waves
     """
     waves = list(TourneyRow.objects.filter(result=result, position__gt=0).values_list("wave", flat=True).order_by("-wave"))
     if not waves:
         return [None] * 30, 0, 0.0, 0.0
 
-    # Number of brackets = count of position=1 rows
-    num_brackets = TourneyRow.objects.filter(result=result, position=1).count()
-    if num_brackets == 0:
-        # Fall back to estimating from total count
-        num_brackets = max(1, len(waves) // 30)
+    n_brackets = len(waves) // 30
+    if n_brackets == 0:
+        return [None] * 30, 0, 0.0, 0.0
 
-    thresholds: list[int | None] = []
+    stats_per_place: list[tuple[float, float] | None] = []
     for place in _PLACES:
-        idx = place * num_brackets - 1
-        thresholds.append(waves[idx] if idx < len(waves) else waves[-1])
+        start = (place - 1) * n_brackets
+        end = place * n_brackets
+        cohort = waves[start:end]
+        if not cohort:
+            stats_per_place.append(None)
+        else:
+            stats_per_place.append((round(statistics.median(cohort), 1), round(statistics.mean(cohort), 1)))
 
-    med = statistics.median(waves)
-    mean = statistics.mean(waves)
-    return thresholds, num_brackets, med, mean
+    global_med = statistics.median(waves)
+    global_mean = statistics.mean(waves)
+    return stats_per_place, n_brackets, global_med, global_mean
 
 
 def compute_static_placement():
     st.header("Static Global Placement")
     st.caption(
-        "What-if analysis: if all players in the league competed in a single pool (no brackets), "
-        "what wave would you need to reach each place? "
-        "Players are sorted globally and divided into groups of one-per-bracket to find each cutoff."
+        "What-if analysis: players are sorted globally by wave and distributed one-per-bracket into "
+        "hypothetical brackets. Each row shows the median (or mean) wave for the cohort of players "
+        "who would hold that bracket place — bracket luck removed."
     )
 
     # Tournament selector
-    col1, col2 = st.columns([2, 1])
+    col1, col2, col3 = st.columns([2, 1, 1])
 
-    # Build list of available tournaments (use the latest shared date across leagues)
+    # Build list of available tournaments
     all_results = TourneyResult.objects.filter(public=True).order_by("-date").values("date").distinct()
     available_dates = sorted({r["date"] for r in all_results}, reverse=True)
 
@@ -68,6 +81,8 @@ def compute_static_placement():
         help="Select leagues to display",
     )
 
+    stat_choice = col3.radio("Statistic", ["Median", "Mean", "Both"], horizontal=False)
+
     if not selected_leagues:
         st.warning("Please select at least one league.")
         return
@@ -78,36 +93,45 @@ def compute_static_placement():
         qs = TourneyResult.objects.filter(league=league, date=selected_date, public=True)
         results_by_league[league] = qs.first()
 
-    # Show summary stats (medal, mean) per league
+    # Show summary stats per league
     summary_cols = st.columns(len(selected_leagues))
-    data: dict[str, list[int | None]] = {}
-    league_stats: dict[str, tuple[int, float, float]] = {}
+    cohort_stats: dict[str, list[tuple[float, float] | None]] = {}
 
     for i, league in enumerate(selected_leagues):
         result = results_by_league[league]
         if result is None:
             with summary_cols[i]:
                 st.metric(league, "No data")
-            data[league] = [None] * 30
+            cohort_stats[league] = [None] * 30
             continue
 
-        thresholds, num_brackets, med, mean = _compute_global_thresholds(result)
-        data[league] = thresholds
-        league_stats[league] = (num_brackets, med, mean)
+        stats_per_place, n_brackets, global_med, global_mean = _compute_cohort_stats(result)
+        cohort_stats[league] = stats_per_place
 
         bcs = result.conditions.all()
         bc_str = " / ".join(bc.shortcut for bc in bcs) if bcs else "–"
         with summary_cols[i]:
-            st.metric(league, f"Median: {med:.0f}", help=f"BCs: {bc_str} · {num_brackets} brackets · Mean: {mean:.0f}")
+            st.metric(
+                league,
+                f"Median: {global_med:.0f}",
+                help=f"BCs: {bc_str} · {n_brackets} hypothetical brackets · Mean: {global_mean:.0f}",
+            )
 
-    # Build the placement table
+    # Build placement table
     table: dict[str, list] = {"Place": _PLACES}
     for league in selected_leagues:
-        table[league] = data[league]
+        if stat_choice == "Both":
+            med_col = f"{league} (median)"
+            mean_col = f"{league} (mean)"
+            table[med_col] = [(v[0] if v is not None else None) for v in cohort_stats[league]]
+            table[mean_col] = [(v[1] if v is not None else None) for v in cohort_stats[league]]
+        elif stat_choice == "Median":
+            table[league] = [(v[0] if v is not None else None) for v in cohort_stats[league]]
+        else:
+            table[league] = [(v[1] if v is not None else None) for v in cohort_stats[league]]
 
     df = pd.DataFrame(table)
 
-    # Highlight the median row (place 15 in a 30-place bracket)
     def _highlight_median(row: pd.Series) -> list[str]:
         return ["font-weight: bold; background-color: rgba(100,100,200,0.15)" if row["Place"] == 15 else "" for _ in row]
 
@@ -116,22 +140,22 @@ def compute_static_placement():
     row_height = (len(_PLACES) + 1) * 35 + 10
     st.dataframe(styled, hide_index=True, use_container_width=True, height=row_height)
 
-    # Explanation
     with st.expander("How to read this table"):
         st.markdown(
             """
-**Place** — the global rank you would achieve if all players in the league were sorted by wave
-and divided evenly into bracket-sized groups.
+**Methodology** — players in the league are sorted by wave (highest first) and divided into
+groups of *n* (where *n* = total players ÷ 30). The first group of *n* players would all be
+1st-place finishers in a perfect draw; the next *n* would be 2nd-place finishers, and so on.
 
-**Wave shown** — the lowest wave still earning that place (the cutoff). For example, the wave
-at "Place 1" is the minimum wave in the top-B players, where B = number of brackets.
+**Median / Mean** — the central wave for the cohort of players who would hold that bracket place.
+This removes bracket luck: whatever bracket you land in, your cohort average is stable.
 
-**Place 15 (bold)** — approximately the median bracket result: half the brackets would finish
+**Place 15 (bold)** — the middle bracket position; half the hypothetical brackets have a median
 above this wave, half below.
 
-**Why it matters** — bracket luck is removed. If your wave is above the cutoff for your target
-place, you would have reached it in a perfectly-fair draw; if it is below, you were relying on
-a relatively weak bracket.
+**Why it differs from your actual result** — bracket assignment is random. You might land in a
+bracket where your wave earns you 10th instead of 15th — or 20th. The static table shows what
+a fair draw would expect.
 """
         )
 
