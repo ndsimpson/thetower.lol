@@ -106,6 +106,7 @@ def render_legend_avg_wave_leaderboard():
 
 
 import datetime
+import json
 import os
 from collections import Counter
 from pathlib import Path
@@ -130,7 +131,15 @@ except ImportError:
 
 
 def render_tournament_countdown():
-    """Render the tournament countdown header."""
+    """Render the tournament countdown header with progressive phase tracking.
+
+    Phases cycle automatically in the browser based on current time:
+    - If the most recently completed tourney's results aren't imported yet,
+      prepend Entry Closes In / Tournament Ends In / Results Available In for
+      that tourney so the countdown reflects where we actually are.
+    - Then: Tournament Starts In → Entry Closes In → Tournament Ends In →
+      Results Available In → Next Tournament Starts In (for tourney_date).
+    """
     if not TOWERBCS_AVAILABLE:
         st.info("ℹ️ Tournament countdown unavailable - towerbcs package not installed")
         return
@@ -140,7 +149,7 @@ def render_tournament_countdown():
 
         # Get battle conditions for Legend league if available
         bcs_html = ""
-        if days_until <= 1:  # Only show BCs within 24 hours
+        if days_until <= 1:  # Only show BCs within 24 hours of tournament
             try:
                 legend_bcs = predict_future_tournament(tourney_id, legend)
                 if legend_bcs:
@@ -154,18 +163,73 @@ def render_tournament_countdown():
             except Exception:
                 pass  # Silently fail BC prediction
 
-        # Build countdown or live indicator
-        if days_until >= 1:
-            target_dt = datetime.datetime.combine(tourney_date, datetime.time.min, tzinfo=datetime.timezone.utc)
-            target_ms = int(target_dt.timestamp() * 1000)
-            components.html(
-                f"""<!DOCTYPE html>
+        utc = datetime.timezone.utc
+
+        # ── Previous tournament milestones ────────────────────────────────────
+        # Determine the most recently completed tournament (one cycle before tourney_date).
+        # Sat→Wed: 3 days back; Wed→Sat: 4 days back.
+        days_back = 3 if tourney_date.weekday() == 5 else 4
+        prev_tourney_date = tourney_date - datetime.timedelta(days=days_back)
+        prev_tourney_start = datetime.datetime.combine(prev_tourney_date, datetime.time.min, tzinfo=utc)
+        prev_results_available = prev_tourney_start + datetime.timedelta(hours=29, minutes=5)
+
+        # Check whether the previous tourney's results have been imported yet.
+        public = {"public": True} if not os.environ.get("HIDDEN_FEATURES") else {}
+        try:
+            last_tourney_date = TourneyResult.objects.filter(**public).latest("date").date
+        except Exception:
+            last_tourney_date = None
+        results_pending = last_tourney_date is None or last_tourney_date < prev_tourney_date
+
+        # ── Current / upcoming tournament milestones ──────────────────────────
+        tourney_start = datetime.datetime.combine(tourney_date, datetime.time.min, tzinfo=utc)
+        entry_closes = tourney_start + datetime.timedelta(hours=24)
+        tourney_ends = tourney_start + datetime.timedelta(hours=28)
+        results_available = tourney_start + datetime.timedelta(hours=29, minutes=5)
+
+        # Next tournament after tourney_date: Wed→Sat (+3), Sat→Wed (+4)
+        days_to_next = 3 if tourney_date.weekday() == 2 else 4
+        next_tourney_date = tourney_date + datetime.timedelta(days=days_to_next)
+        next_tourney_start = datetime.datetime.combine(next_tourney_date, datetime.time.min, tzinfo=utc)
+
+        tourney_date_str = tourney_date.strftime("%A, %B %d, %Y")
+        next_tourney_date_str = next_tourney_date.strftime("%A, %B %d, %Y")
+
+        # ── Build ordered phases list (Python-side, injected as JSON) ─────────
+        # JS finds the first phase whose timestamp is still in the future.
+        phases = []
+        if results_pending:
+            prev_short = prev_tourney_date.strftime("%b %d")
+            phases.append(
+                {
+                    "label": f"📊 {prev_short} Results Available In",
+                    "sub": "Tournament complete — awaiting import",
+                    "t": int(prev_results_available.timestamp() * 1000),
+                }
+            )
+        phases.append({"label": "⏰ Tournament Starts In", "sub": tourney_date_str, "t": int(tourney_start.timestamp() * 1000)})
+        phases.append({"label": "🎮 Entry Closes In", "sub": "Tournament is live — join now!", "t": int(entry_closes.timestamp() * 1000)})
+        phases.append({"label": "⏱️ Tournament Ends In", "sub": "Entry closed — finishing runs only", "t": int(tourney_ends.timestamp() * 1000)})
+        tourney_short = tourney_date.strftime("%b %d")
+        phases.append(
+            {
+                "label": f"📊 {tourney_short} Results Available In",
+                "sub": "Tournament complete — awaiting import",
+                "t": int(results_available.timestamp() * 1000),
+            }
+        )
+        phases.append({"label": "⏰ Next Tournament Starts In", "sub": next_tourney_date_str, "t": int(next_tourney_start.timestamp() * 1000)})
+
+        phases_json = json.dumps(phases, ensure_ascii=False)
+
+        components.html(
+            f"""<!DOCTYPE html>
 <html><head><style>
 body{{margin:0;padding:0;font-family:sans-serif;}}
 </style></head><body>
 <div style="text-align:center;padding:1.5rem;background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);border-radius:10px;margin:2px;box-shadow:0 4px 6px rgba(0,0,0,.3);">
-    <h2 style="margin:0;color:white;font-size:1.8rem;">&#9200; Next Tournament</h2>
-    <p style="margin:.5rem 0 0;color:white;font-size:1.3rem;font-weight:bold;">{tourney_date.strftime('%A, %B %d, %Y')}</p>
+    <p id="phase-sub" style="margin:0 0 .6rem 0;color:#f0f0f0;font-size:1.05rem;font-weight:500;"></p>
+    <h2 id="phase-label" style="margin:0;color:white;font-size:1.5rem;"></h2>
     <div style="display:flex;justify-content:center;align-items:flex-start;gap:.8rem;margin-top:1rem;flex-wrap:wrap;">
         <div style="text-align:center;"><div id="cd-d" style="font-size:2.4rem;font-weight:bold;color:white;font-family:monospace;line-height:1;">--</div><div style="font-size:.7rem;color:#ddd;text-transform:uppercase;letter-spacing:.08em;margin-top:.2rem;">Days</div></div>
         <div style="font-size:2.4rem;font-weight:bold;color:rgba(255,255,255,.4);line-height:1;">:</div>
@@ -179,10 +243,14 @@ body{{margin:0;padding:0;font-family:sans-serif;}}
 </div>
 <script>
 (function(){{
-    var t={target_ms};
+    var phases={phases_json};
     function p(n){{return String(n).padStart(2,'0');}}
     function tick(){{
-        var r=Math.max(0,t-Date.now());
+        var now=Date.now(),ph=phases[phases.length-1];
+        for(var i=0;i<phases.length;i++){{if(now<phases[i].t){{ph=phases[i];break;}}}}
+        document.getElementById('phase-label').innerText=ph.label;
+        document.getElementById('phase-sub').innerText=ph.sub;
+        var r=Math.max(0,ph.t-now);
         document.getElementById('cd-d').innerText=p(Math.floor(r/86400000));
         document.getElementById('cd-h').innerText=p(Math.floor(r%86400000/3600000));
         document.getElementById('cd-m').innerText=p(Math.floor(r%3600000/60000));
@@ -192,18 +260,8 @@ body{{margin:0;padding:0;font-family:sans-serif;}}
 }})();
 </script>
 </body></html>""",
-                height=290 if bcs_html else 210,
-            )
-        else:
-            st.html(
-                f"""
-<div style="text-align:center;padding:1.5rem;background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);border-radius:10px;margin-bottom:2rem;box-shadow:0 4px 6px rgba(0,0,0,.3);">
-    <h2 style="margin:0;color:white;font-size:1.8rem;">&#9200; Next Tournament</h2>
-    <p style="margin:.5rem 0 0;color:white;font-size:1.3rem;font-weight:bold;">{tourney_date.strftime('%A, %B %d, %Y')}</p>
-    <p style="margin:.6rem 0 0;color:#f0f0f0;font-size:1.2rem;">&#127918; Tournament is Live!</p>
-    {bcs_html}
-</div>"""
-            )
+            height=310 if bcs_html else 230,
+        )
 
     except Exception as e:
         st.warning(f"⚠️ Could not load tournament countdown: {str(e)}")
