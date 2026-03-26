@@ -5,6 +5,7 @@ import streamlit as st
 
 from thetower.backend.tourney_results.constants import leagues
 from thetower.backend.tourney_results.models import TourneyResult, TourneyRow
+from thetower.backend.tourney_results.tourney_utils import get_tourney_state
 
 
 _DEFAULT_LEAGUES = ["Legend", "Champion", "Platinum", "Gold"]
@@ -69,6 +70,10 @@ def compute_static_placement():
     if not available_dates:
         st.error("No historical tournament data available.")
         return
+
+    # Hide the most recent tournament if it is still running
+    if get_tourney_state().is_active and len(available_dates) > 1:
+        available_dates = available_dates[1:]
 
     date_options = [str(d) for d in available_dates]
     selected_date_str = col1.selectbox("Tournament date", date_options, index=0)

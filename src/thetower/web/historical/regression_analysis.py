@@ -18,7 +18,7 @@ from thetower.backend.env_config import get_csv_data
 from thetower.backend.tourney_results.constants import leagues
 from thetower.backend.tourney_results.league_rules import get_league_rules
 from thetower.backend.tourney_results.models import PatchNew as Patch
-from thetower.backend.tourney_results.tourney_utils import get_time
+from thetower.backend.tourney_results.tourney_utils import TourneyState, get_time, get_tourney_state
 
 
 _GAP = datetime.timedelta(hours=42)
@@ -64,10 +64,22 @@ def _fetch_patch_data(league: str, patch: Patch) -> list[dict] | None:
     # Tolerate brackets that are missing a few players (e.g. late-join or early-leave)
     min_bracket_size = max(rules.bracket_size - 5, rules.bracket_size // 2)
 
+    # Compute the actual tournament start date: during EXTENDED the tourney started yesterday UTC
+    _state = get_tourney_state()
+    if _state.is_active:
+        _now_utc = datetime.datetime.now(datetime.timezone.utc)
+        active_tourney_date: datetime.date | None = _now_utc.date()
+        if _state == TourneyState.EXTENDED:
+            active_tourney_date -= datetime.timedelta(days=1)
+    else:
+        active_tourney_date = None
+
     data_points: list[dict] = []
     for group in _group_into_tourneys(files):
         tourney_date = get_time(group[-1]).date()
         if tourney_date < patch.start_date or tourney_date > patch.end_date:
+            continue
+        if active_tourney_date is not None and tourney_date == active_tourney_date:
             continue
 
         df = pd.read_csv(group[-1])
@@ -205,7 +217,7 @@ def compute_regression_analysis():
         margin=dict(l=20, r=20, t=50, b=20),
         legend=dict(orientation="h", y=-0.25, x=0.5, xanchor="center"),
     )
-    st.plotly_chart(fig, width="stretch")
+    st.plotly_chart(fig, use_container_width=True)
 
     # ------------------------------------------------------------------
     # Summary table
@@ -251,7 +263,7 @@ def compute_regression_analysis():
             "Prev Slope", help="Slope computed without the latest tournament — compare to Slope to see if trend is accelerating"
         )
 
-    st.dataframe(styled, hide_index=True, width="stretch", column_config=col_config)
+    st.dataframe(styled, hide_index=True, use_container_width=True, column_config=col_config)
 
     with st.expander("How to read this"):
         st.markdown(
