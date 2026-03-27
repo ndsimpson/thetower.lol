@@ -18,44 +18,24 @@ from thetower.backend.env_config import get_csv_data
 from thetower.backend.tourney_results.constants import leagues
 from thetower.backend.tourney_results.league_rules import get_league_rules
 from thetower.backend.tourney_results.models import PatchNew as Patch
-from thetower.backend.tourney_results.tourney_utils import TourneyState, get_time, get_tourney_state
-
-
-_GAP = datetime.timedelta(hours=42)
-
-
-def _group_into_tourneys(files: list[Path]) -> list[list[Path]]:
-    """Split a chronologically-sorted snapshot list into per-tournament groups."""
-    groups: list[list[Path]] = []
-    if not files:
-        return groups
-    current = [files[0]]
-    for prev, cur in zip(files, files[1:]):
-        if (get_time(cur) - get_time(prev)) > _GAP:
-            groups.append(current)
-            current = [cur]
-        else:
-            current.append(cur)
-    groups.append(current)
-    return groups
 
 
 def _fetch_patch_data(league: str, patch: Patch, key_places: list[int]) -> list[dict] | None:
     """Fetch per-tournament bracket-level wave thresholds at key places.
 
-    Reads the live CSV snapshots (which carry the 'bracket' column), groups them
-    into tournaments by the 42-hour gap rule, then for each tournament in the
-    selected patch uses the final snapshot to find the median wave at each key
-    place across all full brackets.
+    Reads the historical league CSVs (one file per completed tournament, named
+    YYYY-MM-DD.csv.gz) which carry the full final leaderboard including the
+    'bracket' column.  For each tournament in the selected patch finds the
+    median wave at each key place across all full brackets.
 
     Returns a list of dicts with keys: date, tournament_index, <place>: wave, ...
     Returns None if fewer than 2 data points are available.
     """
-    live_path = Path(get_csv_data()) / f"{league}_live"
-    if not live_path.exists():
+    hist_path = Path(get_csv_data()) / league
+    if not hist_path.exists():
         return None
 
-    files = sorted([f for f in live_path.glob("*.csv.gz") if f.stat().st_size > 0], key=get_time)
+    files = sorted([f for f in hist_path.glob("*.csv.gz") if f.stat().st_size > 0])
     if not files:
         return None
 
@@ -63,25 +43,16 @@ def _fetch_patch_data(league: str, patch: Patch, key_places: list[int]) -> list[
     # Tolerate brackets that are missing a few players (e.g. late-join or early-leave)
     min_bracket_size = max(rules.bracket_size - 5, rules.bracket_size // 2)
 
-    # Compute the actual tournament start date: during EXTENDED the tourney started yesterday UTC
-    _state = get_tourney_state()
-    if _state.is_active:
-        _now_utc = datetime.datetime.now(datetime.timezone.utc)
-        active_tourney_date: datetime.date | None = _now_utc.date()
-        if _state == TourneyState.EXTENDED:
-            active_tourney_date -= datetime.timedelta(days=1)
-    else:
-        active_tourney_date = None
-
     data_points: list[dict] = []
-    for group in _group_into_tourneys(files):
-        tourney_date = get_time(group[-1]).date()
+    for f in files:
+        try:
+            tourney_date = datetime.date.fromisoformat(f.stem.replace(".csv", ""))
+        except ValueError:
+            continue
         if tourney_date < patch.start_date or tourney_date > patch.end_date:
             continue
-        if active_tourney_date is not None and tourney_date == active_tourney_date:
-            continue
 
-        df = pd.read_csv(group[-1])
+        df = pd.read_csv(f)
         if df.empty or "bracket" not in df.columns:
             continue
 
