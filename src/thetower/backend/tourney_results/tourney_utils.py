@@ -341,72 +341,6 @@ def get_time(file_path: Path) -> datetime.datetime:
     return datetime.datetime.strptime(stem, "%Y-%m-%d__%H_%M")
 
 
-def get_live_df(league: str, shun: bool = False) -> pd.DataFrame:
-    """Get live tournament data as DataFrame.
-
-    Args:
-        league: League identifier
-        shun: If True, only exclude suspicious IDs, otherwise exclude both suspicious and shunned
-
-    Returns:
-        DataFrame containing live tournament data
-
-    Raises:
-        ValueError: If no current tournament data is available
-    """
-    t1_start = perf_counter()
-    csv_data = get_csv_data()
-    live_path = Path(csv_data) / "current_tourney" / league
-
-    all_files = sorted([p for p in live_path.glob("*.csv.gz") if p.stat().st_size > 0], key=get_time)
-
-    # Filter out empty files
-    non_empty_files = all_files
-
-    if not non_empty_files:
-        raise ValueError("No current data, wait until the tourney day")
-
-    last_file = non_empty_files[-1]
-    last_date = get_time(last_file)
-
-    data = {}
-    for file in non_empty_files:
-        current_time = get_time(file)
-        time_diff = last_date - current_time
-        if time_diff < datetime.timedelta(hours=42.5):
-            try:
-                df = pd.read_csv(file)
-                if not df.empty:  # Only include non-empty dataframes
-                    data[current_time] = df
-            except Exception as e:
-                logging.warning(f"Failed to read {file}: {e}")
-                continue
-
-    for dt, df in data.items():
-        df["datetime"] = dt
-
-    if not data:
-        raise ValueError("No current data, wait until the tourney day")
-
-    df = pd.concat(data.values())
-    df = df.sort_values(["datetime", "wave"], ascending=False)
-    # df["bracket"] = df.bracket.map(lambda x: x.strip())  # We strip in get_live_results so we don't need to do it here.
-
-    lookup = get_player_id_lookup()
-    df["real_name"] = [lookup.get(id, name) for id, name in zip(df.player_id, df.name)]
-    df["real_name"] = df["real_name"].astype(str)
-
-    # Always exclude banned and suspicious IDs, optionally exclude shunned IDs
-    excluded_ids = get_sus_ids() | get_banned_ids()
-    if not shun:
-        excluded_ids = excluded_ids | get_shun_ids()
-    df = df[~df.player_id.isin(excluded_ids)]
-    df = df.reset_index(drop=True)
-    t1_stop = perf_counter()
-    logging.debug(f"get_live_df({league}) took {t1_stop - t1_start}")
-    return df
-
-
 def get_full_brackets(df: pd.DataFrame, anti_snipe: bool = True) -> tuple[list[str], list[str]]:
     """Get bracket information from tournament data.
 
@@ -570,8 +504,7 @@ def check_live_entry(league: str, player_id: str, fast: bool = False) -> bool:
                 return False
         else:
             t_glob = t_read = perf_counter()
-            # Use the same data loading as the live bracket view for consistency
-            df = get_live_df(league, True)
+            df = get_latest_live_df(league, True)
 
         # Use our local bracket filtering; only apply anti-snipe during ENTRY_OPEN
         anti_snipe = get_tourney_state() == TourneyState.ENTRY_OPEN

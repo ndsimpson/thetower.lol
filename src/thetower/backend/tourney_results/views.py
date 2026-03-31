@@ -1,12 +1,8 @@
-import csv
-import io
-
-from django.http import HttpResponse, JsonResponse
+from django.http import JsonResponse
 
 from ..sus.models import PlayerId
 from .data import get_details, get_tourneys, how_many_results_public_site
 from .models import TourneyResult, TourneyRow
-from .tourney_utils import get_live_df
 
 
 def results_per_tourney(request, league, tourney_date):  # Unused with api disabled
@@ -94,38 +90,3 @@ def results_per_user(request, player_id):  # Unused with api disabled
     ]
 
     return JsonResponse(response, status=200, safe=False)
-
-
-def last_full_results(request, league):  # Unused with api disabled
-    position = int(request.GET.get("position", 0))
-    df = get_live_df(league, True)
-
-    ldf = df[df.datetime == df.datetime.max()]
-
-    # Collect all data first
-    results = []
-    for bracket, sdf in ldf.groupby("bracket"):
-        position_value = int(sdf.sort_values("wave", ascending=False).iloc[position + 1].wave)
-        start_time = df[df.bracket == bracket].datetime.min()
-        results.append([bracket, position_value, start_time])
-
-    # Sort results by start_time
-    results.sort(key=lambda x: x[2])
-
-    # Create a string buffer to write CSV data
-    buffer = io.StringIO()
-    writer = csv.writer(buffer)
-
-    # Write header
-    writer.writerow(["bracket_id", "wave", "start_time"])
-
-    # Write sorted data rows
-    for row in results:
-        writer.writerow(row)
-
-    # Create the HTTP response with CSV content
-    response = HttpResponse(buffer.getvalue(), content_type="text/csv")
-    response["Content-Disposition"] = 'attachment; filename="results.csv"'
-
-    buffer.close()
-    return response

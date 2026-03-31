@@ -21,7 +21,6 @@ from thetower.backend.tourney_results.shun_config import include_shun_enabled_fo
 from thetower.backend.tourney_results.tourney_utils import (
     get_full_brackets,
     get_latest_live_df,
-    get_live_df,
     get_time,
     get_tourney_state,
 )
@@ -69,7 +68,22 @@ def get_live_data(league: str, shun: bool = False) -> pd.DataFrame:
     Returns:
         DataFrame containing live tournament data
     """
-    return get_live_df(league, shun)
+    t0 = perf_counter()
+    archive, expected_timestamps = _load_archive_df(league)
+    df = reconstruct_all_snapshots(archive, extra_timestamps=expected_timestamps)
+
+    excluded_ids = get_sus_ids() | get_banned_ids()
+    if not shun:
+        excluded_ids = excluded_ids | get_shun_ids()
+    df = df[~df["player_id"].isin(excluded_ids)]
+
+    lookup = get_player_id_lookup()
+    df["real_name"] = [lookup.get(pid, name) for pid, name in zip(df["player_id"], df["name"])]
+    df["real_name"] = df["real_name"].astype(str)
+
+    df = df.sort_values(["datetime", "wave"], ascending=False).reset_index(drop=True)
+    logger.info(f"get_live_data({league}) took {perf_counter() - t0:.3f}s — {len(df):,} rows")
+    return df
 
 
 @cache_data_if_enabled(ttl=CACHE_TTL_SECONDS)
@@ -668,9 +682,6 @@ def get_data_refresh_timestamp(league: str) -> datetime.datetime | None:
     """
     Get the timestamp of the most recent data refresh for the given league.
 
-    This represents when the data was last fetched from the external source,
-    taking into account both caching and the actual data file timestamps.
-
     Args:
         league: League identifier
 
@@ -678,36 +689,12 @@ def get_data_refresh_timestamp(league: str) -> datetime.datetime | None:
         datetime object representing when data was last refreshed, or None if no data
     """
     try:
-        csv_data = get_csv_data()
-        staging_path = Path(csv_data) / "current_tourney" / league
-
-        all_files = list(staging_path.glob("*.csv.gz"))
-
-        # Filter out empty files
-        non_empty_files = [f for f in all_files if f.stat().st_size > 0]
-
-        if not non_empty_files:
+        snaps = list_snapshots(_get_snapshot_path(league))
+        if not snaps:
             return None
-
-        # Sort by timestamp in filename (not alphabetically)
-        def get_file_timestamp(file_path):
-            try:
-                return get_time(file_path)
-            except Exception:
-                # If we can't parse the timestamp, put it at the beginning
-                return datetime.datetime.min
-
-        sorted_files = sorted(non_empty_files, key=get_file_timestamp)
-
-        # Get the most recent file (chronologically latest)
-        last_file = sorted_files[-1]
-
-        # Extract timestamp from filename
-        timestamp = get_time(last_file)
-        return timestamp
-
-    except Exception as e:
-        logging.warning(f"Failed to get data refresh timestamp for {league}: {e}")
+        return get_time(snaps[-1])
+    except Exception as exc:
+        logging.warning(f"Failed to get data refresh timestamp for {league}: {exc}")
         return None
 
 
@@ -752,7 +739,7 @@ def format_time_ago(timestamp: datetime.datetime) -> str:
         return "Just now"
 
 
-# ── archive-backed API ────────────────────────────────────────────────────────
+# ── archive helpers ───────────────────────────────────────────────────────────
 
 
 def _get_snapshot_path(league: str) -> Path:
@@ -799,80 +786,3 @@ def _load_archive_df(league: str) -> tuple[pd.DataFrame, list]:
     if archive.empty:
         raise ValueError("No current data, wait until the tourney day")
     return archive, expected_timestamps
-
-
-@cache_data_if_enabled(ttl=CACHE_TTL_SECONDS)
-def get_live_data_archive(league: str, shun: bool = False) -> pd.DataFrame:
-    """Archive-backed equivalent of ``get_live_data``."""
-    t0 = perf_counter()
-    archive, expected_timestamps = _load_archive_df(league)
-    df = reconstruct_all_snapshots(archive, extra_timestamps=expected_timestamps)
-
-    excluded_ids = get_sus_ids() | get_banned_ids()
-    if not shun:
-        excluded_ids = excluded_ids | get_shun_ids()
-    df = df[~df["player_id"].isin(excluded_ids)]
-
-    lookup = get_player_id_lookup()
-    df["real_name"] = [lookup.get(pid, name) for pid, name in zip(df["player_id"], df["name"])]
-    df["real_name"] = df["real_name"].astype(str)
-
-    df = df.sort_values(["datetime", "wave"], ascending=False).reset_index(drop=True)
-    logger.info(f"get_live_data_archive({league}) took {perf_counter() - t0:.3f}s — {len(df):,} rows")
-    return df
-
-
-@cache_data_if_enabled(ttl=CACHE_TTL_SECONDS)
-def get_processed_data_archive(league: str, shun: bool = False):
-    """Archive-backed equivalent of ``get_processed_data``.
-
-    Returns the same 5-tuple: (df, tdf, ldf, first_moment, last_moment).
-    """
-    df = get_live_data_archive(league, shun)
-
-    group_by_id = df.groupby("player_id")
-    top_25 = group_by_id.wave.max().sort_values(ascending=False).index[:25]
-    tdf = df[df.player_id.isin(top_25)]
-
-    first_moment = tdf.datetime.iloc[-1]
-    last_moment = tdf.datetime.iloc[0]
-    ldf = df[df.datetime == last_moment].copy()
-
-    ldf = ldf.sort_values("wave", ascending=False).reset_index(drop=True)
-
-    positions = []
-    current = 0
-    borrow = 1
-    last_wave = None
-    for wave in ldf["wave"]:
-        if last_wave is not None and wave == last_wave:
-            borrow += 1
-        else:
-            current += borrow
-            borrow = 1
-        positions.append(current)
-        last_wave = wave
-
-    ldf.index = positions
-    return df, tdf, ldf, first_moment, last_moment
-
-
-@cache_data_if_enabled(ttl=CACHE_TTL_SECONDS)
-def get_bracket_data_archive(df: pd.DataFrame):
-    """Archive-backed equivalent of ``get_bracket_data``."""
-    tourney_state = get_tourney_state()
-    anti_snipe = tourney_state.name == "ENTRY_OPEN"
-    return get_full_brackets(df, anti_snipe=anti_snipe)
-
-
-@cache_data_if_enabled(ttl=CACHE_TTL_SECONDS)
-def get_data_refresh_timestamp_archive(league: str) -> datetime.datetime | None:
-    """Return the latest snapshot timestamp (same semantics as get_data_refresh_timestamp)."""
-    try:
-        snaps = list_snapshots(_get_snapshot_path(league))
-        if not snaps:
-            return None
-        return get_time(snaps[-1])
-    except Exception as exc:
-        logger.warning(f"Failed to get refresh timestamp for {league}: {exc}")
-        return None

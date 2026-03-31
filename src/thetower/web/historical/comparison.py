@@ -21,7 +21,7 @@ from thetower.backend.tourney_results.models import BattleCondition
 from thetower.backend.tourney_results.models import PatchNew as Patch
 from thetower.backend.tourney_results.models import TourneyResult, TourneyRow
 from thetower.backend.tourney_results.shun_config import include_shun_enabled_for
-from thetower.backend.tourney_results.tourney_utils import get_live_df
+from thetower.backend.tourney_results.tourney_utils import get_latest_live_df
 from thetower.web.historical.search import compute_search
 from thetower.web.util import escape_df_html, get_league_selection
 
@@ -307,7 +307,7 @@ def get_bracket_players(player_id: str) -> list[str]:
         # Get live data for all available leagues
         for league in leagues:
             include_shun = include_shun_enabled_for("comparison")
-            df = get_live_df(league, include_shun)
+            df = get_latest_live_df(league, include_shun)
 
             # Find if player is in this dataframe
             player_df = df[df.player_id == player_id]
