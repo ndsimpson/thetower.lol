@@ -314,16 +314,16 @@ def service_status_page():
             "service": "discord_bot.service",
             "restart_allowed": True,
         },
-        "import_results": {
-            "name": "Import Results",
-            "description": "Service that imports tournament results (start-only)",
-            "service": "import_results.service",
-            "restart_allowed": False,
-        },
         "get_results": {
             "name": "Get Results",
             "description": "Service that fetches tournament data (start-only)",
             "service": "get_results.service",
+            "restart_allowed": False,
+        },
+        "import_results": {
+            "name": "Import Results",
+            "description": "Service that imports tournament results (start-only)",
+            "service": "import_results.service",
             "restart_allowed": False,
         },
         "get_live_results": {
@@ -331,6 +331,12 @@ def service_status_page():
             "description": "Service that fetches live tournament data (start-only)",
             "service": "get_live_results.service",
             "restart_allowed": False,
+        },
+        "import_live_results": {
+            "name": "Import Live Results",
+            "description": "Appends live snapshots to delta archives every 30 min",
+            "service": "import_live_results.service",
+            "restart_allowed": True,
         },
         "tower-recalc_worker": {
             "name": "Recalc Worker",
