@@ -70,15 +70,15 @@ def atomic_write(path: Path, data: dict):
 
 def list_live_snapshots(league: str):
     """List non-empty live snapshots for a league, sorted chronologically."""
-    live_dir = LIVE_BASE / f"{league}_live"
-    logging.debug(f"Checking live dir for league {league}: {live_dir}")
-    if not live_dir.exists():
-        logging.debug(f"Live dir missing for league {league}: {live_dir}")
+    staging_dir = LIVE_BASE / "current_tourney" / league
+    logging.debug(f"Checking staging dir for league {league}: {staging_dir}")
+    if not staging_dir.exists():
+        logging.debug(f"Staging dir missing for league {league}: {staging_dir}")
         return []
-    files = [p for p in live_dir.glob("*.csv.gz") if p.stat().st_size > 0]
+    files = [p for p in staging_dir.glob("*.csv.gz") if p.stat().st_size > 0]
     files_sorted = sorted(files, key=get_time)
     if not files_sorted:
-        logging.debug(f"No non-empty snapshots found for league {league} in {live_dir}")
+        logging.debug(f"No non-empty snapshots found for league {league} in {staging_dir}")
     return files_sorted
 
 

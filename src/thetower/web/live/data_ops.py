@@ -3,11 +3,20 @@ import json
 import logging
 from functools import wraps
 from pathlib import Path
+from time import perf_counter
 
 import pandas as pd
 import streamlit as st
 
 from thetower.backend.env_config import get_csv_data
+from thetower.backend.tourney_results.archive_utils import (
+    build_tourney_archive,
+    group_snapshots_by_tourney,
+    list_snapshots,
+    read_archive,
+    reconstruct_all_snapshots,
+)
+from thetower.backend.tourney_results.data import get_banned_ids, get_player_id_lookup, get_shun_ids, get_sus_ids
 from thetower.backend.tourney_results.shun_config import include_shun_enabled_for
 from thetower.backend.tourney_results.tourney_utils import (
     get_full_brackets,
@@ -16,6 +25,8 @@ from thetower.backend.tourney_results.tourney_utils import (
     get_time,
     get_tourney_state,
 )
+
+logger = logging.getLogger(__name__)
 
 # Cache configuration
 CACHE_TTL_SECONDS = 300  # 5 minutes cache duration
@@ -178,15 +189,17 @@ def get_placement_analysis_data(league: str):
     # for live_placement_cache (shared by live_placement_analysis and live_quantile_analysis)
     include_shun = include_shun_enabled_for("live_placement_cache")
 
-    # Try to use per-tourney cache placed alongside live snapshots.
+    # Try to use per-tourney cache: snapshots live in current_tourney/{league}/
+    # and placement cache files live in {league}_live/ (permanent location).
     try:
         csv_data = get_csv_data()
         logging.info(f"get_placement_analysis_data: CSV_DATA={csv_data!s}")
-        live_path = Path(csv_data) / f"{league}_live"
-        logging.info(f"get_placement_analysis_data: live_path={live_path}")
+        staging_path = Path(csv_data) / "current_tourney" / league
+        cache_dir = Path(csv_data) / f"{league}_live"
+        logging.info(f"get_placement_analysis_data: staging_path={staging_path}")
 
-        all_files = sorted([p for p in live_path.glob("*.csv.gz") if p.stat().st_size > 0], key=get_time)
-        logging.info(f"get_placement_analysis_data: found {len(all_files)} non-empty CSV snapshots in {live_path}")
+        all_files = sorted([p for p in staging_path.glob("*.csv.gz") if p.stat().st_size > 0], key=get_time)
+        logging.info(f"get_placement_analysis_data: found {len(all_files)} non-empty CSV snapshots in {staging_path}")
 
         if all_files:
             last_file = all_files[-1]
@@ -203,7 +216,7 @@ def get_placement_analysis_data(league: str):
             found_date = None
             for cand in candidate_dates:
                 cand_name = cand.isoformat()
-                cand_file = live_path / f"{cand_name}_placement_cache.json"
+                cand_file = cache_dir / f"{cand_name}_placement_cache.json"
                 logging.info(f"get_placement_analysis_data: checking candidate cache {cand_file}")
                 if cand_file.exists():
                     cache_file = cand_file
@@ -485,15 +498,17 @@ def get_quantile_analysis_data(league: str):
     # Respect filesystem/JSON flag: shared setting for all placement cache pages
     include_shun = include_shun_enabled_for("live_placement_cache")
 
-    # Try to use per-tourney cache placed alongside live snapshots
+    # Try to use per-tourney cache: snapshots live in current_tourney/{league}/
+    # and placement cache files live in {league}_live/ (permanent location).
     try:
         csv_data = get_csv_data()
         logging.info(f"get_quantile_analysis_data: CSV_DATA={csv_data!s}")
-        live_path = Path(csv_data) / f"{league}_live"
-        logging.info(f"get_quantile_analysis_data: live_path={live_path}")
+        staging_path = Path(csv_data) / "current_tourney" / league
+        cache_dir = Path(csv_data) / f"{league}_live"
+        logging.info(f"get_quantile_analysis_data: staging_path={staging_path}")
 
-        all_files = sorted([p for p in live_path.glob("*.csv.gz") if p.stat().st_size > 0], key=get_time)
-        logging.info(f"get_quantile_analysis_data: found {len(all_files)} non-empty CSV snapshots in {live_path}")
+        all_files = sorted([p for p in staging_path.glob("*.csv.gz") if p.stat().st_size > 0], key=get_time)
+        logging.info(f"get_quantile_analysis_data: found {len(all_files)} non-empty CSV snapshots in {staging_path}")
 
         if all_files:
             last_file = all_files[-1]
@@ -508,7 +523,7 @@ def get_quantile_analysis_data(league: str):
             found_date = None
             for cand in candidate_dates:
                 cand_name = cand.isoformat()
-                cand_file = live_path / f"{cand_name}_placement_cache.json"
+                cand_file = cache_dir / f"{cand_name}_placement_cache.json"
                 logging.info(f"get_quantile_analysis_data: checking candidate cache {cand_file}")
                 if cand_file.exists():
                     cache_file = cand_file
@@ -664,9 +679,9 @@ def get_data_refresh_timestamp(league: str) -> datetime.datetime | None:
     """
     try:
         csv_data = get_csv_data()
-        live_path = Path(csv_data) / f"{league}_live"
+        staging_path = Path(csv_data) / "current_tourney" / league
 
-        all_files = list(live_path.glob("*.csv.gz"))
+        all_files = list(staging_path.glob("*.csv.gz"))
 
         # Filter out empty files
         non_empty_files = [f for f in all_files if f.stat().st_size > 0]
@@ -735,3 +750,129 @@ def format_time_ago(timestamp: datetime.datetime) -> str:
         return f"{minutes} minutes ago"
     else:
         return "Just now"
+
+
+# ── archive-backed API ────────────────────────────────────────────────────────
+
+
+def _get_snapshot_path(league: str) -> Path:
+    """Current-tourney staging directory: where live snapshots are written."""
+    return Path(get_csv_data()) / "current_tourney" / league
+
+
+def _get_archive_path(league: str) -> Path:
+    """Permanent archive directory: where ``*_archive.csv.gz`` files are stored."""
+    return Path(get_csv_data()) / f"{league}_live"
+
+
+def _load_archive_df(league: str) -> tuple[pd.DataFrame, list]:
+    """Return (archive_df, expected_timestamps) for the current/most-recent tourney.
+
+    Strategy:
+    1. Determine the current tourney group from staging snapshots.
+    2. Look for ``{date}_archive.csv.gz`` in the permanent archive directory.
+    3. If found and newer than the last snapshot, read it directly.
+    4. Otherwise, build in memory on the fly.
+    """
+    from thetower.backend.tourney_results.archive_utils import _archive_name_for_group, _parse_snapshot_time  # noqa: PLC0415
+
+    snap_path = _get_snapshot_path(league)
+    archive_dir = _get_archive_path(league)
+
+    snaps = list_snapshots(snap_path)
+    if not snaps:
+        raise ValueError("No current data, wait until the tourney day")
+
+    groups = group_snapshots_by_tourney(snaps)
+    current_group = groups[-1] if groups else snaps
+    expected_timestamps = [_parse_snapshot_time(p) for p in current_group]
+
+    arch_file = archive_dir / _archive_name_for_group(current_group)
+    if arch_file.exists() and arch_file.stat().st_size > 0:
+        if arch_file.stat().st_mtime >= current_group[-1].stat().st_mtime:
+            logger.info(f"Reading pre-built archive {arch_file.name}")
+            return read_archive(arch_file), expected_timestamps
+        logger.info(f"Archive {arch_file.name} is stale; rebuilding from {len(current_group)} snapshots")
+
+    logger.info(f"No archive file found for {league}; building in memory from {len(current_group)} snapshots")
+    archive = build_tourney_archive(current_group)
+    if archive.empty:
+        raise ValueError("No current data, wait until the tourney day")
+    return archive, expected_timestamps
+
+
+@cache_data_if_enabled(ttl=CACHE_TTL_SECONDS)
+def get_live_data_archive(league: str, shun: bool = False) -> pd.DataFrame:
+    """Archive-backed equivalent of ``get_live_data``."""
+    t0 = perf_counter()
+    archive, expected_timestamps = _load_archive_df(league)
+    df = reconstruct_all_snapshots(archive, extra_timestamps=expected_timestamps)
+
+    excluded_ids = get_sus_ids() | get_banned_ids()
+    if not shun:
+        excluded_ids = excluded_ids | get_shun_ids()
+    df = df[~df["player_id"].isin(excluded_ids)]
+
+    lookup = get_player_id_lookup()
+    df["real_name"] = [lookup.get(pid, name) for pid, name in zip(df["player_id"], df["name"])]
+    df["real_name"] = df["real_name"].astype(str)
+
+    df = df.sort_values(["datetime", "wave"], ascending=False).reset_index(drop=True)
+    logger.info(f"get_live_data_archive({league}) took {perf_counter() - t0:.3f}s — {len(df):,} rows")
+    return df
+
+
+@cache_data_if_enabled(ttl=CACHE_TTL_SECONDS)
+def get_processed_data_archive(league: str, shun: bool = False):
+    """Archive-backed equivalent of ``get_processed_data``.
+
+    Returns the same 5-tuple: (df, tdf, ldf, first_moment, last_moment).
+    """
+    df = get_live_data_archive(league, shun)
+
+    group_by_id = df.groupby("player_id")
+    top_25 = group_by_id.wave.max().sort_values(ascending=False).index[:25]
+    tdf = df[df.player_id.isin(top_25)]
+
+    first_moment = tdf.datetime.iloc[-1]
+    last_moment = tdf.datetime.iloc[0]
+    ldf = df[df.datetime == last_moment].copy()
+
+    ldf = ldf.sort_values("wave", ascending=False).reset_index(drop=True)
+
+    positions = []
+    current = 0
+    borrow = 1
+    last_wave = None
+    for wave in ldf["wave"]:
+        if last_wave is not None and wave == last_wave:
+            borrow += 1
+        else:
+            current += borrow
+            borrow = 1
+        positions.append(current)
+        last_wave = wave
+
+    ldf.index = positions
+    return df, tdf, ldf, first_moment, last_moment
+
+
+@cache_data_if_enabled(ttl=CACHE_TTL_SECONDS)
+def get_bracket_data_archive(df: pd.DataFrame):
+    """Archive-backed equivalent of ``get_bracket_data``."""
+    tourney_state = get_tourney_state()
+    anti_snipe = tourney_state.name == "ENTRY_OPEN"
+    return get_full_brackets(df, anti_snipe=anti_snipe)
+
+
+@cache_data_if_enabled(ttl=CACHE_TTL_SECONDS)
+def get_data_refresh_timestamp_archive(league: str) -> datetime.datetime | None:
+    """Return the latest snapshot timestamp (same semantics as get_data_refresh_timestamp)."""
+    try:
+        snaps = list_snapshots(_get_snapshot_path(league))
+        if not snaps:
+            return None
+        return get_time(snaps[-1])
+    except Exception as exc:
+        logger.warning(f"Failed to get refresh timestamp for {league}: {exc}")
+        return None

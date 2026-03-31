@@ -4,6 +4,7 @@ import io
 import logging
 import os
 import time
+from pathlib import Path
 
 import pandas as pd
 import requests
@@ -52,7 +53,7 @@ def get_file_name():
 
 def get_file_path(file_name, league):
     csv_data = get_csv_data()
-    return f"{csv_data}/{league}_live/{file_name}"
+    return f"{csv_data}/current_tourney/{league}/{file_name}"
 
 
 def make_request(league):
@@ -78,19 +79,11 @@ def make_request(league):
 def execute(league):
     logging.info(f"Working on {league}.")
     file_path = get_file_path(get_file_name(), league)
+    Path(file_path).parent.mkdir(parents=True, exist_ok=True)
     df = make_request(league)
 
     df.to_csv(file_path, index=False, compression="gzip")
     logging.info(f"Successfully stored file {file_path}")
-
-    try:
-        # Import clear_cache here to avoid Django setup issues
-        from ...web.live.data_ops import clear_cache
-
-        clear_cache()
-        logging.info("Successfully cleared Streamlit cache")
-    except Exception as e:
-        logging.warning(f"Failed to clear Streamlit cache: {e}")
 
     return True
 

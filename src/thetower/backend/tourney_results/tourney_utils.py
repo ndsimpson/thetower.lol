@@ -17,6 +17,7 @@ from django.apps import apps
 from thetower.backend.env_config import get_csv_data
 
 # Local imports
+from .archive_utils import list_archives, read_archive, reconstruct_at
 from .constants import leagues, legend
 from .data import get_banned_ids, get_player_id_lookup, get_shun_ids, get_sus_ids, get_tourneys
 from .models import PromptTemplate, TourneyResult, TourneyRow
@@ -355,12 +356,12 @@ def get_live_df(league: str, shun: bool = False) -> pd.DataFrame:
     """
     t1_start = perf_counter()
     csv_data = get_csv_data()
-    live_path = Path(csv_data) / f"{league}_live"
+    live_path = Path(csv_data) / "current_tourney" / league
 
-    all_files = sorted(live_path.glob("*.csv.gz"), key=get_time)
+    all_files = sorted([p for p in live_path.glob("*.csv.gz") if p.stat().st_size > 0], key=get_time)
 
     # Filter out empty files
-    non_empty_files = [f for f in all_files if f.stat().st_size > 0]
+    non_empty_files = all_files
 
     if not non_empty_files:
         raise ValueError("No current data, wait until the tourney day")
@@ -449,12 +450,35 @@ def get_latest_live_df(league: str, shun: bool = False) -> pd.DataFrame:
     """
     t1_start = perf_counter()
     csv_data = get_csv_data()
-    live_path = Path(csv_data) / f"{league}_live"
+    live_path = Path(csv_data) / "current_tourney" / league
 
     try:
-        last_file = max(live_path.glob("*.csv.gz"))
+        last_file = max((p for p in live_path.glob("*.csv.gz") if p.stat().st_size > 0), default=None)
+        if last_file is None:
+            raise ValueError
     except ValueError:
-        raise ValueError("No current data, wait until the tourney day")
+        # Staging is empty (post-tourney cleanup or between tourneys).
+        # Fall back to the most recent archive so the cog can still serve the final state.
+        archive_path = Path(csv_data) / f"{league}_live"
+        archives = list_archives(archive_path)
+        if not archives:
+            raise ValueError("No current data, wait until the tourney day")
+        archive_df = read_archive(archives[-1])
+        if archive_df.empty:
+            raise ValueError("No current data, wait until the tourney day")
+        at = archive_df["snapshot_time"].max()
+        df = reconstruct_at(archive_df, at)
+        if df.empty:
+            raise ValueError("No current data, wait until the tourney day")
+        lookup = get_player_id_lookup()
+        df["real_name"] = [lookup.get(pid, name) for pid, name in zip(df.player_id, df.name)]
+        df["real_name"] = df["real_name"].astype(str)
+        excluded_ids = get_sus_ids() | get_banned_ids()
+        if not shun:
+            excluded_ids = excluded_ids | get_shun_ids()
+        df = df[~df.player_id.isin(excluded_ids)].reset_index(drop=True)
+        logging.info(f"get_latest_live_df({league}): staging empty, fell back to archive ({archives[-1].name})")
+        return df
     t_glob = perf_counter()
 
     last_date = get_time(last_file)
@@ -512,9 +536,11 @@ def check_live_entry(league: str, player_id: str, fast: bool = False) -> bool:
             # If the player isn't in the file at all we return False with zero DB calls;
             # if they are, we run the sus/banned check exactly once.
             csv_data = get_csv_data()
-            live_path = Path(csv_data) / f"{league}_live"
+            live_path = Path(csv_data) / "current_tourney" / league
             try:
-                last_file = max(live_path.glob("*.csv.gz"))
+                last_file = max((p for p in live_path.glob("*.csv.gz") if p.stat().st_size > 0), default=None)
+                if last_file is None:
+                    raise ValueError
             except ValueError:
                 raise ValueError("No current data, wait until the tourney day")
             t_glob = perf_counter()
