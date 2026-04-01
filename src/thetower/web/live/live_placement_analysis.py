@@ -356,15 +356,20 @@ def live_placement_analysis():
         },
     )
 
-    # Calculate player's actual position using the tie rule:
-    # all players tied at the same wave share the LAST rank in their group.
+    # Calculate player's actual position using the same formula as analyze_wave_placement,
+    # so the marker is always within the Best Case / Worst Case bounds on the graph.
     player_bracket = df[df["display_name"] == selected_player]["bracket"].iloc[0]
     player_creation_time = bracket_creation_times[player_bracket]
-    bracket_at_latest = df[(df["bracket"] == player_bracket) & (df["datetime"] == latest_time)]
-    player_wave = bracket_at_latest[bracket_at_latest["display_name"] == selected_player]["wave"].iloc[0]
-    above = int((bracket_at_latest["wave"] > player_wave).sum())
-    tied = int((bracket_at_latest["wave"] == player_wave).sum())  # includes the player themselves
-    player_position = above + tied  # last rank in the tied group
+    player_result = next((r for r in results if r["Bracket"] == player_bracket), None)
+    if player_result:
+        player_position = int(player_result["Would Place"].split("/")[0])
+    else:
+        # Fallback: compute directly (may be 1 lower than analyze_wave_placement would give)
+        bracket_at_latest = df[(df["bracket"] == player_bracket) & (df["datetime"] == latest_time)]
+        player_wave = bracket_at_latest[bracket_at_latest["display_name"] == selected_player]["wave"].iloc[0]
+        above = int((bracket_at_latest["wave"] > player_wave).sum())
+        tied = int((bracket_at_latest["wave"] == player_wave).sum())  # includes the player themselves
+        player_position = above + tied
 
     # Create plot data using checkpoint averages
     plot_df = checkpoint_df.copy()
