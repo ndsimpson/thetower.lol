@@ -10,7 +10,7 @@ import streamlit.components.v1 as components
 
 from thetower.backend.tourney_results.constants import Graph, Options, leagues, legend
 from thetower.backend.tourney_results.models import TourneyResult
-from thetower.backend.tourney_results.overview_cache import read_overview_cache, regenerate_overview_cache
+from thetower.backend.tourney_results.overview_cache import read_overview_cache
 
 # Try to import towerbcs for tournament countdown
 try:
@@ -337,88 +337,13 @@ def render_league_standings(league: str, players: list[dict], is_legend: bool = 
     st.html(f'<div style="display: flex; justify-content: space-around; flex-wrap: wrap; gap: 0.75rem; margin-bottom: 1rem;">{pills_html}</div>')
 
 
-def _load_overview_stats() -> tuple[Optional[dict], str]:
-    """Load overview stats from file cache.  On miss, attempt to regenerate.
+def _load_overview_stats() -> Optional[dict]:
+    """Load overview stats from file cache.
 
-    Returns ``(stats_dict, source)`` where *source* is ``"cache"``,
-    ``"regenerated"``, or ``"db"`` (live DB fallback).
+    Returns the stats dict on success, or ``None`` if the cache file is absent.
+    Cache is written by import_results or via the Site Settings admin page.
     """
-    stats = read_overview_cache()
-    if stats:
-        return stats, "cache"
-
-    # Cache miss — try to build it now (first run after deploy, or after restart)
-    stats = regenerate_overview_cache()
-    if stats:
-        return stats, "regenerated"
-
-    # DJANGO_DATA not set or other failure — fall back to live DB queries
-    from collections import Counter, defaultdict
-
-    from thetower.backend.tourney_results.data import get_banned_ids, get_player_id_lookup, get_sus_ids
-    from thetower.backend.tourney_results.models import PatchNew, TourneyResult, TourneyRow
-
-    hidden_features = bool(os.environ.get("HIDDEN_FEATURES"))
-    public = {"public": True} if not hidden_features else {}
-    excluded = get_sus_ids() | get_banned_ids()
-    lookup = get_player_id_lookup()
-
-    try:
-        last_tourney_date = TourneyResult.objects.filter(**public).latest("date").date
-        last_tourney_date_iso = last_tourney_date.isoformat()
-    except TourneyResult.DoesNotExist:
-        return {}, "db"
-
-    # League standings
-    league_standings: dict = {}
-    for lg in leagues:
-        qs = TourneyResult.objects.filter(league=lg, date=last_tourney_date, **public)
-        if not qs.exists():
-            league_standings[lg] = []
-            continue
-        result = qs.first()
-        limit = 6 if lg == "Legend" else 4
-        rows = (
-            TourneyRow.objects.filter(result=result, position__gt=0)
-            .exclude(player_id__in=excluded)
-            .order_by("position")
-            .values("player_id", "nickname", "wave", "position")[:limit]
-        )
-        league_standings[lg] = [{"real_name": lookup.get(r["player_id"], r["nickname"]), "wave": r["wave"], "position": r["position"]} for r in rows]
-
-    # Patch leaderboard
-    patch_leaderboard: list = []
-    latest_patch = PatchNew.objects.order_by("-start_date").first()
-    if latest_patch:
-        tr = TourneyResult.objects.filter(date__gte=latest_patch.start_date, date__lte=latest_patch.end_date, **public)
-        fp = Counter(TourneyRow.objects.filter(result__in=tr, position=1).exclude(player_id__in=excluded).values_list("player_id", flat=True))
-        sp = Counter(TourneyRow.objects.filter(result__in=tr, position=2).exclude(player_id__in=excluded).values_list("player_id", flat=True))
-        stats_list = sorted([(pid, c, sp.get(pid, 0)) for pid, c in fp.items()], key=lambda x: (x[1], x[2]), reverse=True)
-        patch_leaderboard = [
-            {"real_name": lookup.get(pid, f"Player {pid}"), "first_wins": fw, "second_wins": sw, "patch_name": str(latest_patch)}
-            for pid, fw, sw in stats_list[:5]
-        ]
-
-    # Legend avg wave
-    legend_avg: list = []
-    if latest_patch:
-        tr_leg = TourneyResult.objects.filter(date__gte=latest_patch.start_date, date__lte=latest_patch.end_date, league="Legend", **public)
-        rows_leg = TourneyRow.objects.filter(result__in=tr_leg).exclude(player_id__in=excluded).values_list("player_id", "wave", "result_id")
-        pw: dict = defaultdict(list)
-        tids: set = set()
-        for pid, wave, rid in rows_leg:
-            pw[pid].append(wave)
-            tids.add(rid)
-        mt = len(tids)
-        avgs = sorted([(pid, sum(wvs) / len(wvs), len(wvs)) for pid, wvs in pw.items() if len(wvs) == mt], key=lambda x: (x[1], x[2]), reverse=True)
-        legend_avg = [{"real_name": lookup.get(pid, f"Player {pid}"), "avg_wave": round(avg, 2), "tournaments": tc} for pid, avg, tc in avgs[:5]]
-
-    return {
-        "last_tourney_date": last_tourney_date_iso,
-        "league_standings": league_standings,
-        "patch_leaderboard": patch_leaderboard,
-        "legend_avg_wave_leaderboard": legend_avg,
-    }, "db"
+    return read_overview_cache()
 
 
 def compute_overview(options: Options) -> None:
@@ -436,11 +361,20 @@ def compute_overview(options: Options) -> None:
             st.markdown("<a id='top'></a>", unsafe_allow_html=True)
             st.image(str(logo_path), width=400, use_container_width=False)
 
-    # Load all stats from cache (or regenerate / fall back to DB)
-    stats, stats_source = _load_overview_stats()
+    # Load all stats from cache (regenerate on first-run miss; None means unavailable)
+    stats = _load_overview_stats()
 
     # Render tournament countdown (fast — just timezone math + 1 lightweight DB query)
     render_tournament_countdown()
+
+    if stats is None:
+        hidden_features = bool(os.environ.get("HIDDEN_FEATURES"))
+        msg = "Summary statistics are unavailable at this time."
+        if hidden_features:
+            msg += " Visit [Site Settings](/sitesettings) to regenerate the overview cache."
+        st.warning(msg)
+        return
+
     st.markdown(
         "<div style='text-align: center; margin: 0.5rem 0 1.2rem 0;'>"
         "<a href='#league-results' style='font-size: 0.92rem; color: #ffd700; text-decoration: underline;'>↓ Jump to League Results</a>"

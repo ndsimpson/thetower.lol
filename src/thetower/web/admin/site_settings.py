@@ -71,7 +71,7 @@ def _render_overview_cache_section() -> None:
             st.caption(f"Covers tourney: **{last_tourney}**")
         else:
             st.metric("Cache Status", "⚠️ Missing")
-            st.caption("No cache file found — the overview page is falling back to live DB queries.")
+            st.caption("No cache file found — the overview page will show an unavailable message to visitors.")
 
     with col2:
         if st.button("🔄 Regenerate Overview Cache", type="primary", use_container_width=True):
