@@ -182,7 +182,16 @@ def live_results():
         # Show all players in top X
         display_df = pdf[:topx]
 
-    canvas.dataframe(display_df[["real_name", "wave_last", "joined"]], height=600, use_container_width=True)
+    final_df = display_df[["real_name", "wave_last", "joined"]].copy()
+    final_df.insert(0, "#", final_df.index)
+    final_df = final_df.reset_index(drop=True)
+    final_df.index = final_df.index + 1
+    canvas.dataframe(
+        final_df[["#", "real_name", "wave_last", "joined"]],
+        height=600,
+        use_container_width=True,
+        column_config={"#": st.column_config.NumberColumn("#")},
+    )
 
     # Log execution time
     t2_stop = perf_counter()
