@@ -287,6 +287,17 @@ def live_placement_analysis():
     # Analyze placements
     results = analyze_wave_placement(df, wave_to_analyze, latest_time)
 
+    # analyze_wave_placement treats wave_to_analyze as a hypothetical NEW entrant (+1 to rank).
+    # For the player's own bracket they are already present, so the formula overcounts by 1.
+    # Correct that entry so Best Case / Worst Case bounds and the marker are all consistent.
+    player_bracket_id = df[df["display_name"] == selected_player]["bracket"].iloc[0]
+    for r in results:
+        if r["Bracket"] == player_bracket_id:
+            parts = r["Would Place"].split("/")
+            corrected_rank = max(1, int(parts[0]) - 1)
+            r["Would Place"] = f"{corrected_rank}/{parts[1]}"
+            break
+
     # Process results for display
     results_df = pd.DataFrame(results)
     results_df["Creation Time"] = results_df["Bracket"].map(bracket_creation_times)
@@ -356,19 +367,18 @@ def live_placement_analysis():
         },
     )
 
-    # Calculate player's actual position using the same formula as analyze_wave_placement,
-    # so the marker is always within the Best Case / Worst Case bounds on the graph.
+    # Player's position comes from the already-corrected results entry for their bracket.
     player_bracket = df[df["display_name"] == selected_player]["bracket"].iloc[0]
     player_creation_time = bracket_creation_times[player_bracket]
     player_result = next((r for r in results if r["Bracket"] == player_bracket), None)
     if player_result:
         player_position = int(player_result["Would Place"].split("/")[0])
     else:
-        # Fallback: compute directly (may be 1 lower than analyze_wave_placement would give)
+        # Fallback: compute directly using the tie rule (above + tied, tied includes the player)
         bracket_at_latest = df[(df["bracket"] == player_bracket) & (df["datetime"] == latest_time)]
         player_wave = bracket_at_latest[bracket_at_latest["display_name"] == selected_player]["wave"].iloc[0]
         above = int((bracket_at_latest["wave"] > player_wave).sum())
-        tied = int((bracket_at_latest["wave"] == player_wave).sum())  # includes the player themselves
+        tied = int((bracket_at_latest["wave"] == player_wave).sum())
         player_position = above + tied
 
     # Create plot data using checkpoint averages
