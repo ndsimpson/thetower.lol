@@ -98,7 +98,7 @@ if hidden_features:
         st.Page("admin/service_status.py", title="Service Status", icon="🔧", url_path="services"),
         st.Page("admin/codebase_status.py", title="Codebase Status", icon="📦", url_path="codebase"),
         st.Page("admin/migrations.py", title="Migrations", icon="🔄", url_path="migrations"),
-        st.Page("admin/maintenance_mode.py", title="Maintenance Mode", icon="🛠️", url_path="maintenance"),
+        st.Page("admin/site_settings.py", title="Site Settings", icon="⚙️", url_path="sitesettings"),
         st.Page("admin/access_log.py", title="Access Log Viewer", icon="🌐", url_path="accesslog"),
         st.Page("admin/access_log_stats.py", title="Access Log Stats", icon="📊", url_path="accesslogstats"),
     ]
