@@ -80,6 +80,7 @@ historical_data_pages = [
     _page("historical/median_history.py", title="Median History", icon="📉", url_path="medianhistory"),
     _page("historical/static_placement.py", title="Static Global Placement", icon="🌐", url_path="staticplacement"),
     _page("historical/regression_analysis.py", title="Tournament Trends", icon="📈", url_path="tournamenttrends"),
+    _page("historical/bc_filter.py", title="Battle Condition Filter", icon="🔎", url_path="bcfilter"),
 ]
 
 archive_pages = [
