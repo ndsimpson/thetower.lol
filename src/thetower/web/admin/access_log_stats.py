@@ -55,6 +55,17 @@ with st.expander("Date Range (UTC)", expanded=True):
         st.warning("End date is before start date.")
         st.stop()
 
+    col_mode, col_h1, col_h2 = st.columns([1, 1, 1])
+    hour_mode = col_mode.radio("Hours", ["Full day", "Hour range"], horizontal=True)
+    if hour_mode == "Hour range":
+        start_hour = col_h1.selectbox("From hour (UTC)", list(range(24)), index=0, format_func=lambda h: f"{h:02d}:00")
+        end_hour = col_h2.selectbox("To hour (UTC)", list(range(24)), index=23, format_func=lambda h: f"{h:02d}:59")
+        if end_hour < start_hour:
+            st.warning("End hour is before start hour — showing full day instead.")
+            start_hour, end_hour = 0, 23
+    else:
+        start_hour, end_hour = 0, 23
+
 selected_dates = [d for d in available_dates if start_date <= d <= end_date]
 
 if not selected_dates:
@@ -94,6 +105,13 @@ df = df.dropna(subset=["timestamp"])
 df["date"] = df["timestamp"].dt.date
 df["hour"] = df["timestamp"].dt.floor("h")
 
+# Apply hour-of-day filter
+if start_hour != 0 or end_hour != 23:
+    df = df[df["timestamp"].dt.hour.between(start_hour, end_hour)]
+    if not df_render.empty:
+        df_render["timestamp"] = pd.to_datetime(df_render["dt"], format="%Y-%m-%d %H:%M:%S UTC", utc=True, errors="coerce")
+        df_render = df_render[df_render["timestamp"].dt.hour.between(start_hour, end_hour)].drop(columns=["timestamp"])
+
 # ---------------------------------------------------------------------------
 # Pre-filter controls
 # ---------------------------------------------------------------------------
@@ -117,7 +135,8 @@ if df.empty:
     st.stop()
 
 total = len(df)
-st.caption(f"**{total:,} requests** across {len(selected_dates)} day(s) " f"({start_date.isoformat()} → {end_date.isoformat()})")
+hour_range_label = f" {start_hour:02d}:00–{end_hour:02d}:59 UTC" if (start_hour != 0 or end_hour != 23) else ""
+st.caption(f"**{total:,} requests** across {len(selected_dates)} day(s) ({start_date.isoformat()} → {end_date.isoformat()}){hour_range_label}")
 
 st.divider()
 
