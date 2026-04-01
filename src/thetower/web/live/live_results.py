@@ -186,8 +186,9 @@ def live_results():
     final_df.insert(0, "#", final_df.index)
     final_df = final_df.reset_index(drop=True)
     final_df.index = final_df.index + 1
+    show_cols = ["#", "real_name", "wave_last", "joined"] if need_to_get_in else ["real_name", "wave_last", "joined"]
     canvas.dataframe(
-        final_df[["#", "real_name", "wave_last", "joined"]],
+        final_df[show_cols],
         height=600,
         use_container_width=True,
         column_config={"#": st.column_config.NumberColumn("#")},
