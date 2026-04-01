@@ -20,6 +20,7 @@ from thetower.backend.env_config import get_csv_data
 from ..constants import leagues
 from ..get_results import get_file_name, get_last_date
 from ..models import BattleCondition, TourneyResult
+from ..overview_cache import regenerate_overview_cache
 from ..tourney_utils import create_tourney_rows, get_summary
 
 # Graceful towerbcs import handling
@@ -125,6 +126,12 @@ def execute():
             logging.info("Generating summary for Legends league results")
             thread = threading.Thread(target=update_summary, args=(result,))
             thread.start()
+
+    # Regenerate overview cache after all leagues have been imported so the
+    # page stats are up to date without any DB queries on the next page load.
+    logging.info("Regenerating overview cache after import")
+    regenerate_overview_cache()
+    logging.info("Overview cache regeneration complete")
 
 
 if __name__ == "__main__":

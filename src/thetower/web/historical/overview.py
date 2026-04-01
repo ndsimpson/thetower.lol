@@ -1,123 +1,16 @@
-import functools
-
-
-@functools.lru_cache(maxsize=2)
-def _legend_avg_wave_leaderboard_cached(patch_id, legend_str, hidden_features):
-    from collections import defaultdict
-
-    from thetower.backend.tourney_results.data import get_player_id_lookup
-
-    # Re-import models inside cache for safety
-    from thetower.backend.tourney_results.models import PatchNew, TourneyResult, TourneyRow
-
-    latest_patch = PatchNew.objects.get(id=patch_id)
-    public = {"public": True} if not hidden_features else {}
-    tourney_results = TourneyResult.objects.filter(date__gte=latest_patch.start_date, date__lte=latest_patch.end_date, league=legend_str, **public)
-    if not tourney_results.exists():
-        return []
-    rows = TourneyRow.objects.filter(result__in=tourney_results)
-    if not rows.exists():
-        return []
-    player_waves = defaultdict(list)
-    for row in rows:
-        player_waves[row.player_id].append(row.wave)
-    # Count number of unique tournaments in this patch (Legend)
-    tourney_ids = set(rows.values_list("result_id", flat=True))
-    max_tourneys = len(tourney_ids)
-    # Only include players who played in all tournaments
-    player_avg = [(pid, sum(waves) / len(waves), len(waves)) for pid, waves in player_waves.items() if len(waves) == max_tourneys]
-    if not player_avg:
-        return []
-    player_avg.sort(key=lambda x: (x[1], x[2]), reverse=True)
-    lookup = get_player_id_lookup()
-    return player_avg[:5], lookup
-
-
-import time
-
-
-def render_legend_avg_wave_leaderboard():
-    """Render leaderboard for highest average waves in Legend league for the latest patch (min 2 tourneys)."""
-    try:
-        latest_patch = PatchNew.objects.order_by("-start_date").first()
-        if not latest_patch:
-            return
-        hidden_features = bool(os.environ.get("HIDDEN_FEATURES"))
-        # Use patch id and legend string for cache key
-        cache_key = (latest_patch.id, legend, hidden_features)
-        # 1 hour cache: forcibly clear if older than 1 hour
-        now = int(time.time())
-        if not hasattr(render_legend_avg_wave_leaderboard, "_last_cache_time"):
-            render_legend_avg_wave_leaderboard._last_cache_time = 0
-        if now - render_legend_avg_wave_leaderboard._last_cache_time > 3600:
-            _legend_avg_wave_leaderboard_cached.cache_clear()
-            render_legend_avg_wave_leaderboard._last_cache_time = now
-        result = _legend_avg_wave_leaderboard_cached(*cache_key)
-        if not result or not result[0]:
-            return
-        top_5, lookup = result
-        medals = ["🥇", "🥈", "🥉"]
-        colors = [
-            "linear-gradient(135deg, #FFD700 0%, #FFA500 100%)",
-            "linear-gradient(135deg, #C0C0C0 0%, #A8A8A8 100%)",
-            "linear-gradient(135deg, #CD7F32 0%, #B87333 100%)",
-            "#2a2a3e",
-        ]
-        pills = []
-        for idx in range(min(3, len(top_5))):
-            pid, avg_wave, tournaments = top_5[idx]
-            real_name = lookup.get(pid, f"Player {pid}")
-            real_name = real_name.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-            medal = medals[idx]
-            bg_color = colors[idx]
-            pill = f"""<div style="flex: 1; min-width: 110px; text-align: center; padding: 0.75rem; background: {bg_color}; border-radius: 7px; box-shadow: 0 1.5px 3px rgba(0,0,0,0.2);">
-    <div style="font-size: 1.5rem;">{medal}</div>
-    <div style="font-size: 0.85rem; font-weight: bold; color: #1a1a1a; margin: 0.375rem 0;">{real_name}</div>
-    <div style="font-size: 0.8rem; font-weight: bold; color: #333333;">{avg_wave:.1f} avg wave<br><span style=\"font-size:0.8em; color:{bg_color}\">({tournaments} tournaments)</span></div>
-</div>"""
-            pills.append(pill)
-        if len(top_5) >= 4:
-            remaining_html = ""
-            for idx in range(3, min(5, len(top_5))):
-                pid, avg_wave, tournaments = top_5[idx]
-                real_name = lookup.get(pid, f"Player {pid}")
-                real_name = real_name.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-                position_num = idx + 1
-                remaining_html += f"""<div style="margin-bottom: 0.5rem; padding: 0.5rem; background: rgba(255,255,255,0.05); border-radius: 5px;">
-    <div style="font-size: 0.85rem; color: #e0e0e0;"><strong>#{position_num}</strong> {real_name}</div>
-    <div style="font-size: 0.75rem; color: #a0a0a0;">{avg_wave:.1f} avg wave <span style=\"font-size:0.8em; color:#888\">({tournaments} tournaments)</span></div>
-</div>"""
-            fourth_pill = f"""<div style="flex: 1; min-width: 110px; padding: 0.75rem; background: {colors[3]}; border-radius: 7px; box-shadow: 0 1.5px 3px rgba(0,0,0,0.2);">
-    {remaining_html}
-</div>"""
-            pills.append(fourth_pill)
-        pills_html = "".join(pills)
-        leaderboard_html = f"""
-<div style="margin: 1.5rem 0; padding: 1.125rem; background: #1e1e2e; border-radius: 8px; box-shadow: 0 3px 4.5px rgba(0,0,0,0.3);">
-    <h3 style="margin: 0 0 0.75rem 0; color: #667eea; text-align: center; font-size: 1.1rem;">📈 Legend - Highest Average Wave (Latest Patch, min 2 tournaments)</h3>
-    <div style="display: flex; justify-content: space-around; flex-wrap: wrap; gap: 0.75rem;">
-        {pills_html}
-    </div>
-</div>
-"""
-        st.html(leaderboard_html)
-    except Exception:
-        pass
-
-
 import datetime
+import html as html_mod
 import json
 import os
-from collections import Counter
 from pathlib import Path
+from typing import Optional
 
 import streamlit as st
 import streamlit.components.v1 as components
 
 from thetower.backend.tourney_results.constants import Graph, Options, leagues, legend
-from thetower.backend.tourney_results.data import get_player_id_lookup, get_tourneys
-from thetower.backend.tourney_results.models import PatchNew, TourneyResult, TourneyRow
-from thetower.web.util import escape_df_html
+from thetower.backend.tourney_results.models import TourneyResult
+from thetower.backend.tourney_results.overview_cache import read_overview_cache, regenerate_overview_cache
 
 # Try to import towerbcs for tournament countdown
 try:
@@ -128,6 +21,11 @@ except ImportError:
     TOWERBCS_AVAILABLE = False
     TournamentPredictor = None
     predict_future_tournament = None
+
+
+def _esc(text: str) -> str:
+    """HTML-escape a display name."""
+    return html_mod.escape(str(text))
 
 
 def render_tournament_countdown():
@@ -267,210 +165,263 @@ body{{margin:0;padding:0;font-family:sans-serif;}}
         st.warning(f"⚠️ Could not load tournament countdown: {str(e)}")
 
 
-def render_patch_leaderboard():
-    """Render the patch leaderboard showing top 5 players with most first place finishes in current patch."""
+# ---------------------------------------------------------------------------
+# Shared pill-building helpers
+# ---------------------------------------------------------------------------
+
+_MEDAL_ICONS = ["🥇", "🥈", "🥉"]
+_PILL_COLORS = [
+    "linear-gradient(135deg, #FFD700 0%, #FFA500 100%)",
+    "linear-gradient(135deg, #C0C0C0 0%, #A8A8A8 100%)",
+    "linear-gradient(135deg, #CD7F32 0%, #B87333 100%)",
+    "#2a2a3e",
+]
+
+
+def render_patch_leaderboard(top_5: list[dict]) -> None:
+    """Render the patch leaderboard from pre-fetched data.
+
+    Each item in *top_5* must have keys: ``real_name``, ``first_wins``,
+    ``second_wins``, ``patch_name``.
+    """
+    if not top_5:
+        return
     try:
-        # Get latest patch
-        latest_patch = PatchNew.objects.order_by("-start_date").first()
-        if not latest_patch:
-            return
-
-        public = {"public": True} if not os.environ.get("HIDDEN_FEATURES") else {}
-
-        # Get all tournament results for this patch
-        tourney_results = TourneyResult.objects.filter(date__gte=latest_patch.start_date, date__lte=latest_patch.end_date, **public)
-
-        if not tourney_results.exists():
-            return
-
-        # Get first and second place finishes for tiebreaking
-        first_place_rows = TourneyRow.objects.filter(result__in=tourney_results, position=1).values_list("player_id", flat=True)
-        second_place_rows = TourneyRow.objects.filter(result__in=tourney_results, position=2).values_list("player_id", flat=True)
-
-        if not first_place_rows:
-            return
-
-        # Count wins and second places per player
-        player_first = Counter(first_place_rows)
-        player_second = Counter(second_place_rows)
-
-        # Create list of (player_id, first_place_count, second_place_count)
-        player_stats = [(player_id, first_count, player_second.get(player_id, 0)) for player_id, first_count in player_first.items()]
-
-        # Sort by first place wins descending, then by second place wins descending
-        player_stats.sort(key=lambda x: (x[1], x[2]), reverse=True)
-
-        if not player_stats:
-            return
-
-        # Get top 5
-        top_5 = player_stats[:5]
-
-        # Get real names
-        lookup = get_player_id_lookup()
-
-        # Build HTML for the leaderboard
-        medals = ["🥇", "🥈", "🥉"]
-        colors = [
-            "linear-gradient(135deg, #FFD700 0%, #FFA500 100%)",
-            "linear-gradient(135deg, #C0C0C0 0%, #A8A8A8 100%)",
-            "linear-gradient(135deg, #CD7F32 0%, #B87333 100%)",
-            "#2a2a3e",  # 4th+ place color
-        ]
-
-        # Build pills for top 3
+        patch_name = top_5[0].get("patch_name", "")
         pills = []
         for idx in range(min(3, len(top_5))):
-            player_id, first_wins, second_wins = top_5[idx]
-            real_name = lookup.get(player_id, f"Player {player_id}")
-            real_name = real_name.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-
-            medal = medals[idx]
-            bg_color = colors[idx]
-
-            wins_text = f"{first_wins} Win{'s' if first_wins > 1 else ''}"
-            if second_wins > 0:
-                wins_text += f" (+{second_wins} 2nd)"
-
-            pill = f"""<div style="flex: 1; min-width: 110px; text-align: center; padding: 0.75rem; background: {bg_color}; border-radius: 7px; box-shadow: 0 1.5px 3px rgba(0,0,0,0.2);">
-    <div style="font-size: 1.5rem;">{medal}</div>
-    <div style="font-size: 0.85rem; font-weight: bold; color: #1a1a1a; margin: 0.375rem 0;">{real_name}</div>
-    <div style="font-size: 0.8rem; font-weight: bold; color: #333333;">{wins_text}</div>
-</div>"""
-            pills.append(pill)
-
-        # Build 4th pill for 4th and 5th place (if they exist)
+            p = top_5[idx]
+            name = _esc(p["real_name"])
+            fw, sw = p["first_wins"], p["second_wins"]
+            wins_text = f"{fw} Win{'s' if fw > 1 else ''}"
+            if sw > 0:
+                wins_text += f" (+{sw} 2nd)"
+            bg = _PILL_COLORS[idx]
+            pills.append(
+                f'<div style="flex: 1; min-width: 110px; text-align: center; padding: 0.75rem; background: {bg}; border-radius: 7px; box-shadow: 0 1.5px 3px rgba(0,0,0,0.2);">'
+                f'<div style="font-size: 1.5rem;">{_MEDAL_ICONS[idx]}</div>'
+                f'<div style="font-size: 0.85rem; font-weight: bold; color: #1a1a1a; margin: 0.375rem 0;">{name}</div>'
+                f'<div style="font-size: 0.8rem; font-weight: bold; color: #333333;">{wins_text}</div>'
+                "</div>"
+            )
         if len(top_5) >= 4:
-            remaining_html = ""
+            inner = ""
             for idx in range(3, min(5, len(top_5))):
-                player_id, first_wins, second_wins = top_5[idx]
-                real_name = lookup.get(player_id, f"Player {player_id}")
-                real_name = real_name.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-
-                wins_text = f"{first_wins} Win{'s' if first_wins > 1 else ''}"
-                if second_wins > 0:
-                    wins_text += f" (+{second_wins} 2nd)"
-
-                position_num = idx + 1
-                remaining_html += f"""<div style="margin-bottom: 0.5rem; padding: 0.5rem; background: rgba(255,255,255,0.05); border-radius: 5px;">
-    <div style="font-size: 0.85rem; color: #e0e0e0;"><strong>#{position_num}</strong> {real_name}</div>
-    <div style="font-size: 0.75rem; color: #a0a0a0;">{wins_text}</div>
-</div>"""
-
-            fourth_pill = f"""<div style="flex: 1; min-width: 110px; padding: 0.75rem; background: {colors[3]}; border-radius: 7px; box-shadow: 0 1.5px 3px rgba(0,0,0,0.2);">
-    {remaining_html}
-</div>"""
-            pills.append(fourth_pill)
-
-        # Join all pills together
+                p = top_5[idx]
+                name = _esc(p["real_name"])
+                fw, sw = p["first_wins"], p["second_wins"]
+                wins_text = f"{fw} Win{'s' if fw > 1 else ''}"
+                if sw > 0:
+                    wins_text += f" (+{sw} 2nd)"
+                inner += (
+                    f'<div style="margin-bottom: 0.5rem; padding: 0.5rem; background: rgba(255,255,255,0.05); border-radius: 5px;">'
+                    f'<div style="font-size: 0.85rem; color: #e0e0e0;"><strong>#{idx + 1}</strong> {name}</div>'
+                    f'<div style="font-size: 0.75rem; color: #a0a0a0;">{wins_text}</div>'
+                    "</div>"
+                )
+            pills.append(
+                f'<div style="flex: 1; min-width: 110px; padding: 0.75rem; background: {_PILL_COLORS[3]}; border-radius: 7px; box-shadow: 0 1.5px 3px rgba(0,0,0,0.2);">'
+                f"{inner}</div>"
+            )
         pills_html = "".join(pills)
-
-        # Build complete leaderboard HTML
-        leaderboard_html = f"""
-<div style="margin: 1.5rem 0; padding: 1.125rem; background: #1e1e2e; border-radius: 8px; box-shadow: 0 3px 4.5px rgba(0,0,0,0.3);">
-    <h3 style="margin: 0 0 0.75rem 0; color: #667eea; text-align: center; font-size: 1.1rem;">🏆 Patch {latest_patch} Leaderboard - Most First Place Finishes</h3>
-    <div style="display: flex; justify-content: space-around; flex-wrap: wrap; gap: 0.75rem;">
-        {pills_html}
-    </div>
-</div>
-"""
-
-        st.html(leaderboard_html)
-
+        st.html(
+            f'<div style="margin: 1.5rem 0; padding: 1.125rem; background: #1e1e2e; border-radius: 8px; box-shadow: 0 3px 4.5px rgba(0,0,0,0.3);">'
+            f'<h3 style="margin: 0 0 0.75rem 0; color: #667eea; text-align: center; font-size: 1.1rem;">🏆 Patch {_esc(patch_name)} Leaderboard - Most First Place Finishes</h3>'
+            f'<div style="display: flex; justify-content: space-around; flex-wrap: wrap; gap: 0.75rem;">{pills_html}</div>'
+            "</div>"
+        )
     except Exception:
-        # Silently fail if leaderboard can't be generated
         pass
 
 
-def render_league_standings(league, last_tourney_date, is_legend=False):
-    """Render standings for a single league in 4-pill layout."""
-    public = {"public": True} if not os.environ.get("HIDDEN_FEATURES") else {}
-    limit = 6 if is_legend else 4
+def render_legend_avg_wave_leaderboard(top_5: list[dict]) -> None:
+    """Render the Legend avg-wave leaderboard from pre-fetched data.
 
-    qs = TourneyResult.objects.filter(league=league, date=last_tourney_date, **public)
-    if not qs:
-        return None
+    Each item must have keys: ``real_name``, ``avg_wave``, ``tournaments``.
+    """
+    if not top_5:
+        return
+    try:
+        pills = []
+        for idx in range(min(3, len(top_5))):
+            p = top_5[idx]
+            name = _esc(p["real_name"])
+            avg_wave = p["avg_wave"]
+            tc = p["tournaments"]
+            bg = _PILL_COLORS[idx]
+            pills.append(
+                f'<div style="flex: 1; min-width: 110px; text-align: center; padding: 0.75rem; background: {bg}; border-radius: 7px; box-shadow: 0 1.5px 3px rgba(0,0,0,0.2);">'
+                f'<div style="font-size: 1.5rem;">{_MEDAL_ICONS[idx]}</div>'
+                f'<div style="font-size: 0.85rem; font-weight: bold; color: #1a1a1a; margin: 0.375rem 0;">{name}</div>'
+                f'<div style="font-size: 0.8rem; font-weight: bold; color: #333333;">{avg_wave:.1f} avg wave<br>'
+                f'<span style="font-size:0.8em; color:{bg}">({tc} tournaments)</span></div>'
+                "</div>"
+            )
+        if len(top_5) >= 4:
+            inner = ""
+            for idx in range(3, min(5, len(top_5))):
+                p = top_5[idx]
+                name = _esc(p["real_name"])
+                avg_wave = p["avg_wave"]
+                tc = p["tournaments"]
+                inner += (
+                    f'<div style="margin-bottom: 0.5rem; padding: 0.5rem; background: rgba(255,255,255,0.05); border-radius: 5px;">'
+                    f'<div style="font-size: 0.85rem; color: #e0e0e0;"><strong>#{idx + 1}</strong> {name}</div>'
+                    f'<div style="font-size: 0.75rem; color: #a0a0a0;">{avg_wave:.1f} avg wave '
+                    f'<span style="font-size:0.8em; color:#888">({tc} tournaments)</span></div>'
+                    "</div>"
+                )
+            pills.append(
+                f'<div style="flex: 1; min-width: 110px; padding: 0.75rem; background: {_PILL_COLORS[3]}; border-radius: 7px; box-shadow: 0 1.5px 3px rgba(0,0,0,0.2);">'
+                f"{inner}</div>"
+            )
+        pills_html = "".join(pills)
+        st.html(
+            '<div style="margin: 1.5rem 0; padding: 1.125rem; background: #1e1e2e; border-radius: 8px; box-shadow: 0 3px 4.5px rgba(0,0,0,0.3);">'
+            '<h3 style="margin: 0 0 0.75rem 0; color: #667eea; text-align: center; font-size: 1.1rem;">📈 Legend - Highest Average Wave (Latest Patch, min 2 tournaments)</h3>'
+            f'<div style="display: flex; justify-content: space-around; flex-wrap: wrap; gap: 0.75rem;">{pills_html}</div>'
+            "</div>"
+        )
+    except Exception:
+        pass
 
-    df = get_tourneys(qs, offset=0, limit=limit)
-    if df.empty:
-        return None
 
-    # Escape HTML in name columns
-    df = escape_df_html(df, ["real_name", "tourney_name"])
+def render_league_standings(league: str, players: list[dict], is_legend: bool = False) -> None:
+    """Render standings for a single league from pre-fetched data.
 
-    # Create league header (no date)
+    Each item in *players* must have keys: ``real_name``, ``wave``.
+    """
+    if not players:
+        return
+
     league_query = league.replace(" ", "%20")
-    league_header = f"""
-<div style="margin-top: 2rem; margin-bottom: 0.75rem;">
-    <h2 style="color: #667eea; border-bottom: 2px solid #667eea; padding-bottom: 0.5rem; font-size: 1.3rem;">
-        <a href="results?league={league_query}" target="_self" style="text-decoration: none; color: #667eea;">{league} 🔗</a>
-    </h2>
-</div>
-"""
-    st.markdown(league_header, unsafe_allow_html=True)
-
-    # Build HTML for pills
-    medals = ["🥇", "🥈", "🥉"]
-    colors = [
-        "linear-gradient(135deg, #FFD700 0%, #FFA500 100%)",
-        "linear-gradient(135deg, #C0C0C0 0%, #A8A8A8 100%)",
-        "linear-gradient(135deg, #CD7F32 0%, #B87333 100%)",
-        "#2a2a3e",
-    ]
+    st.markdown(
+        f'<div style="margin-top: 2rem; margin-bottom: 0.75rem;">'
+        f'<h2 style="color: #667eea; border-bottom: 2px solid #667eea; padding-bottom: 0.5rem; font-size: 1.3rem;">'
+        f'<a href="results?league={league_query}" target="_self" style="text-decoration: none; color: #667eea;">{_esc(league)} 🔗</a>'
+        "</h2></div>",
+        unsafe_allow_html=True,
+    )
 
     max_display = 5 if is_legend else 3
-
-    # Build pills for top 3
     pills = []
-    for idx in range(min(3, len(df))):
-        row = df.iloc[idx]
-        name = row["real_name"]
-        wave = row["wave"]
-        position = idx + 1
-
-        medal = medals[idx]
-        bg_color = colors[idx]
-
-        pill = f"""<div style="flex: 1; min-width: 110px; text-align: center; padding: 0.75rem; background: {bg_color}; border-radius: 7px; box-shadow: 0 1.5px 3px rgba(0,0,0,0.2);">
-    <div style="font-size: 1.5rem;">{medal}</div>
-    <div style="font-size: 0.85rem; font-weight: bold; color: #1a1a1a; margin: 0.375rem 0;">{name}</div>
-    <div style="font-size: 0.8rem; font-weight: bold; color: #333333;">Wave {wave}</div>
-</div>"""
-        pills.append(pill)
-
-    # Build 4th pill for remaining players (if they exist)
-    if len(df) >= 4:
-        remaining_html = ""
-        for idx in range(3, min(max_display, len(df))):
-            row = df.iloc[idx]
-            name = row["real_name"]
-            wave = row["wave"]
-            position = idx + 1
-
-            remaining_html += f"""<div style="margin-bottom: 0.5rem; padding: 0.5rem; background: rgba(255,255,255,0.05); border-radius: 5px;">
-    <div style="font-size: 0.85rem; color: #e0e0e0;"><strong>#{position}</strong> {name}</div>
-    <div style="font-size: 0.75rem; color: #a0a0a0;">Wave {wave}</div>
-</div>"""
-
-        fourth_pill = f"""<div style="flex: 1; min-width: 110px; padding: 0.75rem; background: {colors[3]}; border-radius: 7px; box-shadow: 0 1.5px 3px rgba(0,0,0,0.2);">
-    {remaining_html}
-</div>"""
-        pills.append(fourth_pill)
-
-    # Join all pills
+    for idx in range(min(3, len(players))):
+        p = players[idx]
+        name = _esc(p["real_name"])
+        wave = p["wave"]
+        bg = _PILL_COLORS[idx]
+        pills.append(
+            f'<div style="flex: 1; min-width: 110px; text-align: center; padding: 0.75rem; background: {bg}; border-radius: 7px; box-shadow: 0 1.5px 3px rgba(0,0,0,0.2);">'
+            f'<div style="font-size: 1.5rem;">{_MEDAL_ICONS[idx]}</div>'
+            f'<div style="font-size: 0.85rem; font-weight: bold; color: #1a1a1a; margin: 0.375rem 0;">{name}</div>'
+            f'<div style="font-size: 0.8rem; font-weight: bold; color: #333333;">Wave {wave}</div>'
+            "</div>"
+        )
+    if len(players) >= 4:
+        inner = ""
+        for idx in range(3, min(max_display, len(players))):
+            p = players[idx]
+            name = _esc(p["real_name"])
+            wave = p["wave"]
+            inner += (
+                f'<div style="margin-bottom: 0.5rem; padding: 0.5rem; background: rgba(255,255,255,0.05); border-radius: 5px;">'
+                f'<div style="font-size: 0.85rem; color: #e0e0e0;"><strong>#{idx + 1}</strong> {name}</div>'
+                f'<div style="font-size: 0.75rem; color: #a0a0a0;">Wave {wave}</div>'
+                "</div>"
+            )
+        pills.append(
+            f'<div style="flex: 1; min-width: 110px; padding: 0.75rem; background: {_PILL_COLORS[3]}; border-radius: 7px; box-shadow: 0 1.5px 3px rgba(0,0,0,0.2);">'
+            f"{inner}</div>"
+        )
     pills_html = "".join(pills)
-
-    # Build complete HTML
-    standings_html = f"""
-<div style="display: flex; justify-content: space-around; flex-wrap: wrap; gap: 0.75rem; margin-bottom: 1rem;">
-    {pills_html}
-</div>
-"""
-
-    st.html(standings_html)
+    st.html(f'<div style="display: flex; justify-content: space-around; flex-wrap: wrap; gap: 0.75rem; margin-bottom: 1rem;">{pills_html}</div>')
 
 
-def compute_overview(options: Options):
+def _load_overview_stats() -> tuple[Optional[dict], str]:
+    """Load overview stats from file cache.  On miss, attempt to regenerate.
+
+    Returns ``(stats_dict, source)`` where *source* is ``"cache"``,
+    ``"regenerated"``, or ``"db"`` (live DB fallback).
+    """
+    stats = read_overview_cache()
+    if stats:
+        return stats, "cache"
+
+    # Cache miss — try to build it now (first run after deploy, or after restart)
+    stats = regenerate_overview_cache()
+    if stats:
+        return stats, "regenerated"
+
+    # DJANGO_DATA not set or other failure — fall back to live DB queries
+    from collections import Counter, defaultdict
+
+    from thetower.backend.tourney_results.data import get_banned_ids, get_player_id_lookup, get_sus_ids
+    from thetower.backend.tourney_results.models import PatchNew, TourneyResult, TourneyRow
+
+    hidden_features = bool(os.environ.get("HIDDEN_FEATURES"))
+    public = {"public": True} if not hidden_features else {}
+    excluded = get_sus_ids() | get_banned_ids()
+    lookup = get_player_id_lookup()
+
+    try:
+        last_tourney_date = TourneyResult.objects.filter(**public).latest("date").date
+        last_tourney_date_iso = last_tourney_date.isoformat()
+    except TourneyResult.DoesNotExist:
+        return {}, "db"
+
+    # League standings
+    league_standings: dict = {}
+    for lg in leagues:
+        qs = TourneyResult.objects.filter(league=lg, date=last_tourney_date, **public)
+        if not qs.exists():
+            league_standings[lg] = []
+            continue
+        result = qs.first()
+        limit = 6 if lg == "Legend" else 4
+        rows = (
+            TourneyRow.objects.filter(result=result, position__gt=0)
+            .exclude(player_id__in=excluded)
+            .order_by("position")
+            .values("player_id", "nickname", "wave", "position")[:limit]
+        )
+        league_standings[lg] = [{"real_name": lookup.get(r["player_id"], r["nickname"]), "wave": r["wave"], "position": r["position"]} for r in rows]
+
+    # Patch leaderboard
+    patch_leaderboard: list = []
+    latest_patch = PatchNew.objects.order_by("-start_date").first()
+    if latest_patch:
+        tr = TourneyResult.objects.filter(date__gte=latest_patch.start_date, date__lte=latest_patch.end_date, **public)
+        fp = Counter(TourneyRow.objects.filter(result__in=tr, position=1).exclude(player_id__in=excluded).values_list("player_id", flat=True))
+        sp = Counter(TourneyRow.objects.filter(result__in=tr, position=2).exclude(player_id__in=excluded).values_list("player_id", flat=True))
+        stats_list = sorted([(pid, c, sp.get(pid, 0)) for pid, c in fp.items()], key=lambda x: (x[1], x[2]), reverse=True)
+        patch_leaderboard = [
+            {"real_name": lookup.get(pid, f"Player {pid}"), "first_wins": fw, "second_wins": sw, "patch_name": str(latest_patch)}
+            for pid, fw, sw in stats_list[:5]
+        ]
+
+    # Legend avg wave
+    legend_avg: list = []
+    if latest_patch:
+        tr_leg = TourneyResult.objects.filter(date__gte=latest_patch.start_date, date__lte=latest_patch.end_date, league="Legend", **public)
+        rows_leg = TourneyRow.objects.filter(result__in=tr_leg).exclude(player_id__in=excluded).values_list("player_id", "wave", "result_id")
+        pw: dict = defaultdict(list)
+        tids: set = set()
+        for pid, wave, rid in rows_leg:
+            pw[pid].append(wave)
+            tids.add(rid)
+        mt = len(tids)
+        avgs = sorted([(pid, sum(wvs) / len(wvs), len(wvs)) for pid, wvs in pw.items() if len(wvs) == mt], key=lambda x: (x[1], x[2]), reverse=True)
+        legend_avg = [{"real_name": lookup.get(pid, f"Player {pid}"), "avg_wave": round(avg, 2), "tournaments": tc} for pid, avg, tc in avgs[:5]]
+
+    return {
+        "last_tourney_date": last_tourney_date_iso,
+        "league_standings": league_standings,
+        "patch_leaderboard": patch_leaderboard,
+        "legend_avg_wave_leaderboard": legend_avg,
+    }, "db"
+
+
+def compute_overview(options: Options) -> None:
     print("overview")
 
     # Load custom CSS
@@ -480,59 +431,54 @@ def compute_overview(options: Options):
     # Display logo header with top anchor
     logo_path = Path(__file__).parent.parent / "static" / "images" / "TT.png"
     if logo_path.exists():
-        # Center the logo image and add top anchor
         col1, col2, col3 = st.columns([1, 2, 1])
         with col2:
             st.markdown("<a id='top'></a>", unsafe_allow_html=True)
             st.image(str(logo_path), width=400, use_container_width=False)
 
-    # Render tournament countdown
+    # Load all stats from cache (or regenerate / fall back to DB)
+    stats, stats_source = _load_overview_stats()
+
+    # Render tournament countdown (fast — just timezone math + 1 lightweight DB query)
     render_tournament_countdown()
-    # Add jump link above patch leaderboard
     st.markdown(
-        """
-<div style='text-align: center; margin: 0.5rem 0 1.2rem 0;'>
-    <a href='#league-results' style='font-size: 0.92rem; color: #ffd700; text-decoration: underline;'>↓ Jump to League Results</a>
-</div>
-""",
+        "<div style='text-align: center; margin: 0.5rem 0 1.2rem 0;'>"
+        "<a href='#league-results' style='font-size: 0.92rem; color: #ffd700; text-decoration: underline;'>↓ Jump to League Results</a>"
+        "</div>",
         unsafe_allow_html=True,
     )
-    # Render patch leaderboard
-    render_patch_leaderboard()
 
-    # Get latest tournament date
+    render_patch_leaderboard(stats.get("patch_leaderboard", []))
+
+    # Overview text for Legend (single lightweight query, not in cache)
+    from thetower.backend.tourney_results.models import TourneyResult
+
     public = {"public": True} if not os.environ.get("HIDDEN_FEATURES") else {}
-    last_tourney = TourneyResult.objects.filter(**public).latest("date")
-    last_tourney_date = last_tourney.date
+    try:
+        if overview_text := TourneyResult.objects.filter(league=legend, **public).latest("date").overview:
+            st.markdown(overview_text, unsafe_allow_html=True)
+    except Exception:
+        pass
 
-    # Show overview text if available
-    if overview := TourneyResult.objects.filter(league=legend, **public).latest("date").overview:
-        st.markdown(overview, unsafe_allow_html=True)
+    render_legend_avg_wave_leaderboard(stats.get("legend_avg_wave_leaderboard", []))
 
-    # Render Legend average wave leaderboard (latest patch)
-    render_legend_avg_wave_leaderboard()
-    # Add divider for results date
-    results_date_str = last_tourney_date.strftime("%A, %B %d, %Y") if hasattr(last_tourney_date, "strftime") else str(last_tourney_date)
+    last_tourney_date_str = stats.get("last_tourney_date", "")
     st.markdown(
-        f"""
-<a id=\"league-results\"></a>
-<div style='margin: 2.5rem 0 1.5rem 0; text-align: center;'>
-    <span style='font-size: 1.25rem; color: #667eea; font-weight: 600;'>Results for {results_date_str}</span>
-</div>
-""",
+        f"<a id='league-results'></a>"
+        f"<div style='margin: 2.5rem 0 1.5rem 0; text-align: center;'>"
+        f"<span style='font-size: 1.25rem; color: #667eea; font-weight: 600;'>Results for {_esc(last_tourney_date_str)}</span>"
+        "</div>",
         unsafe_allow_html=True,
     )
-    # Render Legend standings first (top 5)
-    render_league_standings(legend, last_tourney_date, is_legend=True)
 
-    # Render Champion through Copper leagues in two columns
+    league_standings = stats.get("league_standings", {})
+    render_league_standings(legend, league_standings.get(legend, []), is_legend=True)
+
     other_leagues = leagues[1:]
-    # Add a spacer column for more gap
     col1, spacer, col2 = st.columns([1, 0.15, 1])
-    # Render leagues in original order, alternating columns
-    for idx, league in enumerate(other_leagues):
+    for idx, lg in enumerate(other_leagues):
         with col1 if idx % 2 == 0 else col2:
-            render_league_standings(league, last_tourney_date, is_legend=False)
+            render_league_standings(lg, league_standings.get(lg, []), is_legend=False)
 
 
 options = Options(links_toggle=False, default_graph=Graph.last_16.value, average_foreground=True)
