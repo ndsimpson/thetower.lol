@@ -7,9 +7,11 @@ Gracefully handles Windows development environments.
 
 import os
 import platform
+import shutil
 import subprocess
 from datetime import datetime, timezone
-from typing import Dict, List, Tuple
+from pathlib import Path
+from typing import Dict, List, Optional, Tuple
 
 import streamlit as st
 
@@ -221,6 +223,74 @@ def is_development_mode() -> bool:
     return os.path.exists(os.path.join(cwd, ".git")) or os.path.exists(os.path.join(os.path.dirname(cwd), ".git"))
 
 
+def format_bytes(size: int) -> str:
+    """Format a byte count as a human-readable string."""
+    for unit in ["B", "KB", "MB", "GB", "TB"]:
+        if size < 1024.0:
+            return f"{size:.1f} {unit}"
+        size /= 1024.0
+    return f"{size:.1f} PB"
+
+
+def _dir_size(path: str) -> Optional[int]:
+    """Return the total size in bytes of all files under path, or None on error."""
+    try:
+        total = 0
+        for dirpath, _dirnames, filenames in os.walk(path):
+            for filename in filenames:
+                try:
+                    total += os.path.getsize(os.path.join(dirpath, filename))
+                except OSError:
+                    pass
+        return total
+    except OSError:
+        return None
+
+
+def get_storage_info(data_dir: Optional[str], csv_data_dir: Optional[str] = None) -> Dict[str, any]:
+    """Return storage metrics for the given data directories."""
+    info: Dict[str, any] = {
+        "data_dir": data_dir,
+        "data_dir_exists": False,
+        "db_size": None,
+        "data_dir_size": None,
+        "csv_data_dir": csv_data_dir,
+        "csv_data_dir_size": None,
+        "free_disk": None,
+        "total_disk": None,
+        "error": None,
+    }
+
+    if not data_dir or not os.path.exists(data_dir):
+        info["error"] = f"Data directory not found: {data_dir or '(DJANGO_DATA not set)'}"
+        return info
+
+    info["data_dir_exists"] = True
+
+    try:
+        usage = shutil.disk_usage(data_dir)
+        info["free_disk"] = usage.free
+        info["total_disk"] = usage.total
+    except OSError as exc:
+        info["error"] = str(exc)
+
+    db_path = Path(data_dir) / "tower.sqlite3"
+    if db_path.exists():
+        try:
+            info["db_size"] = db_path.stat().st_size
+        except OSError:
+            pass
+
+    info["data_dir_size"] = _dir_size(data_dir)
+    if info["data_dir_size"] is None and not info["error"]:
+        info["error"] = f"Could not calculate size of {data_dir}"
+
+    if csv_data_dir and os.path.exists(csv_data_dir):
+        info["csv_data_dir_size"] = _dir_size(csv_data_dir)
+
+    return info
+
+
 def codebase_status_page():
     """Main codebase status page component."""
     st.title("📋 Codebase Status")
@@ -249,6 +319,63 @@ def codebase_status_page():
     with col2:
         utc_time = datetime.now(timezone.utc).strftime("%H:%M:%S")
         st.markdown(f"*Last updated: {utc_time} UTC*")
+
+    st.markdown("---")
+
+    # Storage Section
+    st.markdown("## 💾 Storage")
+
+    data_dir = os.getenv("DJANGO_DATA")
+    csv_data_dir = os.getenv("CSV_DATA")
+    storage = get_storage_info(data_dir, csv_data_dir)
+
+    if not storage["data_dir_exists"]:
+        st.warning(f"⚠️ {storage['error']}")
+    else:
+        col1, col2, col3, col4 = st.columns(4)
+
+        with col1:
+            if storage["free_disk"] is not None:
+                pct_used = (storage["total_disk"] - storage["free_disk"]) / storage["total_disk"] * 100
+                st.metric(
+                    "Free Disk Space",
+                    format_bytes(storage["free_disk"]),
+                    help=f"Total: {format_bytes(storage['total_disk'])} — {pct_used:.1f}% used",
+                )
+            else:
+                st.metric("Free Disk Space", "N/A")
+
+        with col2:
+            if storage["db_size"] is not None:
+                st.metric("DB Size", format_bytes(storage["db_size"]), help="tower.sqlite3")
+            else:
+                st.metric("DB Size", "Not found")
+
+        with col3:
+            if storage["data_dir_size"] is not None:
+                st.metric(
+                    "DJANGO_DATA",
+                    format_bytes(storage["data_dir_size"]),
+                    help=f"Path: {data_dir}",
+                )
+            else:
+                st.metric("DJANGO_DATA", "N/A")
+
+        with col4:
+            if csv_data_dir:
+                if storage["csv_data_dir_size"] is not None:
+                    st.metric(
+                        "CSV_DATA",
+                        format_bytes(storage["csv_data_dir_size"]),
+                        help=f"Path: {csv_data_dir}",
+                    )
+                else:
+                    st.metric("CSV_DATA", "Not found", help=f"Path: {csv_data_dir} (directory missing)")
+            else:
+                st.metric("CSV_DATA", "N/A", help="CSV_DATA env var not set")
+
+        if storage["error"]:
+            st.warning(f"⚠️ Partial storage info: {storage['error']}")
 
     st.markdown("---")
 
