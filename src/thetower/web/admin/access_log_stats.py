@@ -12,7 +12,14 @@ import pandas as pd
 import plotly.express as px
 import streamlit as st
 
-from thetower.web.admin._access_log_common import all_paths_for_dates, catalog_files, get_log_dir, parse_files
+from thetower.web.admin._access_log_common import (
+    all_paths_for_dates,
+    catalog_files,
+    catalog_render_files,
+    get_log_dir,
+    parse_files,
+    parse_render_files,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -67,11 +74,19 @@ if not rows:
     st.stop()
 
 df = pd.DataFrame(rows)
-for col in ["dt", "site", "ip", "path", "qs", "ctx"]:
+for col in ["dt", "site", "ip", "path", "qs", "ctx", "render_id"]:
     if col not in df.columns:
         df[col] = "-"
 df["ip"] = df["ip"].str.strip()
 df["path"] = df["path"].str.strip()
+df["render_id"] = df["render_id"].str.strip()
+
+# Load render timing data for the same date range
+render_catalog = catalog_render_files(log_dir)
+render_paths = all_paths_for_dates(render_catalog, selected_dates)
+with st.spinner("Loading render timing data…"):
+    render_rows = parse_render_files(render_paths)
+df_render = pd.DataFrame(render_rows) if render_rows else pd.DataFrame(columns=["render_id", "dt", "elapsed_ms"])
 
 # Parse timestamps
 df["timestamp"] = pd.to_datetime(df["dt"], format="%Y-%m-%d %H:%M:%S UTC", utc=True, errors="coerce")
@@ -109,7 +124,7 @@ st.divider()
 # ---------------------------------------------------------------------------
 # Tabs
 # ---------------------------------------------------------------------------
-tab_time, tab_pages, tab_ips = st.tabs(["📅 Over Time", "📄 By Page", "🌐 By IP"])
+tab_time, tab_pages, tab_ips, tab_render = st.tabs(["📅 Over Time", "📄 By Page", "🌐 By IP", "⚡ Render Time"])
 
 # ── Over Time ───────────────────────────────────────────────────────────────
 with tab_time:
@@ -189,3 +204,54 @@ with tab_ips:
         ip_df = df[df["ip"] == selected_ip].groupby("path").size().reset_index(name="Requests")
         ip_df = ip_df.sort_values("Requests", ascending=False)
         st.dataframe(ip_df, use_container_width=True, hide_index=True)
+
+# ── Render Time ─────────────────────────────────────────────────────────────────────────────
+with tab_render:
+    if df_render.empty:
+        st.info("No render timing data in the selected date range. Timing data is collected from version X onwards.")
+    else:
+        # Join render data to access log on render_id to get page paths
+        df_access_ids = df[["render_id", "path"]].copy()
+        df_access_ids = df_access_ids[df_access_ids["render_id"] != "-"]
+        df_joined = df_render.merge(df_access_ids, on="render_id", how="left")
+        df_joined["path"] = df_joined["path"].fillna("unknown")
+
+        st.caption(f"**{len(df_render):,} render timing entries** in selected range")
+
+        # — Avg render time by page —
+        st.subheader("Average render time by page")
+        col_n_r, col_sort_r = st.columns([1, 1])
+        top_n_r = col_n_r.slider("Show top N pages", min_value=5, max_value=50, value=20, step=5, key="render_top_n")
+        sort_r = col_sort_r.radio("Sort by", ["Avg ms (slowest first)", "Page"], horizontal=True, key="render_sort")
+
+        page_stats = (
+            df_joined.groupby("path")["elapsed_ms"]
+            .agg(Renders="count", Avg="mean", p50="median", p95=lambda x: x.quantile(0.95), p99=lambda x: x.quantile(0.99))
+            .reset_index()
+            .rename(columns={"path": "Page"})
+        )
+        page_stats[["Avg", "p50", "p95", "p99"]] = page_stats[["Avg", "p50", "p95", "p99"]].round(0).astype(int)
+
+        if sort_r == "Avg ms (slowest first)":
+            top_pages_r = page_stats.sort_values("Avg", ascending=False).head(top_n_r)
+        else:
+            top_pages_r = page_stats.sort_values("Page").head(top_n_r)
+
+        fig_render = px.bar(
+            top_pages_r.sort_values("Avg"),
+            x="Avg",
+            y="Page",
+            orientation="h",
+            title=f"Top {top_n_r} Pages — Avg Render Time (ms)",
+            labels={"Avg": "Avg ms"},
+        )
+        fig_render.update_layout(height=max(300, top_n_r * 22))
+        st.plotly_chart(fig_render, use_container_width=True)
+
+        # — Percentile table —
+        st.subheader("Render time percentiles by page")
+        st.dataframe(
+            page_stats.sort_values("Avg", ascending=False).rename(columns={"Avg": "Avg ms", "p50": "p50 ms", "p95": "p95 ms", "p99": "p99 ms"}),
+            use_container_width=True,
+            hide_index=True,
+        )

@@ -1,5 +1,6 @@
 # Standard library imports
 import os
+import time
 from importlib.metadata import version
 from pathlib import Path
 
@@ -9,7 +10,7 @@ import streamlit as st
 
 from thetower.backend.tourney_results.constants import Graph, Options
 from thetower.web.maintenance import get_maintenance_state
-from thetower.web.request_logger import log_request
+from thetower.web.request_logger import log_render_complete, log_request
 from thetower.web.util import makeitrain
 
 # Django setup
@@ -52,17 +53,6 @@ with st.sidebar:
         </div>""",
         unsafe_allow_html=True,
     )
-
-    # Show package version in sidebar
-    try:
-        pkg_version = version("thetower")
-        prefix = "🔧 " if hidden_features else ""
-        st.markdown(
-            f'<div style="text-align:center; font-size:0.75em; color:#888888; margin-bottom:0.5em;">{prefix}Version: {pkg_version}</div>',
-            unsafe_allow_html=True,
-        )
-    except Exception:
-        pass
 
 options = Options(links_toggle=True, default_graph=Graph.last_16.value, average_foreground=True)
 
@@ -184,5 +174,18 @@ st.html(
 """
 )
 
-log_request()
+_path, _render_id = log_request()
+_render_start = time.perf_counter()
 pg.run()
+_elapsed_ms = int((time.perf_counter() - _render_start) * 1000)
+log_render_complete(_render_id, _elapsed_ms)
+try:
+    _pkg_version = version("thetower")
+    _prefix = "🔧 " if hidden_features else ""
+    _version_line = f"{_prefix}Version: {_pkg_version} &nbsp;·&nbsp; ⚡ {_elapsed_ms} ms"
+except Exception:
+    _version_line = f"⚡ {_elapsed_ms} ms"
+st.sidebar.markdown(
+    f'<div style="text-align:center; font-size:0.75em; color:#888888; margin-bottom:0.5em;">{_version_line}</div>',
+    unsafe_allow_html=True,
+)

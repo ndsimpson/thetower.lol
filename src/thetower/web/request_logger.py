@@ -3,11 +3,16 @@ Basic web request logger for the Streamlit site.
 
 Logs each unique page visit (by URL path) to a rotating access log file.
 Only logs once per URL per session to avoid spamming on Streamlit re-runs.
+
+Render timing is tracked via a separate web_render.log file.  Each access
+log entry includes a render_id (16-char hex) that links to the matching
+render timing entry.  Use log_render_complete() after pg.run() to write it.
 """
 
 import logging
 import logging.handlers
 import os
+import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urlparse
@@ -16,7 +21,9 @@ import streamlit as st
 import streamlit.runtime.scriptrunner as _scriptrunner
 
 logger = logging.getLogger("web.access")
+_render_logger = logging.getLogger("web.render")
 _configured = False
+_render_configured = False
 
 # Module-level dedup: {session_id: last_logged_url}
 # Keyed by Streamlit session ID so it works across both script runs per navigation,
@@ -30,6 +37,23 @@ def _get_session_id() -> str:
         return ctx.session_id if ctx else "unknown"
     except Exception:
         return "unknown"
+
+
+def _make_rotating_handler(log_file: Path) -> logging.handlers.TimedRotatingFileHandler:
+    """Return a hourly-rotating file handler with our custom suffix format."""
+    import re as _re
+
+    handler = logging.handlers.TimedRotatingFileHandler(
+        log_file,
+        when="h",
+        backupCount=720,  # keep 30 days × 24 hours
+        encoding="utf-8",
+        utc=True,
+    )
+    handler.suffix = "%Y-%m-%d_%H"
+    handler.extMatch = _re.compile(r"^\d{4}-\d{2}-\d{2}_\d{2}$", _re.ASCII)
+    handler.setFormatter(logging.Formatter("%(message)s"))
+    return handler
 
 
 def _setup_logger() -> None:
@@ -46,23 +70,30 @@ def _setup_logger() -> None:
     except Exception:
         log_file = Path("web_access.log")
 
-    handler = logging.handlers.TimedRotatingFileHandler(
-        log_file,
-        when="h",
-        backupCount=720,  # keep 30 days × 24 hours
-        encoding="utf-8",
-        utc=True,
-    )
-    handler.suffix = "%Y-%m-%d_%H"  # rotated files: web_access.log.2026-03-21_14
-    # Override extMatch so backupCount cleanup recognises our custom suffix format
-    import re as _re
-
-    handler.extMatch = _re.compile(r"^\d{4}-\d{2}-\d{2}_\d{2}$", _re.ASCII)
-    handler.setFormatter(logging.Formatter("%(message)s"))
-    logger.addHandler(handler)
+    logger.addHandler(_make_rotating_handler(log_file))
     logger.setLevel(logging.INFO)
     logger.propagate = False
     _configured = True
+
+
+def _setup_render_logger() -> None:
+    global _render_configured
+    if _render_configured:
+        return
+
+    try:
+        from thetower.backend.env_config import get_csv_data
+
+        log_dir = Path(get_csv_data()) / "web_logs"
+        log_dir.mkdir(exist_ok=True)
+        log_file = log_dir / "web_render.log"
+    except Exception:
+        log_file = Path("web_render.log")
+
+    _render_logger.addHandler(_make_rotating_handler(log_file))
+    _render_logger.setLevel(logging.INFO)
+    _render_logger.propagate = False
+    _render_configured = True
 
 
 def _get_page_context(path: str) -> str:
@@ -110,12 +141,18 @@ def _get_client_ip() -> str:
     return "unknown"
 
 
-def log_request() -> None:
+def log_request() -> tuple[str, str]:
     """Log a web request, skipping duplicate logs within the same session.
 
     Should be called once per page run, just before pg.run() in pages.py.
     Uses a module-level dict keyed by Streamlit session ID to deduplicate across
     both script runs that Streamlit performs per navigation event.
+
+    Returns (path, render_id).  render_id is a 16-char hex token written as the
+    7th field of the access log line; pass it to log_render_complete() after
+    pg.run() to link the render timing back to this visit.  On a dedup'd run
+    (second script execution for the same navigation), render_id is "" — callers
+    should skip log_render_complete() in that case.
     """
     _setup_logger()
 
@@ -129,13 +166,15 @@ def log_request() -> None:
             path = "/"
         current_url = path
 
+    render_id = secrets.token_hex(8)
+
     site = "hidden" if os.environ.get("HIDDEN_FEATURES") else "public"
     ctx = _get_page_context(path)
 
     session_id = _get_session_id()
     dedup_key = f"{current_url}|{ctx}"
     if _session_last_url.get(session_id) == dedup_key:
-        return
+        return path, ""
     _session_last_url[session_id] = dedup_key
 
     try:
@@ -147,4 +186,19 @@ def log_request() -> None:
     now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
     qs = "&".join(f"{k}={v}" for k, v in query_params.items()) if query_params else "-"
 
-    logger.info("%s | %-6s | %-15s | %s | %s | %s", now, site, ip, path, qs, ctx)
+    logger.info("%s | %-6s | %-15s | %s | %s | %s | %s", now, site, ip, path, qs, ctx, render_id)
+    return path, render_id
+
+
+def log_render_complete(render_id: str, elapsed_ms: int) -> None:
+    """Write a render-timing entry to web_render.log.
+
+    Call this after pg.run() in pages.py, passing the render_id returned by
+    log_request() and the elapsed milliseconds.  No-ops silently when render_id
+    is empty (i.e. the visit was dedup'd and no access log entry was written).
+    """
+    if not render_id:
+        return
+    _setup_render_logger()
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+    _render_logger.info("%s | %s | %d", render_id, now, elapsed_ms)
