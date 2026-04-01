@@ -52,6 +52,7 @@ def live_results():
     # Compute position deltas vs. the prior checkpoint snapshot
     sorted_datetimes = sorted(df["datetime"].unique(), reverse=True)
     prior_positions: dict[str, int] = {}
+    prior_waves: dict[str, int] = {}
     prior_joined_ids: set[str] = set()
     if len(sorted_datetimes) >= 2:
         prior_moment = sorted_datetimes[1]
