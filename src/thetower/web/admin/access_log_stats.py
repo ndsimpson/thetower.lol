@@ -6,7 +6,7 @@ Supports filtering by date range, IP, and path before aggregation.
 """
 
 import logging
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 
 import pandas as pd
 import plotly.express as px
@@ -43,34 +43,71 @@ if not catalog:
 available_dates = list(catalog.keys())  # newest first
 min_date, max_date = min(available_dates), max(available_dates)
 
-# ---------------------------------------------------------------------------
-# Date range selector
-# ---------------------------------------------------------------------------
-with st.expander("Date Range (UTC)", expanded=True):
-    col1, col2 = st.columns(2)
-    start_date = col1.date_input("From", value=max(min_date, max_date - timedelta(days=6)), min_value=min_date, max_value=max_date)
-    end_date = col2.date_input("To", value=max_date, min_value=min_date, max_value=max_date)
+_now_utc = datetime.now(timezone.utc)
 
-    if end_date < start_date:
-        st.warning("End date is before start date.")
+# ---------------------------------------------------------------------------
+# Quick presets
+# ---------------------------------------------------------------------------
+_PRESETS = [
+    ("1h", timedelta(hours=1)),
+    ("6h", timedelta(hours=6)),
+    ("12h", timedelta(hours=12)),
+    ("24h", timedelta(hours=24)),
+    ("3d", timedelta(days=3)),
+    ("7d", timedelta(days=7)),
+]
+
+if "stats_preset" not in st.session_state:
+    st.session_state.stats_preset = None
+
+preset_cols = st.columns(len(_PRESETS) + 1)
+for _i, (_label, _) in enumerate(_PRESETS):
+    if preset_cols[_i].button(f"Last {_label}", use_container_width=True):
+        st.session_state.stats_preset = _label
+if preset_cols[-1].button("Clear", use_container_width=True):
+    st.session_state.stats_preset = None
+
+_cutoff: datetime | None = None
+
+if st.session_state.stats_preset:
+    _delta = next(d for lbl, d in _PRESETS if lbl == st.session_state.stats_preset)
+    _cutoff = _now_utc - _delta
+    selected_dates = [d for d in available_dates if _cutoff.date() <= d <= max_date]
+    start_date, end_date = _cutoff.date(), max_date
+    start_hour, end_hour = 0, 23
+    st.caption(f"⏱️ Showing last **{st.session_state.stats_preset}** — click **Clear** to switch to manual range")
+    if not selected_dates:
+        st.info("No log files in the selected range.")
         st.stop()
+else:
+    # ---------------------------------------------------------------------------
+    # Date range selector
+    # ---------------------------------------------------------------------------
+    with st.expander("Date Range (UTC)", expanded=True):
+        col1, col2 = st.columns(2)
+        start_date = col1.date_input("From", value=max(min_date, max_date - timedelta(days=6)), min_value=min_date, max_value=max_date)
+        end_date = col2.date_input("To", value=max_date, min_value=min_date, max_value=max_date)
 
-    col_mode, col_h1, col_h2 = st.columns([1, 1, 1])
-    hour_mode = col_mode.radio("Hours", ["Full day", "Hour range"], horizontal=True)
-    if hour_mode == "Hour range":
-        start_hour = col_h1.selectbox("From hour (UTC)", list(range(24)), index=0, format_func=lambda h: f"{h:02d}:00")
-        end_hour = col_h2.selectbox("To hour (UTC)", list(range(24)), index=23, format_func=lambda h: f"{h:02d}:59")
-        if end_hour < start_hour:
-            st.warning("End hour is before start hour — showing full day instead.")
+        if end_date < start_date:
+            st.warning("End date is before start date.")
+            st.stop()
+
+        col_mode, col_h1, col_h2 = st.columns([1, 1, 1])
+        hour_mode = col_mode.radio("Hours", ["Full day", "Hour range"], horizontal=True)
+        if hour_mode == "Hour range":
+            start_hour = col_h1.selectbox("From hour (UTC)", list(range(24)), index=0, format_func=lambda h: f"{h:02d}:00")
+            end_hour = col_h2.selectbox("To hour (UTC)", list(range(24)), index=23, format_func=lambda h: f"{h:02d}:59")
+            if end_hour < start_hour:
+                st.warning("End hour is before start hour — showing full day instead.")
+                start_hour, end_hour = 0, 23
+        else:
             start_hour, end_hour = 0, 23
-    else:
-        start_hour, end_hour = 0, 23
 
-selected_dates = [d for d in available_dates if start_date <= d <= end_date]
+    selected_dates = [d for d in available_dates if start_date <= d <= end_date]
 
-if not selected_dates:
-    st.info("No log files in the selected date range.")
-    st.stop()
+    if not selected_dates:
+        st.info("No log files in the selected date range.")
+        st.stop()
 
 # ---------------------------------------------------------------------------
 # Load + parse all files in range
@@ -105,8 +142,13 @@ df = df.dropna(subset=["timestamp"])
 df["date"] = df["timestamp"].dt.date
 df["hour"] = df["timestamp"].dt.floor("h")
 
-# Apply hour-of-day filter
-if start_hour != 0 or end_hour != 23:
+# Apply quick preset cutoff or hour-of-day filter
+if _cutoff is not None:
+    df = df[df["timestamp"] >= _cutoff]
+    if not df_render.empty:
+        df_render["timestamp"] = pd.to_datetime(df_render["dt"], format="%Y-%m-%d %H:%M:%S UTC", utc=True, errors="coerce")
+        df_render = df_render[df_render["timestamp"] >= _cutoff].drop(columns=["timestamp"])
+elif start_hour != 0 or end_hour != 23:
     df = df[df["timestamp"].dt.hour.between(start_hour, end_hour)]
     if not df_render.empty:
         df_render["timestamp"] = pd.to_datetime(df_render["dt"], format="%Y-%m-%d %H:%M:%S UTC", utc=True, errors="coerce")
