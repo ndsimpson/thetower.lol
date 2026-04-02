@@ -27,11 +27,8 @@ def setup_common_ui(show_league_selector: bool = True):
     # Check if we have a player_id in query params
     if player_id := options.current_player_id:
         # Get league directly without showing selector
-        league = get_league_for_player(player_id)
-        if league:
-            st.session_state.selected_league = league
-        else:
-            st.session_state.selected_league = "Legend"  # Default if not found
+        league = get_league_for_player(player_id) or "Legend"
+        st.session_state.selected_league = league
     else:
         # Either show the selector or use existing/default league without rendering
         if show_league_selector:
