@@ -493,6 +493,7 @@ def bundle_tourney_to_raw(group: list[Path], raw_path: Path) -> Path:
         with tarfile.open(tmp_path, "w") as tf:
             for snap in group:
                 tf.add(snap, arcname=snap.name)
+        os.chmod(tmp_path, 0o644)
         os.replace(tmp_path, tar_path)
         logger.info(f"Bundled {len(group)} snapshots to {tar_path}")
     except Exception:
@@ -517,6 +518,7 @@ def _atomic_write(df: pd.DataFrame, path: Path) -> None:
 
         os.close(tmp_fd)
         df.to_csv(tmp_path, index=False, compression="gzip")
+        os.chmod(tmp_path, 0o644)
         shutil.move(tmp_path, path)
         logger.info(f"Wrote archive to {path} ({len(df):,} delta rows)")
     except Exception:
