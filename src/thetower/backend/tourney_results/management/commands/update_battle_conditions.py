@@ -101,7 +101,7 @@ class Command(BaseCommand):
             total_count += 1
             tourney_date = datetime.combine(tournament.date, datetime.min.time()).replace(tzinfo=ZoneInfo("UTC"))
 
-            tourney_id, _, _ = TournamentPredictor.get_tournament_info(tourney_date)
+            tourney_id, _, _, _ = TournamentPredictor.get_tournament_info(tourney_date)
             predicted_conditions = set(predict_future_tournament(tourney_id, tournament.league))
             existing_conditions = set(tournament.conditions.values_list("name", flat=True))
 

@@ -79,7 +79,7 @@ def execute():
         conditions = []
         if TOWERBCS_AVAILABLE:
             try:
-                tourney_id, tourney_date, days_until = TournamentPredictor.get_tournament_info(last_date)
+                tourney_id, tourney_date, days_until, _ = TournamentPredictor.get_tournament_info(last_date)
                 conditions = predict_future_tournament(tourney_id, league)
                 logging.info(f"Predicted {len(conditions)} battle conditions for {league}")
             except Exception as e:

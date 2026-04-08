@@ -29,7 +29,7 @@ if not TOWERBCS_AVAILABLE:
     st.markdown("The `towerbcs` package is not installed. To use battle conditions prediction, install it with: `pip install -e /path/to/towerbcs`")
     st.stop()
 
-tourney_id, tourney_date, days_until = TournamentPredictor.get_tournament_info()
+tourney_id, tourney_date, days_until, _ = TournamentPredictor.get_tournament_info()
 
 # BCs are revealed this many days before the tournament
 BC_DAYS_EARLY = 1

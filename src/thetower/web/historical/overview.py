@@ -43,7 +43,7 @@ def render_tournament_countdown():
         return
 
     try:
-        tourney_id, tourney_date, days_until = TournamentPredictor.get_tournament_info()
+        tourney_id, tourney_date, days_until, _ = TournamentPredictor.get_tournament_info()
 
         # Get battle conditions for Legend league if available
         bcs_html = ""

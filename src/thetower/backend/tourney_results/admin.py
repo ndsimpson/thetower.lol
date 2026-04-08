@@ -133,7 +133,7 @@ def regenerate_battle_conditions(modeladmin, request, queryset):
         try:
             # Get tournament ID from date
             tourney_date = datetime.combine(tournament.date, datetime.min.time()).replace(tzinfo=ZoneInfo("UTC"))
-            tourney_id, _, _ = TournamentPredictor.get_tournament_info(tourney_date)
+            tourney_id, _, _, _ = TournamentPredictor.get_tournament_info(tourney_date)
 
             # Predict conditions
             predicted_conditions = set(predict_future_tournament(tourney_id, tournament.league))
@@ -322,7 +322,7 @@ class TourneyResultAdmin(SimpleHistoryAdmin):
             from zoneinfo import ZoneInfo
 
             tourney_date = datetime.combine(obj.date, datetime.min.time()).replace(tzinfo=ZoneInfo("UTC"))
-            tourney_id, _, _ = TournamentPredictor.get_tournament_info(tourney_date)
+            tourney_id, _, _, _ = TournamentPredictor.get_tournament_info(tourney_date)
 
             # Predict conditions
             predicted_conditions = set(predict_future_tournament(tourney_id, obj.league))
