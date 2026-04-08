@@ -49,6 +49,8 @@ def compute_comparison(player_id=None, canvas=st):
             # Override the league selection default to match the player's actual league
             if bracket_league:
                 st.session_state.selected_league = bracket_league
+                # Also set the radio widget's key so the sidebar shows the correct selection
+                st.session_state["league_selector"] = bracket_league
 
     with st.sidebar:
         show_legend = st.checkbox("Show legend", key="show_legend", value=True)
