@@ -282,4 +282,88 @@ def update_package_sync(package_name: str, target_version: Optional[str] = None,
         return result
     except Exception as e:
         return {"success": False, "message": str(e), "new_version": None}
-        return {"success": False, "message": str(e), "new_version": None}
+
+
+def sync_dependencies(package_name: str = "thetower", extras: Optional[List[str]] = None) -> Dict[str, any]:
+    """
+    Re-run pip install for a package with the given extras to bring installed
+    dependency versions in line with what is pinned in pyproject.toml.
+
+    In editable (dev) installs, installs from the local project path.
+    In regular (prod) installs, installs from the repository URL.
+
+    Args:
+        package_name: The package to sync (default: "thetower").
+        extras: List of extra names to include (e.g. ["web", "bot", "dev"]).  Defaults to all for thetower, none for other packages.
+
+    Returns:
+        dict with keys: success, message
+    """
+    result: Dict[str, any] = {"success": False, "message": ""}
+
+    if extras is None and package_name == "thetower":
+        extras = ["web", "bot", "dev"]
+
+    normalized_name = package_name.lower().replace("-", "_")
+
+    try:
+        # Determine install source — editable vs regular
+        editable_path: Optional[str] = None
+        repo_url: Optional[str] = None
+
+        for dist in importlib.metadata.distributions():
+            if dist.name.lower().replace("-", "_") != normalized_name:
+                continue
+            if hasattr(dist, "_path") and dist._path:
+                path_str = str(dist._path)
+                if path_str.endswith(".egg-info"):
+                    # Editable install — project root is parent of .egg-info dir
+                    editable_path = str(dist._path.parent.parent)
+                    break
+                elif path_str.endswith(".dist-info"):
+                    direct_url_file = dist._path.parent / "direct_url.json"
+                    if direct_url_file.exists():
+                        import json
+
+                        with open(direct_url_file) as f:
+                            direct_url = json.load(f)
+                        if direct_url.get("dir_info", {}).get("editable"):
+                            editable_path = direct_url.get("url", "").removeprefix("file://")
+                            break
+                    # Regular install — get repo URL from metadata
+                    metadata = dist.metadata
+                    for url_entry in metadata.get_all("Project-URL") or []:
+                        if url_entry.startswith("Repository,"):
+                            repo_url = url_entry.split(",", 1)[1].strip()
+                            break
+            break
+
+        if extras:
+            extras_str = ",".join(extras)
+        else:
+            extras_str = ""
+
+        if editable_path:
+            target = f"{editable_path}[{extras_str}]" if extras_str else editable_path
+            cmd = [sys.executable, "-m", "pip", "install", "-e", target]
+        elif repo_url:
+            target = f"{package_name}[{extras_str}] @ git+{repo_url}" if extras_str else f"git+{repo_url}"
+            cmd = [sys.executable, "-m", "pip", "install", "--upgrade", target]
+        else:
+            result["message"] = f"Could not determine install source for {package_name}."
+            return result
+
+        import subprocess
+
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+        output = proc.stdout + ("\n" + proc.stderr if proc.stderr.strip() else "")
+        if proc.returncode == 0:
+            result["success"] = True
+            result["message"] = output.strip()
+        else:
+            result["message"] = output.strip()
+
+    except Exception as exc:
+        result["message"] = str(exc)
+
+    return result

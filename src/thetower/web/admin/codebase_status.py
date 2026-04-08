@@ -5,8 +5,10 @@ Shows the status of git repositories and external packages, allows pulling updat
 Gracefully handles Windows development environments.
 """
 
+import importlib.metadata
 import os
 import platform
+import re
 import shutil
 import subprocess
 from datetime import datetime, timezone
@@ -15,7 +17,7 @@ from typing import Dict, List, Optional, Tuple
 
 import streamlit as st
 
-from thetower.web.admin.package_updates import check_package_updates_sync, get_thetower_packages, update_package_sync
+from thetower.web.admin.package_updates import check_package_updates_sync, get_thetower_packages, sync_dependencies, update_package_sync
 
 
 @st.dialog("Operation Result", width="large")
@@ -218,9 +220,11 @@ def get_status_emoji(repo_info: Dict[str, any]) -> str:
 
 def is_development_mode() -> bool:
     """Check if running in development mode (git repository available)."""
-    cwd = os.getcwd()
-    # Check if current directory or parent has .git
-    return os.path.exists(os.path.join(cwd, ".git")) or os.path.exists(os.path.join(os.path.dirname(cwd), ".git"))
+    path = Path(os.getcwd())
+    for candidate in [path, *path.parents]:
+        if (candidate / ".git").exists():
+            return True
+    return False
 
 
 def format_bytes(size: int) -> str:
@@ -245,6 +249,112 @@ def _dir_size(path: str) -> Optional[int]:
         return total
     except OSError:
         return None
+
+
+def get_dependency_status(package_name: str = "thetower") -> Dict[str, List[Dict[str, str]]]:
+    """
+    Compare a package's pinned requirements against what is actually installed,
+    grouped by extra section (core, web, bot, dev, etc.).
+
+    Returns a dict keyed by section name, each value a list of dicts with keys:
+    name, pinned, installed, status  (status: 'ok', 'mismatch', 'missing').
+    """
+    try:
+        requires = importlib.metadata.requires(package_name) or []
+    except importlib.metadata.PackageNotFoundError:
+        return {}
+
+    sections: Dict[str, List[Dict[str, str]]] = {}
+
+    for req_str in requires:
+        # Determine section: core or an extra name
+        extra_match = re.search(r'extra\s*==\s*["\']([^"\']+)["\']', req_str)
+        section = extra_match.group(1) if extra_match else "core"
+
+        # Strip markers to get the bare requirement
+        bare = re.split(r";", req_str)[0].strip()
+        match = re.match(r"^([A-Za-z0-9_\-\.]+)\s*([=<>!~][^,]*)?", bare)
+        if not match:
+            continue
+        name = match.group(1)
+        pin = match.group(2).strip() if match.group(2) else None
+
+        try:
+            installed = importlib.metadata.version(name)
+        except importlib.metadata.PackageNotFoundError:
+            entry = {"name": name, "pinned": pin or "(any)", "installed": "not installed", "status": "missing"}
+        else:
+            if pin and pin.startswith("=="):
+                pinned_version = pin[2:].strip()
+                status = "ok" if installed == pinned_version else "mismatch"
+            else:
+                status = "ok"
+            entry = {"name": name, "pinned": pin or "(any)", "installed": installed, "status": status}
+
+        sections.setdefault(section, []).append(entry)
+
+    return sections
+
+
+def render_package_deps(package_name: str, key_prefix: str, show_sync: bool = False) -> None:
+    """
+    Render a collapsible dependency status section for a package inline within its card.
+
+    Shows per-section expanders with package/pinned/installed/status columns.
+    If show_sync is True, renders a Sync Dependencies button.
+    """
+    import pandas as pd
+
+    dep_sections = get_dependency_status(package_name)
+    if not dep_sections:
+        return
+
+    all_deps = [d for deps in dep_sections.values() for d in deps]
+    total_mismatches = sum(1 for d in all_deps if d["status"] == "mismatch")
+    total_missing = sum(1 for d in all_deps if d["status"] == "missing")
+
+    st.markdown("**📋 Dependencies**")
+
+    if show_sync:
+        col_summary, col_btn = st.columns([3, 1])
+        with col_summary:
+            if total_mismatches or total_missing:
+                st.warning(f"⚠️ {total_mismatches} mismatched, {total_missing} missing")
+            else:
+                st.success(f"✅ All {len(all_deps)} dependencies match")
+        with col_btn:
+            sync_key = f"sync_deps_{key_prefix}"
+            if st.button("🔄 Sync", key=sync_key, help="Re-run pip install to sync dependency versions with pinned values"):
+                with st.spinner("Syncing dependencies..."):
+                    sync_result = sync_dependencies(package_name=package_name, extras=[s for s in dep_sections if s != "core"])
+                show_operation_result(
+                    success=sync_result["success"],
+                    title="✅ Dependencies synced" if sync_result["success"] else "❌ Sync failed",
+                    message=sync_result["message"],
+                )
+    else:
+        if total_mismatches or total_missing:
+            st.warning(f"⚠️ {total_mismatches} mismatched, {total_missing} missing")
+        else:
+            st.caption(f"✅ All {len(all_deps)} dependencies match")
+
+    section_order = ["core"] + sorted(s for s in dep_sections if s != "core")
+    for section in section_order:
+        deps = dep_sections.get(section, [])
+        if not deps:
+            continue
+        mismatches = [d for d in deps if d["status"] == "mismatch"]
+        missing = [d for d in deps if d["status"] == "missing"]
+        label = f"**[{section}]** — {len(deps)} packages"
+        if mismatches or missing:
+            label += f" ⚠️ ({len(mismatches)} mismatch, {len(missing)} missing)"
+        with st.expander(label, expanded=bool(mismatches or missing)):
+            rows = []
+            for d in deps:
+                emoji = {"ok": "✅", "mismatch": "⚠️", "missing": "❌"}.get(d["status"], "")
+                rows.append({"Package": d["name"], "Pinned": d["pinned"], "Installed": d["installed"], "Status": f"{emoji} {d['status']}"})
+            df = pd.DataFrame(rows)
+            st.dataframe(df, hide_index=True, height=min(400, 40 + 35 * len(rows)))
 
 
 def get_storage_info(data_dir: Optional[str], csv_data_dir: Optional[str] = None) -> Dict[str, any]:
@@ -295,8 +405,14 @@ def codebase_status_page():
     """Main codebase status page component."""
     st.title("📋 Codebase Status")
 
-    cwd = os.getcwd()
     dev_mode = is_development_mode()
+
+    # Resolve repo root (walk up to find .git) so git commands work regardless of cwd
+    if dev_mode:
+        _path = Path(os.getcwd())
+        cwd = next((str(p) for p in [_path, *_path.parents] if (p / ".git").exists()), os.getcwd())
+    else:
+        cwd = os.getcwd()
 
     # Show environment info
     if is_windows():
@@ -494,6 +610,8 @@ def codebase_status_page():
                     if len(main_repo["untracked"]) > 10:
                         st.markdown(f"... and {len(main_repo['untracked']) - 10} more")
 
+        render_package_deps("thetower", "main_dev", show_sync=False)
+        st.caption('To sync dependencies manually: `pip install -e ".[web,bot,dev]"`')
         st.markdown("---")
 
     else:
@@ -583,6 +701,7 @@ def codebase_status_page():
                         else:
                             st.info("Status: ℹ️ No repository URL configured")
 
+            render_package_deps("thetower", "main_prod", show_sync=True)
         st.markdown("---")
 
     # External Packages Section
@@ -681,7 +800,15 @@ def codebase_status_page():
                                         )
                                         show_operation_result(success=result["success"], title=title, message=result["message"])
 
-                st.markdown("---")
+            render_package_deps(pkg["name"], f"ext_{idx}", show_sync=not dev_mode)
+            if dev_mode:
+                pkg_name = pkg["name"]
+                editable = pkg.get("install_type") == "editable"
+                if editable:
+                    st.caption(f"To sync dependencies manually: `pip install -e path/to/{pkg_name}[dev]`")
+                else:
+                    st.caption(f"To sync dependencies manually: `pip install --upgrade {pkg_name}[dev] @ git+<repo_url>`")
+            st.markdown("---")
 
     # Instructions
     with st.expander("ℹ️ About Codebase Status"):
