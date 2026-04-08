@@ -35,22 +35,29 @@ def compute_comparison(player_id=None, canvas=st):
     bracket_player_id = st.query_params.get("bracket_player")
 
     if bracket_player_id:
-        # Find the player's current bracket and get all players in it
-        bracket_players, bracket_league = get_bracket_players(bracket_player_id)
-        if bracket_players:
-            # Set these players as the comparison targets
-            st.session_state.options.compare_players = bracket_players
-            st.session_state.display_comparison = True
+        # Only process if this is a new/different bracket player ID — avoids overwriting
+        # league selection on every re-render (e.g. when user changes the league selector)
+        if st.session_state.get("_last_bracket_player") != bracket_player_id:
+            bracket_players, bracket_league = get_bracket_players(bracket_player_id)
+            if bracket_players:
+                # Set these players as the comparison targets
+                st.session_state.options.compare_players = bracket_players
+                st.session_state.display_comparison = True
 
-            # Store a note that we're viewing a bracket comparison
-            st.session_state.bracket_comparison = True
-            st.session_state.bracket_player_id = bracket_player_id
+                # Store a note that we're viewing a bracket comparison
+                st.session_state.bracket_comparison = True
+                st.session_state.bracket_player_id = bracket_player_id
 
-            # Override the league selection default to match the player's actual league
-            if bracket_league:
-                st.session_state.selected_league = bracket_league
-                # Also set the radio widget's key so the sidebar shows the correct selection
-                st.session_state["league_selector"] = bracket_league
+                # Override the league selection default to match the player's actual league
+                if bracket_league:
+                    st.session_state.selected_league = bracket_league
+                    # Remove the radio widget's key so it re-initializes from the index
+                    # parameter on the next render (setting it directly is unreliable when
+                    # the key already exists from a prior session/page visit)
+                    st.session_state.pop("league_selector", None)
+
+            # Mark this bracket_player_id as processed so we don't overwrite state on re-renders
+            st.session_state["_last_bracket_player"] = bracket_player_id
 
     with st.sidebar:
         show_legend = st.checkbox("Show legend", key="show_legend", value=True)
@@ -75,6 +82,7 @@ def compute_comparison(player_id=None, canvas=st):
     def search_for_new():
         st.query_params.clear()
         st.session_state.pop("display_comparison", None)
+        st.session_state.pop("_last_bracket_player", None)
         st.session_state.options.compare_players = []
         st.session_state.options.current_player = None
         st.session_state.options.current_player_id = None
