@@ -46,7 +46,7 @@ class ViewBCButton(discord.ui.Button):
             return
 
         # Get tournament info
-        tourney_id, tourney_date, days_until = BattleConditionsCore.get_tournament_info()
+        tourney_id, tourney_date, days_until, version = BattleConditionsCore.get_tournament_info()
 
         # Check if bot owner
         is_bot_owner = await cog.bot.is_owner(interaction.user)
@@ -78,7 +78,7 @@ class ViewBCButton(discord.ui.Button):
 
         # Show league selection dropdown
         select_view = discord.ui.View(timeout=900)
-        select_view.add_item(ViewLeagueSelect(cog, enabled_leagues, tourney_date, outside_window))
+        select_view.add_item(ViewLeagueSelect(cog, enabled_leagues, tourney_date, version, outside_window))
 
         warning_msg = ""
         if outside_window and is_bot_owner:
@@ -90,7 +90,7 @@ class ViewBCButton(discord.ui.Button):
 class ViewLeagueSelect(discord.ui.Select):
     """Select menu for choosing which league BCs to view."""
 
-    def __init__(self, cog, enabled_leagues: list, tourney_date: str, outside_window: bool = False):
+    def __init__(self, cog, enabled_leagues: list, tourney_date: str, version: str = "unknown", outside_window: bool = False):
         options = [discord.SelectOption(label=league, value=league, emoji="🏆") for league in enabled_leagues]
 
         # Add "All Leagues" option at the top
@@ -100,6 +100,7 @@ class ViewLeagueSelect(discord.ui.Select):
         self.cog = cog
         self.enabled_leagues = enabled_leagues
         self.tourney_date = tourney_date
+        self.version = version
         self.outside_window = outside_window
 
     async def callback(self, interaction: discord.Interaction):
@@ -107,6 +108,8 @@ class ViewLeagueSelect(discord.ui.Select):
 
         # Defer as this might take a moment
         await interaction.response.defer(ephemeral=True)
+
+        footer_text = f"V{self.version}" if self.version and self.version != "unknown" else None
 
         if selected == "__all__":
             # Show all enabled leagues
@@ -120,6 +123,8 @@ class ViewLeagueSelect(discord.ui.Select):
 
                 bc_text = "\n".join([f"• {bc}" for bc in conditions])
                 embed.add_field(name="Predicted Battle Conditions", value=bc_text, inline=False)
+                if footer_text:
+                    embed.set_footer(text=footer_text)
                 embeds.append(embed)
 
             # Send up to 10 embeds (Discord limit)
@@ -134,6 +139,8 @@ class ViewLeagueSelect(discord.ui.Select):
 
             bc_text = "\n".join([f"• {bc}" for bc in conditions])
             embed.add_field(name="Predicted Battle Conditions", value=bc_text, inline=False)
+            if footer_text:
+                embed.set_footer(text=footer_text)
 
             await interaction.followup.send(embed=embed, ephemeral=True)
 
@@ -210,13 +217,13 @@ class GenerateLeagueSelect(discord.ui.Select):
         await interaction.response.defer(ephemeral=True)
 
         # Get tournament info
-        tourney_id, tourney_date, days_until = BattleConditionsCore.get_tournament_info()
+        tourney_id, tourney_date, days_until, version = BattleConditionsCore.get_tournament_info()
 
         # Send BCs to channel
         sent_count = 0
         for league in selected_leagues:
             conditions = await BattleConditionsCore.get_battle_conditions(league)
-            success = await BattleConditionsCore.send_battle_conditions_embed(self.channel, league, tourney_date, conditions)
+            success = await BattleConditionsCore.send_battle_conditions_embed(self.channel, league, tourney_date, conditions, version)
             if success:
                 sent_count += 1
 
@@ -300,7 +307,7 @@ class RunAllSchedulesButton(discord.ui.Button):
         await interaction.response.defer(ephemeral=True)
 
         # Get tournament info
-        tourney_id, tourney_date, days_until = BattleConditionsCore.get_tournament_info()
+        tourney_id, tourney_date, days_until, version = BattleConditionsCore.get_tournament_info()
 
         # Get enabled leagues (global setting)
         enabled_leagues = cog.get_global_setting("enabled_leagues") or []
@@ -338,7 +345,7 @@ class RunAllSchedulesButton(discord.ui.Button):
 
                 try:
                     conditions = await BattleConditionsCore.get_battle_conditions(league)
-                    success = await BattleConditionsCore.send_battle_conditions_embed(channel, league, tourney_date, conditions)
+                    success = await BattleConditionsCore.send_battle_conditions_embed(channel, league, tourney_date, conditions, version)
                     if success:
                         sent_count += 1
                         total_sent += 1
@@ -402,7 +409,7 @@ class ScheduleSelect(discord.ui.Select):
         await interaction.response.defer(ephemeral=True)
 
         # Get tournament info
-        tourney_id, tourney_date, days_until = BattleConditionsCore.get_tournament_info()
+        tourney_id, tourney_date, days_until, version = BattleConditionsCore.get_tournament_info()
 
         # Get schedule details
         destination_id = schedule.get("destination_id")
@@ -432,7 +439,7 @@ class ScheduleSelect(discord.ui.Select):
 
             try:
                 conditions = await BattleConditionsCore.get_battle_conditions(league)
-                success = await BattleConditionsCore.send_battle_conditions_embed(channel, league, tourney_date, conditions)
+                success = await BattleConditionsCore.send_battle_conditions_embed(channel, league, tourney_date, conditions, version)
                 if success:
                     sent_count += 1
             except Exception as e:

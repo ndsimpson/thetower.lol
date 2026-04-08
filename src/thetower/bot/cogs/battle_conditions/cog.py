@@ -88,7 +88,7 @@ class BattleConditions(BaseCog, name="Battle Conditions"):
 
         # Get tournament info for display
         if TOWERBCS_AVAILABLE:
-            tourney_id, tourney_date, days_until = BattleConditionsCore.get_tournament_info()
+            tourney_id, tourney_date, days_until, version = BattleConditionsCore.get_tournament_info()
             info_text = f"📅 Next tournament: {tourney_date} ({days_until} days)\n\n"
             info_text += "Use the buttons below to manage battle conditions."
         else:
@@ -120,7 +120,7 @@ class BattleConditions(BaseCog, name="Battle Conditions"):
             is_allowed is True if within window OR user is bot owner
         """
         # Get tournament info
-        tourney_id, tourney_date, days_until = BattleConditionsCore.get_tournament_info()
+        tourney_id, tourney_date, days_until, version = BattleConditionsCore.get_tournament_info()
 
         # Get view window setting
         view_window_days = self.get_global_setting("bc_view_window_days")
@@ -141,7 +141,7 @@ class BattleConditions(BaseCog, name="Battle Conditions"):
 
         return (is_allowed, days_until, view_window_days, tourney_date)
 
-    async def send_battle_conditions_embed(self, channel, league, tourney_date, battleconditions) -> bool:
+    async def send_battle_conditions_embed(self, channel, league, tourney_date, battleconditions, version: str = "unknown") -> bool:
         """Helper method to create and send battle conditions embeds
 
         Args:
@@ -149,11 +149,12 @@ class BattleConditions(BaseCog, name="Battle Conditions"):
             league: League name for the battle conditions
             tourney_date: Tournament date string
             battleconditions: List of battle condition strings
+            version: Game version string from APK refs
 
         Returns:
             bool: Whether the message was sent successfully
         """
-        return await BattleConditionsCore.send_battle_conditions_embed(channel, league, tourney_date, battleconditions)
+        return await BattleConditionsCore.send_battle_conditions_embed(channel, league, tourney_date, battleconditions, version)
 
     # === Task Methods ===
     @tasks.loop(minutes=1)  # Check every 1 minute
@@ -168,7 +169,7 @@ class BattleConditions(BaseCog, name="Battle Conditions"):
                 self._process_start_time = datetime.datetime.utcnow()
 
                 # Get tournament information
-                tourney_id, tourney_date, days_until = BattleConditionsCore.get_tournament_info()
+                tourney_id, tourney_date, days_until, version = BattleConditionsCore.get_tournament_info()
                 now = datetime.datetime.utcnow()
                 current_hour = now.hour
                 current_minute = now.minute
@@ -257,7 +258,7 @@ class BattleConditions(BaseCog, name="Battle Conditions"):
                         try:
                             # Get battle conditions and send message
                             battleconditions = await self.get_battle_conditions(league)
-                            success = await self.send_battle_conditions_embed(channel, league, tourney_date, battleconditions)
+                            success = await self.send_battle_conditions_embed(channel, league, tourney_date, battleconditions, version)
                             if success:
                                 sent_something = True
                         except Exception as e:

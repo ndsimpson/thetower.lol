@@ -21,7 +21,7 @@ except ImportError:
     class TournamentPredictor:
         @staticmethod
         def get_tournament_info():
-            return None, "Unknown", 0
+            return None, "Unknown", 0, "unknown"
 
 
 # === Constants ===
@@ -49,7 +49,7 @@ class BattleConditionsCore:
         if not TOWERBCS_AVAILABLE:
             return ["⚠️ Battle conditions unavailable - towerbcs package not installed"]
 
-        tourney_id, _, _ = TournamentPredictor.get_tournament_info()
+        tourney_id, _, _, _ = TournamentPredictor.get_tournament_info()
 
         try:
             return predict_future_tournament(tourney_id, league)
@@ -57,7 +57,7 @@ class BattleConditionsCore:
             return ["❌ Error fetching battle conditions"]
 
     @staticmethod
-    async def send_battle_conditions_embed(channel, league, tourney_date, battleconditions) -> bool:
+    async def send_battle_conditions_embed(channel, league, tourney_date, battleconditions, version: str = "unknown") -> bool:
         """Helper method to create and send battle conditions embeds
 
         Args:
@@ -65,6 +65,7 @@ class BattleConditionsCore:
             league: League name for the battle conditions
             tourney_date: Tournament date string
             battleconditions: List of battle condition strings
+            version: Game version string from APK refs
 
         Returns:
             bool: Whether the message was sent successfully
@@ -74,6 +75,9 @@ class BattleConditionsCore:
 
             bc_text = "\n".join([f"• {bc}" for bc in battleconditions])
             embed.add_field(name="Predicted Battle Conditions", value=bc_text, inline=False)
+
+            if version and version != "unknown":
+                embed.set_footer(text=f"V{version}")
 
             await channel.send(embed=embed)
             return True
@@ -85,7 +89,7 @@ class BattleConditionsCore:
         """Get current tournament information."""
         if TOWERBCS_AVAILABLE:
             return TournamentPredictor.get_tournament_info()
-        return None, "Unknown", 0
+        return None, "Unknown", 0, "unknown"
 
 
 # === Form Modals ===
