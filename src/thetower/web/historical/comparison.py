@@ -46,10 +46,9 @@ def compute_comparison(player_id=None, canvas=st):
             st.session_state.bracket_comparison = True
             st.session_state.bracket_player_id = bracket_player_id
 
-            # Override the league selection to match the player's actual league
+            # Override the league selection default to match the player's actual league
             if bracket_league:
                 st.session_state.selected_league = bracket_league
-                st.session_state.bracket_league = bracket_league
 
     with st.sidebar:
         show_legend = st.checkbox("Show legend", key="show_legend", value=True)
@@ -387,22 +386,17 @@ def get_patch_df(df, player_df, patch):
 
 
 def filter_league(datas):
-    # If we're in bracket comparison mode, use the detected league directly
-    if st.session_state.get("bracket_league"):
-        league = st.session_state.bracket_league
-        filtered_datas = [(sdf[sdf.league == league], name) for sdf, name in datas]
-    else:
-        # Get current patch from first dataset if available
-        patch = None
-        if datas and len(datas) > 0 and not datas[0][0].empty and "patch" in datas[0][0].columns:
-            try:
-                patch = datas[0][0]["patch"].iloc[0]
-            except Exception as e:
-                st.write(f"🔍 Debug: Error getting patch: {str(e)}")
+    # Get current patch from first dataset if available
+    patch = None
+    if datas and len(datas) > 0 and not datas[0][0].empty and "patch" in datas[0][0].columns:
+        try:
+            patch = datas[0][0]["patch"].iloc[0]
+        except Exception as e:
+            st.write(f"🔍 Debug: Error getting patch: {str(e)}")
 
-        # Use patch-aware league selection
-        league = get_league_selection(patch=patch)
-        filtered_datas = [(sdf[sdf.league == league], name) for sdf, name in datas]
+    # Use patch-aware league selection (default is pre-set to bracket league when bracket_player param is used)
+    league = get_league_selection(patch=patch)
+    filtered_datas = [(sdf[sdf.league == league], name) for sdf, name in datas]
 
     # Log if no data remains after filtering
     if not filtered_datas:
