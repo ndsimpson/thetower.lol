@@ -62,9 +62,9 @@ if "stats_preset" not in st.session_state:
 
 preset_cols = st.columns(len(_PRESETS) + 1)
 for _i, (_label, _) in enumerate(_PRESETS):
-    if preset_cols[_i].button(f"Last {_label}", use_container_width=True):
+    if preset_cols[_i].button(f"Last {_label}", width="stretch"):
         st.session_state.stats_preset = _label
-if preset_cols[-1].button("Clear", use_container_width=True):
+if preset_cols[-1].button("Clear", width="stretch"):
     st.session_state.stats_preset = None
 
 _cutoff: datetime | None = None
@@ -200,7 +200,7 @@ with tab_time:
         counts.rename(columns={"date": "Date"}, inplace=True)
         fig = px.bar(counts, x="Date", y="Requests", title="Requests per Day")
 
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
 
 # ── By Page ─────────────────────────────────────────────────────────────────
 with tab_pages:
@@ -225,9 +225,9 @@ with tab_pages:
         labels={"path": "Page"},
     )
     fig_pages.update_layout(height=max(300, top_n * 22))
-    st.plotly_chart(fig_pages, use_container_width=True)
+    st.plotly_chart(fig_pages, width="stretch")
 
-    st.dataframe(page_counts, use_container_width=True, hide_index=True)
+    st.dataframe(page_counts, width="stretch", hide_index=True)
 
 # ── By IP ────────────────────────────────────────────────────────────────────
 with tab_ips:
@@ -252,7 +252,7 @@ with tab_ips:
         labels={"ip": "IP"},
     )
     fig_ips.update_layout(height=max(300, top_n_ip * 22))
-    st.plotly_chart(fig_ips, use_container_width=True)
+    st.plotly_chart(fig_ips, width="stretch")
 
     # Per-IP breakdown: click an IP to see which pages they hit
     st.subheader("Per-IP page breakdown")
@@ -264,7 +264,7 @@ with tab_ips:
     if selected_ip:
         ip_df = df[df["ip"] == selected_ip].groupby("path").size().reset_index(name="Requests")
         ip_df = ip_df.sort_values("Requests", ascending=False)
-        st.dataframe(ip_df, use_container_width=True, hide_index=True)
+        st.dataframe(ip_df, width="stretch", hide_index=True)
 
 # ── Render Time ─────────────────────────────────────────────────────────────────────────────
 with tab_render:
@@ -307,12 +307,12 @@ with tab_render:
             labels={"Avg": "Avg ms"},
         )
         fig_render.update_layout(height=max(300, top_n_r * 22))
-        st.plotly_chart(fig_render, use_container_width=True)
+        st.plotly_chart(fig_render, width="stretch")
 
         # — Percentile table —
         st.subheader("Render time percentiles by page")
         st.dataframe(
             page_stats.sort_values("Avg", ascending=False).rename(columns={"Avg": "Avg ms", "p50": "p50 ms", "p95": "p95 ms", "p99": "p99 ms"}),
-            use_container_width=True,
+            width="stretch",
             hide_index=True,
         )

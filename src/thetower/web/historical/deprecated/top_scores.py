@@ -51,7 +51,7 @@ def compute_top(df, options: Options):
         condensed_tbd = condensed_tbd.format(make_player_url, subset=["real_name"]).to_html(escape=False)
         st.write(condensed_tbd, unsafe_allow_html=True)
     else:
-        st.dataframe(condensed_tbd, use_container_width=True, height=400)
+        st.dataframe(condensed_tbd, width="stretch", height=400)
 
     overall_tbd = (
         overall_df[["date", "real_name", "wave", "position", "ovr_pos"]]
@@ -66,7 +66,7 @@ def compute_top(df, options: Options):
         overall_tbd = overall_tbd.format(make_player_url, subset=["real_name"]).to_html(escape=False)
         st.write(overall_tbd, unsafe_allow_html=True)
     else:
-        st.dataframe(overall_tbd, use_container_width=True, height=400)
+        st.dataframe(overall_tbd, width="stretch", height=400)
 
 
 def get_top_scores():

@@ -48,9 +48,9 @@ if "viewer_preset" not in st.session_state:
 
 preset_cols = st.columns(len(_PRESETS) + 1)
 for _i, (_label, _) in enumerate(_PRESETS):
-    if preset_cols[_i].button(f"Last {_label}", use_container_width=True):
+    if preset_cols[_i].button(f"Last {_label}", width="stretch"):
         st.session_state.viewer_preset = _label
-if preset_cols[-1].button("Clear", use_container_width=True):
+if preset_cols[-1].button("Clear", width="stretch"):
     st.session_state.viewer_preset = None
 
 _cutoff: datetime | None = None
@@ -128,6 +128,6 @@ else:
 if filtered:
     df = pd.DataFrame(filtered, columns=["dt", "site", "ip", "path", "qs", "ctx"])
     df.columns = ["Datetime (UTC)", "Site", "IP", "Path", "Query String", "Context"]
-    st.dataframe(df, use_container_width=True, hide_index=True)
+    st.dataframe(df, width="stretch", hide_index=True)
 else:
     st.info("No entries match the current filters.")

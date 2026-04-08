@@ -38,7 +38,7 @@ def _render_maintenance_section() -> None:
         help="Displayed to visitors on all public pages while maintenance mode is active.",
     )
 
-    if st.button("💾 Save Maintenance Settings", type="primary", use_container_width=True):
+    if st.button("💾 Save Maintenance Settings", type="primary", width="stretch"):
         try:
             set_maintenance_state(
                 enabled=new_enabled,
@@ -74,7 +74,7 @@ def _render_overview_cache_section() -> None:
             st.caption("No cache file found — the overview page will show an unavailable message to visitors.")
 
     with col2:
-        if st.button("🔄 Regenerate Overview Cache", type="primary", use_container_width=True):
+        if st.button("🔄 Regenerate Overview Cache", type="primary", width="stretch"):
             with st.spinner("Regenerating overview cache…"):
                 try:
                     result = regenerate_overview_cache()
