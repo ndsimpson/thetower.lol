@@ -122,7 +122,7 @@ def live_results():
         st.dataframe(
             display_df,
             height=700,
-            use_container_width=True,
+            width="stretch",
             hide_index=True,
             column_config={
                 "#": st.column_config.TextColumn("#"),
@@ -190,7 +190,7 @@ def live_results():
     canvas.dataframe(
         final_df[show_cols],
         height=600,
-        use_container_width=True,
+        width="stretch",
         column_config={"#": st.column_config.NumberColumn("#")},
     )
 

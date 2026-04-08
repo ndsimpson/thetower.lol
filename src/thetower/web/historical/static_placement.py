@@ -148,7 +148,7 @@ def compute_static_placement():
         col_config[col] = st.column_config.NumberColumn(col, format="%.0f")
 
     row_height = (len(_PLACES) + 1) * 35 + 10
-    st.dataframe(styled, hide_index=True, use_container_width=True, height=row_height, column_config=col_config)
+    st.dataframe(styled, hide_index=True, width="stretch", height=row_height, column_config=col_config)
 
     with st.expander("How to read this table"):
         st.markdown(

@@ -221,7 +221,7 @@ def compute_regression_analysis():
         margin=dict(l=20, r=20, t=50, b=20),
         legend=dict(orientation="h", y=-0.25, x=0.5, xanchor="center"),
     )
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
 
     # ------------------------------------------------------------------
     # Summary table
@@ -267,7 +267,7 @@ def compute_regression_analysis():
             "Prev Slope", help="Slope computed without the latest tournament — compare to Slope to see if trend is accelerating"
         )
 
-    st.dataframe(styled, hide_index=True, use_container_width=True, column_config=col_config)
+    st.dataframe(styled, hide_index=True, width="stretch", column_config=col_config)
 
     with st.expander("How to read this"):
         st.markdown(
