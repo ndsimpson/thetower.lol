@@ -36,7 +36,7 @@ def compute_comparison(player_id=None, canvas=st):
 
     if bracket_player_id:
         # Find the player's current bracket and get all players in it
-        bracket_players = get_bracket_players(bracket_player_id)
+        bracket_players, bracket_league = get_bracket_players(bracket_player_id)
         if bracket_players:
             # Set these players as the comparison targets
             st.session_state.options.compare_players = bracket_players
@@ -45,6 +45,11 @@ def compute_comparison(player_id=None, canvas=st):
             # Store a note that we're viewing a bracket comparison
             st.session_state.bracket_comparison = True
             st.session_state.bracket_player_id = bracket_player_id
+
+            # Override the league selection to match the player's actual league
+            if bracket_league:
+                st.session_state.selected_league = bracket_league
+                st.session_state.bracket_league = bracket_league
 
     with st.sidebar:
         show_legend = st.checkbox("Show legend", key="show_legend", value=True)
@@ -293,7 +298,7 @@ def compute_comparison(player_id=None, canvas=st):
             canvas.json(data)
 
 
-def get_bracket_players(player_id: str) -> list[str]:
+def get_bracket_players(player_id: str) -> tuple[list[str], str | None]:
     """
     Get all players in the same bracket as the provided player ID.
 
@@ -301,7 +306,7 @@ def get_bracket_players(player_id: str) -> list[str]:
         player_id: The player ID to find bracket members for
 
     Returns:
-        List of player IDs in the same bracket, or empty list if not found
+        Tuple of (list of player IDs in the same bracket, league name), or ([], None) if not found
     """
     try:
         # Get live data for all available leagues
@@ -319,15 +324,15 @@ def get_bracket_players(player_id: str) -> list[str]:
                 # Get all players in the same bracket
                 bracket_df = df[df.bracket == bracket_id]
 
-                # Return unique player IDs in this bracket
-                return sorted(bracket_df.player_id.unique())
+                # Return unique player IDs in this bracket along with the league
+                return sorted(bracket_df.player_id.unique()), league
 
         # Player not found in any bracket
-        return []
+        return [], None
 
     except Exception as e:
         st.error(f"Error finding bracket players: {str(e)}")
-        return []
+        return [], None
 
 
 def filter_plot_datas(datas, patch, filter_bcs):
@@ -382,17 +387,22 @@ def get_patch_df(df, player_df, patch):
 
 
 def filter_league(datas):
-    # Get current patch from first dataset if available
-    patch = None
-    if datas and len(datas) > 0 and not datas[0][0].empty and "patch" in datas[0][0].columns:
-        try:
-            patch = datas[0][0]["patch"].iloc[0]
-        except Exception as e:
-            st.write(f"🔍 Debug: Error getting patch: {str(e)}")
+    # If we're in bracket comparison mode, use the detected league directly
+    if st.session_state.get("bracket_league"):
+        league = st.session_state.bracket_league
+        filtered_datas = [(sdf[sdf.league == league], name) for sdf, name in datas]
+    else:
+        # Get current patch from first dataset if available
+        patch = None
+        if datas and len(datas) > 0 and not datas[0][0].empty and "patch" in datas[0][0].columns:
+            try:
+                patch = datas[0][0]["patch"].iloc[0]
+            except Exception as e:
+                st.write(f"🔍 Debug: Error getting patch: {str(e)}")
 
-    # Use patch-aware league selection
-    league = get_league_selection(patch=patch)
-    filtered_datas = [(sdf[sdf.league == league], name) for sdf, name in datas]
+        # Use patch-aware league selection
+        league = get_league_selection(patch=patch)
+        filtered_datas = [(sdf[sdf.league == league], name) for sdf, name in datas]
 
     # Log if no data remains after filtering
     if not filtered_datas:
