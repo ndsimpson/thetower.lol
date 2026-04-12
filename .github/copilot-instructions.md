@@ -24,10 +24,9 @@ When writing or modifying code, follow these steps automatically:
     - Ensure no blank lines contain whitespace
     - Fix any linting errors shown in Problems panel
 4. **Verify** the code adheres to project standards (150-char line length, type hints, etc.)
-5. **Propose commit message** at the end of your response text — do NOT run `git add` or `git commit` yet
-6. **Stop and wait** — do not ask for approval or prompt the user. Remind the user to run their linter. The user will tell you when to commit
-7. **When told to commit**, run `git add` and `git commit` together in a **single terminal command** — never run `git add` separately from `git commit`
-8. **Never push** to remote repository
+5. **Pause with `vscode_askQuestions`** — ask the user:
+    - "Ready to commit?" with options: **Yes — commit now** / **No — keep working** / freeform (for instructions or feedback)
+    - The user may run their linter while this question is pending, then click when ready
 
 Apply this workflow for all code writing/modification requests unless explicitly told otherwise.
 
@@ -327,36 +326,6 @@ Service files in use:
 - **Ready state**: Always `await self.ready.wait()` before accessing guild data in cog methods
 - **Exception handling**: Cogs raise custom exceptions, bot's global error handler formats user-friendly messages
 - **Embed attachment images**: When a message is sent with a file attachment and the embed references it via `attachment://filename`, editing that message later (without re-uploading the file) causes Discord to render the image **twice** — once inside the embed and once as a standalone attachment preview. Before calling `message.edit(embed=emb)`, replace the `attachment://` URL with the real CDN URL: use `_resolve_attachment_image(emb, msg)` from `validation/ui/core.py`, or inline: `if emb.image and emb.image.url.startswith("attachment://") and msg.attachments: emb.set_image(url=msg.attachments[0].url)`
-
-### Git Commit Standards
-
-- **Format**: `<type>: <summary>` with optional body for complex changes
-- **Types**: feat, fix, refactor, docs, test, chore
-- **Summary**: Single line, imperative mood (e.g., "add player lookup cog", "fix import error in basecog")
-- **Body** (optional): Add when changes are non-trivial:
-    - Multiple related changes in one commit
-    - Changes affecting multiple files or systems
-    - Changes requiring explanation of why/how
-    - Use bullet points for clarity, keep concise (3-6 lines typically)
-- **Examples**:
-
-    ```
-    # Simple - title only
-    fix: resolve player ID display issue in verification log channel
-
-    # Complex - title + body
-    feat: add optional mod notification channel for player ID change requests
-
-    - Added global setting for mod_notification_channel_id configurable by bot owner
-    - Sends requests to both log channel and mod channel with synchronized buttons
-    - Includes bot resume support with automatic cleanup of deleted messages
-    - Updates both messages when approve/deny is clicked in either channel
-    ```
-
-- **Commit workflow**: After writing/modifying code, propose a commit message in your response text. Do NOT run `git add` or `git commit`. Stop and wait — the user will run their linter and tell you when to commit.
-- **Commit format**: Use a single multiline message (not multiple -m flags) - title on first line, blank line, then bullet points
-- **Single operation**: `git add` and `git commit` must always be in the same terminal command — never run `git add` separately
-- **No push**: Never push to remote unless explicitly requested
 
 ### Logging
 
