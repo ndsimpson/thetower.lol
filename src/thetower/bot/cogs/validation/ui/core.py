@@ -258,7 +258,25 @@ class VerificationModal(ui.Modal, title="Player Verification"):
             else:
                 success_message += " You have been assigned the verified role."
 
-            await interaction.edit_original_response(content=success_message)
+            # Check for UI extensions (e.g., optional roles post-verification)
+            post_verification_view = None
+            try:
+                extensions = self.cog.bot.cog_manager.get_ui_extensions(target_cog="validation")
+                for ext in extensions:
+                    provider_func = ext.get("provider_func")
+                    if provider_func:
+                        try:
+                            result = provider_func(interaction=interaction)
+                            if result and isinstance(result, discord.ui.View):
+                                post_verification_view = result
+                                success_message += "\n\n✨ You can also customize your server experience below:"
+                                break  # Use first view that returns
+                        except Exception as e:
+                            self.cog.logger.error(f"Error calling UI extension provider: {e}", exc_info=True)
+            except Exception as e:
+                self.cog.logger.error(f"Error getting UI extensions for validation: {e}", exc_info=True)
+
+            await interaction.edit_original_response(content=success_message, view=post_verification_view)
 
             # Dispatch player_verified event for other cogs to react
             if isinstance(result, dict) and result.get("primary_player_id"):
