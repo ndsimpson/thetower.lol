@@ -284,27 +284,24 @@ def update_package_sync(package_name: str, target_version: Optional[str] = None,
         return {"success": False, "message": str(e), "new_version": None}
 
 
-def sync_dependencies(package_name: str = "thetower", extras: Optional[List[str]] = None) -> Dict[str, any]:
+def sync_dependencies(extras: Optional[List[str]] = None) -> Dict[str, any]:
     """
-    Re-run pip install for a package with the given extras to bring installed
+    Re-run pip install for thetower with the given extras to bring installed
     dependency versions in line with what is pinned in pyproject.toml.
 
     In editable (dev) installs, installs from the local project path.
     In regular (prod) installs, installs from the repository URL.
 
     Args:
-        package_name: The package to sync (default: "thetower").
-        extras: List of extra names to include (e.g. ["web", "bot", "dev"]).  Defaults to all for thetower, none for other packages.
+        extras: List of extra names to include (e.g. ["web", "bot", "dev"]).  Defaults to all.
 
     Returns:
         dict with keys: success, message
     """
     result: Dict[str, any] = {"success": False, "message": ""}
 
-    if extras is None and package_name == "thetower":
+    if extras is None:
         extras = ["web", "bot", "dev"]
-
-    normalized_name = package_name.lower().replace("-", "_")
 
     try:
         # Determine install source — editable vs regular
@@ -312,7 +309,7 @@ def sync_dependencies(package_name: str = "thetower", extras: Optional[List[str]
         repo_url: Optional[str] = None
 
         for dist in importlib.metadata.distributions():
-            if dist.name.lower().replace("-", "_") != normalized_name:
+            if dist.name.lower() != "thetower":
                 continue
             if hasattr(dist, "_path") and dist._path:
                 path_str = str(dist._path)
@@ -347,10 +344,10 @@ def sync_dependencies(package_name: str = "thetower", extras: Optional[List[str]
             target = f"{editable_path}[{extras_str}]" if extras_str else editable_path
             cmd = [sys.executable, "-m", "pip", "install", "-e", target]
         elif repo_url:
-            target = f"{package_name}[{extras_str}] @ git+{repo_url}" if extras_str else f"git+{repo_url}"
+            target = f"thetower[{extras_str}] @ git+{repo_url}" if extras_str else f"git+{repo_url}"
             cmd = [sys.executable, "-m", "pip", "install", "--upgrade", target]
         else:
-            result["message"] = f"Could not determine install source for {package_name}."
+            result["message"] = "Could not determine install source for thetower."
             return result
 
         import subprocess

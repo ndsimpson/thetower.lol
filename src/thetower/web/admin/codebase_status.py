@@ -30,7 +30,7 @@ def show_operation_result(success: bool, title: str, message: str):
 
     st.code(message, language="bash")
 
-    if st.button("✅ Close & Refresh", width="stretch", type="primary"):
+    if st.button("✅ Close & Refresh", use_container_width=True, type="primary"):
         st.rerun()
 
 
@@ -220,11 +220,9 @@ def get_status_emoji(repo_info: Dict[str, any]) -> str:
 
 def is_development_mode() -> bool:
     """Check if running in development mode (git repository available)."""
-    path = Path(os.getcwd())
-    for candidate in [path, *path.parents]:
-        if (candidate / ".git").exists():
-            return True
-    return False
+    cwd = os.getcwd()
+    # Check if current directory or parent has .git
+    return os.path.exists(os.path.join(cwd, ".git")) or os.path.exists(os.path.join(os.path.dirname(cwd), ".git"))
 
 
 def format_bytes(size: int) -> str:
@@ -326,7 +324,7 @@ def render_package_deps(package_name: str, key_prefix: str, show_sync: bool = Fa
             sync_key = f"sync_deps_{key_prefix}"
             if st.button("🔄 Sync", key=sync_key, help="Re-run pip install to sync dependency versions with pinned values"):
                 with st.spinner("Syncing dependencies..."):
-                    sync_result = sync_dependencies(package_name=package_name, extras=[s for s in dep_sections if s != "core"])
+                    sync_result = sync_dependencies(extras=[s for s in dep_sections if s != "core"])
                 show_operation_result(
                     success=sync_result["success"],
                     title="✅ Dependencies synced" if sync_result["success"] else "❌ Sync failed",
@@ -405,14 +403,8 @@ def codebase_status_page():
     """Main codebase status page component."""
     st.title("📋 Codebase Status")
 
+    cwd = os.getcwd()
     dev_mode = is_development_mode()
-
-    # Resolve repo root (walk up to find .git) so git commands work regardless of cwd
-    if dev_mode:
-        _path = Path(os.getcwd())
-        cwd = next((str(p) for p in [_path, *_path.parents] if (p / ".git").exists()), os.getcwd())
-    else:
-        cwd = os.getcwd()
 
     # Show environment info
     if is_windows():
@@ -610,8 +602,7 @@ def codebase_status_page():
                     if len(main_repo["untracked"]) > 10:
                         st.markdown(f"... and {len(main_repo['untracked']) - 10} more")
 
-        render_package_deps("thetower", "main_dev", show_sync=False)
-        st.caption('To sync dependencies manually: `pip install -e ".[web,bot,dev]"`')
+        render_package_deps("thetower", "main_dev", show_sync=True)
         st.markdown("---")
 
     else:
@@ -800,14 +791,7 @@ def codebase_status_page():
                                         )
                                         show_operation_result(success=result["success"], title=title, message=result["message"])
 
-            render_package_deps(pkg["name"], f"ext_{idx}", show_sync=not dev_mode)
-            if dev_mode:
-                pkg_name = pkg["name"]
-                editable = pkg.get("install_type") == "editable"
-                if editable:
-                    st.caption(f"To sync dependencies manually: `pip install -e path/to/{pkg_name}[dev]`")
-                else:
-                    st.caption(f"To sync dependencies manually: `pip install --upgrade {pkg_name}[dev] @ git+<repo_url>`")
+            render_package_deps(pkg["name"], f"ext_{idx}")
             st.markdown("---")
 
     # Instructions
