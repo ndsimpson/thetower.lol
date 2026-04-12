@@ -30,6 +30,18 @@ When writing or modifying code, follow these steps automatically:
 
 Apply this workflow for all code writing/modification requests unless explicitly told otherwise.
 
+## Interactive Questions
+
+**Always use `vscode_askQuestions` tool for ANY interactive question during work**, including:
+
+- Design decisions that affect implementation
+- Clarification of requirements
+- Configuration preferences
+- Testing approach
+- The mandatory "Ready to commit?" pause
+
+**Never ask questions as plain text** - always use the tool for structured, actionable responses.
+
 ## Architecture & Structure
 
 ### Modern src/ Layout (Aug 2025 Restructure)
