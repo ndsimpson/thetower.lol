@@ -177,9 +177,22 @@ class CategoryListView(ui.View):
         self.cog = cog
         self.guild_id = guild_id
         self.interaction = interaction
+        self._rebuild_buttons()
 
-        # Add category buttons
-        categories = self.cog.get_setting("categories", [], guild_id=guild_id)
+    def _create_category_callback(self, category: dict):
+        """Create callback for category button."""
+
+        async def callback(interaction: discord.Interaction):
+            view = CategoryDetailView(self.cog, self.guild_id, category, interaction, parent=self)
+            await view.show()
+
+        return callback
+
+    def _rebuild_buttons(self):
+        """Rebuild all buttons from current category list."""
+        self.clear_items()
+
+        categories = self.cog.get_setting("categories", [], guild_id=self.guild_id)
         sorted_categories = sorted(categories, key=lambda c: c.get("name", "").lower())
 
         for idx, category in enumerate(sorted_categories[:20]):  # Max 20 categories
@@ -197,17 +210,8 @@ class CategoryListView(ui.View):
         back_btn.callback = self.on_back
         self.add_item(back_btn)
 
-    def _create_category_callback(self, category: dict):
-        """Create callback for category button."""
-
-        async def callback(interaction: discord.Interaction):
-            view = CategoryDetailView(self.cog, self.guild_id, category, interaction, parent=self)
-            await view.show()
-
-        return callback
-
-    async def show(self):
-        """Display the category list."""
+    def _build_embed(self) -> discord.Embed:
+        """Build the category list embed."""
         embed = discord.Embed(title="📋 Manage Categories", description="Select a category to edit or add a new one", color=discord.Color.blue())
 
         categories = self.cog.get_setting("categories", [], guild_id=self.guild_id)
@@ -223,44 +227,17 @@ class CategoryListView(ui.View):
         else:
             embed.add_field(name="No Categories", value="Click 'Add Category' to create your first category", inline=False)
 
+        return embed
+
+    async def show(self):
+        """Display the category list."""
+        embed = self._build_embed()
         await self.interaction.response.edit_message(embed=embed, view=self)
 
     async def refresh(self, interaction: discord.Interaction):
         """Refresh the view."""
-        # Rebuild buttons
-        self.clear_items()
-
-        categories = self.cog.get_setting("categories", [], guild_id=self.guild_id)
-        sorted_categories = sorted(categories, key=lambda c: c.get("name", "").lower())
-
-        for idx, category in enumerate(sorted_categories[:20]):
-            btn = ui.Button(label=category.get("name", "Unknown"), style=discord.ButtonStyle.secondary, row=idx // 5)
-            btn.callback = self._create_category_callback(category)
-            self.add_item(btn)
-
-        add_btn = ui.Button(label="Add Category", style=discord.ButtonStyle.success, emoji="➕", row=4)
-        add_btn.callback = self.on_add_category
-        self.add_item(add_btn)
-
-        back_btn = ui.Button(label="← Back", style=discord.ButtonStyle.primary, row=4)
-        back_btn.callback = self.on_back
-        self.add_item(back_btn)
-
-        # Update embed
-        embed = discord.Embed(title="📋 Manage Categories", description="Select a category to edit or add a new one", color=discord.Color.blue())
-
-        if categories:
-            category_list = []
-            for cat in sorted_categories:
-                mode = cat.get("selection_mode", "single")
-                mode_text = "single" if mode == "single" else "multiple"
-                roles_count = len(cat.get("roles", []))
-                category_list.append(f"• **{cat.get('name')}** ({mode_text}, {roles_count} roles)")
-
-            embed.add_field(name=f"Categories ({len(categories)})", value="\n".join(category_list[:20]), inline=False)
-        else:
-            embed.add_field(name="No Categories", value="Click 'Add Category' to create your first category", inline=False)
-
+        self._rebuild_buttons()
+        embed = self._build_embed()
         await interaction.response.edit_message(embed=embed, view=self)
 
     async def on_add_category(self, interaction: discord.Interaction):
@@ -309,8 +286,10 @@ class AddCategoryModal(ui.Modal, title="Add New Category"):
         categories.append(new_category)
         self.cog.set_setting("categories", categories, guild_id=self.guild_id)
 
-        await interaction.response.send_message(f"✅ Created category '{name}'", ephemeral=True)
-        await self.parent_view.refresh(interaction)
+        # Refresh the view
+        self.parent_view._rebuild_buttons()
+        embed = self.parent_view._build_embed()
+        await interaction.response.edit_message(embed=embed, view=self.parent_view)
 
 
 class CategoryDetailView(ui.View):
@@ -462,26 +441,7 @@ class CategoryRoleManagementView(ui.View):
         self.category = category
         self.interaction = interaction
         self.parent = parent
-
-        # Add role select dropdown
-        self.add_item(AddRoleSelect(self.cog, self.guild_id, self.category, self))
-
-        # Add role buttons
-        roles = category.get("roles", [])
-        guild = cog.bot.get_guild(guild_id)
-
-        for idx, role_config in enumerate(roles[:20]):
-            role_obj = guild.get_role(role_config["role_id"]) if guild else None
-            label = role_obj.name if role_obj else f"Unknown ({role_config['role_id']})"
-
-            btn = ui.Button(label=label, style=discord.ButtonStyle.secondary, row=(idx // 5) + 1)
-            btn.callback = self._create_role_callback(role_config)
-            self.add_item(btn)
-
-        # Back button
-        back_btn = ui.Button(label="← Back", style=discord.ButtonStyle.primary, row=4)
-        back_btn.callback = self.on_back
-        self.add_item(back_btn)
+        self._rebuild_buttons()
 
     def _create_role_callback(self, role_config: dict):
         """Create callback for role button."""
@@ -492,20 +452,14 @@ class CategoryRoleManagementView(ui.View):
 
         return callback
 
-    async def show(self):
-        """Display role management view."""
-        embed = self._build_embed()
-        await self.interaction.response.edit_message(embed=embed, view=self)
-
-    async def refresh(self, interaction: discord.Interaction):
-        """Refresh the view."""
-        # Rebuild view
+    def _rebuild_buttons(self):
+        """Rebuild all buttons from current role list."""
         self.clear_items()
 
-        # Re-add role select
+        # Add role select dropdown
         self.add_item(AddRoleSelect(self.cog, self.guild_id, self.category, self))
 
-        # Re-add role buttons
+        # Add role buttons
         roles = self.category.get("roles", [])
         guild = self.cog.bot.get_guild(self.guild_id)
 
@@ -522,7 +476,14 @@ class CategoryRoleManagementView(ui.View):
         back_btn.callback = self.on_back
         self.add_item(back_btn)
 
-        # Update display
+    async def show(self):
+        """Display role management view."""
+        embed = self._build_embed()
+        await self.interaction.response.edit_message(embed=embed, view=self)
+
+    async def refresh(self, interaction: discord.Interaction):
+        """Refresh the view."""
+        self._rebuild_buttons()
         embed = self._build_embed()
         await interaction.response.edit_message(embed=embed, view=self)
 
@@ -552,7 +513,10 @@ class CategoryRoleManagementView(ui.View):
 
     async def on_back(self, interaction: discord.Interaction):
         """Return to category detail view."""
-        await self.parent.show()
+        # Recreate parent view with fresh interaction
+        view = CategoryDetailView(self.cog, self.guild_id, self.category, interaction, parent=self.parent.parent)
+        embed = view._build_embed()
+        await interaction.response.edit_message(embed=embed, view=view)
 
 
 class AddRoleSelect(ui.RoleSelect):
@@ -588,8 +552,10 @@ class AddRoleSelect(ui.RoleSelect):
 
         self.cog.set_setting("categories", categories, guild_id=self.guild_id)
 
-        await interaction.response.send_message(f"✅ Added {role.name} to category", ephemeral=True)
-        await self.parent_view.refresh(interaction)
+        # Refresh the view
+        self.parent_view._rebuild_buttons()
+        embed = self.parent_view._build_embed()
+        await interaction.response.edit_message(embed=embed, view=self.parent_view)
 
 
 class RoleDetailView(ui.View):
