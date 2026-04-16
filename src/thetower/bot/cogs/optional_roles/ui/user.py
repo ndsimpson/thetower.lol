@@ -33,16 +33,15 @@ class RoleSelectionView(ui.View):
                 self.roles_by_category[category] = []
             self.roles_by_category[category].append(role_config)
 
-        # Add category buttons (sorted alphabetically)
+        self._build_category_buttons()
+
+    def _build_category_buttons(self) -> None:
+        """Build and add category buttons based on current state."""
         sorted_categories = sorted(self.roles_by_category.keys())
         for idx, category_name in enumerate(sorted_categories):
-            # Check if user has any roles in this category
             category_roles = self.roles_by_category[category_name]
             has_role_in_category = any(r["role_id"] in self.current_role_ids for r in category_roles)
-
-            # Use different style if user has a role in this category
             style = discord.ButtonStyle.success if has_role_in_category else discord.ButtonStyle.primary
-
             btn = ui.Button(label=category_name, style=style, row=idx // 5)
             btn.callback = self._create_category_callback(category_name)
             self.add_item(btn)
@@ -80,17 +79,8 @@ class RoleSelectionView(ui.View):
                 self.roles_by_category[category] = []
             self.roles_by_category[category].append(role_config)
 
-        # Update category button styles
         self.clear_items()
-        sorted_categories = sorted(self.roles_by_category.keys())
-        for idx, category_name in enumerate(sorted_categories):
-            category_roles = self.roles_by_category[category_name]
-            has_role_in_category = any(r["role_id"] in self.current_role_ids for r in category_roles)
-            style = discord.ButtonStyle.success if has_role_in_category else discord.ButtonStyle.primary
-
-            btn = ui.Button(label=category_name, style=style, row=idx // 5)
-            btn.callback = self._create_category_callback(category_name)
-            self.add_item(btn)
+        self._build_category_buttons()
 
         content = self._build_main_message()
         await interaction.response.edit_message(content=content, view=self)
@@ -151,14 +141,16 @@ class CategoryRoleView(ui.View):
         user_role_ids = [role.id for role in self.member.roles]
         self.current_role_ids = [r["role_id"] for r in roles if r["role_id"] in user_role_ids]
 
-        # Add role buttons
+        self._build_role_buttons()
+
+    def _build_role_buttons(self) -> None:
+        """Build and add role buttons based on current state."""
         for idx, role_config in enumerate(self.roles):
             role_id = role_config["role_id"]
             role_obj = self.guild.get_role(role_id)
             if not role_obj:
                 continue
 
-            # Determine button style
             if role_id in self.current_role_ids:
                 style = discord.ButtonStyle.success
                 label = f"✓ {role_obj.name}"
@@ -166,19 +158,15 @@ class CategoryRoleView(ui.View):
                 style = discord.ButtonStyle.secondary
                 label = role_obj.name
 
-            # Add emoji if configured
             emoji = role_config.get("emoji")
-
             btn = ui.Button(label=label, style=style, emoji=emoji, row=idx // 5)
             btn.callback = self._create_role_callback(role_config)
             self.add_item(btn)
 
-        # Add back button
         back_btn = ui.Button(label="← Back", style=discord.ButtonStyle.primary, row=4)
         back_btn.callback = self.on_back
         self.add_item(back_btn)
 
-        # Add clear all button if multi-select and user has roles
         if self.selection_mode == "multiple" and self.current_role_ids:
             clear_btn = ui.Button(label="Clear All", style=discord.ButtonStyle.danger, emoji="❌", row=4)
             clear_btn.callback = self.on_clear_all
@@ -204,36 +192,8 @@ class CategoryRoleView(ui.View):
         user_role_ids = [role.id for role in self.member.roles]
         self.current_role_ids = [r["role_id"] for r in self.roles if r["role_id"] in user_role_ids]
 
-        # Rebuild buttons
         self.clear_items()
-        for idx, role_config in enumerate(self.roles):
-            role_id = role_config["role_id"]
-            role_obj = self.guild.get_role(role_id)
-            if not role_obj:
-                continue
-
-            if role_id in self.current_role_ids:
-                style = discord.ButtonStyle.success
-                label = f"✓ {role_obj.name}"
-            else:
-                style = discord.ButtonStyle.secondary
-                label = role_obj.name
-
-            emoji = role_config.get("emoji")
-            btn = ui.Button(label=label, style=style, emoji=emoji, row=idx // 5)
-            btn.callback = self._create_role_callback(role_config)
-            self.add_item(btn)
-
-        # Add back button
-        back_btn = ui.Button(label="← Back", style=discord.ButtonStyle.primary, row=4)
-        back_btn.callback = self.on_back
-        self.add_item(back_btn)
-
-        # Add clear all button if applicable
-        if self.selection_mode == "multiple" and self.current_role_ids:
-            clear_btn = ui.Button(label="Clear All", style=discord.ButtonStyle.danger, emoji="❌", row=4)
-            clear_btn.callback = self.on_clear_all
-            self.add_item(clear_btn)
+        self._build_role_buttons()
 
         content = self._build_message()
         await interaction.response.edit_message(content=content, view=self)
@@ -266,7 +226,6 @@ class CategoryRoleView(ui.View):
             if role_id in self.current_role_ids:
                 # Remove the role
                 await self.member.remove_roles(role_obj, reason="User opted out of optional role")
-                await interaction.response.send_message(f"✓ Removed **{role_obj.name}**", ephemeral=True, delete_after=3)
             else:
                 # Add the role
                 # If single-selection mode, remove other roles in category first
@@ -277,7 +236,6 @@ class CategoryRoleView(ui.View):
                         await self.member.remove_roles(*roles_to_remove, reason="Replacing with different optional role")
 
                 await self.member.add_roles(role_obj, reason="User opted into optional role")
-                await interaction.response.send_message(f"✓ Added **{role_obj.name}**", ephemeral=True, delete_after=3)
 
             # Refresh the view
             await self.refresh(interaction)
@@ -304,8 +262,6 @@ class CategoryRoleView(ui.View):
 
             if roles_to_remove:
                 await self.member.remove_roles(*roles_to_remove, reason="User cleared all optional roles in category")
-                role_names = ", ".join(r.name for r in roles_to_remove)
-                await interaction.response.send_message(f"✓ Removed all roles: {role_names}", ephemeral=True, delete_after=5)
                 await self.refresh(interaction)
 
                 # Update parent view
