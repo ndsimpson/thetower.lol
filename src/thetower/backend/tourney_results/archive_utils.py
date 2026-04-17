@@ -285,7 +285,7 @@ def build_all_archives(live_path: Path, force: bool = False) -> list[Path]:
 def read_archive(path: Path) -> pd.DataFrame:
     """Read a ``{date}_archive.csv.gz`` file and parse snapshot_time as datetime."""
     df = pd.read_csv(path)
-    df["snapshot_time"] = pd.to_datetime(df["snapshot_time"])
+    df["snapshot_time"] = pd.to_datetime(df["snapshot_time"], format="ISO8601")
     return df
 
 
