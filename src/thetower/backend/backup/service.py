@@ -1,8 +1,9 @@
 """Backup service entry point.
 
 Runs as a persistent background service:
-  - Tar backup:  every 15 minutes (uploads new tars to R2, deletes local copies)
-  - DB backup:   daily at 03:00 UTC (VACUUM INTO → gzip → R2)
+  - Tar backup:  on startup and daily at 03:00 UTC (uploads new tars to R2, deletes local copies)
+  - DB backup:   on startup and daily at 03:00 UTC (VACUUM INTO → gzip → R2)
+                 DB backup is idempotent: skips if today's R2 key already exists.
 
 Environment variables required:
     R2_ACCOUNT_ID, R2_BUCKET_NAME
@@ -55,13 +56,14 @@ def run_db_backup() -> None:
 def main() -> None:
     logger.info("Backup service starting")
 
-    schedule.every(15).minutes.do(run_tar_backup)
+    schedule.every().day.at("03:00").do(run_tar_backup)
     schedule.every().day.at("03:00").do(run_db_backup)
 
-    # Run tar backup immediately on startup to catch anything pending
+    # Run both on startup; DB backup is idempotent and will skip if already done today
     run_tar_backup()
+    run_db_backup()
 
-    logger.info("Backup service running (tar every 15 min, DB daily at 03:00 UTC)")
+    logger.info("Backup service running (tar + DB on startup and daily at 03:00 UTC)")
     while True:
         schedule.run_pending()
         time.sleep(30)
