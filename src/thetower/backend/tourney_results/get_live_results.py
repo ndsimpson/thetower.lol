@@ -78,11 +78,17 @@ def make_request(league):
 
 def execute(league):
     logging.info(f"Working on {league}.")
-    file_path = get_file_path(get_file_name(), league)
-    Path(file_path).parent.mkdir(parents=True, exist_ok=True)
+    file_path = Path(get_file_path(get_file_name(), league))
+    file_path.parent.mkdir(parents=True, exist_ok=True)
     df = make_request(league)
 
-    df.to_csv(file_path, index=False, compression="gzip")
+    tmp_path = file_path.with_name(file_path.name + ".tmp")
+    try:
+        df.to_csv(str(tmp_path), index=False, compression="gzip")
+        tmp_path.replace(file_path)
+    except Exception:
+        tmp_path.unlink(missing_ok=True)
+        raise
     logging.info(f"Successfully stored file {file_path}")
 
     return True
