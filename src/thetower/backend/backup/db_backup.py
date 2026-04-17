@@ -85,7 +85,8 @@ def backup_database() -> dict:
         stats["keys_skipped"] += len(r2_keys)
         return stats
 
-    tmp_dir = Path(tempfile.mkdtemp(prefix="tower_dbbackup_"))
+    # Use a temp dir on the same partition as the database to avoid filling tmpfs
+    tmp_dir = Path(tempfile.mkdtemp(prefix="tower_dbbackup_", dir=db_path.parent))
     try:
         # Step 1: VACUUM INTO — WAL-safe clean copy
         vacuum_path = tmp_dir / f"tower_{now.strftime('%Y%m%d_%H%M%S')}.db"
