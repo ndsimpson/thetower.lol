@@ -1,7 +1,8 @@
 """Backup Status admin page.
 
 Shows Cloudflare R2 backup health by querying the bucket live using the
-read-only R2 credentials. Data is cached for 5 minutes.
+read-only R2 credentials. Data is cached for 5 minutes. Also shows a
+structured activity log from the backup service's JSONL event file.
 """
 
 import logging
@@ -88,7 +89,7 @@ def backup_status_page() -> None:
         st.caption(f"Data cached for 5 minutes · Last render: {datetime.now(timezone.utc).strftime('%H:%M:%S UTC')}")
 
     if not _credentials_available():
-        st.warning("R2 read credentials not configured. " "Set R2_ACCOUNT_ID, R2_BUCKET_NAME, R2_READ_ACCESS_KEY_ID, and R2_READ_SECRET_ACCESS_KEY.")
+        st.warning("R2 credentials not configured. Set R2_ACCOUNT_ID, R2_BUCKET_NAME, R2_ACCESS_KEY_ID, and R2_SECRET_ACCESS_KEY.")
         return
 
     # Summary metric row
@@ -146,6 +147,73 @@ def backup_status_page() -> None:
                 st.caption(f"Showing 25 of {stats['count']} objects · Total: {_fmt_bytes(stats['total_size'])}")
             else:
                 st.caption(f"Total: {_fmt_bytes(stats['total_size'])}")
+
+    # Activity log section
+    st.markdown("---")
+    st.subheader("📋 Activity Log")
+    _render_activity_log()
+
+
+def _render_activity_log() -> None:
+    """Render stats and recent events from the backup JSONL log."""
+    try:
+        from thetower.backend.backup.backup_log import read_events
+    except ImportError:
+        st.info("Backup log module not available.")
+        return
+
+    events = read_events(last_n=500)
+    if not events:
+        st.info("No backup activity logged yet.")
+        return
+
+    # Stats from events
+    tar_uploads = [e for e in events if e.get("type") == "tar_upload"]
+    db_uploads = [e for e in events if e.get("type") == "db_upload"]
+    errors = [e for e in events if e.get("type") in ("tar_error", "db_error")]
+
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.metric("Tars Uploaded", len(tar_uploads))
+    with col2:
+        total_tar_bytes = sum(e.get("size", 0) for e in tar_uploads)
+        st.metric("Data Uploaded", _fmt_bytes(total_tar_bytes))
+    with col3:
+        st.metric("DB Backups", len(db_uploads))
+    with col4:
+        st.metric("Errors", len(errors), delta=None if not errors else f"{len(errors)} recent", delta_color="inverse")
+
+    last_summary = next((e for e in events if e.get("type") == "run_summary"), None)
+    if last_summary:
+        ts = last_summary.get("ts", "")
+        run_type = last_summary.get("run", "?")
+        st.caption(f"Last run: {run_type} · {ts[:19].replace('T', ' ')} UTC")
+
+    # Recent events table
+    with st.expander("Recent Events", expanded=True):
+        type_filter = st.selectbox("Filter by type", ["all", "tar_upload", "db_upload", "tar_error", "db_error", "run_summary"], key="log_filter")
+        filtered = events if type_filter == "all" else [e for e in events if e.get("type") == type_filter]
+
+        rows = []
+        for e in filtered[:100]:
+            ts = e.get("ts", "")[:19].replace("T", " ")
+            etype = e.get("type", "")
+            if etype == "tar_upload":
+                detail = f"{e.get('league')}/{e.get('file')} ({_fmt_bytes(e.get('size', 0))})"
+            elif etype == "db_upload":
+                detail = f"{e.get('key')} ({_fmt_bytes(e.get('size', 0))})"
+            elif etype in ("tar_error", "db_error"):
+                detail = f"{e.get('league', '')}{e.get('key', '')} — {e.get('error', '')}"
+            elif etype == "run_summary":
+                detail = " · ".join(f"{k}={v}" for k, v in e.items() if k not in ("type", "ts", "run"))
+            else:
+                detail = str(e)
+            rows.append({"Time (UTC)": ts, "Type": etype, "Detail": detail})
+
+        if rows:
+            st.dataframe(rows, use_container_width=True, hide_index=True)
+        else:
+            st.info("No events match filter.")
 
 
 backup_status_page()

@@ -25,6 +25,7 @@ from pathlib import Path
 
 from botocore.exceptions import ClientError
 
+from thetower.backend.backup.backup_log import log_db_error, log_db_upload, log_run_summary
 from thetower.backend.backup.r2_client import get_r2_bucket, get_r2_client
 from thetower.backend.env_config import get_django_data
 
@@ -138,12 +139,15 @@ def backup_database() -> dict:
 
                 logger.info(f"Uploaded and verified: {key}")
                 stats["keys_uploaded"] += 1
+                log_db_upload(key, compressed_size, sha256)
 
-            except Exception:
+            except Exception as exc:
                 logger.exception(f"Failed to upload DB backup to {key}")
+                log_db_error(key, str(exc))
                 stats["errors"] += 1
 
     finally:
         shutil.rmtree(tmp_dir, ignore_errors=True)
 
+    log_run_summary("db", stats)
     return stats

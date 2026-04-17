@@ -17,6 +17,7 @@ from pathlib import Path
 
 from botocore.exceptions import ClientError
 
+from thetower.backend.backup.backup_log import log_run_summary, log_tar_error, log_tar_upload
 from thetower.backend.backup.r2_client import get_r2_bucket, get_r2_client
 from thetower.backend.env_config import get_csv_data
 from thetower.backend.tourney_results.archive_utils import get_raw_path
@@ -102,14 +103,17 @@ def backup_new_tars() -> dict:
 
                 logger.info(f"Verified: {key}")
                 stats["uploaded"] += 1
+                log_tar_upload(league, tar_path.name, size, sha256)
 
                 # Delete local tar only after confirmed upload
                 tar_path.unlink()
                 logger.info(f"Deleted local tar: {tar_path}")
                 stats["deleted"] += 1
 
-            except Exception:
+            except Exception as exc:
                 logger.exception(f"Failed to backup {league}/{tar_path.name}")
+                log_tar_error(league, tar_path.name, str(exc))
                 stats["errors"] += 1
 
+    log_run_summary("tar", stats)
     return stats
