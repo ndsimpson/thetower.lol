@@ -356,6 +356,12 @@ def service_status_page():
             "service": "generate_live_bracket_cache.service",
             "restart_allowed": True,
         },
+        "tower-backup": {
+            "name": "Backup Service",
+            "description": "Uploads raw tars and DB snapshots to Cloudflare R2 (start-only)",
+            "service": "tower-backup.service",
+            "restart_allowed": False,
+        },
     }
 
     # Refresh controls

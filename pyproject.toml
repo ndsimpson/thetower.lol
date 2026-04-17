@@ -47,6 +47,7 @@ web = [
     "anthropic==0.84.0",
     "tqdm==4.67.3",
     "schedule==1.2.2",
+    "boto3==1.37.37",
 ]
 
 dev = [
@@ -68,6 +69,7 @@ Issues = "https://github.com/ndsimpson/thetower.lol/issues"
 thetower-web = "thetower.web.pages:main"
 thetower-bot = "thetower.bot.bot:main"
 thetower-init-streamlit = "thetower.scripts.setup_streamlit:main"
+thetower-backup = "thetower.backend.backup.service:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

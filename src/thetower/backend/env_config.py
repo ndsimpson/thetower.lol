@@ -45,3 +45,34 @@ def get_django_data() -> Path:
             "Please set it to the path where Django database and static files should be stored (e.g., /data/django)."
         )
     return Path(django_data)
+
+
+def get_r2_config() -> dict:
+    """Get and validate all required Cloudflare R2 environment variables.
+
+    Returns:
+        dict with keys: account_id, bucket, access_key_id, secret_access_key,
+                        read_access_key_id, read_secret_access_key
+
+    Raises:
+        RuntimeError: If any required R2 variable is not set.
+    """
+    required = {
+        "account_id": "R2_ACCOUNT_ID",
+        "bucket": "R2_BUCKET_NAME",
+        "access_key_id": "R2_ACCESS_KEY_ID",
+        "secret_access_key": "R2_SECRET_ACCESS_KEY",
+        "read_access_key_id": "R2_READ_ACCESS_KEY_ID",
+        "read_secret_access_key": "R2_READ_SECRET_ACCESS_KEY",
+    }
+    config = {}
+    missing = []
+    for key, env_var in required.items():
+        val = os.getenv(env_var)
+        if val:
+            config[key] = val
+        else:
+            missing.append(env_var)
+    if missing:
+        raise RuntimeError(f"Missing required R2 environment variables: {', '.join(missing)}")
+    return config
