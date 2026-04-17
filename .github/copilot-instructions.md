@@ -30,6 +30,46 @@ When writing or modifying code, follow these steps automatically:
 
 Apply this workflow for all code writing/modification requests unless explicitly told otherwise.
 
+## Scope Management
+
+When implementing features, maintain discipline to avoid scope creep:
+
+### Implementation Focus
+
+1. **Implement what was requested** - Focus on the user's actual ask, not theoretical improvements
+2. **Match existing code patterns** - New code should match the rigor/safety level of surrounding code, not exceed it
+3. **Pause before improvements** - After core functionality works, use `vscode_askQuestions` to ask before adding:
+    - Extra error handling beyond existing code patterns
+    - Performance optimizations not requested
+    - Additional safety checks beyond codebase norms
+    - Defensive coding for theoretical edge cases
+
+### When to Stop
+
+Task is complete when:
+
+- ✅ User's specific request is implemented
+- ✅ Code follows project standards (flake8, 150-char lines, type hints, formatting)
+- ✅ No errors in Problems panel
+- ✅ Doesn't break existing functionality
+
+Do NOT continue adding without confirmation:
+
+- ❌ Theoretical edge case handling not present in existing code
+- ❌ "Production hardening" beyond what was asked
+- ❌ Improvements to tangential code
+- ❌ Extensive error handling if rest of codebase doesn't have it
+
+### Review Expectations
+
+When code review subagents find issues, distinguish between:
+
+- **Blocking**: Breaks requested functionality or introduces real bugs
+- **Critical**: Actual issues in new code (crashes, data corruption, security holes)
+- **Suggestions**: Improvements beyond original scope
+
+Only **Blocking** and **Critical** issues require fixes before completion. **Suggestions** should be noted but not automatically implemented unless explicitly requested.
+
 ## Interactive Questions
 
 **Always use `vscode_askQuestions` tool for ANY interactive question during work**, including:
@@ -41,6 +81,38 @@ Apply this workflow for all code writing/modification requests unless explicitly
 - The mandatory "Ready to commit?" pause
 
 **Never ask questions as plain text** - always use the tool for structured, actionable responses.
+
+## Testing Policy
+
+**Skip Test-Driven Development (TDD) for this project.** This is a Discord bot with complex external dependencies that make traditional unit testing impractical:
+
+### Why No TDD
+
+- **Discord API complexity**: Mocking Discord's WebSocket connections, event system, and API interactions provides minimal value
+- **Live environment dependency**: Real testing requires an active Discord server and bot instance
+- **Integration over isolation**: Most functionality depends on Discord.py's internals and live server state
+- **Manual testing is practical**: Features can be verified immediately in a test Discord server
+
+### Development Approach
+
+**For Atlas, Sisyphus, and all subagents working on this project:**
+
+- ❌ Do NOT write unit tests or test files
+- ❌ Do NOT follow test-first development
+- ❌ Do NOT require test coverage or test passing as acceptance criteria
+- ✅ Implement features directly after planning
+- ✅ Focus on code quality, type hints, error handling, and Discord API best practices
+- ✅ Verify code compiles/runs without errors (use Problems panel)
+- ✅ Document how to manually test each feature in commit messages or comments
+
+### Verification Strategy
+
+Instead of automated tests, verify implementation through:
+
+1. **Static analysis**: Check Problems panel for errors, type checking, linting
+2. **Manual Discord testing**: Run bot in test server and verify feature behavior
+3. **Code review**: Focus on error handling, edge cases, and Discord API usage patterns
+4. **Production monitoring**: Watch logs and user feedback after deployment
 
 ## Architecture & Structure
 

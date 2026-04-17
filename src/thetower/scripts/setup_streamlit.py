@@ -41,11 +41,12 @@ def setup_streamlit():
                 # If all else fails, use a timestamp-based marker
                 installed_version = "unknown"
 
-        # Check if we already extracted this version
+        # Check if we already extracted this version (and files actually exist)
         if VERSION_MARKER.exists():
             existing_version = VERSION_MARKER.read_text().strip()
-            if existing_version == installed_version:
-                logger.info(f"Streamlit pages already up-to-date " f"(version {installed_version})")
+            web_dst_check = STREAMLIT_TARGET_DIR / "src" / "thetower" / "web"
+            if existing_version == installed_version and web_dst_check.exists():
+                logger.info(f"Streamlit pages already up-to-date (version {installed_version})")
                 return 0
 
         # Get the thetower package location
