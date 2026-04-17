@@ -89,66 +89,67 @@ def backup_status_page() -> None:
         st.caption(f"Data cached for 5 minutes · Last render: {datetime.now(timezone.utc).strftime('%H:%M:%S UTC')}")
 
     if not _credentials_available():
-        st.warning("R2 credentials not configured. Set R2_ACCOUNT_ID, R2_BUCKET_NAME, R2_ACCESS_KEY_ID, and R2_SECRET_ACCESS_KEY.")
-        return
+        st.warning(
+            "R2 credentials not configured — bucket stats unavailable. Set R2_ACCOUNT_ID, R2_BUCKET_NAME, R2_ACCESS_KEY_ID, and R2_SECRET_ACCESS_KEY."
+        )
+    else:
+        # Summary metric row
+        st.markdown("---")
+        cols = st.columns(len(_PREFIXES))
+        all_stats: dict[str, dict] = {}
 
-    # Summary metric row
-    st.markdown("---")
-    cols = st.columns(len(_PREFIXES))
-    all_stats: dict[str, dict] = {}
+        for i, (prefix, meta) in enumerate(_PREFIXES.items()):
+            stats = _fetch_prefix_stats(prefix)
+            all_stats[prefix] = stats
+            with cols[i]:
+                if stats["error"]:
+                    st.metric(f"{meta['icon']} {meta['label']}", "Error")
+                    st.caption(stats["error"][:80])
+                else:
+                    last_obj = stats["objects"][0] if stats["objects"] else None
+                    last_str = _time_ago(last_obj["LastModified"]) if last_obj else "never"
+                    st.metric(
+                        f"{meta['icon']} {meta['label']}",
+                        f"{stats['count']} files",
+                        _fmt_bytes(stats["total_size"]),
+                    )
+                    st.caption(f"Last: {last_str}")
 
-    for i, (prefix, meta) in enumerate(_PREFIXES.items()):
-        stats = _fetch_prefix_stats(prefix)
-        all_stats[prefix] = stats
-        with cols[i]:
-            if stats["error"]:
-                st.metric(f"{meta['icon']} {meta['label']}", "Error")
-                st.caption(stats["error"][:80])
-            else:
-                last_obj = stats["objects"][0] if stats["objects"] else None
-                last_str = _time_ago(last_obj["LastModified"]) if last_obj else "never"
-                st.metric(
-                    f"{meta['icon']} {meta['label']}",
-                    f"{stats['count']} files",
-                    _fmt_bytes(stats["total_size"]),
-                )
-                st.caption(f"Last: {last_str}")
+        # Detailed per-prefix tables
+        st.markdown("---")
+        for prefix, meta in _PREFIXES.items():
+            stats = all_stats[prefix]
+            default_expanded = prefix in ("db/daily", "db/weekly")
 
-    # Detailed per-prefix tables
-    st.markdown("---")
-    for prefix, meta in _PREFIXES.items():
-        stats = all_stats[prefix]
-        default_expanded = prefix in ("db/daily", "db/weekly")
+            with st.expander(f"{meta['icon']} {meta['label']} — {meta['description']}", expanded=default_expanded):
+                if stats["error"]:
+                    st.error(f"Error: {stats['error']}")
+                    continue
 
-        with st.expander(f"{meta['icon']} {meta['label']} — {meta['description']}", expanded=default_expanded):
-            if stats["error"]:
-                st.error(f"Error: {stats['error']}")
-                continue
+                if not stats["objects"]:
+                    st.info("No backups found in this prefix.")
+                    continue
 
-            if not stats["objects"]:
-                st.info("No backups found in this prefix.")
-                continue
+                rows = []
+                for obj in stats["objects"][:25]:
+                    last_mod: datetime = obj["LastModified"]
+                    rows.append(
+                        {
+                            "Filename": obj["Key"].split("/")[-1],
+                            "Size": _fmt_bytes(obj["Size"]),
+                            "Uploaded": last_mod.strftime("%Y-%m-%d %H:%M UTC"),
+                            "Age": _time_ago(last_mod),
+                        }
+                    )
 
-            rows = []
-            for obj in stats["objects"][:25]:
-                last_mod: datetime = obj["LastModified"]
-                rows.append(
-                    {
-                        "Filename": obj["Key"].split("/")[-1],
-                        "Size": _fmt_bytes(obj["Size"]),
-                        "Uploaded": last_mod.strftime("%Y-%m-%d %H:%M UTC"),
-                        "Age": _time_ago(last_mod),
-                    }
-                )
+                st.dataframe(rows, use_container_width=True, hide_index=True)
 
-            st.dataframe(rows, use_container_width=True, hide_index=True)
+                if stats["count"] > 25:
+                    st.caption(f"Showing 25 of {stats['count']} objects · Total: {_fmt_bytes(stats['total_size'])}")
+                else:
+                    st.caption(f"Total: {_fmt_bytes(stats['total_size'])}")
 
-            if stats["count"] > 25:
-                st.caption(f"Showing 25 of {stats['count']} objects · Total: {_fmt_bytes(stats['total_size'])}")
-            else:
-                st.caption(f"Total: {_fmt_bytes(stats['total_size'])}")
-
-    # Activity log section
+    # Activity log section — always shown, no R2 credentials needed
     st.markdown("---")
     st.subheader("📋 Activity Log")
     _render_activity_log()
