@@ -23,6 +23,8 @@ dependencies = [
     # Core shared runtime (used by more than one area)
     "Django==5.2.12",
     "pydantic==2.12.5",
+    "boto3==1.37.37",
+    "schedule==1.2.2",
 ]
 
 [project.optional-dependencies]
@@ -46,8 +48,6 @@ web = [
     "django-axes==8.3.1",
     "anthropic==0.84.0",
     "tqdm==4.67.3",
-    "schedule==1.2.2",
-    "boto3==1.37.37",
 ]
 
 dev = [
