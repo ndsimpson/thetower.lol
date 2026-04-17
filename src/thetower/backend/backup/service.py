@@ -25,7 +25,7 @@ import schedule
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "thetower.backend.towerdb.settings")
 django.setup()
 
-from thetower.backend.backup.db_backup import backup_database
+from thetower.backend.backup.db_backup import backup_database, upload_pending_db_backups
 from thetower.backend.backup.tar_backup import backup_new_tars
 
 logging.basicConfig(
@@ -53,17 +53,28 @@ def run_db_backup() -> None:
         logger.exception("DB backup run failed")
 
 
+def run_pending_db_uploads() -> None:
+    logger.info("DB pending upload retry: scanning...")
+    try:
+        stats = upload_pending_db_backups()
+        if stats["checked"] > 0:
+            logger.info(f"DB pending upload retry complete: {stats}")
+    except Exception:
+        logger.exception("DB pending upload retry failed")
+
+
 def main() -> None:
     logger.info("Backup service starting")
 
     schedule.every().day.at("03:00").do(run_tar_backup)
     schedule.every().day.at("03:00").do(run_db_backup)
+    schedule.every().hour.at(":15").do(run_pending_db_uploads)
 
     # Run both on startup; DB backup is idempotent and will skip if already done today
     run_tar_backup()
     run_db_backup()
 
-    logger.info("Backup service running (tar + DB on startup and daily at 03:00 UTC)")
+    logger.info("Backup service running (tar + DB on startup and daily at 03:00 UTC; pending DB retry hourly at :15)")
     while True:
         schedule.run_pending()
         time.sleep(30)
