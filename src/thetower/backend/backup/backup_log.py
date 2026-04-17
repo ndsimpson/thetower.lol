@@ -39,7 +39,7 @@ def _write_event(event: dict) -> None:
         if path.exists() and path.stat().st_size > 0:
             existing = path.read_text(encoding="utf-8").splitlines()
             if len(existing) >= MAX_LINES:
-                keep = existing[-(MAX_LINES - 1):]
+                keep = existing[-(MAX_LINES - 1) :]
                 path.write_text("\n".join(keep) + "\n", encoding="utf-8")
         with open(path, "a", encoding="utf-8") as f:
             f.write(line + "\n")

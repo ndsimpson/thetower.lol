@@ -105,7 +105,14 @@ def backup_new_tars() -> dict:
                 stats["uploaded"] += 1
                 log_tar_upload(league, tar_path.name, size, sha256)
 
-                # Delete local tar only after confirmed upload
+                # Ensure the archive.csv.gz has been generated before removing the tar
+                date_prefix = tar_path.stem.replace("_raw", "")  # e.g. "2025-01-15"
+                archive_path = live_base / f"{league}_live" / f"{date_prefix}_archive.csv.gz"
+                if not archive_path.exists():
+                    logger.warning(f"Archive not yet generated for {league}/{date_prefix} — skipping deletion of local tar")
+                    continue
+
+                # Delete local tar only after confirmed upload and archive exists
                 tar_path.unlink()
                 logger.info(f"Deleted local tar: {tar_path}")
                 stats["deleted"] += 1
