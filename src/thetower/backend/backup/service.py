@@ -6,8 +6,7 @@ Runs as a persistent background service:
 
 Environment variables required:
     R2_ACCOUNT_ID, R2_BUCKET_NAME
-    R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY   (write-only key)
-    R2_READ_ACCESS_KEY_ID, R2_READ_SECRET_ACCESS_KEY  (read-only key, for status page)
+    R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY   (Edit+Read key for backup service)
     DJANGO_DATA     (path to /data/django — contains tower.sqlite3)
     CSV_DATA        (path to /data/results_cache — contains {league}_raw/)
 

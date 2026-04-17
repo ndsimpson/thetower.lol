@@ -17,7 +17,7 @@ from pathlib import Path
 
 from botocore.exceptions import ClientError
 
-from thetower.backend.backup.r2_client import get_r2_bucket, get_r2_write_client
+from thetower.backend.backup.r2_client import get_r2_bucket, get_r2_client
 from thetower.backend.env_config import get_csv_data
 from thetower.backend.tourney_results.archive_utils import get_raw_path
 from thetower.backend.tourney_results.constants import leagues
@@ -53,7 +53,7 @@ def backup_new_tars() -> dict:
 
     Returns a stats dict: checked, uploaded, skipped, deleted, errors.
     """
-    client = get_r2_write_client()
+    client = get_r2_client()
     bucket = get_r2_bucket()
     live_base = Path(get_csv_data())
     stats = {"checked": 0, "uploaded": 0, "skipped": 0, "deleted": 0, "errors": 0}

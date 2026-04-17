@@ -25,7 +25,7 @@ from pathlib import Path
 
 from botocore.exceptions import ClientError
 
-from thetower.backend.backup.r2_client import get_r2_bucket, get_r2_write_client
+from thetower.backend.backup.r2_client import get_r2_bucket, get_r2_client
 from thetower.backend.env_config import get_django_data
 
 logger = logging.getLogger(__name__)
@@ -66,7 +66,7 @@ def backup_database() -> dict:
     Returns a stats dict: keys_uploaded, keys_skipped, compressed_size_bytes, errors.
     """
     now = datetime.now(timezone.utc)
-    client = get_r2_write_client()
+    client = get_r2_client()
     bucket = get_r2_bucket()
     stats = {"keys_uploaded": 0, "keys_skipped": 0, "compressed_size_bytes": 0, "errors": 0}
 

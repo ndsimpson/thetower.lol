@@ -51,8 +51,7 @@ def get_r2_config() -> dict:
     """Get and validate all required Cloudflare R2 environment variables.
 
     Returns:
-        dict with keys: account_id, bucket, access_key_id, secret_access_key,
-                        read_access_key_id, read_secret_access_key
+        dict with keys: account_id, bucket, access_key_id, secret_access_key
 
     Raises:
         RuntimeError: If any required R2 variable is not set.
@@ -62,8 +61,6 @@ def get_r2_config() -> dict:
         "bucket": "R2_BUCKET_NAME",
         "access_key_id": "R2_ACCESS_KEY_ID",
         "secret_access_key": "R2_SECRET_ACCESS_KEY",
-        "read_access_key_id": "R2_READ_ACCESS_KEY_ID",
-        "read_secret_access_key": "R2_READ_SECRET_ACCESS_KEY",
     }
     config = {}
     missing = []

@@ -49,18 +49,16 @@ def _time_ago(dt: datetime) -> str:
 
 
 def _credentials_available() -> bool:
-    return bool(
-        os.getenv("R2_ACCOUNT_ID") and os.getenv("R2_READ_ACCESS_KEY_ID") and os.getenv("R2_READ_SECRET_ACCESS_KEY") and os.getenv("R2_BUCKET_NAME")
-    )
+    return bool(os.getenv("R2_ACCOUNT_ID") and os.getenv("R2_ACCESS_KEY_ID") and os.getenv("R2_SECRET_ACCESS_KEY") and os.getenv("R2_BUCKET_NAME"))
 
 
 @st.cache_data(ttl=300)
 def _fetch_prefix_stats(prefix: str) -> dict:
     """Fetch and aggregate object stats for a given R2 prefix. Cached 5 minutes."""
     try:
-        from thetower.backend.backup.r2_client import get_r2_bucket, get_r2_read_client
+        from thetower.backend.backup.r2_client import get_r2_bucket, get_r2_client
 
-        client = get_r2_read_client()
+        client = get_r2_client()
         bucket = get_r2_bucket()
         paginator = client.get_paginator("list_objects_v2")
 

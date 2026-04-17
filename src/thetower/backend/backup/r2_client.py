@@ -1,12 +1,14 @@
 """Cloudflare R2 boto3 client factory.
 
 Credentials are read from environment variables:
-    R2_ACCOUNT_ID           - Cloudflare account ID
-    R2_BUCKET_NAME          - R2 bucket name
-    R2_ACCESS_KEY_ID        - Write-only S3 API token key ID
-    R2_SECRET_ACCESS_KEY    - Write-only S3 API token secret
-    R2_READ_ACCESS_KEY_ID   - Read-only S3 API token key ID (for status page)
-    R2_READ_SECRET_ACCESS_KEY - Read-only S3 API token secret
+    R2_ACCOUNT_ID        - Cloudflare account ID
+    R2_BUCKET_NAME       - R2 bucket name
+    R2_ACCESS_KEY_ID     - S3 API token key ID
+    R2_SECRET_ACCESS_KEY - S3 API token secret
+
+The backup service uses an Edit+Read token.
+The hidden site status page uses a Read-only token.
+Both use the same env var names — each service file carries its own credentials.
 """
 
 import os
@@ -22,31 +24,16 @@ def _require_env(name: str) -> str:
     return val
 
 
-def _make_client(access_key_id: str, secret_access_key: str) -> boto3.client:
+def get_r2_client():
+    """Return a boto3 S3 client using the configured R2 credentials."""
     account_id = _require_env("R2_ACCOUNT_ID")
     return boto3.client(
         "s3",
         endpoint_url=f"https://{account_id}.r2.cloudflarestorage.com",
-        aws_access_key_id=access_key_id,
-        aws_secret_access_key=secret_access_key,
+        aws_access_key_id=_require_env("R2_ACCESS_KEY_ID"),
+        aws_secret_access_key=_require_env("R2_SECRET_ACCESS_KEY"),
         region_name="auto",
         config=Config(retries={"max_attempts": 3, "mode": "standard"}),
-    )
-
-
-def get_r2_write_client():
-    """Return a boto3 S3 client using the write-only R2 credentials."""
-    return _make_client(
-        _require_env("R2_ACCESS_KEY_ID"),
-        _require_env("R2_SECRET_ACCESS_KEY"),
-    )
-
-
-def get_r2_read_client():
-    """Return a boto3 S3 client using the read-only R2 credentials."""
-    return _make_client(
-        _require_env("R2_READ_ACCESS_KEY_ID"),
-        _require_env("R2_READ_SECRET_ACCESS_KEY"),
     )
 
 
