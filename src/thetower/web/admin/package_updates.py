@@ -293,7 +293,7 @@ def sync_dependencies(extras: Optional[List[str]] = None) -> Dict[str, any]:
     In regular (prod) installs, installs from the repository URL.
 
     Args:
-        extras: List of extra names to include (e.g. ["web", "bot", "dev"]).  Defaults to all.
+        extras: List of extra names to include (e.g. ["web", "bot"]).  Defaults to web and bot.
 
     Returns:
         dict with keys: success, message
@@ -301,7 +301,7 @@ def sync_dependencies(extras: Optional[List[str]] = None) -> Dict[str, any]:
     result: Dict[str, any] = {"success": False, "message": ""}
 
     if extras is None:
-        extras = ["web", "bot", "dev"]
+        extras = ["web", "bot"]
 
     try:
         # Determine install source — editable vs regular

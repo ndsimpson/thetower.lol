@@ -324,7 +324,7 @@ def render_package_deps(package_name: str, key_prefix: str, show_sync: bool = Fa
             sync_key = f"sync_deps_{key_prefix}"
             if st.button("🔄 Sync", key=sync_key, help="Re-run pip install to sync dependency versions with pinned values"):
                 with st.spinner("Syncing dependencies..."):
-                    sync_result = sync_dependencies(extras=[s for s in dep_sections if s != "core"])
+                    sync_result = sync_dependencies(extras=[s for s in dep_sections if s not in ("core", "dev")])
                 show_operation_result(
                     success=sync_result["success"],
                     title="✅ Dependencies synced" if sync_result["success"] else "❌ Sync failed",
