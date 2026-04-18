@@ -307,6 +307,9 @@ def render_package_deps(package_name: str, key_prefix: str, show_sync: bool = Fa
     if not dep_sections:
         return
 
+    # Exclude dev section from display — dev tools are not expected in production
+    dep_sections = {k: v for k, v in dep_sections.items() if k != "dev"}
+
     all_deps = [d for deps in dep_sections.values() for d in deps]
     total_mismatches = sum(1 for d in all_deps if d["status"] == "mismatch")
     total_missing = sum(1 for d in all_deps if d["status"] == "missing")
