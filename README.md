@@ -13,7 +13,7 @@
 .\.venv\Scripts\Activate.ps1
 
 # Linux/Mac
-source .venv/bin/activate
+source /opt/venv/tower/bin/activate
 ```
 
 **Install / development guidance:**
