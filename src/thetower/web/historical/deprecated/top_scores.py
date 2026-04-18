@@ -76,4 +76,6 @@ def get_top_scores():
     compute_top(df, options)
 
 
-get_top_scores()
+st.warning("This page is temporarily disabled pending a rewrite. The underlying data pipeline needs to be updated.")
+
+# get_top_scores()

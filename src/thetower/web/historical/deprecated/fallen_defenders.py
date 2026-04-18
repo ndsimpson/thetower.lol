@@ -88,4 +88,6 @@ def get_fallen_defenders():
     compute_fallen_defenders(df)
 
 
-get_fallen_defenders()
+st.warning("This page is temporarily disabled pending a rewrite. The underlying data pipeline needs to be updated.")
+
+# get_fallen_defenders()

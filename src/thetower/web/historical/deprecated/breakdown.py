@@ -121,4 +121,6 @@ def compute_breakdown(options: Optional[Options] = None) -> None:
         patch_tab.dataframe(counts_df.sort_index(axis=1, ascending=False))
 
 
-compute_breakdown()
+st.warning("This page is temporarily disabled pending a rewrite. The underlying data pipeline needs to be updated.")
+
+# compute_breakdown()

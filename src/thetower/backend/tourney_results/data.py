@@ -11,7 +11,10 @@ from typing import Optional
 import django
 import numpy as np
 import pandas as pd
-import streamlit as st
+
+# TODO: load_tourney_results/_load_tourney_results still need st.cache_data wrapping and progress
+# reporting; restore once deprecated pages are rewritten.
+# import streamlit as st
 from cachetools.func import ttl_cache
 from django.db.models import Q, QuerySet
 
@@ -171,8 +174,8 @@ def _load_tourney_results(
     dfs = []
 
     sus_ids = get_sus_ids()
-
-    load_data_bar = st.progress(0)
+    # TODO: progress reporting removed; restore via st.progress callback once pages are rewritten
+    # load_data_bar = st.progress(0)
 
     for index, (result_file, date, bcs) in enumerate(result_files, 1):
         # This is deprecated for new tourney server responses introduced in 0.25
@@ -221,8 +224,7 @@ def _load_tourney_results(
 
         df["position"] = positions
         dfs.append(df)
-
-        load_data_bar.progress(index / len(result_files) * 0.5)
+        # load_data_bar.progress(index / len(result_files) * 0.5)
 
     df = pd.concat(dfs)
 
@@ -238,29 +240,24 @@ def _load_tourney_results(
     id_to_real_name = get_id_real_name_mapping(df, lookup)
 
     df["verified"] = df.id.map(lambda id_: "✓" if lookup.get(id_) else "")
-
-    load_data_bar.progress(0.6)
+    # load_data_bar.progress(0.6)
 
     df["real_name"] = df.id.map(lambda id_: id_to_real_name[id_])
 
     df["patch"] = df.date.map(date_to_patch)
     df["patch_version"] = df.patch.map(lambda x: x.version_minor)
-
-    load_data_bar.progress(0.75)
+    # load_data_bar.progress(0.75)
 
     df["wave_role"] = [wave_to_role(wave, date_to_patch(date), league) for wave, date in zip(df["wave"], df["date"])]
     df["wave_role_color"] = df.wave_role.map(lambda role: getattr(role, "color", None))
-
-    load_data_bar.progress(0.95)
+    # load_data_bar.progress(0.95)
 
     df["position_role_color"] = [color_position_barebones(position) for position in df["position"]]
     df = df.reset_index(drop=True)
-
-    load_data_bar.progress(1.0)
+    # load_data_bar.progress(1.0)
 
     df = get_row_to_role(df, league=league)
-
-    load_data_bar.empty()
+    # load_data_bar.empty()
     return df
 
 
@@ -279,7 +276,8 @@ def handle_result_cutoff(hidden_features, league, result_cutoff):
     return cutoff
 
 
-@st.cache_data
+# TODO: re-add @st.cache_data (or equivalent) once Streamlit dependency is properly separated
+# @st.cache_data
 def load_tourney_results(
     folder: str, patch_id: Optional[int] = None, limit_no_results: Optional[int] = None, result_cutoff: Optional[int] = None
 ) -> pd.DataFrame:

@@ -96,4 +96,6 @@ def get_various():
     compute_various(df, options)
 
 
-get_various()
+st.warning("This page is temporarily disabled pending a rewrite. The underlying data pipeline needs to be updated.")
+
+# get_various()
