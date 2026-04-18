@@ -260,6 +260,57 @@ Check the cog's `pyproject.toml` has the entry point pointing at the **top-level
 cogname = "package_name"   # src/package_name/__init__.py must have async setup(bot)
 ```
 
+### Codebase Status Page Shows "git ls-remote failed"
+
+The `/codebase` admin page checks for updates by running `git ls-remote` against the URL stored in installed package metadata. If the package has a hardcoded HTTPS URL (e.g. `https://github.com/...`) rather than the SSH alias URL, the check fails for private repos because HTTPS requires credentials.
+
+**Root cause**: The package's `pyproject.toml` has a static `[project.urls]` entry instead of dynamic URL injection via `setup.py`.
+
+**Fix**: Ensure the package uses dynamic URL injection — the same pattern as `TourneyReminderCog`:
+
+1. In `pyproject.toml`, add `"urls"` to `dynamic` and remove the static `[project.urls]` section:
+
+    ```toml
+    [project]
+    dynamic = ["version", "urls"]
+    # No [project.urls] section
+    ```
+
+2. In `setup.py`, read the git remote at build time:
+
+    ```python
+    import subprocess
+    from setuptools import setup
+
+    def get_git_remote_url():
+        try:
+            result = subprocess.run(
+                ["git", "config", "--get", "remote.origin.url"],
+                capture_output=True, text=True, check=False,
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                return result.stdout.strip()
+        except Exception:
+            pass
+        return "https://github.com/owner/repo"  # fallback
+
+    setup(project_urls={"Repository": get_git_remote_url()})
+    ```
+
+3. Reinstall using the SSH alias URL so the alias gets baked into the metadata:
+
+    ```bash
+    pip install --force-reinstall --no-deps "git+ssh://git@github-tower-<name>/owner/repo.git"
+    ```
+
+After reinstall, verify the metadata URL is correct:
+
+```bash
+python3 -c "import importlib.metadata; print(importlib.metadata.metadata('<pkg>').get_all('Project-URL'))"
+```
+
+It should show `ssh://git@github-tower-<name>/...` not `https://...`.
+
 ## Security Notes
 
 - ✅ **DO**: Use unique deploy keys per repository

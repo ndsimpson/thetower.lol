@@ -21,9 +21,14 @@ Examples:
 import argparse
 import os
 import re
+import shutil
 import subprocess
 import sys
 from pathlib import Path
+
+
+TOWER_SSH_DIR = Path("/var/lib/tower/.ssh")
+TOWER_USER = "tower"
 
 
 def parse_github_url(url: str) -> tuple[str, str]:
@@ -224,6 +229,89 @@ def remove_ssh_alias(package_name: str) -> None:
     print(f"   🗑️  Removed SSH alias '{alias}' from ~/.ssh/config")
 
 
+def setup_tower_user_ssh(package_name: str, tower_ssh_dir: Path) -> bool:
+    """Copy deploy keys and add SSH alias for the tower service user."""
+    src_key = get_key_path(package_name)
+    if not src_key.exists():
+        print(f"   ⚠️  Key not found at {src_key}, skipping tower user setup")
+        return False
+
+    try:
+        tower_ssh_dir.mkdir(mode=0o700, exist_ok=True)
+        run_command(["chown", f"{TOWER_USER}:{TOWER_USER}", str(tower_ssh_dir)], check=False)
+    except Exception as e:
+        print(f"   ⚠️  Could not create {tower_ssh_dir}: {e}")
+        return False
+
+    dst_key = tower_ssh_dir / src_key.name
+    dst_pub = Path(f"{dst_key}.pub")
+    try:
+        shutil.copy2(src_key, dst_key)
+        shutil.copy2(Path(f"{src_key}.pub"), dst_pub)
+        os.chmod(dst_key, 0o600)
+        os.chmod(dst_pub, 0o644)
+        run_command(["chown", f"{TOWER_USER}:{TOWER_USER}", str(dst_key), str(dst_pub)], check=False)
+        print(f"   ✅ Copied keys to {tower_ssh_dir}")
+    except Exception as e:
+        print(f"   ⚠️  Could not copy keys to tower user dir: {e}")
+        return False
+
+    alias = get_ssh_alias(package_name)
+    config_path = tower_ssh_dir / "config"
+    config = config_path.read_text() if config_path.exists() else ""
+
+    if f"Host {alias}" in config:
+        print(f"   ⚠️  SSH alias '{alias}' already exists in tower's config, skipping")
+    else:
+        block = f"""
+Host {alias}
+    HostName github.com
+    User git
+    IdentityFile {dst_key}
+    IdentitiesOnly yes
+    StrictHostKeyChecking no
+"""
+        config = config.rstrip() + "\n" + block
+        config_path.write_text(config)
+        os.chmod(config_path, 0o600)
+        run_command(["chown", f"{TOWER_USER}:{TOWER_USER}", str(config_path)], check=False)
+        print(f"   ✅ Added SSH alias '{alias}' to tower user's SSH config")
+
+    return True
+
+
+def cleanup_tower_user_ssh(package_name: str, tower_ssh_dir: Path) -> None:
+    """Remove deploy keys and SSH alias from the tower service user's SSH setup."""
+    src_key = get_key_path(package_name)
+    dst_key = tower_ssh_dir / src_key.name
+    dst_pub = Path(f"{dst_key}.pub")
+
+    for path in (dst_key, dst_pub):
+        if path.exists():
+            path.unlink()
+            print(f"   🗑️  Removed {path}")
+
+    config_path = tower_ssh_dir / "config"
+    if config_path.exists():
+        alias = get_ssh_alias(package_name)
+        config = config_path.read_text()
+        if f"Host {alias}" in config:
+            lines = config.split("\n")
+            new_lines = []
+            skip = False
+            for line in lines:
+                if line.strip() == f"Host {alias}":
+                    skip = True
+                    continue
+                if skip and line.startswith("Host "):
+                    skip = False
+                if not skip:
+                    new_lines.append(line)
+            cleaned = re.sub(r"\n{3,}", "\n\n", "\n".join(new_lines)).strip() + "\n"
+            config_path.write_text(cleaned)
+            print(f"   🗑️  Removed SSH alias '{alias}' from tower user's SSH config")
+
+
 def add_to_agent(package_name: str) -> None:
     """Add the deploy key to the SSH agent."""
     key_path = get_key_path(package_name)
@@ -283,6 +371,10 @@ def main():
     parser.add_argument("github_url", help="GitHub repository URL (HTTPS or SSH format)")
     parser.add_argument("--skip-install", action="store_true", help="Only set up SSH, don't pip install")
     parser.add_argument("--force", action="store_true", help="Overwrite existing key and alias")
+    parser.add_argument(
+        "--tower-ssh-dir", type=Path, default=TOWER_SSH_DIR, metavar="DIR", help=f"Tower service user SSH directory (default: {TOWER_SSH_DIR})"
+    )
+    parser.add_argument("--no-tower-user", action="store_true", help="Skip tower service user SSH setup")
     args = parser.parse_args()
 
     package_name = args.package_name
@@ -322,6 +414,8 @@ def main():
         print("\n🔄 Force mode: removing existing key and alias...")
         cleanup_key(package_name)
         remove_ssh_alias(package_name)
+        if not args.no_tower_user:
+            cleanup_tower_user_ssh(package_name, args.tower_ssh_dir)
 
     # Step 1: Generate deploy key
     print(f"\n{'─' * 60}")
@@ -338,9 +432,20 @@ def main():
     # Step 3: Add to SSH agent
     add_to_agent(package_name)
 
+    # Step 3b: Set up tower service user SSH
+    if not args.no_tower_user:
+        print(f"\n{'─' * 60}")
+        print("  Step 3: Configure Tower Service User SSH")
+        print(f"{'─' * 60}")
+        if args.tower_ssh_dir.parent.exists():
+            setup_tower_user_ssh(package_name, args.tower_ssh_dir)
+        else:
+            print(f"   ⚠️  Tower SSH dir parent not found: {args.tower_ssh_dir.parent}")
+            print("   Skipping tower user setup (use --no-tower-user to suppress)")
+
     # Step 4: Show public key and wait for user to add it to GitHub
     print(f"\n{'─' * 60}")
-    print("  Step 3: Add Deploy Key to GitHub")
+    print("  Step 4: Add Deploy Key to GitHub")
     print(f"{'─' * 60}")
 
     pub_key_path = Path(f"{get_key_path(package_name)}.pub")
@@ -366,6 +471,8 @@ def main():
         print("\n❌ Cancelled. Cleaning up...")
         cleanup_key(package_name)
         remove_ssh_alias(package_name)
+        if not args.no_tower_user:
+            cleanup_tower_user_ssh(package_name, args.tower_ssh_dir)
         print("   Done. No changes remain.")
         sys.exit(1)
 
@@ -373,12 +480,14 @@ def main():
         print("\n❌ Cancelled. Cleaning up...")
         cleanup_key(package_name)
         remove_ssh_alias(package_name)
+        if not args.no_tower_user:
+            cleanup_tower_user_ssh(package_name, args.tower_ssh_dir)
         print("   Done. No changes remain.")
         sys.exit(1)
 
     # Step 5: Test connection
     print(f"\n{'─' * 60}")
-    print("  Step 4: Test & Install")
+    print("  Step 5: Test & Install")
     print(f"{'─' * 60}")
 
     if not test_ssh_connection(alias, owner, repo):
